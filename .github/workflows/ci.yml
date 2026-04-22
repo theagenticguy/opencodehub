@@ -17,16 +17,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec biome ci .
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -r exec tsc --noEmit
 
@@ -37,8 +37,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - name: Ensure node-gyp is available for native tree-sitter build
         run: npm i -g node-gyp
       - run: pnpm install --frozen-lockfile
@@ -47,8 +47,8 @@ jobs:
   sarif-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -F @opencodehub/sarif build
       - run: pnpm -F @opencodehub/sarif run validate-schema
@@ -56,14 +56,14 @@ jobs:
   banned-strings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: bash scripts/check-banned-strings.sh
 
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         run: >
@@ -73,10 +73,26 @@ jobs:
           --production
 
   osv:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.5
-    with:
-      scan-args: |-
-        --lockfile=pnpm-lock.yaml
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install osv-scanner
+        run: |
+          curl -sL -o /tmp/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.3.5/osv-scanner_linux_amd64
+          chmod +x /tmp/osv-scanner
+      - name: Scan lockfile (SARIF output)
+        run: |
+          /tmp/osv-scanner scan source \
+            --lockfile=pnpm-lock.yaml \
+            --format=sarif \
+            --output=results.sarif || true
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+        if: always()
+      - name: Fail on vulnerabilities
+        run: /tmp/osv-scanner scan source --lockfile=pnpm-lock.yaml
