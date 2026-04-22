@@ -1,0 +1,16 @@
+{
+  "description": "Auto-reindex the codebase after git commands that change the working tree or history",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"${CLAUDE_TOOL_INPUT:-}\" | grep -qE 'git (commit|merge|rebase|pull)'; then codehub analyze --incremental --quiet || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

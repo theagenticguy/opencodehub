@@ -1,0 +1,12 @@
+{
+  "version": "0.0.0",
+  "date": "2026-04-18",
+  "description": "OpenCodeHub MVP acceptance baseline. Refreshed by scripts/acceptance.sh + packages/eval/src/opencodehub_eval/bench.py.",
+  "mvp_acceptance": {},
+  "eval_cases_passed": 49,
+  "eval_cases_total": 49,
+  "notes": [
+    "49 parametrized cases = 7 languages (ts, js, py, go, rust, java, csharp) x 7 tools (list_repos, query, context, impact, detect_changes, rename, sql).",
+    "Baseline populated from the first clean-room MVP run; update on every tagged release."
+  ]
+}

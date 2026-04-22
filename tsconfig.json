@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core-types" },
+    { "path": "./packages/sarif" },
+    { "path": "./packages/scanners" },
+    { "path": "./packages/storage" },
+    { "path": "./packages/ingestion" },
+    { "path": "./packages/search" },
+    { "path": "./packages/embedder" },
+    { "path": "./packages/analysis" },
+    { "path": "./packages/mcp" },
+    { "path": "./packages/cli" }
+  ]
+}

@@ -1,0 +1,27 @@
+packages:
+  - "packages/*"
+
+onlyBuiltDependencies:
+  - "@duckdb/node-bindings-darwin-arm64"
+  - "@duckdb/node-bindings-darwin-x64"
+  - "@duckdb/node-bindings-linux-arm64"
+  - "@duckdb/node-bindings-linux-x64"
+  - "@duckdb/node-bindings-win32-x64"
+  - tree-sitter
+  - tree-sitter-typescript
+  - tree-sitter-javascript
+  - tree-sitter-python
+  - tree-sitter-go
+  - tree-sitter-rust
+  - tree-sitter-java
+  - tree-sitter-c-sharp
+  # W2-C.1: 7 new language grammars. Kotlin + Dart have NO prebuilds and
+  # require a C/C++ toolchain (clang/g++) to build at install time. Swift
+  # ships prebuilds but runs a postinstall node-gyp rebuild (~30s one-time).
+  - tree-sitter-c
+  - tree-sitter-cpp
+  - tree-sitter-ruby
+  - tree-sitter-kotlin
+  - tree-sitter-swift
+  - tree-sitter-php
+  - tree-sitter-dart

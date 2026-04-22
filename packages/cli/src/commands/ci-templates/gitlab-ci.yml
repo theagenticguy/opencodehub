@@ -1,0 +1,56 @@
+stages:
+  - verdict
+  - scan
+
+default:
+  image: node:20
+  before_script:
+    - npm install -g @opencodehub/cli@latest
+
+verdict:
+  stage: verdict
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - codehub analyze --incremental
+    - |
+      codehub verdict --base origin/${MAIN_BRANCH} --head HEAD \
+        --output-format markdown --pr-comment > verdict.md
+    - cat verdict.md
+  artifacts:
+    when: always
+    paths:
+      - verdict.md
+    expire_in: 1 week
+
+nightly:
+  stage: scan
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $OCH_JOB == "nightly"
+  script:
+    - codehub analyze --force --sbom --scan
+  artifacts:
+    when: always
+    paths:
+      - .codehub/scan.sarif
+      - .codehub/sbom.cyclonedx.json
+      - .codehub/sbom.spdx.json
+    reports:
+      sast: .codehub/scan.sarif
+    expire_in: 30 days
+
+weekly:
+  stage: scan
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $OCH_JOB == "weekly"
+  script:
+    - |
+      codehub analyze --force --sbom --scan \
+        --with trivy,checkov,hadolint,tflint,spectral
+    - codehub scan --scanners license_audit --output license.sarif || true
+  artifacts:
+    when: always
+    paths:
+      - .codehub/scan.sarif
+      - license.sarif
+    expire_in: 30 days

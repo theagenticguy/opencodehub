@@ -1,0 +1,29 @@
+{
+  "name": "@opencodehub/search",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — BM25 + RRF hybrid search",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test ./dist/**/*.test.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.0",
+    "typescript": "5.9.3"
+  }
+}

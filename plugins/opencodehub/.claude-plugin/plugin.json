@@ -1,0 +1,7 @@
+{
+  "name": "opencodehub",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — Apache-2.0 code intelligence for AI agents. Indexes your codebase into a queryable graph and exposes 27 MCP tools.",
+  "author": "OpenCodeHub contributors",
+  "license": "Apache-2.0"
+}

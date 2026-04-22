@@ -1,0 +1,29 @@
+{
+  "name": "@opencodehub/storage",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — DuckDB graph store (@duckdb/node-api + hnsw_acorn + fts)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test ./dist/**/*.test.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "1.5.2-r.1",
+    "@opencodehub/core-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.0",
+    "typescript": "5.9.3"
+  }
+}
