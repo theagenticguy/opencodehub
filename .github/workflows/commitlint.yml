@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@v2
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Validate PR commit messages
         run: |
           pnpm exec commitlint \
