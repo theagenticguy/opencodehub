@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec biome ci .
 
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -r exec tsc --noEmit
 
@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - name: Ensure node-gyp is available for native tree-sitter build
         run: npm i -g node-gyp
       - run: pnpm install --frozen-lockfile
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -F @opencodehub/sarif build
       - run: pnpm -F @opencodehub/sarif run validate-schema
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         run: >

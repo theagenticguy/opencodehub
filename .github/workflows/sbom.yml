@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Generate CycloneDX SBOM
         run: npx -y @cyclonedx/cdxgen@11 -t pnpm -o SBOM.cdx.json --spec-version 1.5 -p
