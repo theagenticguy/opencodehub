@@ -17,7 +17,7 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Generate CycloneDX SBOM
         run: npx -y @cyclonedx/cdxgen@11 -t pnpm -o SBOM.cdx.json --spec-version 1.5 -p
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: SBOM.cdx.json
