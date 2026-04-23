@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.12/schema.json",
   "root": true,
   "files": {
     "includes": ["packages/**/src/**", "packages/**/test/**", "scripts/**/*.{js,mjs,ts}"],
@@ -36,6 +36,7 @@
         "useImportType": "error"
       },
       "complexity": {
+        "useLiteralKeys": "off",
         "useOptionalChain": "error"
       }
     }
@@ -46,5 +47,17 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/cli/src/commands/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -293,7 +293,7 @@ class OnnxEmbedder implements Embedder {
     const hidden = results["last_hidden_state"];
     if (hidden === undefined || hidden.type !== "float32") {
       throw new Error(
-        `ONNX session did not return float32 last_hidden_state ` + `(got ${String(hidden?.type)})`,
+        `ONNX session did not return float32 last_hidden_state (got ${String(hidden?.type)})`,
       );
     }
     // Shape is [B, seqLen, hiddenSize]. hiddenSize derived from data length
@@ -302,9 +302,7 @@ class OnnxEmbedder implements Embedder {
     const data = hidden.data as Float32Array;
     const hiddenSize = data.length / (batchSize * batchMax);
     if (hiddenSize !== EMBED_DIM) {
-      throw new Error(
-        `Expected hidden size ${EMBED_DIM}, got ${hiddenSize}. ` + `Wrong model loaded?`,
-      );
+      throw new Error(`Expected hidden size ${EMBED_DIM}, got ${hiddenSize}. Wrong model loaded?`);
     }
 
     const out: Float32Array[] = [];

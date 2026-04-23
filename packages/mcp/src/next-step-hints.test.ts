@@ -40,6 +40,5 @@ test("withNextSteps attaches staleness under codehub/staleness namespace", () =>
 test("withNextSteps omits _meta entirely when no staleness", () => {
   const result = withNextSteps("x", { a: 1 }, ["hi"]);
   const sc = result.structuredContent as Record<string, unknown>;
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
   assert.equal(sc["_meta"], undefined);
 });

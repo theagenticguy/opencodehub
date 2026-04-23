@@ -57,7 +57,7 @@ describe("profilePhase — polyglot TS + Python + Terraform + OpenAPI + Next.js 
     );
     await fs.writeFile(
       path.join(repo, "pyproject.toml"),
-      [
+      `${[
         "[project]",
         'name = "polyglot-svc"',
         'version = "0.0.1"',
@@ -65,7 +65,7 @@ describe("profilePhase — polyglot TS + Python + Terraform + OpenAPI + Next.js 
         '  "django>=4.0",',
         '  "fastapi>=0.100",',
         "]",
-      ].join("\n") + "\n",
+      ].join("\n")}\n`,
     );
     // requirements.txt should be shadowed by pyproject in the cascade
     await fs.writeFile(path.join(repo, "requirements.txt"), "flask==2.2.0\n");
@@ -79,8 +79,7 @@ describe("profilePhase — polyglot TS + Python + Terraform + OpenAPI + Next.js 
     await fs.mkdir(path.join(repo, "api"), { recursive: true });
     await fs.writeFile(
       path.join(repo, "api", "openapi.yaml"),
-      ["openapi: 3.0.3", "info:", "  title: Sample", "  version: 1.0.0", "paths: {}"].join("\n") +
-        "\n",
+      `${["openapi: 3.0.3", "info:", "  title: Sample", "  version: 1.0.0", "paths: {}"].join("\n")}\n`,
     );
 
     // Docker
@@ -90,7 +89,7 @@ describe("profilePhase — polyglot TS + Python + Terraform + OpenAPI + Next.js 
     await fs.mkdir(path.join(repo, "deploy"), { recursive: true });
     await fs.writeFile(
       path.join(repo, "deploy", "pod.yaml"),
-      ["apiVersion: v1", "kind: Pod", "metadata:", "  name: demo"].join("\n") + "\n",
+      `${["apiVersion: v1", "kind: Pod", "metadata:", "  name: demo"].join("\n")}\n`,
     );
 
     // Source code directories. Python side:
