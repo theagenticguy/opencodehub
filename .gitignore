@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.tsbuildinfo
+*.tsbuildinfo
+
+# Python (eval package)
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# mise / local overrides
+mise.local.toml
+.env
+.env.local
+
+# Build artifacts
+*.log
+.DS_Store
+coverage/
+
+# Repo-local state (not committed)
+.codehub/
+
+# Test fixtures rendered at runtime
+examples/fixtures/**/.codehub/
+
+# Local agent / planning scratch space
+.erpaval/
+.claude/settings.local.json

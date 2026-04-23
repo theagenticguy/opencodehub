@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "bootstrap-sha": "92106ee94d8428f7aa17fc9e355c747c382bb143",
+  "include-v-in-tag": true,
+  "separate-pull-requests": false,
+  "pull-request-header": ":robot: Automated release via release-please",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "revert", "section": "Reverts" },
+    { "type": "docs", "section": "Documentation", "hidden": false },
+    { "type": "refactor", "section": "Refactoring", "hidden": false },
+    { "type": "test", "section": "Tests", "hidden": true },
+    { "type": "build", "section": "Build System", "hidden": true },
+    { "type": "ci", "section": "CI", "hidden": true },
+    { "type": "chore", "section": "Chores", "hidden": true },
+    { "type": "style", "section": "Style", "hidden": true }
+  ],
+  "packages": {
+    ".": {
+      "package-name": "opencodehub",
+      "component": "root"
+    },
+    "packages/analysis": { "package-name": "@opencodehub/analysis" },
+    "packages/cli": { "package-name": "@opencodehub/cli" },
+    "packages/core-types": { "package-name": "@opencodehub/core-types" },
+    "packages/embedder": { "package-name": "@opencodehub/embedder" },
+    "packages/ingestion": { "package-name": "@opencodehub/ingestion" },
+    "packages/mcp": { "package-name": "@opencodehub/mcp" },
+    "packages/sarif": { "package-name": "@opencodehub/sarif" },
+    "packages/scanners": { "package-name": "@opencodehub/scanners" },
+    "packages/search": { "package-name": "@opencodehub/search" },
+    "packages/storage": { "package-name": "@opencodehub/storage" }
+  },
+  "plugins": [
+    {
+      "type": "node-workspace",
+      "updatePeerDependencies": true
+    }
+  ]
+}

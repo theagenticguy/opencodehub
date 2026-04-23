@@ -1,0 +1,52 @@
+name: OpenCodeHub SBOM Rescan
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g @opencodehub/cli@latest
+      - name: fetch prior SBOM
+        run: |
+          mkdir -p .codehub
+          gh run download --name sbom-latest --dir .codehub || \
+            codehub analyze --sbom
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: rescan SBOM with osv-scanner + grype
+        id: rescan
+        run: |
+          codehub scan --scanners osv-scanner,grype \
+            --sbom .codehub/sbom.cyclonedx.json \
+            --severity HIGH,CRITICAL \
+            --output /tmp/rescan.sarif || true
+          NEW_CVES=$(jq -r '.runs[].results[]?.ruleId // empty' /tmp/rescan.sarif | sort -u)
+          echo "cves<<EOF" >> $GITHUB_OUTPUT
+          echo "$NEW_CVES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: file or update issue per CVE
+        if: steps.rescan.outputs.cves != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ steps.rescan.outputs.cves }}" | while read -r CVE; do
+            [ -z "$CVE" ] && continue
+            TITLE="CVE ${CVE} detected in ${REPO_NAME}"
+            EXISTING=$(gh issue list --state open --label security --search "$TITLE in:title" --json number --jq '.[0].number // ""')
+            if [ -z "$EXISTING" ]; then
+              gh issue create --title "$TITLE" --label security,automated \
+                --body "Daily SBOM rescan found a new HIGH+ vulnerability (${CVE}). See /tmp/rescan.sarif in this workflow run."
+            else
+              gh issue comment "$EXISTING" \
+                --body "Still open as of $(date -u +%FT%TZ) — SBOM rescan on ${MAIN_BRANCH}."
+            fi
+          done

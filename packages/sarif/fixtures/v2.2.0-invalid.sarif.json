@@ -1,0 +1,7 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.2.0/schemas/sarif-schema-2.2.0.json",
+  "version": "2.2.0",
+  "runs": [
+    { "tool": { "driver": { "name": "future-tool" } } }
+  ]
+}

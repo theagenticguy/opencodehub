@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "codehub": {
+      "type": "local",
+      "command": [
+        "codehub",
+        "mcp"
+      ],
+      "enabled": true,
+      "timeout": 10000
+    }
+  }
+}

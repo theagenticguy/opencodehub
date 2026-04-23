@@ -1,0 +1,37 @@
+{
+  "name": "@opencodehub/mcp",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — stdio MCP server exposing code-graph + group tools",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test ./dist/**/*.test.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@opencodehub/analysis": "workspace:*",
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/embedder": "workspace:*",
+    "@opencodehub/sarif": "workspace:*",
+    "@opencodehub/scanners": "workspace:*",
+    "@opencodehub/search": "workspace:*",
+    "@opencodehub/storage": "workspace:*",
+    "lru-cache": "11.3.5",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "typescript": "6.0.3"
+  }
+}
