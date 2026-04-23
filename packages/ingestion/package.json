@@ -51,7 +51,7 @@
     "tree-sitter-swift": "0.7.1",
     "tree-sitter-typescript": "0.23.2",
     "web-tree-sitter": "0.26.8",
-    "write-file-atomic": "6.0.0"
+    "write-file-atomic": "7.0.1"
   },
   "devDependencies": {
     "@types/node": "20.14.0",
