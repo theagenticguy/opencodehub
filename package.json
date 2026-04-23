@@ -32,7 +32,7 @@
     "cz-conventional-changelog": "3.3.0",
     "license-checker-rseidelsohn": "4.4.2",
     "lefthook": "2.1.6",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   },
   "config": {
     "commitizen": {
