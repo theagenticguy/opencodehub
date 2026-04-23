@@ -27,7 +27,7 @@
     "@opencodehub/scanners": "workspace:*",
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "lru-cache": "11.2.2",
+    "lru-cache": "11.3.5",
     "zod": "3.25.76"
   },
   "devDependencies": {
