@@ -60,6 +60,6 @@
     "ajv": "8.18.0",
     "ajv-formats": "3.0.1",
     "ajv-formats-draft2019": "1.6.1",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }
