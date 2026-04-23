@@ -54,12 +54,12 @@
     "write-file-atomic": "6.0.0"
   },
   "devDependencies": {
-    "@types/node": "20.14.0",
+    "@types/node": "25.6.0",
     "@types/spdx-correct": "^3.1.3",
     "@types/write-file-atomic": "4.0.3",
     "ajv": "8.18.0",
     "ajv-formats": "3.0.1",
     "ajv-formats-draft2019": "1.6.1",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }
