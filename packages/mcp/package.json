@@ -28,7 +28,7 @@
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "lru-cache": "11.3.5",
-    "zod": "3.25.76"
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@types/node": "20.19.16",

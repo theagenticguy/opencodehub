@@ -78,8 +78,8 @@ export const SarifResultSchema = z
     level: z.enum(["none", "note", "warning", "error"]).optional(),
     message: SarifMessageSchema.optional(),
     locations: z.array(SarifLocationSchema).optional(),
-    partialFingerprints: z.record(z.string()).optional(),
-    fingerprints: z.record(z.string()).optional(),
+    partialFingerprints: z.record(z.string(), z.string()).optional(),
+    fingerprints: z.record(z.string(), z.string()).optional(),
     properties: SarifPropertyBagSchema.optional(),
   })
   .passthrough();
