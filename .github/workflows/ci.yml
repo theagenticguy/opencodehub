@@ -33,6 +33,12 @@ jobs:
       - run: pnpm -r exec tsc --noEmit
 
   test:
+    # Node 24 temporarily dropped from matrix: tree-sitter@0.25.0 fails to
+    # compile against Node 24's V8 ABI. Upstream fix landed in node-tree-sitter
+    # git tag v0.25.1 but is blocked on an npm OIDC publish issue
+    # (tree-sitter/node-tree-sitter#268, #276). Re-add `24` to the matrix once
+    # 0.25.1+ lands on npm. Types stay on @types/node@24.x so we surface any
+    # type-level Node 24 breakage early.
     strategy:
       fail-fast: false
       matrix:
