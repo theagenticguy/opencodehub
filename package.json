@@ -1,6 +1,6 @@
 {
   "name": "opencodehub-monorepo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "OpenCodeHub — Apache-2.0 code intelligence graph + MCP server for AI coding agents",
   "license": "Apache-2.0",
