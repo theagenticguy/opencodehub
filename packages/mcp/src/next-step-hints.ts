@@ -42,7 +42,6 @@ export function withNextSteps<T extends Record<string, unknown>>(
     next_steps: [...nextSteps],
   };
   if (Object.keys(meta).length > 0) {
-    // biome-ignore lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
     structuredContent["_meta"] = meta;
   }
 

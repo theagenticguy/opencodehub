@@ -54,7 +54,6 @@ export function registerRepoContextResource(server: McpServer, ctx: ResourceCont
       mimeType: "text/yaml",
     },
     async (uri, variables): Promise<ReadResourceResult> => {
-      // biome-ignore lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
       const raw = variables["name"];
       const nameVar = Array.isArray(raw) ? raw[0] : raw;
       const decoded = nameVar ? decodeURIComponent(String(nameVar)) : undefined;

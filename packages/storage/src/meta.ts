@@ -75,29 +75,23 @@ function validateStoreMeta(value: unknown, source: string): asserts value is Sto
   }
   const v = value as Record<string, unknown>;
   // Bracket access required by tsconfig's `noPropertyAccessFromIndexSignature`.
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   if (typeof v["schemaVersion"] !== "string") {
     throw new Error(`Invalid meta.json at ${source}: schemaVersion missing`);
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   if (typeof v["indexedAt"] !== "string") {
     throw new Error(`Invalid meta.json at ${source}: indexedAt missing`);
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   if (typeof v["nodeCount"] !== "number" || typeof v["edgeCount"] !== "number") {
     throw new Error(`Invalid meta.json at ${source}: counts missing`);
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   const cacheHitRatio = v["cacheHitRatio"];
   if (cacheHitRatio !== undefined && typeof cacheHitRatio !== "number") {
     throw new Error(`Invalid meta.json at ${source}: cacheHitRatio must be a number`);
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   const cacheSizeBytes = v["cacheSizeBytes"];
   if (cacheSizeBytes !== undefined && typeof cacheSizeBytes !== "number") {
     throw new Error(`Invalid meta.json at ${source}: cacheSizeBytes must be a number`);
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures
   const lastCompaction = v["lastCompaction"];
   if (lastCompaction !== undefined && typeof lastCompaction !== "string") {
     throw new Error(`Invalid meta.json at ${source}: lastCompaction must be a string`);

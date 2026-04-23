@@ -161,7 +161,6 @@ function primaryFingerprint(result: unknown): string | undefined {
   if (!isPlainObject(result)) {
     return undefined;
   }
-  // biome-ignore lint/complexity/useLiteralKeys: dot-access is disallowed on Record index signatures (tsconfig's noPropertyAccessFromIndexSignature)
   const pf = result["partialFingerprints"];
   if (!isPlainObject(pf)) {
     return undefined;
