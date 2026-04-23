@@ -1,0 +1,144 @@
+/**
+ * DDL emitter for the DuckDB-backed graph store.
+ *
+ * Every node kind collapses into a single polymorphic `nodes` table. Kinds
+ * that don't populate a column leave it NULL — the cost is a few NULL slots
+ * per row in exchange for avoiding 31 near-identical CREATE TABLE statements
+ * and 31 different SELECT paths in the reader. Relations live in `relations`
+ * with a `type` discriminator. Embeddings live in a separate `embeddings`
+ * table whose vector column is a FIXED-SIZE FLOAT array of the dimension
+ * configured at construction time.
+ */
+
+export interface SchemaOptions {
+  /** Dimension for the fixed-size FLOAT array used by the embeddings column. */
+  readonly embeddingDim: number;
+}
+
+/**
+ * Returns a sequence of DDL statements that must be executed in order. The
+ * adapter runs them one-at-a-time so it can also run `INSTALL`/`LOAD` calls
+ * interleaved at the right moments.
+ */
+export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
+  if (!Number.isInteger(opts.embeddingDim) || opts.embeddingDim <= 0) {
+    throw new Error(`Invalid embeddingDim: ${opts.embeddingDim}`);
+  }
+  const dim = opts.embeddingDim;
+
+  return [
+    `CREATE TABLE IF NOT EXISTS nodes (
+      id                   TEXT PRIMARY KEY,
+      kind                 TEXT NOT NULL,
+      name                 TEXT NOT NULL,
+      file_path            TEXT NOT NULL,
+      start_line           INTEGER,
+      end_line             INTEGER,
+      is_exported          BOOLEAN,
+      signature            TEXT,
+      parameter_count      INTEGER,
+      return_type          TEXT,
+      declared_type        TEXT,
+      owner                TEXT,
+      url                  TEXT,
+      method               TEXT,
+      tool_name            TEXT,
+      content              TEXT,
+      content_hash         TEXT,
+      inferred_label       TEXT,
+      symbol_count         INTEGER,
+      cohesion             DOUBLE,
+      keywords             TEXT[],
+      entry_point_id       TEXT,
+      step_count           INTEGER,
+      level                INTEGER,
+      response_keys        TEXT[],
+      description          TEXT,
+      -- Finding (SARIF)
+      severity             TEXT,
+      rule_id              TEXT,
+      scanner_id           TEXT,
+      message              TEXT,
+      properties_bag       TEXT,
+      -- Dependency (SBOM / manifest)
+      version              TEXT,
+      license              TEXT,
+      lockfile_source      TEXT,
+      ecosystem            TEXT,
+      -- Operation (OpenAPI)
+      http_method          TEXT,
+      http_path            TEXT,
+      summary              TEXT,
+      operation_id         TEXT,
+      -- Contributor (git blame)
+      email_hash           TEXT,
+      email_plain          TEXT,
+      -- ProjectProfile
+      languages_json       TEXT,
+      frameworks_json      TEXT,
+      iac_types_json       TEXT,
+      api_contracts_json   TEXT,
+      manifests_json       TEXT,
+      src_dirs_json        TEXT,
+      -- File ownership (H.5) and Community ownership (H.4)
+      orphan_grade         TEXT,
+      is_orphan            BOOLEAN,
+      truck_factor         INTEGER,
+      ownership_drift_30d  DOUBLE,
+      ownership_drift_90d  DOUBLE,
+      ownership_drift_365d DOUBLE,
+      -- v2.0 extensions (append-only: preserves load-bearing column order)
+      deadness             TEXT,
+      coverage_percent     DOUBLE,
+      covered_lines_json   TEXT,
+      cyclomatic_complexity INTEGER,
+      nesting_depth        INTEGER,
+      nloc                 INTEGER
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes (kind)`,
+    `CREATE INDEX IF NOT EXISTS idx_nodes_file_path ON nodes (file_path)`,
+    `CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes (name)`,
+
+    `CREATE TABLE IF NOT EXISTS relations (
+      id          TEXT PRIMARY KEY,
+      from_id     TEXT NOT NULL,
+      to_id       TEXT NOT NULL,
+      type        TEXT NOT NULL,
+      confidence  DOUBLE NOT NULL,
+      reason      TEXT,
+      step        INTEGER NOT NULL DEFAULT 0
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_relations_from ON relations (from_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_relations_to ON relations (to_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_relations_type ON relations (type)`,
+    `CREATE INDEX IF NOT EXISTS idx_relations_confidence ON relations (confidence)`,
+
+    `CREATE TABLE IF NOT EXISTS embeddings (
+      id            TEXT PRIMARY KEY,
+      node_id       TEXT NOT NULL,
+      chunk_index   INTEGER NOT NULL,
+      start_line    INTEGER,
+      end_line      INTEGER,
+      vector        FLOAT[${dim}] NOT NULL,
+      content_hash  TEXT NOT NULL
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_embeddings_node ON embeddings (node_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_embeddings_hash ON embeddings (content_hash)`,
+
+    `CREATE TABLE IF NOT EXISTS store_meta (
+      id                INTEGER PRIMARY KEY,
+      schema_version    TEXT NOT NULL,
+      last_commit       TEXT,
+      indexed_at        TEXT NOT NULL,
+      node_count        INTEGER NOT NULL,
+      edge_count        INTEGER NOT NULL,
+      stats_json        TEXT,
+      cache_hit_ratio   DOUBLE,
+      cache_size_bytes  BIGINT,
+      last_compaction   TEXT
+    )`,
+  ];
+}

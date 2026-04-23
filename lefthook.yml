@@ -1,0 +1,22 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,json,jsonc}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    - name: banned-strings
+      run: bash scripts/check-banned-strings.sh
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: pnpm -r exec tsc --noEmit
+    - name: test
+      run: pnpm -r test

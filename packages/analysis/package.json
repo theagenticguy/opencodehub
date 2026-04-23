@@ -1,0 +1,33 @@
+{
+  "name": "@opencodehub/analysis",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — impact, rename, detect_changes, staleness",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test ./dist/**/*.test.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@iarna/toml": "2.2.5",
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/sarif": "workspace:*",
+    "@opencodehub/storage": "workspace:*",
+    "write-file-atomic": "7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "@types/write-file-atomic": "4.0.3",
+    "typescript": "6.0.3"
+  }
+}

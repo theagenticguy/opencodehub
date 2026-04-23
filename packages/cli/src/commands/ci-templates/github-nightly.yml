@@ -1,0 +1,35 @@
+name: OpenCodeHub Nightly
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g @opencodehub/cli@latest
+      - run: codehub analyze --force --sbom --scan
+      - name: upload SARIF
+        if: always()
+        uses: actions/upload-sarif@v3
+        with:
+          sarif_file: .codehub/scan.sarif
+          category: opencodehub-nightly
+      - name: upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: |
+            .codehub/sbom.cyclonedx.json
+            .codehub/sbom.spdx.json
+          retention-days: 30

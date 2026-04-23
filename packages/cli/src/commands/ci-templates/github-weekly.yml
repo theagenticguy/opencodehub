@@ -1,0 +1,49 @@
+name: OpenCodeHub Weekly Deep Scan
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g @opencodehub/cli@latest
+      - name: deep scan (P1 + P2)
+        run: |
+          codehub analyze --force --sbom --scan \
+            --with trivy,checkov,hadolint,tflint,spectral
+      - name: license audit
+        id: license
+        run: |
+          codehub scan --scanners license_audit --output /tmp/license.sarif || true
+          VERDICT=$(codehub verdict --json | jq -r '.gates.license_audit // "ALLOW"')
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+      - name: open license BLOCK issue
+        if: steps.license.outputs.verdict == 'BLOCK'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="OpenCodeHub license_audit returned BLOCK (${REPO_NAME})"
+          EXISTING=$(gh issue list --state open --label license --search "$TITLE in:title" --json number --jq '.[0].number // ""')
+          if [ -z "$EXISTING" ]; then
+            gh issue create \
+              --title "$TITLE" \
+              --label license,automated \
+              --body "Weekly deep scan detected a BLOCK verdict from the license_audit gate. See SARIF artifact attached to this run."
+          fi
+      - name: upload SARIF
+        if: always()
+        uses: actions/upload-sarif@v3
+        with:
+          sarif_file: .codehub/scan.sarif
+          category: opencodehub-weekly
