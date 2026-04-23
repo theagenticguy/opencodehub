@@ -27,11 +27,11 @@
     "@opencodehub/scanners": "workspace:*",
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "lru-cache": "11.2.2",
+    "lru-cache": "11.3.5",
     "zod": "3.25.76"
   },
   "devDependencies": {
-    "@types/node": "20.14.0",
+    "@types/node": "22.19.17",
     "typescript": "5.9.3"
   }
 }

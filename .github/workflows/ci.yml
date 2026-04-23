@@ -70,7 +70,7 @@ jobs:
       - name: license allowlist
         run: >
           pnpm exec license-checker-rseidelsohn
-          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0'
+          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD'
           --excludePrivatePackages
           --production
 

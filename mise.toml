@@ -37,7 +37,7 @@ run = "bash scripts/check-banned-strings.sh"
 
 [tasks.licenses]
 description = "License allowlist check"
-run = "pnpm exec license-checker-rseidelsohn --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0' --excludePrivatePackages --production"
+run = "pnpm exec license-checker-rseidelsohn --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' --excludePrivatePackages --production"
 
 [tasks.osv]
 description = "OSV vulnerability scan"

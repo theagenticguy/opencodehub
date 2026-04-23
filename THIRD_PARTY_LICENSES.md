@@ -1,15 +1,15 @@
 # Third-Party Licenses
 
-Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
+Generated from `SBOM.cdx.json` (CycloneDX 1.5). 705 components.
 
 ## License distribution
 
 | License | Count |
 |---|---|
-| MIT | 444 |
-| UNSPECIFIED | 167 |
-| ISC | 52 |
-| BlueOak-1.0.0 | 11 |
+| MIT | 429 |
+| UNSPECIFIED | 174 |
+| ISC | 50 |
+| BlueOak-1.0.0 | 12 |
 | BSD-3-Clause | 11 |
 | Apache-2.0 | 9 |
 | BSD-2-Clause | 7 |
@@ -44,7 +44,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | ansi-regex | 6.2.2 | MIT |
 | ansi-styles | 3.2.1 | MIT |
 | ansi-styles | 4.3.0 | MIT |
-| ansi-styles | 6.2.1 | MIT |
 | ansi-styles | 6.2.3 | MIT |
 | argparse | 2.0.1 | Python-2.0 |
 | args-pathspec | 1.0.3 | UNSPECIFIED |
@@ -57,7 +56,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | balanced-match | 1.0.2 | MIT |
 | balanced-match | 4.0.4 | MIT |
 | base64-js | 1.5.1 | MIT |
-| biome | 2.4.0 | UNSPECIFIED |
+| biome | 2.4.12 | UNSPECIFIED |
 | bl | 4.1.0 | MIT |
 | body-parser | 2.2.2 | MIT |
 | boolean | 3.2.0 | MIT |
@@ -85,27 +84,28 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | chardet | 0.7.0 | MIT |
 | chardet | 2.1.1 | MIT |
 | checkbox | 4.3.2 | UNSPECIFIED |
+| child-process-utils | 1.0.2 | UNSPECIFIED |
 | chownr | 1.1.4 | ISC |
 | chownr | 3.0.0 | BlueOak-1.0.0 |
 | ci-info | 4.4.0 | MIT |
 | clean-stack | 2.2.0 | MIT |
-| cli | 19.6.1 | UNSPECIFIED |
+| cli | 20.5.0 | UNSPECIFIED |
 | cli-boxes | 3.0.0 | MIT |
 | cli-cursor | 3.1.0 | MIT |
 | cli-cursor | 5.0.0 | MIT |
-| cli-darwin-arm64 | 2.4.0 | UNSPECIFIED |
-| cli-darwin-x64 | 2.4.0 | UNSPECIFIED |
-| cli-linux-arm64 | 2.4.0 | UNSPECIFIED |
-| cli-linux-arm64-musl | 2.4.0 | UNSPECIFIED |
-| cli-linux-x64 | 2.4.0 | UNSPECIFIED |
-| cli-linux-x64-musl | 2.4.0 | UNSPECIFIED |
+| cli-darwin-arm64 | 2.4.12 | UNSPECIFIED |
+| cli-darwin-x64 | 2.4.12 | UNSPECIFIED |
+| cli-linux-arm64 | 2.4.12 | UNSPECIFIED |
+| cli-linux-arm64-musl | 2.4.12 | UNSPECIFIED |
+| cli-linux-x64 | 2.4.12 | UNSPECIFIED |
+| cli-linux-x64-musl | 2.4.12 | UNSPECIFIED |
 | cli-spinners | 2.9.2 | MIT |
 | cli-table3 | 0.6.5 | MIT |
-| cli-truncate | 5.0.0 | MIT |
+| cli-truncate | 5.2.0 | MIT |
 | cli-width | 3.0.0 | ISC |
 | cli-width | 4.1.0 | ISC |
-| cli-win32-arm64 | 2.4.0 | UNSPECIFIED |
-| cli-win32-x64 | 2.4.0 | UNSPECIFIED |
+| cli-win32-arm64 | 2.4.12 | UNSPECIFIED |
+| cli-win32-x64 | 2.4.12 | UNSPECIFIED |
 | clipanion | 4.0.0-rc.4 | UNSPECIFIED |
 | cliui | 8.0.1 | ISC |
 | cliui | 8.0.2 | UNSPECIFIED |
@@ -120,22 +120,22 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | colorette | 2.0.20 | MIT |
 | colors | 1.5.0 | UNSPECIFIED |
 | command-exists | 1.2.9 | MIT |
-| commander | 13.1.0 | MIT |
 | commander | 14.0.3 | MIT |
 | commander | 2.20.3 | MIT |
 | commitizen | 4.3.1 | MIT |
 | compare-func | 2.0.0 | MIT |
 | concat-map | 0.0.1 | MIT |
-| config-conventional | 19.6.0 | UNSPECIFIED |
+| config-conventional | 20.5.0 | UNSPECIFIED |
 | config-validator | 19.5.0 | UNSPECIFIED |
+| config-validator | 20.5.0 | UNSPECIFIED |
 | confirm | 5.1.21 | UNSPECIFIED |
 | content-disposition | 1.1.0 | MIT |
 | content-type | 1.0.5 | MIT |
-| conventional-changelog-angular | 7.0.0 | ISC |
-| conventional-changelog-conventionalcommits | 7.0.2 | ISC |
+| conventional-changelog-angular | 8.3.1 | ISC |
+| conventional-changelog-conventionalcommits | 9.3.1 | ISC |
 | conventional-commit-types | 3.0.0 | ISC |
-| conventional-commits-parser | 5.0.0 | MIT |
 | conventional-commits-parser | 5.0.1 | UNSPECIFIED |
+| conventional-commits-parser | 6.4.0 | MIT |
 | cookie | 0.7.2 | MIT |
 | cookie-signature | 1.2.2 | MIT |
 | core | 10.3.2 | UNSPECIFIED |
@@ -148,7 +148,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | crypto.base32-hash | 1.0.1 | UNSPECIFIED |
 | cyclonedx-library | 10.0.0 | UNSPECIFIED |
 | cz-conventional-changelog | 3.3.0 | MIT |
-| dargs | 8.1.0 | MIT |
 | dateformat | 4.6.3 | MIT |
 | debug | 4.4.3 | MIT |
 | decompress-response | 6.0.0 | MIT |
@@ -180,10 +179,10 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | encode-registry | 3.0.1 | MIT |
 | encodeurl | 2.0.0 | MIT |
 | end-of-stream | 1.4.5 | MIT |
-| ensure | 19.5.0 | UNSPECIFIED |
+| ensure | 20.5.0 | UNSPECIFIED |
 | entities | 2.1.0 | UNSPECIFIED |
 | env-paths | 2.2.1 | MIT |
-| envinfo | 7.14.0 | MIT |
+| envinfo | 7.21.0 | MIT |
 | environment | 1.1.0 | MIT |
 | error-catalog-nodejs-public | 5.80.0 | UNSPECIFIED |
 | error-ex | 1.3.4 | MIT |
@@ -198,12 +197,13 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | escape-string-regexp | 4.0.0 | MIT |
 | etag | 1.8.1 | MIT |
 | event-loop-spinner | 2.3.2 | Apache-2.0 |
-| eventemitter3 | 5.0.1 | MIT |
+| eventemitter3 | 5.0.4 | MIT |
 | events | 3.3.0 | MIT |
 | eventsource | 3.0.7 | MIT |
 | eventsource-parser | 3.0.6 | MIT |
 | execa | 9.6.1 | MIT |
 | execute-rule | 19.5.0 | UNSPECIFIED |
+| execute-rule | 20.0.0 | UNSPECIFIED |
 | expand | 4.0.23 | UNSPECIFIED |
 | expand-template | 2.0.3 | (MIT OR WTFPL) |
 | expand-tilde | 2.0.2 | MIT |
@@ -219,7 +219,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | fast-safe-stringify | 2.1.1 | MIT |
 | fast-uri | 3.1.0 | BSD-3-Clause |
 | fast-xml-builder | 1.1.5 | MIT |
-| fast-xml-parser | 5.7.0 | MIT |
+| fast-xml-parser | 5.7.1 | MIT |
 | fastq | 1.20.1 | ISC |
 | figures | 1.0.15 | UNSPECIFIED |
 | figures | 3.2.0 | MIT |
@@ -229,10 +229,9 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | finalhandler | 2.1.1 | MIT |
 | find-node-modules | 2.1.3 | MIT |
 | find-root | 1.1.0 | MIT |
-| find-up | 7.0.0 | MIT |
 | findup-sync | 4.0.0 | MIT |
 | foreground-child | 3.3.1 | ISC |
-| format | 19.5.0 | UNSPECIFIED |
+| format | 20.5.0 | UNSPECIFIED |
 | forwarded | 0.2.0 | MIT |
 | fresh | 2.0.0 | MIT |
 | fs | 3.1.1 | UNSPECIFIED |
@@ -247,13 +246,13 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | fslib | 3.1.5 | UNSPECIFIED |
 | function-bind | 1.1.2 | MIT |
 | get-caller-file | 2.0.5 | ISC |
-| get-east-asian-width | 1.4.0 | MIT |
 | get-east-asian-width | 1.5.0 | MIT |
 | get-intrinsic | 1.3.0 | MIT |
 | get-proto | 1.0.1 | MIT |
 | get-stream | 5.2.0 | MIT |
 | get-stream | 9.0.1 | MIT |
-| git-raw-commits | 4.0.0 | MIT |
+| git-client | 2.7.0 | UNSPECIFIED |
+| git-raw-commits | 5.0.1 | UNSPECIFIED |
 | github-from-package | 0.0.0 | MIT |
 | glob | 10.5.0 | ISC |
 | glob | 11.1.0 | BlueOak-1.0.0 |
@@ -298,7 +297,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | import-fresh | 3.3.0 | MIT |
 | import-fresh | 3.3.1 | MIT |
 | import-meta-resolve | 4.1.0 | MIT |
-| imurmurhash | 0.1.4 | MIT |
 | indent-string | 4.0.0 | MIT |
 | inflight | 1.0.6 | ISC |
 | inherits | 2.0.4 | ISC |
@@ -316,7 +314,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | is-fullwidth-code-point | 3.0.0 | MIT |
 | is-fullwidth-code-point | 5.1.0 | MIT |
 | is-glob | 4.0.3 | MIT |
-| is-ignored | 19.6.0 | UNSPECIFIED |
+| is-ignored | 20.5.0 | UNSPECIFIED |
 | is-interactive | 1.0.0 | MIT |
 | is-interactive | 2.0.0 | MIT |
 | is-number | 7.0.0 | MIT |
@@ -324,7 +322,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | is-plain-obj | 4.1.0 | MIT |
 | is-promise | 4.0.0 | MIT |
 | is-stream | 4.0.1 | MIT |
-| is-text-path | 2.0.0 | MIT |
 | is-unicode-supported | 0.1.0 | MIT |
 | is-unicode-supported | 1.3.0 | MIT |
 | is-unicode-supported | 2.1.0 | MIT |
@@ -342,14 +339,12 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | json-parse-even-better-errors | 2.3.1 | MIT |
 | json-parse-even-better-errors | 3.0.2 | MIT |
 | json-schema | 7.0.15 | UNSPECIFIED |
-| json-schema-ref-parser | 11.7.2 | UNSPECIFIED |
+| json-schema-ref-parser | 14.0.1 | UNSPECIFIED |
 | json-schema-traverse | 1.0.0 | MIT |
 | json-schema-typed | 8.0.2 | BSD-2-Clause |
 | json-stringify-safe | 5.0.1 | ISC |
 | jsonfile | 6.1.0 | MIT |
 | jsonfile | 6.2.0 | MIT |
-| jsonparse | 1.3.1 | MIT |
-| JSONStream | 1.3.5 | UNSPECIFIED |
 | keyv | 3.1.4 | UNSPECIFIED |
 | keyv | 4.5.4 | MIT |
 | kind-of | 6.0.3 | MIT |
@@ -367,10 +362,10 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | libzip | 3.2.2 | UNSPECIFIED |
 | license-checker-rseidelsohn | 4.4.2 | BSD-3-Clause |
 | lines-and-columns | 1.2.4 | MIT |
-| lint | 19.6.0 | UNSPECIFIED |
-| listr2 | 9.0.4 | MIT |
+| lint | 20.5.0 | UNSPECIFIED |
+| listr2 | 10.2.1 | MIT |
 | load | 19.6.1 | UNSPECIFIED |
-| locate-path | 7.2.0 | MIT |
+| load | 20.5.0 | UNSPECIFIED |
 | lockfile | 1.1.0 | UNSPECIFIED |
 | lodash | 4.18.0 | MIT |
 | lodash.camelcase | 4.3.0 | MIT |
@@ -407,19 +402,19 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | longest | 2.0.1 | MIT |
 | lowercase-keys | 2.0.0 | MIT |
 | lru-cache | 10.4.3 | ISC |
-| lru-cache | 11.2.2 | ISC |
+| lru-cache | 11.3.5 | BlueOak-1.0.0 |
 | lru-cache | 7.18.3 | ISC |
 | map-age-cleaner | 0.1.3 | MIT |
 | matcher | 3.0.0 | MIT |
 | math-intrinsics | 1.1.0 | MIT |
 | media-typer | 1.1.0 | MIT |
 | mem | 8.1.1 | MIT |
-| meow | 12.1.1 | MIT |
+| meow | 13.2.0 | MIT |
 | merge | 2.1.1 | MIT |
 | merge-descriptors | 2.0.0 | MIT |
 | merge-streams | 4.0.0 | UNSPECIFIED |
 | merge2 | 1.4.1 | MIT |
-| message | 19.5.0 | UNSPECIFIED |
+| message | 20.4.3 | UNSPECIFIED |
 | micromatch | 4.0.8 | MIT |
 | mime-db | 1.54.0 | MIT |
 | mime-types | 3.0.2 | MIT |
@@ -466,7 +461,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | nice-win32-arm64-msvc | 1.1.1 | UNSPECIFIED |
 | nice-win32-ia32-msvc | 1.1.1 | UNSPECIFIED |
 | nice-win32-x64-msvc | 1.1.1 | UNSPECIFIED |
-| node | 20.14.0 | UNSPECIFIED |
+| node | 22.19.17 | UNSPECIFIED |
 | node-abi | 3.89.0 | MIT |
 | node-addon-api | 7.1.1 | MIT |
 | node-addon-api | 8.5.0 | MIT |
@@ -500,7 +495,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | onetime | 7.0.0 | MIT |
 | onnxruntime-common | 1.24.3 | MIT |
 | onnxruntime-node | 1.24.3 | MIT |
-| ono | 7.1.3 | UNSPECIFIED |
 | openapi-schemas | 2.1.0 | UNSPECIFIED |
 | openapi-types | 12.1.3 | MIT |
 | ora | 5.4.1 | MIT |
@@ -508,14 +502,12 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | p-cancelable | 2.1.1 | MIT |
 | p-defer | 1.0.0 | MIT |
 | p-limit | 2.3.0 | MIT |
-| p-limit | 4.0.0 | MIT |
-| p-locate | 6.0.0 | MIT |
 | p-map | 4.0.0 | MIT |
 | p-try | 2.2.0 | MIT |
 | package-json-from-dist | 1.0.1 | BlueOak-1.0.0 |
 | packageurl-js | 2.0.1 | MIT |
 | parent-module | 1.0.1 | MIT |
-| parse | 19.5.0 | UNSPECIFIED |
+| parse | 20.5.0 | UNSPECIFIED |
 | parse-json | 5.2.0 | MIT |
 | parse-ms | 4.0.0 | MIT |
 | parse-passwd | 1.0.0 | MIT |
@@ -523,7 +515,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | parsers | 3.0.3 | UNSPECIFIED |
 | parseurl | 1.3.3 | MIT |
 | password | 4.0.23 | UNSPECIFIED |
-| path-exists | 5.0.0 | MIT |
 | path-expression-matcher | 1.5.0 | MIT |
 | path-is-absolute | 1.0.1 | MIT |
 | path-key | 3.1.1 | MIT |
@@ -538,7 +529,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | pino-abstract-transport | 3.0.0 | MIT |
 | pino-pretty | 13.1.3 | MIT |
 | pino-std-serializers | 7.1.0 | MIT |
-| piscina | 5.1.3 | MIT |
+| piscina | 5.1.4 | MIT |
 | pkce-challenge | 5.0.1 | MIT |
 | prebuild-install | 7.1.3 | MIT |
 | pretty-ms | 9.3.0 | MIT |
@@ -559,7 +550,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | raw-body | 3.0.2 | MIT |
 | rawlist | 4.1.11 | UNSPECIFIED |
 | rc | 1.2.8 | (BSD-2-Clause OR MIT OR Apache-2.0) |
-| read | 19.5.0 | UNSPECIFIED |
+| read | 20.5.0 | UNSPECIFIED |
 | read-installed-packages | 2.0.1 | ISC |
 | read-package-json | 6.0.4 | ISC |
 | readable-stream | 0.4.1 | UNSPECIFIED |
@@ -571,6 +562,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | resolve-alpn | 1.2.1 | MIT |
 | resolve-dir | 1.0.1 | MIT |
 | resolve-extends | 19.5.0 | UNSPECIFIED |
+| resolve-extends | 20.5.0 | UNSPECIFIED |
 | resolve-from | 4.0.0 | MIT |
 | resolve-from | 5.0.0 | MIT |
 | responselike | 1.0.3 | UNSPECIFIED |
@@ -583,7 +575,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | rfdc | 1.4.1 | MIT |
 | roarr | 2.15.4 | BSD-3-Clause |
 | router | 2.2.0 | MIT |
-| rules | 19.6.0 | UNSPECIFIED |
+| rules | 20.5.0 | UNSPECIFIED |
 | run-async | 2.4.1 | MIT |
 | run-parallel | 1.2.0 | MIT |
 | rxjs | 7.8.1 | Apache-2.0 |
@@ -597,7 +589,6 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | section-matter | 1.0.0 | MIT |
 | secure-json-parse | 4.1.0 | BSD-3-Clause |
 | select | 4.4.2 | UNSPECIFIED |
-| semver | 7.6.3 | ISC |
 | semver | 7.7.1 | UNSPECIFIED |
 | semver | 7.7.4 | ISC |
 | semver-compare | 1.0.0 | MIT |
@@ -619,6 +610,7 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | simple-git | 3.36.0 | MIT |
 | slice-ansi | 1.1.1 | UNSPECIFIED |
 | slice-ansi | 7.1.2 | MIT |
+| slice-ansi | 8.0.0 | MIT |
 | slide | 1.1.6 | ISC |
 | smtp-address-parser | 1.1.0 | MIT |
 | snyk-config | 5.3.0 | (Apache-2.0 AND MIT) |
@@ -637,13 +629,13 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | sprintf-js | 1.1.3 | BSD-3-Clause |
 | statuses | 2.0.2 | MIT |
 | stdin-discarder | 0.2.2 | MIT |
+| stream-utils | 1.2.0 | UNSPECIFIED |
 | string_decoder | 1.3.0 | MIT |
 | string-width | 4.2.3 | MIT |
 | string-width | 5.1.2 | MIT |
 | string-width | 7.2.0 | MIT |
-| string-width | 8.1.0 | MIT |
+| string-width | 8.2.0 | MIT |
 | strip-ansi | 6.0.1 | MIT |
-| strip-ansi | 7.1.0 | MIT |
 | strip-ansi | 7.2.0 | MIT |
 | strip-bom | 4.0.0 | MIT |
 | strip-bom-string | 1.0.0 | MIT |
@@ -655,23 +647,22 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | supports-color | 5.5.0 | MIT |
 | supports-color | 7.2.0 | MIT |
 | swagger-methods | 3.0.2 | UNSPECIFIED |
-| swagger-parser | 10.1.1 | UNSPECIFIED |
+| swagger-parser | 12.1.0 | UNSPECIFIED |
 | tar | 7.5.13 | BlueOak-1.0.0 |
 | tar-fs | 2.1.4 | MIT |
 | tar-stream | 2.2.0 | MIT |
 | testing | 2.1.53 | UNSPECIFIED |
-| text-extensions | 2.4.0 | MIT |
 | thread-stream | 3.1.0 | MIT |
 | through | 2.3.8 | MIT |
-| tinyexec | 0.3.1 | MIT |
+| tinyexec | 1.1.1 | MIT |
 | tinylogic | 2.0.0 | MIT |
 | tmp | 0.2.4 | MIT |
-| to-lines | 19.5.0 | UNSPECIFIED |
+| to-lines | 20.0.0 | UNSPECIFIED |
 | to-regex-range | 5.0.1 | MIT |
 | toidentifier | 1.0.1 | MIT |
 | tokenizers | 0.1.3 | UNSPECIFIED |
 | toml | 2.2.5 | UNSPECIFIED |
-| top-level | 19.5.0 | UNSPECIFIED |
+| top-level | 20.4.3 | UNSPECIFIED |
 | tree-sitter | 0.25.0 | MIT |
 | tree-sitter-c | 0.23.6 | UNSPECIFIED |
 | tree-sitter-c | 0.24.1 | UNSPECIFIED |
@@ -703,11 +694,11 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | type-is | 2.0.1 | MIT |
 | typedfastbitset | 0.6.1 | Apache-2.0 |
 | types | 19.5.0 | UNSPECIFIED |
+| types | 20.5.0 | UNSPECIFIED |
 | types | 8.9.0 | UNSPECIFIED |
 | typescript | 5.9.3 | Apache-2.0 |
 | uglify-js | 3.19.3 | BSD-2-Clause |
-| undici-types | 5.26.5 | MIT |
-| unicorn-magic | 0.1.0 | MIT |
+| undici-types | 6.21.0 | MIT |
 | unicorn-magic | 0.3.0 | MIT |
 | universalify | 2.0.1 | MIT |
 | unpipe | 1.0.0 | MIT |
@@ -724,19 +715,19 @@ Generated from `SBOM.cdx.json` (CycloneDX 1.5). 714 components.
 | widest-line | 5.0.0 | MIT |
 | word-wrap | 1.2.5 | MIT |
 | wordwrap | 1.0.0 | MIT |
+| wrap-ansi | 10.0.0 | MIT |
 | wrap-ansi | 6.2.0 | MIT |
 | wrap-ansi | 7.0.0 | MIT |
 | wrap-ansi | 8.1.0 | MIT |
 | wrap-ansi | 9.0.2 | MIT |
 | wrappy | 1.0.2 | ISC |
 | write-file-atomic | 4.0.3 | UNSPECIFIED |
-| write-file-atomic | 6.0.0 | ISC |
+| write-file-atomic | 7.0.1 | ISC |
 | y18n | 5.0.8 | ISC |
 | yallist | 5.0.0 | BlueOak-1.0.0 |
 | yaml | 2.8.3 | ISC |
 | yargs | 17.7.2 | MIT |
 | yargs-parser | 21.1.1 | ISC |
-| yocto-queue | 1.1.1 | MIT |
 | yoctocolors | 2.1.2 | MIT |
 | yoctocolors-cjs | 2.1.3 | MIT |
 | zod | 3.25.76 | MIT |

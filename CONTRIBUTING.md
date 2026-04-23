@@ -6,7 +6,7 @@ OpenCodeHub is a clean-room implementation. Do not copy code from any
 PolyForm, BSL, Commons Clause, GPL, or AGPL source.
 
 CI enforces:
-- Apache-2.0 / MIT / BSD / ISC / CC0 license allowlist on all transitive deps
+- Permissive-license allowlist (Apache-2.0 / MIT / BSD / ISC / CC0 / BlueOak / 0BSD) on all transitive deps
 - Banned-strings grep over all tracked source (see `scripts/check-banned-strings.sh`)
 - `osv-scanner` vulnerability scan on the lockfile
 

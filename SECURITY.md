@@ -16,7 +16,8 @@ fix or mitigation within 30 days for high/critical issues.
   `pnpm install --frozen-lockfile`.
 - `osv-scanner` runs on every PR via the reusable Google workflow.
 - `license-checker-rseidelsohn` enforces an OSI-approved license
-  allowlist (Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, CC0-1.0).
+  allowlist (Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, CC0-1.0,
+  BlueOak-1.0.0, 0BSD).
 - CodeQL (JavaScript/TypeScript + Python) runs on every PR and on a
   weekly schedule.
 - OpenSSF Scorecard runs on branch-protection changes and weekly.
