@@ -23,10 +23,10 @@
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "write-file-atomic": "6.0.0"
+    "write-file-atomic": "7.0.1"
   },
   "devDependencies": {
-    "@types/node": "20.14.0",
+    "@types/node": "20.19.16",
     "@types/write-file-atomic": "4.0.3",
     "typescript": "5.9.3"
   }

@@ -323,7 +323,7 @@ test("setup --plugin copies plugin tree into ~/.claude/plugins/opencodehub", asy
   const manifestPath = join(targetDir, ".claude-plugin", "plugin.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assert.equal(manifest.name, "opencodehub");
-  assert.equal(manifest.version, "2.0.0");
+  assert.equal(manifest.version, "0.1.0");
   assert.ok((await stat(join(targetDir, "README.md"))).isFile());
 
   // All 5 slash commands.

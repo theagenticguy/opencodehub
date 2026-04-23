@@ -21,7 +21,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@types/node": "20.14.0",
+    "@types/node": "20.19.16",
     "typescript": "5.9.3"
   }
 }
