@@ -114,7 +114,7 @@ export const openapiPhase: PipelinePhase<OpenApiOutput> = {
 async function runOpenApi(ctx: PipelineContext, scan: ScanOutput): Promise<OpenApiOutput> {
   // Skip unless profile phase detected openapi.
   const profile = findProjectProfile(ctx.graph);
-  if (!profile || !profile.apiContracts.includes("openapi")) {
+  if (!profile?.apiContracts.includes("openapi")) {
     return { operationsEmitted: 0, routesLinked: 0, specsProcessed: 0 };
   }
 
