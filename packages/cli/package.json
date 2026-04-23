@@ -28,7 +28,7 @@
     "@opencodehub/storage": "workspace:*",
     "cli-table3": "0.6.5",
     "commander": "13.1.0",
-    "envinfo": "7.14.0",
+    "envinfo": "7.21.0",
     "listr2": "9.0.4",
     "write-file-atomic": "6.0.0",
     "yaml": "2.8.3"
