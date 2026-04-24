@@ -256,6 +256,7 @@ function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
     incrementalFrom?: PreviousGraph;
     summaries?: boolean;
     maxSummariesPerRun?: number;
+    summaryModel?: string;
   } = {};
   if (options.force !== undefined) typed.force = options.force;
   if (options.offline !== undefined) typed.offline = options.offline;
@@ -275,5 +276,6 @@ function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
   if (options.maxSummariesPerRun !== undefined) {
     typed.maxSummariesPerRun = options.maxSummariesPerRun;
   }
+  if (options.summaryModel !== undefined) typed.summaryModel = options.summaryModel;
   return typed;
 }

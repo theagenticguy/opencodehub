@@ -139,7 +139,15 @@ export const summarizePhase: PipelinePhase<SummarizePhaseOutput> = {
 
 async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput> {
   const start = Date.now();
-  const modelId = DEFAULT_MODEL_ID;
+  // Accept `summaryModel` via the options bag — the CLI surface threads
+  // `--summary-model <id>` through `PipelineOptions.summaryModel`. A string
+  // override replaces the compile-time default; anything else falls back to
+  // `DEFAULT_MODEL_ID` so production deployments stay pinned.
+  const summaryModelOpt = (ctx.options as { readonly summaryModel?: unknown }).summaryModel;
+  const modelId =
+    typeof summaryModelOpt === "string" && summaryModelOpt.length > 0
+      ? summaryModelOpt
+      : DEFAULT_MODEL_ID;
   const promptVersion = SUMMARIZER_PROMPT_VERSION;
 
   // ---- Offline gate (INVARIANT) ----------------------------------------
@@ -271,13 +279,35 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
   }
 
   // ---- Summarize --------------------------------------------------------
-  const summarizer = (testHooks?.summarizerFactory ?? defaultSummarizerFactory)({ modelId });
+  // Instantiating the summarizer resolves the AWS SDK credential chain, which
+  // throws `CredentialsProviderError` / `NoCredentialsError` when no creds
+  // are configured. Catch that family here so contributors without Bedrock
+  // access still get a green analyze — see SUM-S-002 / SUM-UN-001. Any other
+  // factory error continues to surface so real bugs don't go silent.
+  let summarizer: SummarizerAdapter;
+  try {
+    summarizer = (testHooks?.summarizerFactory ?? defaultSummarizerFactory)({ modelId });
+  } catch (err) {
+    if (isMissingCredentialsError(err)) {
+      ctx.onProgress?.({
+        phase: SUMMARIZE_PHASE_NAME,
+        kind: "note",
+        message: "summarize: skipped (no AWS credentials)",
+      });
+      return emptyOutput(start, {
+        skippedReason: "no-credentials",
+        promptVersion,
+        modelId,
+      });
+    }
+    throw err;
+  }
   const now = testHooks?.now ?? (() => new Date());
   const rows: SymbolSummaryRow[] = [];
   let summarized = 0;
   let failed = 0;
 
-  for (const entry of effectiveBatch) {
+  for (const [idx, entry] of effectiveBatch.entries()) {
     const input: SummarizeInput = {
       source: entry.source,
       filePath: entry.candidate.filePath,
@@ -303,6 +333,23 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
       rows.push(row);
       summarized += 1;
     } catch (err) {
+      // Credential errors can surface on the first Bedrock call rather than
+      // at client construction (e.g. SSO profile expired mid-run). Treat
+      // the first such error on the first candidate as a soft-fail for the
+      // whole phase so we don't waste the batch on a guaranteed-failing
+      // credential chain.
+      if (idx === 0 && isMissingCredentialsError(err)) {
+        ctx.onProgress?.({
+          phase: SUMMARIZE_PHASE_NAME,
+          kind: "note",
+          message: "summarize: skipped (no AWS credentials)",
+        });
+        return emptyOutput(start, {
+          skippedReason: "no-credentials",
+          promptVersion,
+          modelId,
+        });
+      }
       failed += 1;
       ctx.onProgress?.({
         phase: SUMMARIZE_PHASE_NAME,
@@ -359,6 +406,36 @@ function isLspReason(reason: string | undefined): boolean {
 
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex");
+}
+
+/**
+ * Recognize the AWS SDK v3 credential-missing error family. The SDK
+ * throws `CredentialsProviderError` (name) / `NoCredentialsError`
+ * depending on the provider in the chain, plus pure-string errors from
+ * `from*` providers ("Could not load credentials from any providers").
+ *
+ * We match on a small set of well-known shapes rather than importing
+ * `@smithy/types` to keep the phase independent of the SDK's type
+ * surface and safe to call with a test fake that merely sets `name`.
+ */
+function isMissingCredentialsError(err: unknown): boolean {
+  if (err === null || err === undefined) return false;
+  const errObj = err as { readonly name?: unknown; readonly message?: unknown };
+  const name = typeof errObj.name === "string" ? errObj.name : "";
+  if (
+    name === "CredentialsProviderError" ||
+    name === "NoCredentialsError" ||
+    name === "ExpiredTokenException"
+  ) {
+    return true;
+  }
+  const message = typeof errObj.message === "string" ? errObj.message : "";
+  return (
+    message.includes("Could not load credentials") ||
+    message.includes("credentials is missing") ||
+    message.includes("Unable to load credentials") ||
+    message.includes("The security token included in the request is expired")
+  );
 }
 
 function defaultSourceReader(absPath: string): string {
