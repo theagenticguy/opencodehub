@@ -2,12 +2,18 @@
  * Unified cross-language S-expression queries.
  *
  * Clean-room authored from tree-sitter's code-navigation tag vocabulary:
- *   @definition.{class,function,method,interface,module,macro,constant,type}
- *   @reference.{call,class,type,interface,implementation,send}
- *   @name (inner capture for identifier substrings)
+ *   definition.{class,function,method,interface,module,macro,constant,type}
+ *   reference.{call,class,type,interface,implementation,send}
+ *   doc   — documentation comment (JSDoc / docstring / rustdoc / godoc)
+ *   name  — inner capture for identifier substrings
  *
- * Each query is intentionally MINIMAL — just enough for MVP symbol extraction
- * downstream. No `@doc` capture at MVP (comment extraction deferred).
+ * Docstring conventions captured here:
+ *   - JSDoc (TS/JS/TSX): comment nodes; the parse-phase consumer
+ *     narrows to those whose text begins with "/*" "*".
+ *   - Python: first expression_statement string child in a body.
+ *   - Rust: line_comment / block_comment groups above a decl; the
+ *     parse-phase consumer filters to triple-slash and rustdoc forms.
+ *   - Go: comment groups immediately preceding a declaration.
  *
  * These queries are authored independently from grammar tags.scm files by
  * reading only the grammar's public AST node type names. No text is copied
@@ -56,6 +62,11 @@ const TYPESCRIPT_QUERY = `
 (new_expression constructor: (identifier) @name) @reference.class
 (type_identifier) @name @reference.type
 (implements_clause (type_identifier) @name @reference.interface)
+
+; --- documentation comments ---
+; JSDoc blocks. The tree-sitter-typescript grammar tags all comments as
+; (comment); the consumer filters to those whose text starts with "/**".
+(comment) @doc
 `;
 
 // ---------------------------------------------------------------------------
@@ -80,6 +91,9 @@ const JAVASCRIPT_QUERY = `
 (call_expression function: (identifier) @name) @reference.call
 (call_expression function: (member_expression property: (property_identifier) @name)) @reference.call
 (new_expression constructor: (identifier) @name) @reference.class
+
+; --- documentation comments (JSDoc); consumer filters on "/**". ---
+(comment) @doc
 `;
 
 // ---------------------------------------------------------------------------
@@ -144,6 +158,15 @@ const PYTHON_QUERY = `
 ; --- class references (bases of a class) ---
 (class_definition
   superclasses: (argument_list (identifier) @name @reference.class))
+
+; --- docstrings: string expression inside a function or class body.
+; The parse-phase consumer enforces the "first-expression" rule by
+; filtering to the capture whose startLine matches the body's first
+; line.
+(function_definition
+  body: (block (expression_statement (string) @doc)))
+(class_definition
+  body: (block (expression_statement (string) @doc)))
 `;
 
 // ---------------------------------------------------------------------------
@@ -181,6 +204,10 @@ const GO_QUERY = `
 (call_expression function: (identifier) @name) @reference.call
 (call_expression function: (selector_expression field: (field_identifier) @name)) @reference.call
 (type_identifier) @name @reference.type
+
+; --- godoc comments. The parse consumer picks the (comment) group
+; immediately preceding a declaration.
+(comment) @doc
 `;
 
 // ---------------------------------------------------------------------------
@@ -217,6 +244,11 @@ const RUST_QUERY = `
 (call_expression function: (scoped_identifier path: (identifier) name: (identifier) @name)) @reference.call
 (call_expression function: (field_expression field: (field_identifier) @name)) @reference.call
 (type_identifier) @name @reference.type
+
+; --- rustdoc: outer line docs and block docs. Consumer narrows
+; to triple-slash comments and rustdoc block comments.
+(line_comment) @doc
+(block_comment) @doc
 `;
 
 // ---------------------------------------------------------------------------
