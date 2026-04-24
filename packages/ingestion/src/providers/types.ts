@@ -1,9 +1,10 @@
 // Clean-room language-provider types for OpenCodeHub ingestion.
 //
-// The `LanguageId` union is duplicated in `../parse/types.ts`; keep both
-// copies structurally identical.
-// TODO: reconcile the duplicated LanguageId union into a shared neutral location.
+// `LanguageId` has a single source of truth in `@opencodehub/core-types`;
+// this module re-exports it for providers that still reach for
+// `../providers/types.js`.
 
+import type { LanguageId } from "@opencodehub/core-types";
 import type { ParseCapture } from "../parse/types.js";
 import type {
   ExtractedCall,
@@ -13,22 +14,7 @@ import type {
   PropertyAccess,
 } from "./extraction-types.js";
 
-export type LanguageId =
-  | "typescript"
-  | "tsx"
-  | "javascript"
-  | "python"
-  | "go"
-  | "rust"
-  | "java"
-  | "csharp"
-  | "c"
-  | "cpp"
-  | "ruby"
-  | "kotlin"
-  | "swift"
-  | "php"
-  | "dart";
+export type { LanguageId } from "@opencodehub/core-types";
 
 /**
  * Strategy used to linearize a class's method resolution order.

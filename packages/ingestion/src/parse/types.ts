@@ -8,22 +8,12 @@
  * column offsets (matching most editor UIs).
  */
 
-export type LanguageId =
-  | "typescript"
-  | "tsx"
-  | "javascript"
-  | "python"
-  | "go"
-  | "rust"
-  | "java"
-  | "csharp"
-  | "c"
-  | "cpp"
-  | "ruby"
-  | "kotlin"
-  | "swift"
-  | "php"
-  | "dart";
+// `LanguageId` has a single source of truth in `@opencodehub/core-types`;
+// every in-tree consumer re-exports from the same symbol. Keeping the
+// re-export here lets existing imports from `../parse/types.js` keep
+// working without a churn pass on every call site.
+import type { LanguageId } from "@opencodehub/core-types";
+export type { LanguageId } from "@opencodehub/core-types";
 
 /** A single tagged node extracted from a parse tree by the unified query. */
 export interface ParseCapture {
