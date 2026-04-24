@@ -44,6 +44,13 @@ jobs:
       - name: Install mise-managed toolchain (node, pnpm, python, uv)
         uses: jdx/mise-action@v4
 
+      - name: Install node-gyp on PATH
+        # pnpm v10 gates lifecycle scripts; even with the
+        # `pnpm.onlyBuiltDependencies` allowlist, any grammar that still runs
+        # `node-gyp rebuild` directly needs the binary reachable. Install it
+        # globally before `pnpm install` runs. See docs/adr/0003-ci-toolchain-pins.md.
+        run: npm install -g node-gyp@11
+
       - name: Cache pnpm store
         uses: actions/cache@v4
         with:
@@ -56,6 +63,10 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@v6
         with:
+          # Pinned to 1.23 — bumping requires a matching gopls pin bump.
+          # gopls v0.18.x is the newest line that builds on Go 1.23.4+.
+          # gopls v0.19+ requires Go 1.24; v0.21 requires Go 1.25/1.26.
+          # See docs/adr/0003-ci-toolchain-pins.md.
           go-version: "1.23"
           cache: true
 
@@ -65,11 +76,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin
-          key: gopls-${{ runner.os }}-v0.21.0
+          key: gopls-${{ runner.os }}-v0.18.1
 
       - name: Install gopls
         if: matrix.language == 'go' && steps.cache-gopls.outputs.cache-hit != 'true'
-        run: go install golang.org/x/tools/gopls@v0.21.0
+        run: go install golang.org/x/tools/gopls@v0.18.1
 
       - name: Add gopls to PATH
         if: matrix.language == 'go'
@@ -197,6 +208,11 @@ jobs:
 
       - name: Install mise-managed toolchain (node, pnpm, python, uv)
         uses: jdx/mise-action@v4
+
+      - name: Install node-gyp on PATH
+        # See gym-matrix for rationale; pnpm v10 + lifecycle-script gating
+        # requires node-gyp available before `pnpm install`.
+        run: npm install -g node-gyp@11
 
       - name: Cache pnpm store
         uses: actions/cache@v4
