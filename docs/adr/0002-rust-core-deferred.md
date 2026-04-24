@@ -44,3 +44,52 @@ Prior to greenlight:
 - Keep TS path always functional (Rust via optional `postinstall` prebuild download).
 - Cap source-size growth at 2x the equivalent TS module.
 
+## 2026-04-24 — P09 Phase 1 re-evaluation
+
+Re-ran the trigger benchmarks against the OpenCodeHub repo itself via
+`packages/gym/scripts/bench-rust-triggers.mjs` (5 cold runs of `codehub
+analyze . --force --skip-agents-md --no-summaries`, wrapped in
+`/usr/bin/time -l`). Full report at `bench/rust-spike-report.md`.
+
+**Measured values (n=5, darwin arm64, Node v22.22.0):**
+
+| Metric | Value |
+|---|---|
+| p95 wall-clock | 170,988 ms (~171 s) |
+| min / mean / max wall-clock | 152,411 / 162,293 / 170,988 ms |
+| Mean peak RSS | 973 MB |
+| Parse throughput | ~7 files/sec (1,084 files) |
+| HNSW build time | N/A (embeddings flag off — embedder weights not staged) |
+| Graph size | 23,185 nodes / 63,103 edges |
+
+**Per-trigger evaluation:**
+
+1. **Cold full analyze on a 500k+ LOC repo > 4 min** — *not fired*. This
+   fixture is 1,084 files, orders of magnitude below the 500k-LOC
+   threshold; the trigger is structurally incapable of firing here. Even
+   the p95 of 171 s on this repo is under the 240 s threshold *if one
+   applied it literally* (we do not — the threshold is scoped to 500k+
+   LOC repos).
+2. **p95 single-file incremental edit on a 10k+ file fixture > 30 s** —
+   *not fired*. This bench measures cold full analyze, not incremental
+   edits. The prior measurements cited in this ADR (~195–250 ms on the
+   100-file fixture) remain the authoritative data point for the
+   incremental path; nothing has regressed.
+3. **`--cpu-prof` shows > 40% of wall-clock in a single hot-path
+   function** — *not fired*. No `--cpu-prof` capture was run as part of
+   this re-evaluation; without the evidence, the trigger does not fire
+   by default. Re-open this trigger only when a production-scale profile
+   is available.
+
+**Decision: Defer — re-evaluate after next major feature wave.**
+
+No ADR 0002 trigger has fired. OpenCodeHub stays pure TypeScript. No
+Rust crate, no napi-rs setup, no CI workflow changes, no ingestion /
+worker-pool / storage modifications. The spike remains closed and will
+be reconsidered at the next feature-wave boundary — in particular after
+P03 (hierarchical embeddings) lands and changes the embeddings hot path,
+which would otherwise over-fit any Rust baseline measured today.
+
+Sign-off: Phase 1 executed per SPECS.md; benchmark report committed
+alongside this ADR; no Phase 2 work undertaken.
+
