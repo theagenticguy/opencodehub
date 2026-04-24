@@ -100,7 +100,9 @@ describe("goProvider (behavior)", () => {
     assert.equal(dot?.localAlias, ".");
   });
 
-  it("emits no heritage edges at MVP", () => {
+  it("emits no heritage edges when method sets don't match", () => {
+    // Greeter has `Greet` but the Speaker interface wants `Speak` —
+    // no IMPLEMENTS edge should fire.
     const defs = goProvider.extractDefinitions({
       filePath: fx.filePath,
       captures: fx.captures,
@@ -109,6 +111,68 @@ describe("goProvider (behavior)", () => {
     const heritage = goProvider.extractHeritage({
       filePath: fx.filePath,
       captures: fx.captures,
+      definitions: defs,
+    });
+    assert.equal(heritage.length, 0);
+  });
+
+  it("emits IMPLEMENTS when a struct's method set covers an interface", async () => {
+    const source = `package shop
+
+type Greeter interface {
+    Greet(msg string) string
+}
+
+type Speaker struct {
+    name string
+}
+
+func (s *Speaker) Greet(msg string) string {
+    return "hi: " + msg
+}
+
+func (s *Speaker) Whisper(msg string) string {
+    return msg
+}
+`;
+    const localFx = await parseFixture(pool, "go", "shop.go", source);
+    const defs = goProvider.extractDefinitions({
+      filePath: localFx.filePath,
+      captures: localFx.captures,
+      sourceText: localFx.sourceText,
+    });
+    const heritage = goProvider.extractHeritage({
+      filePath: localFx.filePath,
+      captures: localFx.captures,
+      definitions: defs,
+    });
+    const impl = heritage.find((h) => h.relation === "IMPLEMENTS");
+    assert.ok(impl !== undefined, "expected Speaker IMPLEMENTS Greeter");
+    assert.equal(impl?.childQualifiedName, "Speaker");
+    assert.equal(impl?.parentName, "Greeter");
+  });
+
+  it("does not emit IMPLEMENTS when method set is strictly smaller", async () => {
+    const source = `package shop
+
+type Mover interface {
+    Move() string
+    Rotate() string
+}
+
+type Car struct{}
+
+func (c *Car) Move() string { return "vroom" }
+`;
+    const localFx = await parseFixture(pool, "go", "partial.go", source);
+    const defs = goProvider.extractDefinitions({
+      filePath: localFx.filePath,
+      captures: localFx.captures,
+      sourceText: localFx.sourceText,
+    });
+    const heritage = goProvider.extractHeritage({
+      filePath: localFx.filePath,
+      captures: localFx.captures,
       definitions: defs,
     });
     assert.equal(heritage.length, 0);
