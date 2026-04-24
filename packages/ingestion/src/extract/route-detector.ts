@@ -1,10 +1,16 @@
 /**
  * Route detectors.
  *
- * MVP scope: Next.js App Router (filesystem routing) and Express
- * (app/router verb calls). FastAPI / NestJS / Spring are explicitly
- * deferred to v1.0. All patterns below were authored fresh from the
- * public framework documentation:
+ * This file carries Next.js App Router (filesystem routing) and Express
+ * (app/router verb calls). Sibling files supply the other detectors:
+ *
+ *   - FastAPI / Starlette: route-detector-python.ts
+ *   - Spring MVC + WebFlux: route-detector-java.ts
+ *   - NestJS: route-detector-nestjs.ts
+ *   - Rails (`config/routes.rb`): route-detector-rails.ts
+ *
+ * All patterns below were authored fresh from the public framework
+ * documentation:
  *   - Next.js App Router: https://nextjs.org/docs/app/building-your-application/routing
  *   - Express routing:    https://expressjs.com/en/guide/routing.html
  */
