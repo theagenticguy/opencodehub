@@ -342,6 +342,127 @@ test("search: identical queries return deterministic order when scores tie", asy
 });
 
 // ---------------------------------------------------------------------------
+// Granularity migration + filter tests (P03)
+// ---------------------------------------------------------------------------
+
+test("embeddings rows default to granularity='symbol' when not set", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath, { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const id = makeNodeId("Function", "src/a.ts", "a");
+    g.addNode({
+      id,
+      kind: "Function",
+      name: "a",
+      filePath: "src/a.ts",
+    });
+    await store.bulkLoad(g);
+    // Legacy caller: no `granularity` field. The adapter passes an explicit
+    // 'symbol' fallback so the row always has a tier on disk.
+    await store.upsertEmbeddings([
+      {
+        nodeId: id,
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h",
+      },
+    ]);
+    const rows = await store.query(
+      "SELECT granularity FROM embeddings WHERE node_id = ?",
+      [id],
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.["granularity"], "symbol");
+  } finally {
+    await store.close();
+  }
+});
+
+test("vectorSearch with granularity filter restricts to that tier", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath, { embeddingDim: 4 });
+  await store.open();
+  const warning = store.getExtensionWarning();
+  if (warning?.startsWith("No HNSW")) {
+    await store.close();
+    assert.ok(true, "no HNSW extension available — test skipped");
+    return;
+  }
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const fnId = makeNodeId("Function", "src/a.ts", "a");
+    const fileId = makeNodeId("File", "src/a.ts", "src/a.ts");
+    const commId = makeNodeId("Community", "<global>", "community-0");
+    g.addNode({ id: fnId, kind: "Function", name: "a", filePath: "src/a.ts" });
+    g.addNode({ id: fileId, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+    g.addNode({
+      id: commId,
+      kind: "Community",
+      name: "community-0",
+      filePath: "<global>",
+      symbolCount: 3,
+      cohesion: 1,
+    });
+    await store.bulkLoad(g);
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h-sym",
+      },
+      {
+        nodeId: fileId,
+        granularity: "file",
+        chunkIndex: 0,
+        vector: new Float32Array([0.9, 0.1, 0, 0]),
+        contentHash: "h-file",
+      },
+      {
+        nodeId: commId,
+        granularity: "community",
+        chunkIndex: 0,
+        vector: new Float32Array([0.8, 0.2, 0, 0]),
+        contentHash: "h-comm",
+      },
+    ]);
+
+    const fileHits = await store.vectorSearch({
+      vector: new Float32Array([1, 0, 0, 0]),
+      granularity: "file",
+      limit: 10,
+    });
+    assert.equal(fileHits.length, 1);
+    assert.equal(fileHits[0]?.nodeId, fileId);
+
+    const commHits = await store.vectorSearch({
+      vector: new Float32Array([1, 0, 0, 0]),
+      granularity: "community",
+      limit: 10,
+    });
+    assert.equal(commHits.length, 1);
+    assert.equal(commHits[0]?.nodeId, commId);
+
+    const multi = await store.vectorSearch({
+      vector: new Float32Array([1, 0, 0, 0]),
+      granularity: ["symbol", "community"],
+      limit: 10,
+    });
+    const ids = new Set(multi.map((r) => r.nodeId));
+    assert.ok(ids.has(fnId));
+    assert.ok(ids.has(commId));
+    assert.ok(!ids.has(fileId));
+  } finally {
+    await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Vector search
 // ---------------------------------------------------------------------------
 

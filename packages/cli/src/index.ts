@@ -214,8 +214,20 @@ program
     "RRF top-k passed to hybrid fusion (default 50)",
     (v) => Number.parseInt(v, 10),
   )
+  .option(
+    "--zoom",
+    "Enable coarse-to-fine retrieval (file tier → symbol tier). Requires an embedder and a hierarchical index (see `analyze --granularity symbol,file,community`).",
+  )
+  .option("--fanout <n>", "Files to shortlist at the coarse step when --zoom is on", (v) =>
+    Number.parseInt(v, 10),
+  )
+  .option(
+    "--granularity <tier>",
+    "Restrict ANN to one hierarchical tier: symbol (default), file, or community",
+  )
   .action(async (text: string, opts: Record<string, unknown>) => {
     const mod = await import("./commands/query.js");
+    const granularity = parseQueryGranularity(opts["granularity"]);
     await mod.runQuery(text, {
       limit: typeof opts["limit"] === "number" ? opts["limit"] : 10,
       ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
@@ -226,6 +238,9 @@ program
       ...(typeof opts["maxSymbols"] === "number" ? { maxSymbols: opts["maxSymbols"] } : {}),
       bm25Only: opts["bm25Only"] === true,
       ...(typeof opts["rerankTopK"] === "number" ? { rerankTopK: opts["rerankTopK"] } : {}),
+      zoom: opts["zoom"] === true,
+      ...(typeof opts["fanout"] === "number" ? { fanout: opts["fanout"] } : {}),
+      ...(granularity !== undefined ? { granularity } : {}),
     });
   });
 
@@ -540,6 +555,21 @@ function splitList(raw: string): readonly string[] {
 }
 
 /**
+ * Parse the single-value `--granularity` flag used by `codehub query`.
+ * Accepts exactly one tier (symbol/file/community); rejects CSV lists.
+ */
+function parseQueryGranularity(
+  raw: unknown,
+): "symbol" | "file" | "community" | undefined {
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === "symbol" || trimmed === "file" || trimmed === "community") return trimmed;
+  throw new Error(
+    `Unknown --granularity value: "${trimmed}". Expected one of: symbol, file, community`,
+  );
+}
+
+/**
  * Parse a comma-separated `--granularity` value into the narrow set of
  * hierarchical embedding tiers the ingestion phase accepts. Returns
  * `undefined` when the flag was not supplied so callers can preserve the
@@ -547,7 +577,7 @@ function splitList(raw: string): readonly string[] {
  * typo rather than a silent fallback.
  */
 function parseGranularityCsv(
-  raw: string | number | boolean | undefined,
+  raw: unknown,
 ): readonly ("symbol" | "file" | "community")[] | undefined {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
   const valid = new Set(["symbol", "file", "community"] as const);

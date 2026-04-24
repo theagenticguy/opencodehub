@@ -29,6 +29,9 @@ export interface VectorHit {
   readonly distance: number;
 }
 
+/** Hierarchical embedding tier (mirrors storage.EmbeddingGranularity). */
+export type VectorGranularity = "symbol" | "file" | "community";
+
 /**
  * Vector-space query. Callers supply the query vector directly so the
  * search layer stays oblivious to which embedding model produced it.
@@ -39,6 +42,13 @@ export interface VectorQuery {
   readonly whereClause?: string;
   readonly params?: readonly unknown[];
   readonly limit?: number;
+  /**
+   * Hierarchical tier filter (P03). When set, the search only considers
+   * embedding rows at this tier (or tiers); `hnsw_acorn` handles the
+   * WHERE push-down so one HNSW index serves every tier. Defaults to no
+   * filter (every row).
+   */
+  readonly granularity?: VectorGranularity | readonly VectorGranularity[];
 }
 
 /** One row of a hybrid RRF-fused result list. */

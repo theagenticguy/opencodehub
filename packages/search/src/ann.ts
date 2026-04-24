@@ -18,6 +18,7 @@ export async function annSearch(store: IGraphStore, q: VectorQuery): Promise<rea
     ...(q.whereClause !== undefined ? { whereClause: q.whereClause } : {}),
     ...(q.params !== undefined ? { params: coerceParams(q.params) } : {}),
     limit: q.limit ?? DEFAULT_ANN_LIMIT,
+    ...(q.granularity !== undefined ? { granularity: q.granularity } : {}),
   };
   const rows = await store.vectorSearch(storeQuery);
   return rows.map((r) => ({ nodeId: r.nodeId, distance: r.distance }));

@@ -14,6 +14,10 @@
  *   - `--context <text>` + `--goal <text>` — prefixed to the search text.
  *   - `--content` — attach capped symbol source to each hit.
  *   - `--json` — emit machine-readable output.
+ *   - `--zoom` — P03 coarse-to-fine retrieval (file tier → symbol tier).
+ *   - `--fanout <n>` — files to shortlist at the coarse step for `--zoom`.
+ *   - `--granularity <tier>` — restrict ANN to one hierarchical tier
+ *     (symbol/file/community). Defaults to "symbol".
  *
  * Hybrid ranking priority matches the MCP tool:
  *   1. `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` → HTTP embedder.
@@ -74,6 +78,21 @@ export interface QueryOptions {
   readonly bm25Only?: boolean;
   /** `--rerank-top-k <n>` — number of fused hits RRF should return. */
   readonly rerankTopK?: number;
+  /**
+   * `--zoom` — enable P03 coarse-to-fine retrieval. Requires the index to
+   * have been built with `--granularity symbol,file,community` AND an
+   * embedder to be available (weights on disk or `CODEHUB_EMBEDDING_URL`
+   * set). Falls back to BM25 when no embedder is available.
+   */
+  readonly zoom?: boolean;
+  /** `--fanout <n>` — files to shortlist at the coarse step when `--zoom` is on. */
+  readonly fanout?: number;
+  /**
+   * `--granularity <tier>` — restrict the ANN leg to this hierarchical
+   * tier. Defaults to "symbol". Pass "community" for architectural
+   * queries that should land on Community nodes.
+   */
+  readonly granularity?: "symbol" | "file" | "community";
 }
 
 /**
@@ -133,7 +152,13 @@ export async function runQuery(
         try {
           const fused = await hybridSearch(
             store,
-            { text: searchText, limit: rerankTopK },
+            {
+              text: searchText,
+              limit: rerankTopK,
+              ...(opts.zoom === true ? { mode: "zoom" as const } : {}),
+              ...(opts.fanout !== undefined ? { zoomFanout: opts.fanout } : {}),
+              ...(opts.granularity !== undefined ? { granularity: opts.granularity } : {}),
+            },
             embedder,
           );
           ranked = await hydrateFused(store, fused, limit);
