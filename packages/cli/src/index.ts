@@ -165,6 +165,12 @@ program
   .option("--max-symbols <n>", "Max symbols in process-grouped output (default 50)", (v) =>
     Number.parseInt(v, 10),
   )
+  .option("--bm25-only", "Skip the embedder probe and run BM25 search only")
+  .option(
+    "--rerank-top-k <n>",
+    "RRF top-k passed to hybrid fusion (default 50)",
+    (v) => Number.parseInt(v, 10),
+  )
   .action(async (text: string, opts: Record<string, unknown>) => {
     const mod = await import("./commands/query.js");
     await mod.runQuery(text, {
@@ -175,6 +181,8 @@ program
       ...(typeof opts["context"] === "string" ? { context: opts["context"] } : {}),
       ...(typeof opts["goal"] === "string" ? { goal: opts["goal"] } : {}),
       ...(typeof opts["maxSymbols"] === "number" ? { maxSymbols: opts["maxSymbols"] } : {}),
+      bm25Only: opts["bm25Only"] === true,
+      ...(typeof opts["rerankTopK"] === "number" ? { rerankTopK: opts["rerankTopK"] } : {}),
     });
   });
 
