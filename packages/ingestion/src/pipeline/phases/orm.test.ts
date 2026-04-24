@@ -45,10 +45,13 @@ describe("ormPhase", () => {
   it("emits QUERIES edges with placeholder targets for Prisma calls", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "och-orm-prisma-"));
     try {
+      // Import from `@prisma/client` so the P06 receiver check confirms
+      // `prisma` originates from the real ORM module.
       await fs.writeFile(
         path.join(repo, "repo.ts"),
         [
-          "import { prisma } from './client.js';",
+          "import { PrismaClient } from '@prisma/client';",
+          "const prisma = new PrismaClient();",
           "export async function loadUsers() {",
           "  return prisma.User.findMany();",
           "}",
@@ -57,10 +60,6 @@ describe("ormPhase", () => {
           "}",
           "",
         ].join("\n"),
-      );
-      await fs.writeFile(
-        path.join(repo, "client.ts"),
-        ["export const prisma = { User: {} };", ""].join("\n"),
       );
       const { ctx } = await buildCtxWithParse(repo);
       const out = await ormPhase.run(
@@ -97,17 +96,14 @@ describe("ormPhase", () => {
       await fs.writeFile(
         path.join(repo, "repo.ts"),
         [
-          "import { prisma } from './client.js';",
+          "import { PrismaClient } from '@prisma/client';",
           "import { User } from './models.js';",
+          "const prisma = new PrismaClient();",
           "export async function r() {",
           "  return prisma.User.findMany();",
           "}",
           "",
         ].join("\n"),
-      );
-      await fs.writeFile(
-        path.join(repo, "client.ts"),
-        ["export const prisma = { User: {} };", ""].join("\n"),
       );
 
       const { ctx } = await buildCtxWithParse(repo);
@@ -133,17 +129,11 @@ describe("ormPhase", () => {
       await fs.writeFile(
         path.join(repo, "q.ts"),
         [
-          "import { supabase } from './client.js';",
+          "import { createClient } from '@supabase/supabase-js';",
+          "const supabase = createClient('', '');",
           "export async function q() {",
           "  return supabase.from('users').select('*');",
           "}",
-          "",
-        ].join("\n"),
-      );
-      await fs.writeFile(
-        path.join(repo, "client.ts"),
-        [
-          "export const supabase = { from: (_t: string) => ({ select: (_c: string) => null }) };",
           "",
         ].join("\n"),
       );

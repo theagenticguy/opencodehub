@@ -5,12 +5,20 @@
  *   - Prisma Client API:     https://www.prisma.io/docs/orm/reference/prisma-client-reference
  *   - Supabase JS reference: https://supabase.com/docs/reference/javascript/select
  *
- * Both detectors are intentionally receiver-agnostic: any identifier ending
- * in the known root name (`prisma`, `supabase`) triggers the scan.
- * TODO: tighten by resolved receiver type once import resolution is available here.
+ * Receiver precision (P06): each candidate call site's receiver identifier
+ * is confirmed against the file's import graph before an edge is emitted.
+ * Prisma edges require a `@prisma/client` import; Supabase edges require a
+ * `@supabase/supabase-js` import. When no import map is supplied AND
+ * {@link ExtractInput.strictDetectors} is `false`, the detector falls back
+ * to the pre-P06 regex-only heuristic (tagged `reason: "heuristic"` so
+ * downstream can filter).
  */
 
+import { resolveReceiver } from "./receiver-resolver.js";
 import type { ExtractedOrmEdge, ExtractInput } from "./types.js";
+
+const PRISMA_MODULE = "@prisma/client";
+const SUPABASE_MODULE = "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
 // Prisma
@@ -46,7 +54,7 @@ const PRISMA_CALL_RE =
   /\b([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
 
 export function detectPrismaCalls(input: ExtractInput): readonly ExtractedOrmEdge[] {
-  const { filePath, content } = input;
+  const { filePath, content, importsByFile, tsMorphProject, strictDetectors } = input;
   if (!/prisma/i.test(content)) return [];
   const out: ExtractedOrmEdge[] = [];
   PRISMA_CALL_RE.lastIndex = 0;
@@ -63,12 +71,23 @@ export function detectPrismaCalls(input: ExtractInput): readonly ExtractedOrmEdg
     // because `$transaction` isn't in `PRISMA_OPS` and a `$`-prefixed token
     // wouldn't be treated as a model anyway.
     if (model.startsWith("$")) continue;
+
+    const emitReason = verifyReceiver({
+      receiver,
+      filePath,
+      expectedModule: PRISMA_MODULE,
+      importsByFile,
+      tsMorphProject,
+      strictDetectors: strictDetectors === true,
+    });
+    if (emitReason === null) continue;
     out.push({
       callerFile: filePath,
       modelName: model,
       operation: op,
       orm: "prisma",
       confidence: 0.9,
+      reason: emitReason,
     });
   }
   return out;
@@ -92,7 +111,7 @@ const SUPABASE_FROM_RE =
 const SUPABASE_OP_WINDOW = 10;
 
 export function detectSupabaseCalls(input: ExtractInput): readonly ExtractedOrmEdge[] {
-  const { filePath, content } = input;
+  const { filePath, content, importsByFile, tsMorphProject, strictDetectors } = input;
   if (!/supabase/i.test(content)) return [];
   const out: ExtractedOrmEdge[] = [];
   SUPABASE_FROM_RE.lastIndex = 0;
@@ -118,13 +137,96 @@ export function detectSupabaseCalls(input: ExtractInput): readonly ExtractedOrmE
       }
     }
     if (matchedOp === undefined) continue;
+
+    const emitReason = verifyReceiver({
+      receiver,
+      filePath,
+      expectedModule: SUPABASE_MODULE,
+      importsByFile,
+      tsMorphProject,
+      strictDetectors: strictDetectors === true,
+    });
+    if (emitReason === null) continue;
     out.push({
       callerFile: filePath,
       modelName: table,
       operation: matchedOp,
       orm: "supabase",
       confidence: 0.85,
+      reason: emitReason,
     });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Receiver verification
+// ---------------------------------------------------------------------------
+
+interface VerifyReceiverArgs {
+  readonly receiver: string;
+  readonly filePath: string;
+  readonly expectedModule: string;
+  readonly importsByFile?: ExtractInput["importsByFile"];
+  readonly tsMorphProject?: ExtractInput["tsMorphProject"];
+  readonly strictDetectors: boolean;
+}
+
+/**
+ * Confirm the receiver identifier resolves back to `expectedModule` via the
+ * import graph (and, optionally, ts-morph). Returns the provenance tag to
+ * attach to the emitted edge, or `null` when the detector should drop the
+ * candidate.
+ *
+ *  - `"receiver-confirmed"` — the resolver matched `expectedModule`.
+ *  - `"heuristic"`          — resolver could not pinpoint the receiver, but
+ *                             the expected module is imported elsewhere in
+ *                             the file (common for ORM clients wrapped by
+ *                             a local factory), OR no import map was
+ *                             supplied at all and strict-mode is off.
+ *  - `null`                 — resolver returned a DIFFERENT module, OR
+ *                             strict-mode is on and no positive match found.
+ */
+function verifyReceiver(args: VerifyReceiverArgs): "receiver-confirmed" | "heuristic" | null {
+  const { receiver, filePath, expectedModule, importsByFile, tsMorphProject, strictDetectors } =
+    args;
+
+  const origin = resolveReceiver(receiver, filePath, importsByFile, tsMorphProject);
+  if (origin !== null) {
+    if (origin.moduleName === expectedModule) return "receiver-confirmed";
+    // Resolved to a DIFFERENT module — this is a real false positive the
+    // heuristic would have otherwise emitted. Always drop.
+    return null;
+  }
+
+  // Resolver could not pinpoint the receiver's origin. If the expected
+  // module is imported anywhere in the file we treat this as a weaker
+  // "same-module" heuristic — typical for Prisma clients constructed from
+  // `new PrismaClient()` or wrapped by a `createClient()` factory where
+  // the receiver identifier isn't itself imported. `strictDetectors`
+  // disables this fallback.
+  if (importsByFile !== undefined) {
+    if (strictDetectors) return null;
+    if (fileImportsModule(filePath, expectedModule, importsByFile)) return "heuristic";
+    return null;
+  }
+
+  // No import map plumbed at all — fall back to the pre-P06 regex emit
+  // unless strict mode is on.
+  if (strictDetectors) return null;
+  return "heuristic";
+}
+
+/** `true` when `filePath` imports from `moduleName` (exact specifier match). */
+function fileImportsModule(
+  filePath: string,
+  moduleName: string,
+  importsByFile: NonNullable<ExtractInput["importsByFile"]>,
+): boolean {
+  const imports = importsByFile.get(filePath);
+  if (imports === undefined) return false;
+  for (const imp of imports) {
+    if (imp.source === moduleName) return true;
+  }
+  return false;
 }

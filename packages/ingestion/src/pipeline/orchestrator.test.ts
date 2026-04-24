@@ -106,27 +106,19 @@ describe("runIngestion (determinism with routes + ORM)", () => {
         "",
       ].join("\n"),
     );
-    // Prisma + Supabase calls
+    // Prisma + Supabase calls. Imports point at the real ORM modules so
+    // the P06 receiver check recognises them as confirmed client calls.
     await fs.writeFile(
       path.join(repo, "repo.ts"),
       [
-        "import { prisma } from './client.js';",
-        "import { supabase } from './sb.js';",
+        "import { PrismaClient } from '@prisma/client';",
+        "import { createClient } from '@supabase/supabase-js';",
+        "const prisma = new PrismaClient();",
+        "const supabase = createClient('', '');",
         "export async function load() {",
         "  await prisma.User.findMany();",
         "  return supabase.from('posts').select('*');",
         "}",
-        "",
-      ].join("\n"),
-    );
-    await fs.writeFile(
-      path.join(repo, "client.ts"),
-      ["export const prisma = { User: {} };", ""].join("\n"),
-    );
-    await fs.writeFile(
-      path.join(repo, "sb.ts"),
-      [
-        "export const supabase = { from: (_t: string) => ({ select: (_c: string) => null }) };",
         "",
       ].join("\n"),
     );

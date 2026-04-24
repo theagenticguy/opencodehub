@@ -19,6 +19,7 @@ import { promises as fs } from "node:fs";
 import type { CodeElementNode } from "@opencodehub/core-types";
 import { makeNodeId, type NodeId } from "@opencodehub/core-types";
 import { detectPrismaCalls, detectSupabaseCalls } from "../../extract/orm-detector.js";
+import { importsMapFromExtracted } from "../../extract/receiver-resolver.js";
 import type { ExtractedOrmEdge } from "../../extract/types.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
@@ -67,6 +68,8 @@ async function runOrm(
   parse: ParseOutput,
 ): Promise<OrmOutput> {
   const candidates = scan.files.filter((f) => JS_TS_EXTS.has(extLower(f.relPath)));
+  const importsByFile = importsMapFromExtracted(parse.importsByFile);
+  const strictDetectors = ctx.options.strictDetectors === true;
 
   const collected: ExtractedOrmEdge[] = [];
   for (const f of candidates) {
@@ -82,8 +85,14 @@ async function runOrm(
       });
       continue;
     }
-    for (const e of detectPrismaCalls({ filePath: f.relPath, content })) collected.push(e);
-    for (const e of detectSupabaseCalls({ filePath: f.relPath, content })) collected.push(e);
+    const detectorInput = {
+      filePath: f.relPath,
+      content,
+      importsByFile,
+      strictDetectors,
+    };
+    for (const e of detectPrismaCalls(detectorInput)) collected.push(e);
+    for (const e of detectSupabaseCalls(detectorInput)) collected.push(e);
   }
 
   // Sort deterministically before emission so node/edge IDs land in the

@@ -15,7 +15,16 @@
  *   - Express routing:    https://expressjs.com/en/guide/routing.html
  */
 
+import { resolveReceiver } from "./receiver-resolver.js";
 import type { ExtractedRoute, ExtractInput } from "./types.js";
+
+/**
+ * Module specifier the Express detector verifies receivers against. We
+ * accept only the canonical `"express"` specifier; wrapping libraries
+ * (`express-promise-router`, etc.) that rename `app`/`router` locally will
+ * land via their own `localAlias` so this tight match is safe.
+ */
+const EXPRESS_MODULE = "express";
 
 // ---------------------------------------------------------------------------
 // Next.js (App Router)
@@ -179,17 +188,20 @@ const EXPRESS_VERBS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Regex-scan the file content for Express route registrations. This is a
- * best-effort static scan: it does not resolve receiver identifiers, so a
- * custom `myApp.get('/x', h)` pattern will also be captured.
- * TODO: filter by resolved receiver type once the import graph is available.
+ * Regex-scan the file content for Express route registrations and emit one
+ * {@link ExtractedRoute} per (receiver, verb, path) triple whose receiver
+ * identifier resolves back to the `"express"` npm module. When no import
+ * map is supplied AND {@link ExtractInput.strictDetectors} is `false`, the
+ * detector falls back to the pre-P06 regex-only behavior so dogfood mode
+ * on legacy callers still produces edges.
  */
 export function detectExpressRoutes(input: ExtractInput): readonly ExtractedRoute[] {
-  const { filePath, content } = input;
+  const { filePath, content, importsByFile, tsMorphProject, strictDetectors } = input;
   const out: ExtractedRoute[] = [];
   EXPRESS_ROUTE_RE.lastIndex = 0;
   let match: RegExpExecArray | null = EXPRESS_ROUTE_RE.exec(content);
   while (match !== null) {
+    const receiver = match[1] ?? "";
     const verb = (match[2] ?? "").toLowerCase();
     const pathSingle = match[3];
     const pathDouble = match[4];
@@ -212,6 +224,9 @@ export function detectExpressRoutes(input: ExtractInput): readonly ExtractedRout
       continue;
     }
 
+    if (!confirmExpressReceiver(receiver, filePath, importsByFile, tsMorphProject, strictDetectors))
+      continue;
+
     // Scrape the handler body for `res.json({...})` / `res.send({...})`
     // object-literal shapes so downstream Route nodes can carry
     // `responseKeys`. We scope the scan to the balanced-paren call that
@@ -228,6 +243,44 @@ export function detectExpressRoutes(input: ExtractInput): readonly ExtractedRout
     });
   }
   return out;
+}
+
+/**
+ * Confirm `receiver` resolves to an `express` import in `filePath`. Returns
+ * `true` when:
+ *   - the import-graph or ts-morph path matches `"express"`, OR
+ *   - an import map is present, the receiver itself wasn't resolved, but
+ *     `"express"` is imported somewhere in the file (covers
+ *     `const app = express()` where `app` is a local const, not an
+ *     import) — unless strict mode is on, OR
+ *   - no import map was plumbed AND strict mode is off (legacy fallback).
+ *
+ * Returns `false` when:
+ *   - the receiver resolved to a DIFFERENT module (real false positive), OR
+ *   - an import map was plumbed, strict mode is on, and the receiver
+ *     isn't imported, OR
+ *   - an import map was plumbed, express is not imported anywhere in the
+ *     file, and the receiver itself isn't imported.
+ */
+function confirmExpressReceiver(
+  receiver: string,
+  filePath: string,
+  importsByFile: ExtractInput["importsByFile"],
+  tsMorphProject: ExtractInput["tsMorphProject"],
+  strictDetectors: boolean | undefined,
+): boolean {
+  const origin = resolveReceiver(receiver, filePath, importsByFile, tsMorphProject);
+  if (origin !== null) return origin.moduleName === EXPRESS_MODULE;
+  if (importsByFile !== undefined) {
+    if (strictDetectors) return false;
+    const imports = importsByFile.get(filePath);
+    if (imports === undefined) return false;
+    for (const imp of imports) {
+      if (imp.source === EXPRESS_MODULE) return true;
+    }
+    return false;
+  }
+  return strictDetectors !== true;
 }
 
 // ---------------------------------------------------------------------------
