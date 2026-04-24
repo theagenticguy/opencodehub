@@ -474,6 +474,15 @@ async function runParse(
   };
 
   // ---- Emit IMPORTS edges at file granularity. --------------------------
+  // External-stub emission: imports whose specifier doesn't resolve to an
+  // in-repo file become `CodeElement:<external>:<pkg>:<symbol>` nodes, one
+  // per (specifier, imported-name) pair. The resulting IMPORTS edge
+  // documents the dependency in a form that downstream phases (impact,
+  // wiki, cross-repo contracts) can reason about. Emission is
+  // deterministic: we iterate `importsByFile` in insertion order (parse
+  // phase already sorts files) and dedupe by stub id inside the loop.
+  const EXTERNAL_PATH = "<external>";
+  const emittedStubIds = new Set<NodeId>();
   for (const [importer, imports] of importsByFile) {
     const importerId = makeNodeId("File", importer, importer);
     const lang = languageByFile.get(importer);
@@ -490,9 +499,41 @@ async function runParse(
           confidence: 1,
           reason: "file-imports-file",
         });
+        continue;
       }
-      // Unresolved external specifiers (e.g. `npm` packages) are skipped here.
-      // TODO: cross-file resolution could emit them as CodeElement stubs.
+      // Unresolved external specifier. Skip purely-relative specifiers
+      // that failed to resolve (those would be emitted as `<external>`
+      // but by convention only truly external package names get stubs).
+      if (isRelativeSpecifier(imp.source)) continue;
+      // Build one stub per imported name when the import explicitly
+      // named symbols; fall back to the module alias (namespace /
+      // default) or the bare module name.
+      const symbolNames: readonly string[] =
+        imp.importedNames !== undefined && imp.importedNames.length > 0
+          ? imp.importedNames
+          : imp.localAlias !== undefined
+            ? [imp.localAlias]
+            : [imp.source];
+      for (const symbol of symbolNames) {
+        const stubId = makeNodeId("CodeElement", EXTERNAL_PATH, `${imp.source}:${symbol}`);
+        if (!emittedStubIds.has(stubId)) {
+          emittedStubIds.add(stubId);
+          ctx.graph.addNode({
+            id: stubId,
+            kind: "CodeElement",
+            name: symbol,
+            filePath: EXTERNAL_PATH,
+            content: `external import: ${imp.source}:${symbol}`,
+          });
+        }
+        ctx.graph.addEdge({
+          from: importerId,
+          to: stubId,
+          type: "IMPORTS",
+          confidence: 0.8,
+          reason: "file-imports-external",
+        });
+      }
     }
   }
 
@@ -787,6 +828,24 @@ function parentDir(p: string): string {
   const idx = p.lastIndexOf("/");
   if (idx <= 0) return "";
   return p.slice(0, idx);
+}
+
+/**
+ * `true` when the specifier is a file-system relative / absolute path
+ * rather than an external package name. Detects JS/TS (`./x`, `../x`,
+ * `/x`), Python (dotted starts with `.`), and Go-style absolute module
+ * paths (`example.com/...` do NOT match; those are treated as external
+ * even though they are absolute, because Go's package resolution goes
+ * through the module graph, not the filesystem).
+ */
+function isRelativeSpecifier(source: string): boolean {
+  if (source.length === 0) return false;
+  if (source.startsWith("./") || source.startsWith("../") || source.startsWith("/")) return true;
+  if (source.startsWith(".") && !source.includes("/")) {
+    // Python relative import shapes: `.`, `..mod`, `.sibling`.
+    return true;
+  }
+  return false;
 }
 
 function posixJoin(dir: string, rel: string): string {
