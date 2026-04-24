@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detectMcpTools } from "./tool-detector.js";
+import { canonicalizeObjectLiteral, detectMcpTools } from "./tool-detector.js";
 
 test("detectMcpTools: tool definition under src/tools/ is detected", () => {
   const tools = detectMcpTools({
@@ -62,4 +62,39 @@ test("detectMcpTools: multiple tools in one file are each emitted once", () => {
   assert.equal(tools.length, 2);
   assert.equal(tools[0]?.toolName, "alpha");
   assert.equal(tools[1]?.toolName, "beta");
+});
+
+test("detectMcpTools: captures inputSchema literal as canonical JSON", () => {
+  const tools = detectMcpTools({
+    filePath: "src/tools/schema-tool.ts",
+    content: [
+      "export const definition = {",
+      "  name: 'my_tool',",
+      "  description: 'does things',",
+      "  inputSchema: {",
+      "    type: 'object',",
+      "    properties: { query: { type: 'string' } },",
+      "    required: ['query'],",
+      "  },",
+      "};",
+    ].join("\n"),
+  });
+  assert.equal(tools.length, 1);
+  const schema = tools[0]?.inputSchemaJson;
+  assert.ok(typeof schema === "string" && schema.length > 0);
+  // Canonical form: keys sorted recursively.
+  assert.equal(
+    schema,
+    '{"properties":{"query":{"type":"string"}},"required":["query"],"type":"object"}',
+  );
+});
+
+test("canonicalizeObjectLiteral: returns undefined for template strings / barewords", () => {
+  assert.equal(canonicalizeObjectLiteral("{ type: `object` }"), undefined);
+  assert.equal(canonicalizeObjectLiteral("{ type: foo }"), undefined);
+});
+
+test("canonicalizeObjectLiteral: handles trailing commas + single quotes", () => {
+  const out = canonicalizeObjectLiteral("{ a: 1, b: 'two', }");
+  assert.equal(out, '{"a":1,"b":"two"}');
 });
