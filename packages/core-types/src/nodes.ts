@@ -110,6 +110,21 @@ interface CallableShape {
    * Non-blank, non-comment-only lines of code in the function body (NLOC).
    */
   readonly nloc?: number;
+  /**
+   * Halstead volume for the function body (operators + operands). Populated
+   * by the `complexity` phase when the provider ships a `halsteadOperatorKinds`
+   * table. Absent on legacy nodes and on languages without the table.
+   */
+  readonly halsteadVolume?: number;
+  /**
+   * Natural-language description captured from the function's docstring /
+   * JSDoc / rustdoc / godoc. Populated by the parse phase via @doc captures.
+   */
+  readonly description?: string;
+  /**
+   * Liveness classification produced by the `dead-code` phase.
+   */
+  readonly deadness?: "live" | "dead" | "unreachable_export";
 }
 
 interface TypeDeclShape {
@@ -392,11 +407,52 @@ export interface ContributorNode extends NodeBase {
   readonly emailPlain?: string;
 }
 
+/**
+ * Structured framework detection result emitted by the `profile` phase
+ * frameworks detector. Covers the top-20 frameworks catalog. One object per
+ * detected framework; variant and version fields are populated when the
+ * fingerprint supplies them.
+ */
+export type FrameworkCategory =
+  | "runtime"
+  | "ui"
+  | "meta"
+  | "backend_http"
+  | "data_layer"
+  | "build"
+  | "test"
+  | "mobile_desktop"
+  | "styling"
+  | "cms"
+  | "monorepo"
+  | "signals";
+
+export interface FrameworkDetection {
+  readonly name: string;
+  readonly category: FrameworkCategory;
+  readonly variant?: string;
+  readonly version?: string;
+  readonly confidence: "deterministic" | "heuristic" | "composite";
+  readonly signals: readonly string[];
+  readonly parentName?: string;
+}
+
 /** Detected repository profile (languages, frameworks, sources). Singleton per repo. */
 export interface ProjectProfileNode extends NodeBase {
   readonly kind: "ProjectProfile";
   readonly languages: readonly string[];
+  /**
+   * Flat-string framework list (v1.0 surface). Kept for backward compat.
+   * New consumers should prefer `frameworksDetected` for variant/version info.
+   */
   readonly frameworks: readonly string[];
+  /**
+   * Structured framework detections populated by the `profile` phase's
+   * frameworks detector. One object per detected framework covering the
+   * top-20 catalog with variant, version, confidence, and signal fields.
+   * Absent on legacy v1.0 graphs.
+   */
+  readonly frameworksDetected?: readonly FrameworkDetection[];
   readonly iacTypes: readonly string[];
   readonly apiContracts: readonly string[];
   readonly manifests: readonly string[];

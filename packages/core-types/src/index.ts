@@ -5,6 +5,7 @@ export { graphHash } from "./graph-hash.js";
 export { canonicalJson, hash6, hashCanonicalJson, sha256Hex, writeCanonicalJson } from "./hash.js";
 export type { EdgeId, MakeNodeIdOptions, NodeId, ParsedNodeId } from "./id.js";
 export { makeEdgeId, makeNodeId, parseNodeId } from "./id.js";
+export type { LanguageId } from "./language-id.js";
 export { LSP_PROVENANCE_PREFIXES } from "./lsp-provenance.js";
 export type {
   AnnotationNode,
@@ -22,6 +23,8 @@ export type {
   FileNode,
   FindingNode,
   FolderNode,
+  FrameworkCategory,
+  FrameworkDetection,
   FunctionNode,
   GraphNode,
   ImplNode,
