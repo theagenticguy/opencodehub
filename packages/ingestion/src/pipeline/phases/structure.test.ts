@@ -15,6 +15,7 @@ function mockScan(files: ReadonlyArray<Pick<ScanOutput["files"][number], "relPat
       grammarSha: null,
     })),
     totalBytes: 0,
+    submodulePaths: [],
   };
 }
 

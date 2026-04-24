@@ -33,7 +33,7 @@ function makeScanOutput(files: readonly FakeFileSpec[]): ScanOutput {
     grammarSha: null,
   }));
   entries.sort((a, b) => (a.relPath < b.relPath ? -1 : 1));
-  return { files: entries, totalBytes: 0 };
+  return { files: entries, totalBytes: 0, submodulePaths: [] };
 }
 
 function makeCtx(options: PipelineContext["options"]): PipelineContext {
