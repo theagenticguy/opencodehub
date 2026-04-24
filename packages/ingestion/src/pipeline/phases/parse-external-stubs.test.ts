@@ -76,9 +76,7 @@ describe("parsePhase external-specifier stubs", () => {
 
       // Each stub must have an IMPORTS edge from the importer file.
       const imports = [...ctx.graph.edges()].filter((e) => e.type === "IMPORTS");
-      const externalEdges = imports.filter((e) =>
-        (e.to as string).includes(":<external>:"),
-      );
+      const externalEdges = imports.filter((e) => (e.to as string).includes(":<external>:"));
       assert.ok(externalEdges.length >= 2, "expected IMPORTS edges to stubs");
       for (const e of externalEdges) {
         assert.equal(e.reason, "file-imports-external");
@@ -149,9 +147,7 @@ describe("parsePhase external-specifier stubs", () => {
       const ctx = await runParseOn(repo);
 
       const prismaStubs = [...ctx.graph.nodes()].filter(
-        (n) =>
-          n.kind === "CodeElement" &&
-          n.id.includes(":@prisma/client:PrismaClient"),
+        (n) => n.kind === "CodeElement" && n.id.includes(":@prisma/client:PrismaClient"),
       );
       assert.equal(prismaStubs.length, 1, "stub node must be deduped across files");
 

@@ -61,7 +61,6 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   const nodes = opts.nodes ?? new Map<string, FakeNode>();
   const summaryRows = opts.summaryRows;
 
-
   const handle: FakeStoreHandle = {
     lastQuery: null,
     searchCalls: 0,
@@ -264,9 +263,7 @@ test("cli query: --content attaches the file body to each JSON result", async ()
     await mkdir(resolve(repoPath, "src"), { recursive: true });
     await writeFile(fileAbs, "export function foo() { return 42; }\n", "utf8");
     const handle = makeFakeStore({
-      searchRows: [
-        { nodeId: "F:foo", score: 2, filePath: fileRel, name: "foo", kind: "Function" },
-      ],
+      searchRows: [{ nodeId: "F:foo", score: 2, filePath: fileRel, name: "foo", kind: "Function" }],
     });
     const stdout = await captureStdout(async () => {
       await runQuery("foo", { content: true, json: true }, hooksFor(handle, repoPath));
@@ -326,9 +323,7 @@ test("cli query: --content caps long files at 2000 chars with an ellipsis", asyn
     // 3000-char file — safely past the 2000 cap.
     await writeFile(fileAbs, "x".repeat(3000), "utf8");
     const handle = makeFakeStore({
-      searchRows: [
-        { nodeId: "F:big", score: 2, filePath: fileRel, name: "big", kind: "Function" },
-      ],
+      searchRows: [{ nodeId: "F:big", score: 2, filePath: fileRel, name: "big", kind: "Function" }],
     });
     const stdout = await captureStdout(async () => {
       await runQuery("big", { content: true, json: true }, hooksFor(handle, repoPath));

@@ -319,10 +319,9 @@ async function joinSummaries(
   if (typeof lookup !== "function") return out;
   const uniqIds = Array.from(new Set(nodeIds));
   try {
-    const rows = (await (lookup as (ids: readonly string[]) => Promise<readonly SymbolSummaryRow[]>).call(
-      store,
-      uniqIds,
-    )) as readonly SymbolSummaryRow[];
+    const rows = (await (
+      lookup as (ids: readonly string[]) => Promise<readonly SymbolSummaryRow[]>
+    ).call(store, uniqIds)) as readonly SymbolSummaryRow[];
     for (const row of rows) {
       // Overwriting per node id keeps the newest prompt version because of
       // the storage layer's ORDER BY contract on `lookupSymbolSummariesByNode`.
@@ -358,10 +357,7 @@ function buildSearchText(
  * tool has access to the richer node metadata and can slice more tightly.
  * Any read error returns `null`.
  */
-async function readSymbolContent(
-  repoPath: string,
-  r: QueryRow,
-): Promise<string | null> {
+async function readSymbolContent(repoPath: string, r: QueryRow): Promise<string | null> {
   const abs = isAbsolute(r.filePath) ? r.filePath : resolve(repoPath, r.filePath);
   let source: string;
   try {

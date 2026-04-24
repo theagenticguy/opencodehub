@@ -1348,9 +1348,7 @@ function jsonArrayOrNull(v: unknown): string | null {
  * sniffs the shape.
  */
 function frameworksJsonOrNull(flat: unknown, detected: unknown): string | null {
-  const flatArr = Array.isArray(flat)
-    ? flat.filter((x): x is string => typeof x === "string")
-    : [];
+  const flatArr = Array.isArray(flat) ? flat.filter((x): x is string => typeof x === "string") : [];
   const detectedArr = Array.isArray(detected) ? detected : [];
   if (detectedArr.length === 0) {
     // Preserve the legacy wire shape when there is nothing structured to emit.

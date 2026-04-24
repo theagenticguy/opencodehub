@@ -9,11 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { detectPrismaCalls, detectSupabaseCalls } from "./orm-detector.js";
-import {
-  type ImportedSymbol,
-  resolveReceiver,
-  type TsMorphProject,
-} from "./receiver-resolver.js";
+import { type ImportedSymbol, resolveReceiver, type TsMorphProject } from "./receiver-resolver.js";
 import { detectExpressRoutes } from "./route-detector.js";
 
 test("resolveReceiver: matches a localAlias to its module", () => {
@@ -85,10 +81,7 @@ test("detectPrismaCalls: logger.user.info(...) — no Prisma edge", () => {
 
 test("detectPrismaCalls: real @prisma/client import → edge emitted", () => {
   const imports = new Map<string, readonly ImportedSymbol[]>([
-    [
-      "src/db.ts",
-      [{ source: "@prisma/client", importedNames: ["PrismaClient"] }],
-    ],
+    ["src/db.ts", [{ source: "@prisma/client", importedNames: ["PrismaClient"] }]],
   ]);
   const edges = detectPrismaCalls({
     filePath: "src/db.ts",

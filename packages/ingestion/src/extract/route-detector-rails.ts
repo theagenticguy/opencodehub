@@ -22,8 +22,7 @@
 import type { ExtractedRoute } from "./types.js";
 
 /** Pattern: `get "/path"` / `post "/path"` / etc. */
-const VERB_RE =
-  /^\s*(get|post|put|patch|delete|head|options)\s+(?:"([^"]*)"|'([^']*)')/gm;
+const VERB_RE = /^\s*(get|post|put|patch|delete|head|options)\s+(?:"([^"]*)"|'([^']*)')/gm;
 
 /** Pattern: `resources :posts` / `resource :profile`. */
 const RESOURCE_RE = /^\s*(resources?)\s+:([A-Za-z_][\w]*)/gm;
@@ -31,8 +30,7 @@ const RESOURCE_RE = /^\s*(resources?)\s+:([A-Za-z_][\w]*)/gm;
 /** Pattern: `namespace :admin do`. */
 const NAMESPACE_START_RE = /^\s*namespace\s+:([A-Za-z_][\w]*)\s+do\b/;
 /** Pattern: `scope "/api"` / `scope path: "/api"`. */
-const SCOPE_START_RE =
-  /^\s*scope\s+(?:"([^"]*)"|'([^']*)'|path\s*:\s*(?:"([^"]*)"|'([^']*)'))/;
+const SCOPE_START_RE = /^\s*scope\s+(?:"([^"]*)"|'([^']*)'|path\s*:\s*(?:"([^"]*)"|'([^']*)'))/;
 /** A trailing `end` keyword on a line. */
 const END_RE = /^\s*end\b/;
 
@@ -109,7 +107,12 @@ export function detectRailsRoutes(filePath: string, content: string): readonly E
         out.push({ url: base, method: "POST", handlerFile: filePath, framework: "rails" });
         out.push({ url: `${base}/new`, method: "GET", handlerFile: filePath, framework: "rails" });
         out.push({ url: idSegment, method: "GET", handlerFile: filePath, framework: "rails" });
-        out.push({ url: `${idSegment}/edit`, method: "GET", handlerFile: filePath, framework: "rails" });
+        out.push({
+          url: `${idSegment}/edit`,
+          method: "GET",
+          handlerFile: filePath,
+          framework: "rails",
+        });
         out.push({ url: idSegment, method: "PATCH", handlerFile: filePath, framework: "rails" });
         out.push({ url: idSegment, method: "PUT", handlerFile: filePath, framework: "rails" });
         out.push({ url: idSegment, method: "DELETE", handlerFile: filePath, framework: "rails" });

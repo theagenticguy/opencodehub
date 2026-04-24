@@ -25,8 +25,7 @@ import type { ExtractedRoute, ExtractInput } from "./types.js";
 const METHOD_RE =
   /@\s*(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping)\s*(?:\(\s*(?:value\s*=\s*)?(?:"([^"]*)"|\{\s*"([^"]*)"\s*\}))?/g;
 
-const REQUEST_MAPPING_RE =
-  /@\s*RequestMapping\s*\(([\s\S]*?)\)/g;
+const REQUEST_MAPPING_RE = /@\s*RequestMapping\s*\(([\s\S]*?)\)/g;
 
 const CLASS_DECL_RE = /\bclass\s+([A-Za-z_][\w]*)/g;
 
@@ -123,7 +122,8 @@ function collectClassRanges(content: string): readonly ClassRange[] {
   for (let i = 0; i < ranges.length; i++) {
     const r = ranges[i];
     if (r === undefined) continue;
-    const endIdx = i + 1 < ranges.length ? (ranges[i + 1]?.startIdx ?? content.length) : content.length;
+    const endIdx =
+      i + 1 < ranges.length ? (ranges[i + 1]?.startIdx ?? content.length) : content.length;
     const baseUrl = readClassRequestMappingAbove(content, r.startIdx);
     out.push({ startIdx: r.startIdx, endIdx, baseUrl });
   }

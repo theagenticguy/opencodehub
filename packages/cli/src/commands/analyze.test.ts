@@ -52,7 +52,12 @@ test("resolveMaxSummariesCap: negative integers clamp to 0 (dry-run)", async () 
 });
 
 test("resolveMaxSummariesCap: non-integer numbers are floored", async () => {
-  const cap = await resolveMaxSummariesCap("/unused", 7.9 as unknown as number, true, async () => 0);
+  const cap = await resolveMaxSummariesCap(
+    "/unused",
+    7.9 as unknown as number,
+    true,
+    async () => 0,
+  );
   assert.equal(cap, 7);
 });
 

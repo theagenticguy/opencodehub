@@ -8,9 +8,9 @@ export { DEFAULT_EMBEDDER_DIM, NullEmbedder } from "./embedder.js";
 export {
   DEFAULT_HYBRID_LIMIT,
   DEFAULT_ZOOM_FANOUT,
+  type HybridQuery,
   hybridBm25Only,
   hybridSearch,
-  type HybridQuery,
 } from "./hybrid.js";
 export { embeddingsPopulated, tryOpenEmbedder } from "./open-embedder.js";
 export { groupByProcess, type ProcessBucket } from "./process-grouping.js";

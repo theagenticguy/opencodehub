@@ -90,7 +90,7 @@ describe("cppProvider (behavior)", () => {
     assert.ok(sources.includes("db.h"));
   });
 
-  it("parses C++20 import (named module, <system>, \"user\")", () => {
+  it('parses C++20 import (named module, <system>, "user")', () => {
     const source = `import std;
 export import math.core;
 import <vector>;

@@ -89,7 +89,9 @@ test("loadGitignoreChain: 3-level nested fixture with negation edge cases", asyn
 });
 
 test("parseGitignore: negation, directory-only, anchored all parse correctly", () => {
-  const rules = parseGitignore(["# comment", "*.log", "!keep.log", "/root-only", "build/"].join("\n"));
+  const rules = parseGitignore(
+    ["# comment", "*.log", "!keep.log", "/root-only", "build/"].join("\n"),
+  );
   assert.equal(rules.length, 4);
   const [starLog, keep, rootOnly, buildDir] = rules;
   assert.equal(starLog?.negate, false);

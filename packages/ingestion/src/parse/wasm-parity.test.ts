@@ -15,16 +15,16 @@
 
 import { strict as assert } from "node:assert";
 import { after, before, describe, it } from "node:test";
-import { getUnifiedQuery } from "./unified-queries.js";
+import { parseFixture } from "../providers/test-helpers.js";
 import type { LanguageId } from "./types.js";
+import { getUnifiedQuery } from "./unified-queries.js";
 import {
-  openWasmParser,
-  isNativeAvailable,
   _resetWasmCacheForTests,
+  isNativeAvailable,
+  openWasmParser,
   type WasmParserHandle,
 } from "./wasm-fallback.js";
 import { ParsePool } from "./worker-pool.js";
-import { parseFixture } from "../providers/test-helpers.js";
 
 /** 20 TypeScript bodies. */
 const TS_FIXTURES: readonly string[] = [

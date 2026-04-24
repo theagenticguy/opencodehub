@@ -314,7 +314,10 @@ async function runParse(
   // doc captures around so `graphNodeForDefinition` can attach a
   // description when one of them aligns with the definition per the
   // per-language heuristic implemented in `descriptionForDefinition`.
-  const docCapturesByFile = new Map<string, { startLine: number; endLine: number; text: string }[]>();
+  const docCapturesByFile = new Map<
+    string,
+    { startLine: number; endLine: number; text: string }[]
+  >();
   for (const result of parseResults) {
     const docs = result.captures
       .filter((c) => c.tag === "doc")
