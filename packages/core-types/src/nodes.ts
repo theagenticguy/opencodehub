@@ -125,6 +125,17 @@ interface CallableShape {
    * Liveness classification produced by the `dead-code` phase.
    */
   readonly deadness?: "live" | "dead" | "unreachable_export";
+  /**
+   * Line-level coverage ratio in [0, 1] for this callable. Populated by the
+   * `coverage` phase when a report is supplied; absent otherwise.
+   */
+  readonly coveragePercent?: number;
+  /**
+   * JSON-encoded array of 1-based covered line numbers scoped to this
+   * callable's body. Populated by the `coverage` phase when a report is
+   * supplied; absent otherwise.
+   */
+  readonly coveredLinesJson?: string;
 }
 
 interface TypeDeclShape {
@@ -356,7 +367,11 @@ export interface ToolNode extends NodeBase {
   readonly kind: "Tool";
   readonly toolName: string;
   readonly description?: string;
-  /** JSON-encoded input schema for the tool (v2.0). */
+  /**
+   * JSON-encoded input schema captured from the MCP / JSON-RPC tool
+   * definition literal. Canonical (key-sorted) so downstream consumers can
+   * diff two tool declarations byte-for-byte.
+   */
   readonly inputSchemaJson?: string;
 }
 
@@ -368,11 +383,23 @@ export interface FindingNode extends LocatedNode {
   readonly scannerId: string;
   readonly message: string;
   readonly propertiesBag: Record<string, unknown>;
-  /** SARIF partialFingerprint (v2.0 baselining). */
+  /**
+   * SARIF `partialFingerprints["opencodehub/v1"]` — a content-plus-context
+   * hash produced by `enrichWithFingerprints` that survives line-level
+   * shifts and file renames. Used as the match key for baseline diffs.
+   */
   readonly partialFingerprint?: string;
-  /** SARIF baselineState (v2.0 baselining). */
+  /**
+   * SARIF 2.1.0 `result.baselineState` tag, resolved against the frozen
+   * baseline SARIF when one exists. When no baseline is configured the
+   * column stays NULL and consumers should treat every finding as `new`.
+   */
   readonly baselineState?: "new" | "unchanged" | "updated" | "absent";
-  /** JSON-encoded suppression metadata (v2.0 baselining). */
+  /**
+   * JSON-encoded suppression metadata: `{ rules: [...], reasonCategory: ... }`
+   * for findings suppressed via `.codehub/suppressions.yaml` or an inline
+   * `codehub-suppress:` comment. NULL when the finding is not suppressed.
+   */
   readonly suppressedJson?: string;
 }
 

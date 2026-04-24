@@ -87,13 +87,23 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
       ownership_drift_30d  DOUBLE,
       ownership_drift_90d  DOUBLE,
       ownership_drift_365d DOUBLE,
-      -- v2.0 extensions (append-only: preserves load-bearing column order)
+      -- v1.2 extensions (append-only: preserves load-bearing column order).
+      -- dead-code phase: deadness. coverage phase: coverage_percent and
+      -- covered_lines_json. complexity phase: cyclomatic_complexity,
+      -- nesting_depth, nloc, halstead_volume. tools phase:
+      -- input_schema_json. SARIF ingest: partial_fingerprint,
+      -- baseline_state, suppressed_json.
       deadness             TEXT,
       coverage_percent     DOUBLE,
       covered_lines_json   TEXT,
       cyclomatic_complexity INTEGER,
       nesting_depth        INTEGER,
-      nloc                 INTEGER
+      nloc                 INTEGER,
+      halstead_volume      DOUBLE,
+      input_schema_json    TEXT,
+      partial_fingerprint  TEXT,
+      baseline_state       TEXT,
+      suppressed_json      TEXT
     )`,
 
     `CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes (kind)`,
