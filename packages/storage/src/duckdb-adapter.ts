@@ -656,6 +656,33 @@ export class DuckDbStore implements IGraphStore {
     }
   }
 
+  /**
+   * Batched query-path join helper: fetch summaries for many nodes in one
+   * round trip, returning the newest prompt-version row per node. Built on
+   * top of {@link lookupSymbolSummariesByNode} — that method returns rows
+   * ordered by `(node_id, prompt_version, content_hash)`, so collapsing to
+   * the last row per `node_id` yields the newest prompt version.
+   *
+   * This is the surface the MCP `query` tool and the CLI `query` command
+   * use to enrich search hits with summaries post-P04. The single-row
+   * {@link lookupSymbolSummary} remains the cache-probe surface used by
+   * the ingestion phase.
+   */
+  async getSymbolSummariesByNodeIds(
+    ids: readonly string[],
+  ): Promise<Map<string, SymbolSummaryRow>> {
+    const out = new Map<string, SymbolSummaryRow>();
+    if (ids.length === 0) return out;
+    const uniqIds = Array.from(new Set(ids));
+    const rows = await this.lookupSymbolSummariesByNode(uniqIds);
+    for (const row of rows) {
+      // Rows arrive sorted by (node_id ASC, prompt_version ASC). Overwriting
+      // on each id keeps the newest prompt version after the full scan.
+      out.set(row.nodeId, row);
+    }
+    return out;
+  }
+
   // --------------------------------------------------------------------------
   // Query surfaces
   // --------------------------------------------------------------------------
