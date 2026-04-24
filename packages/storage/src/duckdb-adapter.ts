@@ -1142,7 +1142,11 @@ function nodeToRow(node: GraphNode): readonly (SqlParam | readonly string[])[] {
     stringOrNull(n["emailPlain"]),
     // ProjectProfile (JSON-encoded array fields)
     jsonArrayOrNull(n["languages"]),
-    jsonArrayOrNull(n["frameworks"]),
+    // `frameworks_json` is the polymorphic column: legacy rows store a
+    // flat `string[]`, v2.0 rows store `{ flat, detected }` so the
+    // structured `FrameworkDetection[]` survives a round-trip. Read-back
+    // at `packages/mcp/src/tools/project-profile.ts` handles both shapes.
+    frameworksJsonOrNull(n["frameworks"], n["frameworksDetected"]),
     jsonArrayOrNull(n["iacTypes"]),
     jsonArrayOrNull(n["apiContracts"]),
     jsonArrayOrNull(n["manifests"]),
@@ -1211,6 +1215,32 @@ function jsonArrayOrNull(v: unknown): string | null {
   if (typeof v === "string") return v;
   if (!Array.isArray(v)) return null;
   return JSON.stringify(v);
+}
+
+/**
+ * Serialize the polymorphic `frameworks_json` column.
+ *
+ * Two generations coexist:
+ *   - Legacy v1.0 graphs (before P05) wrote a flat `string[]` via
+ *     `jsonArrayOrNull`. Reader code must accept that shape unchanged.
+ *   - v2.0 graphs (after P05) write `{ flat: string[], detected: FrameworkDetection[] }`.
+ *
+ * The encoding is JSON in both cases. When the node carries no structured
+ * detections (`frameworksDetected` absent or empty) we emit the legacy
+ * flat-array shape so existing read paths continue to work without a
+ * version bump. The read side in `packages/mcp/src/tools/project-profile.ts`
+ * sniffs the shape.
+ */
+function frameworksJsonOrNull(flat: unknown, detected: unknown): string | null {
+  const flatArr = Array.isArray(flat)
+    ? flat.filter((x): x is string => typeof x === "string")
+    : [];
+  const detectedArr = Array.isArray(detected) ? detected : [];
+  if (detectedArr.length === 0) {
+    // Preserve the legacy wire shape when there is nothing structured to emit.
+    return JSON.stringify(flatArr);
+  }
+  return JSON.stringify({ flat: flatArr, detected: detectedArr });
 }
 
 /**
