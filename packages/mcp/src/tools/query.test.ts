@@ -32,6 +32,7 @@ import type {
   SearchResult,
   SqlParam,
   StoreMeta,
+  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -86,6 +87,13 @@ interface FakeStoreOptions {
    * exists + is populated. Defaults to false.
    */
   readonly summariesJoined?: boolean;
+  /**
+   * Summary rows keyed by nodeId. Mirrors the `symbol_summaries` table;
+   * the fake `lookupSymbolSummariesByNode` returns every row whose
+   * nodeId is in the lookup set. When set, `summariesJoined` should also
+   * be true so the tool's probe lets the join run.
+   */
+  readonly summaryRows?: ReadonlyMap<string, SymbolSummaryRow>;
   /**
    * Pre-built process membership triples. When omitted, the
    * process-grouping SQL falls through to the throw-unsupported path and
@@ -234,7 +242,25 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
     lookupCochangesBetween: async () => undefined,
     bulkLoadSymbolSummaries: async () => {},
     lookupSymbolSummary: async () => undefined,
-    lookupSymbolSummariesByNode: async () => [],
+    lookupSymbolSummariesByNode: async (
+      nodeIds: readonly string[],
+    ): Promise<readonly SymbolSummaryRow[]> => {
+      const byId = opts.summaryRows;
+      if (byId === undefined) return [];
+      const out: SymbolSummaryRow[] = [];
+      for (const id of nodeIds) {
+        const row = byId.get(id);
+        if (row !== undefined) out.push(row);
+      }
+      // Mirror the real SQL's ordering contract so callers can rely on
+      // "last write wins" to pick the newest prompt version.
+      out.sort((a, b) => {
+        if (a.nodeId !== b.nodeId) return a.nodeId < b.nodeId ? -1 : 1;
+        if (a.promptVersion !== b.promptVersion) return a.promptVersion < b.promptVersion ? -1 : 1;
+        return a.contentHash < b.contentHash ? -1 : a.contentHash > b.contentHash ? 1 : 0;
+      });
+      return out;
+    },
   } as unknown as DuckDbStore;
   handle.store = impl;
   return handle;
@@ -663,6 +689,110 @@ test("query: long snippets are truncated to the 200-char cap", async () => {
       const s = sc.results[0]?.snippet ?? "";
       assert.ok(s.length <= 200, `snippet must be <=200 chars, got ${s.length}`);
       assert.ok(s.endsWith("…"), "truncation ellipsis marker expected");
+    },
+  );
+});
+
+test("query: summary rows are joined onto each hit (P04)", async () => {
+  // Store reports `symbol_summaries` is populated AND carries a row for
+  // F:foo. The tool must attach `summary` (and `signatureSummary` when
+  // present) to that hit while leaving F:bar untouched (no row).
+  const summaryRows: ReadonlyMap<string, SymbolSummaryRow> = new Map([
+    [
+      "F:foo",
+      {
+        nodeId: "F:foo",
+        contentHash: "c0ffee",
+        promptVersion: "1",
+        modelId: "global.anthropic.claude-haiku-4-5-v1:0",
+        summaryText: "Greet the user by name with a configurable locale.",
+        signatureSummary: "name: string, locale: string",
+        returnsTypeSummary: "greeting string",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ],
+  ]);
+  await withHarness(
+    {
+      embeddingRows: 0,
+      searchRows: [
+        { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+        { nodeId: "F:bar", score: 1, filePath: "src/bar.ts", name: "bar", kind: "Function" },
+      ],
+      vectorRows: [],
+      nodes: NODES_FOO_BAR,
+      summariesJoined: true,
+      summaryRows,
+    },
+    {},
+    async ({ ctx, server }) => {
+      registerQueryTool(server, ctx);
+      const handler = getHandler(server, "query");
+      const result = await handler({ query: "foo", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as {
+        results: Array<{
+          nodeId: string;
+          summary?: string;
+          signatureSummary?: string;
+        }>;
+      };
+      const foo = sc.results.find((r) => r.nodeId === "F:foo");
+      const bar = sc.results.find((r) => r.nodeId === "F:bar");
+      assert.ok(foo, "expected F:foo in results");
+      assert.equal(
+        foo.summary,
+        "Greet the user by name with a configurable locale.",
+        "summary text must round-trip onto the hit",
+      );
+      assert.equal(
+        foo.signatureSummary,
+        "name: string, locale: string",
+        "signatureSummary must round-trip onto the hit",
+      );
+      assert.ok(bar, "expected F:bar in results");
+      assert.equal(bar.summary, undefined, "F:bar has no summary row; field must stay absent");
+      assert.equal(bar.signatureSummary, undefined);
+    },
+  );
+});
+
+test("query: summary join is skipped when summariesJoined=false", async () => {
+  // The tool's probe short-circuits the lookup when no table exists.
+  // Exercise that path: even if the fake store COULD return a row, the
+  // tool must not ask for it because summariesJoined=false.
+  const summaryRows: ReadonlyMap<string, SymbolSummaryRow> = new Map([
+    [
+      "F:foo",
+      {
+        nodeId: "F:foo",
+        contentHash: "c0ffee",
+        promptVersion: "1",
+        modelId: "m",
+        summaryText: "should-not-appear",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ],
+  ]);
+  await withHarness(
+    {
+      embeddingRows: 0,
+      searchRows: [
+        { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+      ],
+      vectorRows: [],
+      nodes: NODES_FOO_BAR,
+      summariesJoined: false,
+      summaryRows,
+    },
+    {},
+    async ({ ctx, server }) => {
+      registerQueryTool(server, ctx);
+      const handler = getHandler(server, "query");
+      const result = await handler({ query: "foo", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as {
+        results: Array<{ summary?: string }>;
+      };
+      assert.equal(sc.results[0]?.summary, undefined);
     },
   );
 });
