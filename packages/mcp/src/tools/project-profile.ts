@@ -8,10 +8,18 @@
  * the profile phase shipped (or the phase failed to write the node), we
  * return empty arrays and a hint nudging the caller toward `codehub
  * analyze --force`.
+ *
+ * `frameworks_json` is polymorphic across two generations:
+ *   - v1.0 (legacy) → a flat `string[]` of framework names.
+ *   - v2.0 (post-P05) → `{ flat: string[], detected: FrameworkDetection[] }`
+ *     so variant / version / confidence / parent metadata survives the
+ *     round-trip. Both are read transparently; callers receive both a
+ *     flat form (backward-compat) and the structured form in the payload.
  */
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { FrameworkDetection } from "@opencodehub/core-types";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -35,7 +43,10 @@ const ProjectProfileInput = {
 
 interface ProjectProfilePayload {
   readonly languages: readonly string[];
+  /** Flat-string framework view (backward-compat). */
   readonly frameworks: readonly string[];
+  /** Structured framework detections with variant / version / confidence / parent. */
+  readonly frameworksDetected: readonly FrameworkDetection[];
   readonly iacTypes: readonly string[];
   readonly apiContracts: readonly string[];
   readonly manifests: readonly string[];
@@ -53,6 +64,47 @@ function parseJsonArray(raw: unknown): readonly string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Decode the polymorphic `frameworks_json` column. Returns both the flat
+ * form (legacy-compat) and the structured form (v2.0). When the column
+ * holds the legacy flat array, `detected` is empty.
+ */
+function parseFrameworksJson(raw: unknown): {
+  readonly flat: readonly string[];
+  readonly detected: readonly FrameworkDetection[];
+} {
+  if (raw == null || typeof raw !== "string" || raw.length === 0) {
+    return { flat: [], detected: [] };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { flat: [], detected: [] };
+  }
+  // Legacy shape — a flat array of names.
+  if (Array.isArray(parsed)) {
+    const flat = parsed.filter((x): x is string => typeof x === "string");
+    return { flat, detected: [] };
+  }
+  // v2.0 shape — `{ flat, detected }`.
+  if (typeof parsed === "object" && parsed !== null) {
+    const rec = parsed as Record<string, unknown>;
+    const flat = Array.isArray(rec["flat"])
+      ? (rec["flat"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : [];
+    const detected = Array.isArray(rec["detected"])
+      ? (rec["detected"] as unknown[]).filter((x): x is FrameworkDetection => {
+          if (typeof x !== "object" || x === null) return false;
+          const d = x as Record<string, unknown>;
+          return typeof d["name"] === "string" && typeof d["category"] === "string";
+        })
+      : [];
+    return { flat, detected };
+  }
+  return { flat: [], detected: [] };
 }
 
 interface ProjectProfileArgs {
@@ -73,9 +125,13 @@ export async function runProjectProfile(
       )) as ReadonlyArray<Record<string, unknown>>;
 
       const row = rows[0];
+      const { flat: frameworksFlat, detected: frameworksDetected } = parseFrameworksJson(
+        row?.["frameworks_json"],
+      );
       const payload: ProjectProfilePayload = {
         languages: parseJsonArray(row?.["languages_json"]),
-        frameworks: parseJsonArray(row?.["frameworks_json"]),
+        frameworks: frameworksFlat,
+        frameworksDetected,
         iacTypes: parseJsonArray(row?.["iac_types_json"]),
         apiContracts: parseJsonArray(row?.["api_contracts_json"]),
         manifests: parseJsonArray(row?.["manifests_json"]),
@@ -94,9 +150,14 @@ export async function runProjectProfile(
         );
       }
       if (payload.frameworks.length > 0) {
-        lines.push(
-          `  frameworks    (${payload.frameworks.length}): ${payload.frameworks.join(", ")}`,
-        );
+        // Prefer the structured form for display when available — render
+        // each framework with its variant so operators see "nextjs:app-router"
+        // rather than a bare "nextjs". Fall back to flat names.
+        const display =
+          payload.frameworksDetected.length > 0
+            ? payload.frameworksDetected.map((d) => (d.variant ? `${d.name}:${d.variant}` : d.name))
+            : payload.frameworks;
+        lines.push(`  frameworks    (${display.length}): ${display.join(", ")}`);
       }
       if (payload.iacTypes.length > 0) {
         lines.push(`  iacTypes      (${payload.iacTypes.length}): ${payload.iacTypes.join(", ")}`);
@@ -154,7 +215,7 @@ export function registerProjectProfileTool(server: McpServer, ctx: ToolContext):
     {
       title: "Project Profile",
       description:
-        "Returns the detected project profile: languages, frameworks, IaC types, API contracts, manifests, source directories.",
+        "Returns the detected project profile: languages, frameworks (flat + structured), IaC types, API contracts, manifests, source directories.",
       inputSchema: ProjectProfileInput,
       annotations: {
         readOnlyHint: true,
