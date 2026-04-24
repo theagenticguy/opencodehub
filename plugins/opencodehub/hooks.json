@@ -1,0 +1,29 @@
+{
+  "description": "Augment searches with graph context and auto-reindex after git mutations",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/augment.sh",
+            "timeout": 5,
+            "statusMessage": "Enriching with codehub graph context..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"${CLAUDE_TOOL_INPUT:-}\" | grep -qE 'git (commit|merge|rebase|pull)'; then codehub analyze --incremental --quiet || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

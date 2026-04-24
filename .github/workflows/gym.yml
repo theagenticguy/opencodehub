@@ -1,0 +1,230 @@
+name: Gym
+
+# Differential LSP oracle gym: replays the reference-graph corpus through
+# real LSPs (pyright, typescript-language-server, gopls, rust-analyzer) and
+# gates regression against the baseline manifest at
+# packages/gym/baselines/manifest.jsonl.
+#
+# One job per language (matrix) plus a monorepo job that exercises the
+# in-tree electron-ws-python fixture. LSP server binaries are cached per
+# language + OS + lockfile hash.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gym-matrix:
+    name: gym (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, typescript, go, rust]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout (with fixture submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install mise-managed toolchain (node, pnpm, python, uv)
+        uses: jdx/mise-action@v4
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Set up Go toolchain
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Cache gopls binary
+        if: matrix.language == 'go'
+        id: cache-gopls
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: gopls-${{ runner.os }}-v0.21.0
+
+      - name: Install gopls
+        if: matrix.language == 'go' && steps.cache-gopls.outputs.cache-hit != 'true'
+        run: go install golang.org/x/tools/gopls@v0.21.0
+
+      - name: Add gopls to PATH
+        if: matrix.language == 'go'
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Rust toolchain (stable + rust-analyzer)
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-analyzer
+
+      - name: Cache cargo registry
+        if: matrix.language == 'rust'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/gym/corpus/repos/rust/**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache pip wheels
+        if: matrix.language == 'python'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('packages/gym/corpus/repos/python/**/pyproject.toml', 'packages/gym/corpus/repos/python/**/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all workspace packages
+        run: pnpm -r build
+
+      - name: Run gym (${{ matrix.language }})
+        id: gym-run
+        run: |
+          node packages/gym/dist/cli.js run \
+            --corpus "packages/gym/corpus/${{ matrix.language }}/**/*.yaml" \
+            --baseline packages/gym/baselines/manifest.jsonl \
+            --output /tmp/current.jsonl \
+            --language ${{ matrix.language }}
+
+      - name: Upload current manifest on failure
+        if: failure() && steps.gym-run.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gym-manifest-${{ matrix.language }}-${{ github.sha }}
+          path: /tmp/current.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Comment gate summary on PR regression
+        if: github.event_name == 'pull_request' && failure() && steps.gym-run.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const language = '${{ matrix.language }}';
+            let summary = '(no manifest emitted)';
+            try {
+              const raw = fs.readFileSync('/tmp/current.jsonl', 'utf8');
+              const records = raw.split('\n').filter(Boolean);
+              const rollups = new Map();
+              for (const line of records) {
+                try {
+                  const rec = JSON.parse(line);
+                  const key = `${rec.language ?? '?'}/${rec.server ?? '?'}/${rec.query ?? '?'}`;
+                  const prev = rollups.get(key) ?? { n: 0, f1Sum: 0 };
+                  if (typeof rec.f1 === 'number') {
+                    prev.n += 1;
+                    prev.f1Sum += rec.f1;
+                    rollups.set(key, prev);
+                  }
+                } catch {
+                  // ignore malformed lines — summary is best-effort
+                }
+              }
+              const lines = [];
+              for (const [key, v] of [...rollups.entries()].sort()) {
+                const meanF1 = v.n === 0 ? 'n/a' : (v.f1Sum / v.n).toFixed(3);
+                lines.push(`- \`${key}\` cases=${v.n} meanF1=${meanF1}`);
+              }
+              summary = lines.length > 0 ? lines.join('\n') : '(no rollups in manifest)';
+            } catch (e) {
+              summary = `(could not read /tmp/current.jsonl: ${e.message})`;
+            }
+            const body = [
+              `### Gym regression: \`${language}\``,
+              '',
+              `The gym gate failed for the **${language}** matrix cell on commit \`${context.sha.slice(0, 7)}\`.`,
+              '',
+              'Rollup summary from this run:',
+              '',
+              summary,
+              '',
+              `Full manifest artifact: \`gym-manifest-${language}-${context.sha}\` (uploaded on failure).`,
+              '',
+              'If this regression is intentional, update `packages/gym/baselines/manifest.jsonl` in a follow-up PR using `mise run gym:baseline`.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+  gym-monorepo:
+    name: gym (monorepo)
+    needs: gym-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (with fixture submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install mise-managed toolchain (node, pnpm, python, uv)
+        uses: jdx/mise-action@v4
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all workspace packages
+        run: pnpm -r build
+
+      - name: Run gym (monorepo corpus)
+        id: gym-run
+        run: |
+          node packages/gym/dist/cli.js run \
+            --corpus "packages/gym/corpus/monorepo/**/*.yaml" \
+            --baseline packages/gym/baselines/manifest.jsonl \
+            --output /tmp/current.jsonl
+
+      - name: Upload current manifest on failure
+        if: failure() && steps.gym-run.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gym-manifest-monorepo-${{ github.sha }}
+          path: /tmp/current.jsonl
+          if-no-files-found: warn
+          retention-days: 14

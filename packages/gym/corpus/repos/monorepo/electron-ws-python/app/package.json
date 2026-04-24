@@ -1,0 +1,11 @@
+{
+  "name": "electron-ws-python-app",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "tsc -b tsconfig.json && vite build",
+    "build:main": "tsc -b tsconfig.main.json"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@opencodehub/lsp-oracle",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — pyright-langserver LSP oracle (raw stdio JSON-RPC client for Python reference/implementation/call-hierarchy queries)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "reference"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test './dist/**/*.test.js'",
+    "test:integration": "node --test './dist/**/*.integration.test.js'",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "jsonc-parser": "3.3.1",
+    "pyright": "1.1.390",
+    "typescript": "5.9.3",
+    "typescript-language-server": "5.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2"
+  }
+}

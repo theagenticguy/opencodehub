@@ -1,0 +1,163 @@
+language: typescript
+corpus:
+  name: electron-ws-python
+  commit: 92d563c20d86e87df9f946f1b2ad550b193905d6
+  path: monorepo/electron-ws-python
+tool:
+  name: typescript-language-server
+  version: 5.1.3
+cases:
+  # ---------------------------------------------------------------------------
+  # Confirmed cases (4) — well-tuned tsserver with tsconfig project references
+  # honored SHOULD return these. Exercises multi-tsconfig cross-package refs
+  # (renderer/main both include app/shared) and intra-package call hierarchy.
+  # ---------------------------------------------------------------------------
+
+  - id: mono-ts.references.WsMessage
+    kind: references
+    target:
+      symbolName: WsMessage
+      file: app/shared/types.ts
+      line: 25
+      column: 13
+    expected:
+      - file: app/renderer/stores/chatStore.ts
+        line: 1
+        column: 28
+      - file: app/renderer/stores/chatStore.ts
+        line: 18
+        column: 44
+        enclosing: "Function:app/renderer/stores/chatStore.ts:sendMessage"
+      - file: app/renderer/stores/settingsStore.ts
+        line: 1
+        column: 46
+      - file: app/renderer/stores/settingsStore.ts
+        line: 13
+        column: 44
+        enclosing: "Function:app/renderer/stores/settingsStore.ts:fetchSettings"
+      - file: app/renderer/stores/settingsStore.ts
+        line: 17
+        column: 48
+        enclosing: "Function:app/renderer/stores/settingsStore.ts:fetchSettings"
+    labeler: opus-4-7
+    labeler_note: >-
+      WsMessage is the discriminated-union message type defined in the shared
+      tsconfig leaf app/shared. The renderer tsconfig includes app/shared via
+      references, so tsserver's findReferences should surface the `satisfies
+      WsMessage` assertion site in chatStore.ts plus all three usages in
+      settingsStore.ts (import, satisfies, and the `as WsMessage` cast on the
+      incoming event payload). Import statements are included because tsserver
+      reports them as reference results. preload.ts is NOT expected here — it
+      imports QuickworkBridge, not WsMessage. Exercises tsconfig-aware
+      cross-project reference resolution enabled by the TypeScriptClient
+      warmup shipped in commit 92d563c.
+
+  - id: mono-ts.references.QuickworkBridge
+    kind: references
+    target:
+      symbolName: QuickworkBridge
+      file: app/shared/types.ts
+      line: 34
+      column: 18
+    expected:
+      - file: app/main/preload.ts
+        line: 2
+        column: 15
+      - file: app/main/preload.ts
+        line: 4
+        column: 15
+      - file: app/shared/types.ts
+        line: 41
+        column: 16
+    labeler: opus-4-7
+    labeler_note: >-
+      QuickworkBridge is the contextBridge surface interface. The main-process
+      tsconfig includes app/shared via references, so the import and typed
+      const in preload.ts are reachable refs. The `declare global { interface
+      Window { quickwork: QuickworkBridge } }` block lives in types.ts itself
+      (NOT in App.tsx) — the renderer references window.quickwork at runtime
+      through that ambient global, which is a separate v1 gap tracked by the
+      waived mono-ts.references.window.quickwork.takeScreenshot case below.
+
+  - id: mono-ts.callers.sendMessage
+    kind: callers
+    target:
+      symbolName: sendMessage
+      file: app/renderer/stores/chatStore.ts
+      line: 16
+      column: 17
+    expected:
+      - file: app/renderer/App.tsx
+        line: 2
+        column: 10
+      - file: app/renderer/stores/chatStore.ts
+        line: 26
+        column: 11
+        enclosing: "Function:app/renderer/stores/chatStore.ts:useChatStore"
+    labeler: opus-4-7
+    labeler_note: >-
+      sendMessage is called indirectly via the useChatStore hook — App.tsx
+      imports the symbol (callHierarchy treats the named-import site as an
+      incoming reference) and then chatStore.ts wires it into the returned
+      ChatState object as the `send` field. The App.tsx onSend handler calls
+      `chat.send(draft)` rather than sendMessage directly, so the invocation
+      is reached through the hook's returned object — only the import and the
+      wiring site are deterministic caller rows.
+
+  - id: mono-ts.callers.registerScreenshotHandler
+    kind: callers
+    target:
+      symbolName: registerScreenshotHandler
+      file: app/main/screenshot.ts
+      line: 6
+      column: 17
+    expected:
+      - file: app/main/index.ts
+        line: 3
+        column: 10
+      - file: app/main/index.ts
+        line: 26
+        column: 3
+        enclosing: "Function:app/main/index.ts:<anonymous>"
+    labeler: opus-4-7
+    labeler_note: >-
+      registerScreenshotHandler is the Electron main-process IPC registration
+      function. index.ts imports it (line 3) and invokes it once inside the
+      app.whenReady() arrow callback (line 26). Both sites live inside the
+      main tsconfig project; this is a purely intra-main case that should
+      resolve without cross-project help. Enclosing scope is an anonymous
+      arrow passed to whenReady().then().
+
+  # ---------------------------------------------------------------------------
+  # Waived (1) — documented v1 gap: Electron contextBridge IPC boundary.
+  # Static reference tooling cannot bridge the `contextBridge.exposeInMainWorld`
+  # call in preload.ts to the `window.quickwork.takeScreenshot()` runtime
+  # reference in App.tsx. The only static evidence is the string literal
+  # "quickwork" on both sides.
+  # ---------------------------------------------------------------------------
+
+  - id: mono-ts.references.window.quickwork.takeScreenshot
+    kind: references
+    target:
+      symbolName: QuickworkBridge.takeScreenshot
+      file: app/shared/types.ts
+      line: 35
+      column: 3
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: >-
+      takeScreenshot is a method on the QuickworkBridge interface, which is
+      attached to the ambient `Window` type via `declare global { interface
+      Window { quickwork: QuickworkBridge } }`. App.tsx calls
+      `window.quickwork.takeScreenshot()` at runtime. tsserver's
+      findReferences WILL surface the App.tsx call site if the renderer
+      tsconfig picks up the ambient declaration from app/shared/types.ts,
+      but the CALLS edge from preload.ts's
+      `contextBridge.exposeInMainWorld("quickwork", bridge)` to that runtime
+      reference is INVISIBLE to static analysis — the only link is the string
+      literal "quickwork" on both sides. This is a documented v1 gap for the
+      reference-graph oracle: runtime-only IPC bridging is not resolvable
+      without string-tracking or dynamic instrumentation. Waived with empty
+      expected so the gate-3 regression check skips this case rather than
+      treating an LSP-only or bridge-aware answer as a regression.

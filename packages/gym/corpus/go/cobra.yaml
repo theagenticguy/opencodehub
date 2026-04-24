@@ -1,0 +1,425 @@
+language: go
+corpus:
+  name: cobra
+  commit: 40b5bc1437a564fc795d388b23835e84f54cd1d1
+  path: go/cobra
+tool:
+  name: gopls
+  version: 0.21.0
+cases:
+  # ---------- implementations (2) ----------
+
+  - id: cobra.implementations.PositionalArgs
+    kind: implementations
+    target:
+      symbolName: PositionalArgs
+      file: args.go
+      line: 22
+      column: 6
+    expected:
+      - file: args.go
+        line: 28
+        column: 6
+        enclosing: legacyArgs
+      - file: args.go
+        line: 42
+        column: 6
+        enclosing: NoArgs
+      - file: args.go
+        line: 51
+        column: 6
+        enclosing: OnlyValidArgs
+      - file: args.go
+        line: 69
+        column: 6
+        enclosing: ArbitraryArgs
+    labeler: opus-4-7
+    labeler_note: |
+      PositionalArgs is a function type (args.go:22). gopls reports top-level named
+      functions with the matching signature func(cmd *Command, args []string) error
+      as implementations. The four such functions in the cobra root package are
+      legacyArgs, NoArgs, OnlyValidArgs, and ArbitraryArgs — all in args.go. The
+      factory funcs (MinimumNArgs, ExactArgs, RangeArgs, MatchAll, ExactValidArgs)
+      RETURN PositionalArgs rather than having that signature themselves, so they
+      are excluded. Tests and _examples/ are out of scope per the task boundaries.
+
+  - id: cobra.implementations.SliceValue
+    kind: implementations
+    target:
+      symbolName: SliceValue
+      file: completions.go
+      line: 304
+      column: 6
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: |
+      SliceValue is a minimal in-cobra mirror of pflag.SliceValue used only for a
+      type-assertion at completions.go:438. No type inside the cobra package
+      implements it; the real implementations live in spf13/pflag (vendored/module
+      cache), which is outside the fixture submodule. Waived until we wire pflag
+      into the fixture or decide how to encode external-dependency impls.
+
+  # ---------- references (5) ----------
+
+  - id: cobra.references.Command
+    kind: references
+    target:
+      symbolName: Command
+      file: command.go
+      line: 54
+      column: 6
+    expected:
+      - file: command.go
+        line: 128
+        column: 29
+        enclosing: Command
+      - file: command.go
+        line: 1337
+        column: 10
+        enclosing: Command.AddCommand
+      - file: args.go
+        line: 22
+        column: 31
+      - file: active_help.go
+        line: 47
+        column: 31
+        enclosing: GetActiveHelpConfig
+      - file: command_win.go
+        line: 30
+        column: 21
+        enclosing: preExecHook
+      - file: command_notwin.go
+        line: 20
+        column: 25
+    labeler: opus-4-7
+    labeler_note: |
+      Command is the central struct (declared command.go:54). Curated cross-file
+      references: a Command struct field (PersistentPreRun takes *Command at 128:29),
+      a method receiver (1337:10), the PositionalArgs type signature (args.go:22:31),
+      a free helper signature (active_help.go:47:31), and the build-tagged preExecHook
+      variants on both platforms. Not exhaustive — Command has 200+ references across
+      the package — but every entry here is unambiguous and easy to audit.
+
+  - id: cobra.references.RunE
+    kind: references
+    target:
+      symbolName: Command.RunE
+      file: command.go
+      line: 138
+      column: 2
+    expected:
+      - file: command.go
+        line: 1014
+        column: 7
+        enclosing: Command.execute
+      - file: command.go
+        line: 1015
+        column: 15
+        enclosing: Command.execute
+      - file: command.go
+        line: 1592
+        column: 27
+        enclosing: Command.Runnable
+      - file: completions.go
+        line: 813
+        column: 3
+        enclosing: Command.InitDefaultCompletionCmd
+      - file: completions.go
+        line: 849
+        column: 3
+        enclosing: Command.InitDefaultCompletionCmd
+      - file: completions.go
+        line: 877
+        column: 3
+        enclosing: Command.InitDefaultCompletionCmd
+      - file: completions.go
+        line: 899
+        column: 3
+        enclosing: Command.InitDefaultCompletionCmd
+    labeler: opus-4-7
+    labeler_note: |
+      RunE is the error-returning run hook — a struct field on Command (command.go:138).
+      References split cleanly into two groups: (1) reads inside Command.execute
+      (the dispatch core) and Command.Runnable (the capability check), and
+      (2) writes in the four shell-completion subcommand constructors. Tests
+      excluded per the task boundaries.
+
+  - id: cobra.references.PositionalArgs
+    kind: references
+    target:
+      symbolName: PositionalArgs
+      file: args.go
+      line: 22
+      column: 6
+    expected:
+      - file: command.go
+        line: 93
+        column: 7
+      - file: args.go
+        line: 74
+        column: 26
+        enclosing: MinimumNArgs
+      - file: args.go
+        line: 84
+        column: 26
+        enclosing: MaximumNArgs
+      - file: args.go
+        line: 94
+        column: 23
+        enclosing: ExactArgs
+      - file: args.go
+        line: 104
+        column: 34
+        enclosing: RangeArgs
+      - file: args.go
+        line: 114
+        column: 24
+        enclosing: MatchAll
+      - file: args.go
+        line: 129
+        column: 28
+        enclosing: ExactValidArgs
+    labeler: opus-4-7
+    labeler_note: |
+      PositionalArgs is the only named function type in cobra's public surface used
+      as a first-class value. Its consumer is the Command.Args struct field
+      (command.go:93), and six factory funcs in args.go take or return it
+      (MinimumNArgs, MaximumNArgs, ExactArgs, RangeArgs, MatchAll, ExactValidArgs).
+      These seven sites are the full in-package ref set excluding tests.
+
+  - id: cobra.references.Execute
+    kind: references
+    target:
+      symbolName: Command.Execute
+      file: command.go
+      line: 1070
+      column: 19
+    expected:
+      - file: command.go
+        line: 1064
+        column: 11
+        enclosing: Command.ExecuteContext
+    labeler: opus-4-7
+    labeler_note: |
+      Command.Execute is the canonical entrypoint. Inside cobra itself it has exactly
+      one internal call site — Command.ExecuteContext at command.go:1064 — because
+      end-user programs (outside the fixture) are what call Execute in practice.
+      This intentionally narrow set pressure-tests gopls's ability to NOT over-return
+      documentation-style mentions.
+
+  - id: cobra.references.AddCommand
+    kind: references
+    target:
+      symbolName: Command.AddCommand
+      file: command.go
+      line: 1337
+      column: 19
+    expected:
+      - file: command.go
+        line: 1308
+        column: 4
+        enclosing: Command.InitDefaultHelpCmd
+      - file: completions.go
+        line: 289
+        column: 4
+        enclosing: Command.initCompleteCmd
+      - file: completions.go
+        line: 765
+        column: 4
+        enclosing: Command.InitDefaultCompletionCmd
+      - file: completions.go
+        line: 911
+        column: 16
+        enclosing: Command.InitDefaultCompletionCmd
+    labeler: opus-4-7
+    labeler_note: |
+      Command.AddCommand wires subcommands onto a parent. Non-test in-package call
+      sites are the four default-command constructors: the help-command registrar
+      and three completion-command constructors. Every site is a receiver-call of
+      the form `<cmd>.AddCommand(...)`.
+
+  # ---------- callers (6) ----------
+
+  - id: cobra.callers.Command.execute
+    kind: callers
+    target:
+      symbolName: Command.execute
+      file: command.go
+      line: 905
+      column: 19
+    expected:
+      - file: command.go
+        line: 1148
+        column: 12
+        enclosing: Command.ExecuteC
+    labeler: opus-4-7
+    labeler_note: |
+      Command.execute (lowercase — the unexported dispatch core) is called from
+      exactly one site in non-test cobra code: Command.ExecuteC at command.go:1148.
+      The only other textual hit for `.execute(` is a comment at completions.go:342,
+      which is not a real call. This is a strong 1-expected golden.
+
+  - id: cobra.callers.Command.Execute
+    kind: callers
+    target:
+      symbolName: Command.Execute
+      file: command.go
+      line: 1070
+      column: 19
+    expected:
+      - file: command.go
+        line: 1064
+        column: 11
+        enclosing: Command.ExecuteContext
+    labeler: opus-4-7
+    labeler_note: |
+      Only one in-package caller: Command.ExecuteContext delegates to Execute()
+      after stashing the ctx. All other callers live in user programs outside the
+      fixture. Confirms gopls does not hallucinate extra dispatch edges.
+
+  - id: cobra.callers.Command.ExecuteC
+    kind: callers
+    target:
+      symbolName: Command.ExecuteC
+      file: command.go
+      line: 1084
+      column: 19
+    expected:
+      - file: command.go
+        line: 1071
+        column: 14
+        enclosing: Command.Execute
+      - file: command.go
+        line: 1080
+        column: 11
+        enclosing: Command.ExecuteContextC
+      - file: command.go
+        line: 1091
+        column: 19
+        enclosing: Command.ExecuteC
+    labeler: opus-4-7
+    labeler_note: |
+      ExecuteC is the "return the command" variant. Three callers inside cobra —
+      Execute delegates to it (1071), ExecuteContextC delegates to it (1080), and
+      ExecuteC itself recurses onto the root when invoked on a non-root command
+      (1091). The self-recursion is a good test for whether gopls correctly reports
+      intra-function self-calls as callers.
+
+  - id: cobra.callers.Command.AddCommand
+    kind: callers
+    target:
+      symbolName: Command.AddCommand
+      file: command.go
+      line: 1337
+      column: 19
+    expected:
+      - file: command.go
+        line: 1308
+        column: 4
+        enclosing: Command.InitDefaultHelpCmd
+      - file: completions.go
+        line: 289
+        column: 4
+        enclosing: Command.initCompleteCmd
+      - file: completions.go
+        line: 765
+        column: 4
+        enclosing: Command.InitDefaultCompletionCmd
+      - file: completions.go
+        line: 911
+        column: 16
+        enclosing: Command.InitDefaultCompletionCmd
+    labeler: opus-4-7
+    labeler_note: |
+      Four non-test AddCommand call sites, matching the references case. Included
+      here specifically to exercise gopls's callHierarchy/incomingCalls path against
+      the textual references path — gold values should be identical (modulo the
+      declaration, which references includes and callers does not).
+
+  - id: cobra.callers.Command.PersistentFlags
+    kind: callers
+    target:
+      symbolName: Command.PersistentFlags
+      file: command.go
+      line: 1770
+      column: 19
+    expected:
+      - file: command.go
+        line: 384
+        column: 4
+        enclosing: Command.SetGlobalNormalizationFunc
+      - file: command.go
+        line: 1698
+        column: 23
+        enclosing: Command.LocalNonPersistentFlags
+      - file: command.go
+        line: 1733
+        column: 4
+        enclosing: Command.LocalFlags
+      - file: command.go
+        line: 1802
+        column: 11
+        enclosing: Command.HasPersistentFlags
+      - file: command.go
+        line: 1823
+        column: 11
+        enclosing: Command.HasAvailablePersistentFlags
+      - file: command.go
+        line: 1852
+        column: 12
+        enclosing: Command.persistentFlag
+      - file: command.go
+        line: 1895
+        column: 25
+        enclosing: Command.mergePersistentFlags
+      - file: command.go
+        line: 1913
+        column: 11
+        enclosing: Command.updateParentsPflags
+      - file: command.go
+        line: 1916
+        column: 37
+        enclosing: Command.updateParentsPflags
+      - file: shell_completions.go
+        line: 32
+        column: 28
+        enclosing: Command.MarkPersistentFlagRequired
+      - file: shell_completions.go
+        line: 62
+        column: 28
+        enclosing: Command.MarkPersistentFlagFilename
+      - file: shell_completions.go
+        line: 91
+        column: 27
+        enclosing: Command.MarkPersistentFlagDirname
+    labeler: opus-4-7
+    labeler_note: |
+      PersistentFlags is a high-fanout accessor — twelve in-package call sites
+      spread across command.go and shell_completions.go. Includes single-line
+      method chains (`c.PersistentFlags().HasFlags()`), nested calls
+      (`c.Flags().AddFlagSet(c.PersistentFlags())`), and call-through-parent
+      (`parent.PersistentFlags()`). A good stress-test for callHierarchy precision.
+
+  - id: cobra.callers.Command.FlagErrorFunc
+    kind: callers
+    target:
+      symbolName: Command.FlagErrorFunc
+      file: command.go
+      line: 547
+      column: 19
+    expected:
+      - file: command.go
+        line: 553
+        column: 19
+        enclosing: Command.FlagErrorFunc
+      - file: command.go
+        line: 921
+        column: 12
+        enclosing: Command.ParseFlags
+    labeler: opus-4-7
+    labeler_note: |
+      Command.FlagErrorFunc is the getter that walks the parent chain for a
+      custom flag-error handler. Two callers: (1) itself (553) — parent recursion;
+      (2) Command.ParseFlags at 921, which invokes the resolved function on a
+      parse error. Small, sharp golden for callHierarchy accuracy.

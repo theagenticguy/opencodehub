@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"],
+    "skipLibCheck": true,
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

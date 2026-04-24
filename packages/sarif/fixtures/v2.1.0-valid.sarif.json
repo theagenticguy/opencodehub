@@ -1,0 +1,73 @@
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "version": "1.50.0",
+          "informationUri": "https://semgrep.dev",
+          "rules": [
+            {
+              "id": "javascript.lang.security.audit.xss.direct-response-write.direct-response-write",
+              "name": "direct-response-write",
+              "shortDescription": {
+                "text": "Reflected XSS via direct res.write"
+              },
+              "defaultConfiguration": { "level": "error" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "javascript.lang.security.audit.xss.direct-response-write.direct-response-write",
+          "level": "error",
+          "message": {
+            "text": "Detected user input flowing into res.write, which may lead to reflected XSS."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/web/page.ts" },
+                "region": { "startLine": 42, "startColumn": 5, "endLine": 42, "endColumn": 28 }
+              }
+            }
+          ],
+          "partialFingerprints": { "primaryLocationLineHash": "6f0a91bbf8a4c2cd" },
+          "fingerprints": { "matchBasedId/v1": "a73d2c9" },
+          "properties": {
+            "opencodehub.blastRadius": 7,
+            "opencodehub.cochangeScore": 0.81
+          }
+        }
+      ]
+    },
+    {
+      "tool": {
+        "driver": {
+          "name": "gitleaks",
+          "semanticVersion": "8.18.0",
+          "informationUri": "https://github.com/gitleaks/gitleaks"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "aws-access-key-id",
+          "level": "warning",
+          "message": { "text": "Possible AWS access key id leaked in fixture" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "infra/creds.example" },
+                "region": { "startLine": 3 }
+              }
+            }
+          ],
+          "partialFingerprints": { "primaryLocationLineHash": "1122334455667788" }
+        }
+      ]
+    }
+  ]
+}

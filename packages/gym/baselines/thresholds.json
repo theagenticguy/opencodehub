@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "languages": {
+    "python": { "f1Floor": 0.95, "f1DeltaTolerance": 0.005 },
+    "typescript": { "f1Floor": 0.90, "f1DeltaTolerance": 0.01 },
+    "go": { "f1Floor": 0.90, "f1DeltaTolerance": 0.01 },
+    "rust": { "f1Floor": 0.85, "f1DeltaTolerance": 0.015 }
+  }
+}

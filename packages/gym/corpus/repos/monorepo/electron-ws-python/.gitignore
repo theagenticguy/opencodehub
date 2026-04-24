@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+out/
+.vite/
+*.tsbuildinfo
+
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+.DS_Store
+*.log

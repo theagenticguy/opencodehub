@@ -1,0 +1,60 @@
+[tools]
+node = "22"
+pnpm = "10.32"
+python = "3.12"
+uv = "latest"
+
+[env]
+_.python.venv = { path = "packages/eval/.venv", create = true }
+NODE_ENV = "development"
+FORCE_COLOR = "1"
+
+[tasks.build]
+description = "Build all TypeScript packages"
+run = "pnpm -r build"
+sources = ["packages/*/src/**/*.ts", "packages/*/package.json"]
+outputs = ["packages/*/dist/**"]
+
+[tasks.test]
+description = "Run all tests"
+run = "pnpm -r test"
+
+[tasks.lint]
+description = "Biome check"
+run = "pnpm exec biome check ."
+
+[tasks.format]
+description = "Biome format"
+run = "pnpm exec biome format --write ."
+
+[tasks.typecheck]
+description = "TypeScript typecheck (no emit)"
+run = "pnpm -r exec tsc --noEmit"
+
+[tasks.banned-strings]
+description = "Verify no banned identifiers leaked in"
+run = "bash scripts/check-banned-strings.sh"
+
+[tasks.licenses]
+description = "License allowlist check"
+run = "pnpm exec license-checker-rseidelsohn --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' --excludePrivatePackages --production"
+
+[tasks.osv]
+description = "OSV vulnerability scan"
+run = "osv-scanner scan source --lockfile pnpm-lock.yaml ."
+
+[tasks.check]
+description = "Full local CI: lint + typecheck + test + banned-strings"
+depends = ["lint", "typecheck", "test", "banned-strings"]
+
+[tasks.gym]
+description = "Run differential LSP oracle gym against current baseline"
+run = "node packages/gym/dist/cli.js run"
+
+[tasks."gym:baseline"]
+description = "Lock a new baseline manifest from the current gym run"
+run = "node packages/gym/dist/cli.js baseline"
+
+[tasks."gym:replay"]
+description = "Bit-exact replay of a frozen manifest (no LSP spawn)"
+run = "node packages/gym/dist/cli.js replay"
