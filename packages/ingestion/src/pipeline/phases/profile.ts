@@ -26,7 +26,7 @@
 import type { ProjectProfileNode } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
 import { detectApiContracts } from "../profile-detectors/api-contracts.js";
-import { detectFrameworks } from "../profile-detectors/frameworks.js";
+import { detectFrameworksDetailed } from "../profile-detectors/frameworks.js";
 import { detectIaCTypes } from "../profile-detectors/iac.js";
 import { detectLanguages } from "../profile-detectors/languages.js";
 import { detectManifests } from "../profile-detectors/manifests.js";
@@ -61,12 +61,21 @@ async function runProfile(ctx: PipelineContext, scan: ScanOutput): Promise<Profi
   // know which manifest files exist before probing for declared deps.
   const manifests = detectManifests(files);
   const languages = detectLanguages(files);
-  const [iacTypes, apiContracts, frameworks] = await Promise.all([
+  const [iacTypes, apiContracts, frameworksDetected] = await Promise.all([
     detectIaCTypes(ctx.repoPath, files),
     detectApiContracts(ctx.repoPath, files),
-    detectFrameworks({ repoRoot: ctx.repoPath, files, manifests }),
+    detectFrameworksDetailed({
+      repoRoot: ctx.repoPath,
+      files,
+      manifests,
+      detectedLanguages: languages,
+    }),
   ]);
   const srcDirs = detectSrcDirs(files);
+  // Backward-compatible flat list — the `name` of each detection in sorted
+  // order. The structured list is the source of truth; the flat list is a
+  // projection kept for v1.0 consumers.
+  const frameworks: readonly string[] = frameworksDetected.map((d) => d.name);
 
   // Singleton per repo: use a constant qualified name so the id is stable
   // across clones of the same repo on different absolute paths. The graph
@@ -82,6 +91,7 @@ async function runProfile(ctx: PipelineContext, scan: ScanOutput): Promise<Profi
     filePath: "",
     languages,
     frameworks,
+    frameworksDetected,
     iacTypes,
     apiContracts,
     manifests,
