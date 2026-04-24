@@ -374,16 +374,21 @@ export class DuckDbStore implements IGraphStore {
 
     await c.run("BEGIN TRANSACTION");
     try {
-      // Remove any pre-existing rows with matching (node_id, chunk_index) so
-      // this method is effectively an upsert.
+      // Remove any pre-existing rows with matching (node_id, granularity,
+      // chunk_index) so this method is effectively an upsert. The id column
+      // encodes granularity now (`Emb:<tier>:<nodeId>:<chunkIndex>`) so two
+      // tiers pointing at the same underlying node never collide on the
+      // primary key.
       const delStmt = await c.prepare(
-        "DELETE FROM embeddings WHERE node_id = ? AND chunk_index = ?",
+        "DELETE FROM embeddings WHERE node_id = ? AND granularity = ? AND chunk_index = ?",
       );
       try {
         for (const r of rows) {
+          const granularity = r.granularity ?? "symbol";
           delStmt.clearBindings();
           delStmt.bindVarchar(1, r.nodeId);
-          delStmt.bindInteger(2, r.chunkIndex);
+          delStmt.bindVarchar(2, granularity);
+          delStmt.bindInteger(3, r.chunkIndex);
           await delStmt.run();
         }
       } finally {
@@ -391,7 +396,7 @@ export class DuckDbStore implements IGraphStore {
       }
 
       const insStmt = await c.prepare(
-        "INSERT INTO embeddings (id, node_id, chunk_index, start_line, end_line, vector, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO embeddings (id, node_id, granularity, chunk_index, start_line, end_line, vector, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
       try {
         for (const r of rows) {
@@ -400,14 +405,21 @@ export class DuckDbStore implements IGraphStore {
               `Embedding dimension mismatch: got ${r.vector.length}, expected ${dim}`,
             );
           }
+          const granularity = r.granularity ?? "symbol";
           insStmt.clearBindings();
-          insStmt.bindVarchar(1, `Emb:${r.nodeId}:${r.chunkIndex}`);
+          // Id includes the tier so cross-tier collisions on `(nodeId,
+          // chunkIndex)` are impossible. Legacy rows produced before P03
+          // used `Emb:<nodeId>:<chunkIndex>`; DuckDB lets two rows coexist
+          // across schema versions as long as the PK is unique within the
+          // on-disk file, which this scheme guarantees.
+          insStmt.bindVarchar(1, `Emb:${granularity}:${r.nodeId}:${r.chunkIndex}`);
           insStmt.bindVarchar(2, r.nodeId);
-          insStmt.bindInteger(3, r.chunkIndex);
-          bindParam(insStmt, 4, r.startLine ?? null);
-          bindParam(insStmt, 5, r.endLine ?? null);
-          insStmt.bindArray(6, arrayValue(Array.from(r.vector)), arrType);
-          insStmt.bindVarchar(7, r.contentHash);
+          insStmt.bindVarchar(3, granularity);
+          insStmt.bindInteger(4, r.chunkIndex);
+          bindParam(insStmt, 5, r.startLine ?? null);
+          bindParam(insStmt, 6, r.endLine ?? null);
+          insStmt.bindArray(7, arrayValue(Array.from(r.vector)), arrType);
+          insStmt.bindVarchar(8, r.contentHash);
           await insStmt.run();
         }
       } finally {
@@ -773,15 +785,41 @@ export class DuckDbStore implements IGraphStore {
     const c = this.requireConn();
     const limit = q.limit ?? 10;
 
+    // Normalize the granularity filter (optional) into a list of tier names
+    // so we can push a single IN-predicate through hnsw_acorn — the extension
+    // handles the ACORN-1 push-down for us.
+    const granularities: readonly string[] | undefined =
+      q.granularity === undefined
+        ? undefined
+        : Array.isArray(q.granularity)
+          ? (q.granularity as readonly string[])
+          : [q.granularity as string];
+
+    const extraWhere: string[] = [];
+    const extraParams: SqlParam[] = [];
+    if (granularities !== undefined && granularities.length > 0) {
+      const ph = granularities.map(() => "?").join(",");
+      extraWhere.push(`e.granularity IN (${ph})`);
+      for (const g of granularities) extraParams.push(g);
+    }
+
     // Filter-first subquery pattern: pre-filter embeddings by the optional
     // whereClause (joined to nodes as `n`) and only then compute distance +
     // ORDER BY. This sidesteps DuckDB planner quirks where an HNSW index scan
     // might drop the WHERE filter entirely on small datasets.
-    const filterSql = q.whereClause
+    const userWhere = q.whereClause;
+    const needsJoin = userWhere !== undefined && userWhere.length > 0;
+    const whereParts: string[] = [];
+    if (userWhere !== undefined && userWhere.length > 0) whereParts.push(`(${userWhere})`);
+    whereParts.push(...extraWhere);
+    const wherePredicate = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const filterSql = needsJoin
       ? `SELECT e.node_id, e.vector
          FROM embeddings e JOIN nodes n ON n.id = e.node_id
-         WHERE ${q.whereClause}`
-      : `SELECT e.node_id, e.vector FROM embeddings e`;
+         ${wherePredicate}`
+      : `SELECT e.node_id, e.vector
+         FROM embeddings e
+         ${wherePredicate}`;
     const sql = `WITH filtered AS (${filterSql})
       SELECT node_id, array_distance(vector, ?) AS distance
       FROM filtered
@@ -790,12 +828,16 @@ export class DuckDbStore implements IGraphStore {
 
     const stmt = await c.prepare(sql);
     try {
-      // Positional binds: whereClause params first, then vector, then limit.
+      // Positional binds: whereClause params first, then granularity params,
+      // then vector, then limit.
       let idx = 1;
       if (q.params) {
         for (const p of q.params) {
           bindParam(stmt, idx++, p);
         }
+      }
+      for (const p of extraParams) {
+        bindParam(stmt, idx++, p);
       }
       stmt.bindArray(idx++, arrayValue(Array.from(q.vector)), ARRAY(FLOAT, this.embeddingDim));
       stmt.bindInteger(idx++, limit);

@@ -187,8 +187,26 @@ export interface BulkLoadOptions {
   readonly mode?: "replace" | "upsert";
 }
 
+/**
+ * Granularity tiers for hierarchical embeddings (P03). A single `embeddings`
+ * table carries rows at every tier; the discriminator column lets callers
+ * restrict the HNSW traversal via a WHERE filter pushed into `hnsw_acorn`.
+ *
+ * - `"symbol"` — one vector per callable symbol (v1.0 behaviour).
+ * - `"file"` — one vector per file (coarse tier used by `--zoom`).
+ * - `"community"` — one vector per Community node (architectural tier).
+ */
+export type EmbeddingGranularity = "symbol" | "file" | "community";
+
 export interface EmbeddingRow {
   readonly nodeId: string;
+  /**
+   * Tier the row belongs to. Optional on the TypeScript interface so legacy
+   * callers that build rows without explicitly setting it still compile; the
+   * DuckDB DDL defaults NULL inputs to `'symbol'` so the on-disk row always
+   * carries a value. Writers produced by P03 always set this explicitly.
+   */
+  readonly granularity?: EmbeddingGranularity;
   readonly chunkIndex: number;
   readonly startLine?: number;
   readonly endLine?: number;
@@ -229,6 +247,14 @@ export interface VectorQuery {
   readonly whereClause?: string;
   readonly params?: readonly SqlParam[];
   readonly limit?: number;
+  /**
+   * Restrict the search to rows at one or more granularity tiers (P03).
+   * When omitted the search sees every row regardless of tier — that matches
+   * the v1.0 behaviour where only 'symbol' rows existed. Passed through to
+   * `hnsw_acorn` as a WHERE filter (`granularity = ?` or `granularity IN
+   * (?,?,…)`), which keeps the single HNSW index serving every tier.
+   */
+  readonly granularity?: EmbeddingGranularity | readonly EmbeddingGranularity[];
 }
 
 export interface VectorResult {

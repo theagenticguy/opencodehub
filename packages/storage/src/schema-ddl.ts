@@ -125,9 +125,16 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
     `CREATE INDEX IF NOT EXISTS idx_relations_type ON relations (type)`,
     `CREATE INDEX IF NOT EXISTS idx_relations_confidence ON relations (confidence)`,
 
+    // `granularity` discriminates hierarchical embedding tiers (P03): rows at
+    // 'symbol' granularity mirror the v1.0 behaviour; 'file' and 'community'
+    // tiers are additive. The DEFAULT clause backfills legacy v1.0 rows to
+    // 'symbol' when a v1.2 reader opens an older file — no re-index required.
+    // A single HNSW index covers the column; filter-aware traversal via
+    // `hnsw_acorn` push-down keeps one index serving all three tiers.
     `CREATE TABLE IF NOT EXISTS embeddings (
       id            TEXT PRIMARY KEY,
       node_id       TEXT NOT NULL,
+      granularity   TEXT NOT NULL DEFAULT 'symbol',
       chunk_index   INTEGER NOT NULL,
       start_line    INTEGER,
       end_line      INTEGER,
@@ -135,8 +142,16 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
       content_hash  TEXT NOT NULL
     )`,
 
+    // In-place migration: older DuckDB files that were created against the
+    // v1.0 schema lack the `granularity` column entirely — CREATE TABLE IF
+    // NOT EXISTS is a no-op on those. Add the column defensively so readers
+    // can filter on it without special-casing. DuckDB supports IF NOT EXISTS
+    // on ADD COLUMN since 0.9.
+    `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS granularity TEXT NOT NULL DEFAULT 'symbol'`,
+
     `CREATE INDEX IF NOT EXISTS idx_embeddings_node ON embeddings (node_id)`,
     `CREATE INDEX IF NOT EXISTS idx_embeddings_hash ON embeddings (content_hash)`,
+    `CREATE INDEX IF NOT EXISTS idx_embeddings_granularity ON embeddings (granularity)`,
 
     `CREATE TABLE IF NOT EXISTS store_meta (
       id                INTEGER PRIMARY KEY,
