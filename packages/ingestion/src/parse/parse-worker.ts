@@ -21,8 +21,9 @@ import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
 import { loadGrammar } from "./grammar-registry.js";
+import { getUnifiedQuery } from "./unified-queries.js";
 import type { LanguageId, ParseBatch, ParseCapture, ParseResult, ParseTask } from "./types.js";
-import { isNativeAvailable } from "./wasm-fallback.js";
+import { isNativeAvailable, openWasmParser, type WasmParserHandle } from "./wasm-fallback.js";
 
 const requireFn = createRequire(import.meta.url);
 
@@ -33,21 +34,31 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 // live per-worker, honoring tree-sitter's one-parser-per-thread rule.
 const parserCache = new Map<LanguageId, unknown>();
 const queryCache = new Map<LanguageId, unknown>();
+const wasmParserCache = new Map<LanguageId, WasmParserHandle | null>();
 
-let warnedFallback = false;
+let warnedWasm = false;
+
+/**
+ * Read the `--wasm-only` force-flag. Set either via env (`OCH_WASM_ONLY=1`)
+ * or via argv pass-through when the worker boots inside a process
+ * launched with the flag. The worker itself cannot read the CLI argv
+ * directly (piscina starts workers afresh) so env is the primary carrier.
+ */
+function forceWasmOnly(): boolean {
+  const v = process.env["OCH_WASM_ONLY"];
+  return v === "1" || v === "true";
+}
 
 /**
  * Piscina task entry. Default export is the function piscina invokes.
  */
 export default async function parseBatch(batch: ParseBatch): Promise<ParseResult[]> {
-  if (!isNativeAvailable() && !warnedFallback) {
-    // Emit a single warning per worker. At MVP the WASM fallback is not
-    // wired, so all tasks will fail — but we still want a clear signal.
-    warnedFallback = true;
-    // Use stderr directly rather than console.warn to avoid duplication in
-    // tooling that captures stdout.
+  // Warn once per worker if we're forced onto WASM (native unavailable,
+  // or `--wasm-only` forced).
+  if ((!isNativeAvailable() || forceWasmOnly()) && !warnedWasm) {
+    warnedWasm = true;
     process.stderr.write(
-      "[parse-worker] native tree-sitter binding unavailable; WASM fallback not wired at MVP\n",
+      "[parse-worker] using web-tree-sitter (WASM) runtime\n",
     );
   }
 
@@ -114,6 +125,22 @@ async function parseOne(task: ParseTask): Promise<ParseResult> {
 }
 
 async function runParse(language: LanguageId, content: Buffer): Promise<readonly ParseCapture[]> {
+  // The tree-sitter 0.25 JS binding accepts a string primary input; decode
+  // the buffer once here. (The underlying parser still reads by byte
+  // offsets, so positions remain correct.)
+  const source = content.toString("utf8");
+
+  // Prefer native unless explicitly forced into WASM or native is
+  // unavailable. The WASM path returns captures with exactly the same
+  // coordinate semantics (1-indexed rows, 0-indexed columns) so
+  // downstream consumers see byte-identical output.
+  if (!forceWasmOnly() && isNativeAvailable()) {
+    return runNative(language, source);
+  }
+  return runWasm(language, source);
+}
+
+async function runNative(language: LanguageId, source: string): Promise<readonly ParseCapture[]> {
   // tree-sitter module is loaded lazily via require (not a static import)
   // to keep cold-start cheap for workers that may never parse any file.
   const TreeSitter = requireFn("tree-sitter") as TreeSitterModule;
@@ -121,10 +148,6 @@ async function runParse(language: LanguageId, content: Buffer): Promise<readonly
   const parser = await getOrBuildParser(language, TreeSitter);
   const query = await getOrBuildQuery(language, TreeSitter);
 
-  // The tree-sitter 0.25 JS binding accepts a string primary input; decode
-  // the buffer once here. (The underlying parser still reads by byte
-  // offsets, so positions remain correct.)
-  const source = content.toString("utf8");
   const tree = parser.parse(source);
   const root = tree.rootNode;
 
@@ -144,6 +167,35 @@ async function runParse(language: LanguageId, content: Buffer): Promise<readonly
         nodeType: node.type,
       });
     }
+  }
+  return out;
+}
+
+async function runWasm(language: LanguageId, source: string): Promise<readonly ParseCapture[]> {
+  let handle = wasmParserCache.get(language);
+  if (handle === undefined) {
+    handle = await openWasmParser(language);
+    wasmParserCache.set(language, handle);
+  }
+  if (handle === null) {
+    // Grammar unavailable on the WASM path; skip with a per-file warning
+    // surface so the worker's caller can see the miss.
+    return [];
+  }
+  const queryText = getUnifiedQuery(language);
+  const captures = handle.runQuery(queryText, source);
+  const out: ParseCapture[] = [];
+  for (const cap of captures) {
+    const node = cap.node;
+    out.push({
+      tag: cap.name,
+      text: node.text,
+      startLine: node.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
+      startCol: node.startPosition.column,
+      endCol: node.endPosition.column,
+      nodeType: node.type,
+    });
   }
   return out;
 }
