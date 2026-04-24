@@ -344,10 +344,17 @@ program
     "Probe the local environment (node/pnpm/native bindings/scanners/registry) and print actionable hints",
   )
   .option("--skip-native", "Skip checks that require native bindings (duckdb / tree-sitter)")
-  .action(async (opts: Record<string, boolean | undefined>) => {
+  .option(
+    "--repoRoot <path>",
+    "Override the workspace root used as a fallback for native-binding resolution",
+  )
+  .action(async (opts: Record<string, string | boolean | undefined>) => {
     const mod = await import("./commands/doctor.js");
     await mod.runDoctor({
       skipNative: opts["skipNative"] === true,
+      ...(typeof opts["repoRoot"] === "string" && opts["repoRoot"].length > 0
+        ? { repoRoot: opts["repoRoot"] }
+        : {}),
     });
   });
 

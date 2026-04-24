@@ -255,9 +255,14 @@ function embedderWeightsCheck(home: string): Check {
   return {
     name: "embedder weights",
     async run() {
+      // Filename convention matches `embedder/src/paths.ts:modelFileName` —
+      // fp32 uses `model.onnx`, int8 uses `model_int8.onnx` (underscore,
+      // NOT hyphen). A historical hyphenated path name lingered here and
+      // caused false-negative `warn`s for users who had int8 weights on
+      // disk.
       const base = join(home, ".codehub", "models", "arctic-embed-xs");
       const fp32 = join(base, "model.onnx");
-      const int8 = join(base, "model-int8.onnx");
+      const int8 = join(base, "model_int8.onnx");
       const fp32Ok = await fileExists(fp32);
       const int8Ok = await fileExists(int8);
       if (!fp32Ok && !int8Ok) {
@@ -405,10 +410,30 @@ function guessRepoRoot(): string {
 }
 
 /**
- * Resolve an npm package from the repo root's node_modules so we don't get
- * tripped up by the CLI bin's own node_modules symlink layout.
+ * Resolve an npm package for the native-binding checks. We try two
+ * environments in order, so doctor returns `OK` in every realistic install
+ * shape — monorepo checkout, global `pnpm i -g`, tarball, symlinked bin:
+ *
+ *   1. The CLI package's own `node_modules` — `createRequire` off
+ *      `import.meta.url` walks outward through the same resolution chain
+ *      Node would use for a real `await import(pkg)` from inside the CLI,
+ *      so this is the authoritative answer for "can the CLI load this?".
+ *   2. The supplied `repoRoot` — legacy fallback for the in-monorepo case
+ *      where the CLI is running from `packages/cli/dist/` and dependencies
+ *      hoist to the workspace root.
+ *
+ * We stop at the first hit. Returning `null` preserves the existing
+ * semantics of the caller (`warn` result with a reinstall hint).
  */
 function resolveFromRoot(repoRoot: string, pkg: string): string | null {
+  // 1. CLI's own resolution context — the canonical answer.
+  try {
+    const req = createRequire(import.meta.url);
+    return req.resolve(pkg);
+  } catch {
+    // fall through to repoRoot
+  }
+  // 2. Workspace/monorepo root fallback.
   try {
     const req = createRequire(join(repoRoot, "package.json"));
     return req.resolve(pkg);
