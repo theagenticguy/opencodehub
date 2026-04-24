@@ -50,8 +50,10 @@ export interface FusedHit {
 }
 
 /**
- * Text → vector bridge. The default `NullEmbedder` throws — MVP deployments
- * are BM25-only and embeddings ship at v1.0.
+ * Text → vector bridge. Real production implementations live in
+ * `@opencodehub/embedder` (ONNX + HTTP); the `NullEmbedder` in
+ * `./embedder.ts` is a structural stand-in that warns + returns a
+ * zero-vector in production and throws in tests.
  */
 export interface Embedder {
   embed(text: string): Promise<Float32Array>;

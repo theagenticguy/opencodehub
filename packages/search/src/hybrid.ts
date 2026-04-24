@@ -2,8 +2,8 @@
  * Hybrid BM25 + HNSW search with Reciprocal Rank Fusion.
  *
  * If no embedder is supplied, hybrid collapses to the BM25 path and returns
- * fused-shaped hits tagged `sources: ["bm25"]`. This keeps MVP deployments
- * single-codepath: `hybridSearch(store, q)` is correct before and after the
+ * fused-shaped hits tagged `sources: ["bm25"]`. This keeps callers on a
+ * single codepath: `hybridSearch(store, q)` is correct before and after an
  * embedder lands.
  *
  * When both paths run, the two hit lists are fused with RRF (k=60 default).

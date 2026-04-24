@@ -16,8 +16,8 @@ export interface ProcessBucket {
 }
 
 /**
- * Group hits by the process they participate in. MVP stub: every hit gets
- * its own `"ungrouped"` bucket in input order.
+ * Group hits by the process they participate in. Pre-`processes`-phase stub:
+ * every hit gets its own `"ungrouped"` bucket in input order.
  */
 export function groupByProcess(hits: readonly SymbolHit[]): readonly ProcessBucket[] {
   const out: ProcessBucket[] = [];

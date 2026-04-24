@@ -1,11 +1,10 @@
 /**
  * HNSW (approximate nearest-neighbour) wrapper over `IGraphStore.vectorSearch`.
  *
- * At MVP the ingestion pipeline does not generate embeddings, so this path
- * is only reachable when a caller opts in by constructing a store that has
- * persisted vectors (e.g. via a future `--embeddings` flag). The wrapper
- * exists now so hybrid callers can depend on a stable API surface and
- * tests can swap in a fake store.
+ * The path is only reachable when a caller opts in by constructing a store
+ * that has persisted vectors (`codehub analyze --embeddings`). The wrapper
+ * keeps hybrid callers on a stable API surface and lets tests swap in a
+ * fake store.
  */
 
 import type { IGraphStore, SqlParam, VectorQuery as StoreVectorQuery } from "@opencodehub/storage";
