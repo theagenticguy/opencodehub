@@ -308,6 +308,20 @@ async function runParse(
     }
   }
 
+  // ---- Collect @doc captures per file for description backfill. --------
+  //
+  // The parse result carries a flat capture list per file. We keep the
+  // doc captures around so `graphNodeForDefinition` can attach a
+  // description when one of them aligns with the definition per the
+  // per-language heuristic implemented in `descriptionForDefinition`.
+  const docCapturesByFile = new Map<string, { startLine: number; endLine: number; text: string }[]>();
+  for (const result of parseResults) {
+    const docs = result.captures
+      .filter((c) => c.tag === "doc")
+      .map((c) => ({ startLine: c.startLine, endLine: c.endLine, text: c.text }));
+    if (docs.length > 0) docCapturesByFile.set(result.filePath, docs);
+  }
+
   // ---- Emit definition nodes + DEFINES / HAS_* edges. --------------------
   const defIdByKey = new Map<string, NodeId>();
   const definitionsByFilePlus = new Map<string, ExtractedDefinition[]>();
@@ -324,10 +338,13 @@ async function runParse(
     // Pre-sort definitions within a file for deterministic ordering.
     const sorted = [...defs].sort((a, b) => compareDefs(a, b));
     definitionsByFilePlus.set(filePath, sorted);
+    const lang = languageByFile.get(filePath);
+    const docs = docCapturesByFile.get(filePath) ?? [];
     for (const d of sorted) {
       const id = idForDefinition(d);
       defIdByKey.set(`${filePath}::${d.qualifiedName}`, id);
-      ctx.graph.addNode(graphNodeForDefinition(d, id));
+      const description = lang !== undefined ? descriptionForDefinition(d, docs, lang) : undefined;
+      ctx.graph.addNode(graphNodeForDefinition(d, id, description));
 
       const shortKey = `${filePath}::${d.name}`;
       shortNameCounts.set(shortKey, (shortNameCounts.get(shortKey) ?? 0) + 1);
@@ -638,7 +655,11 @@ function candidatePathsFor(
   return out;
 }
 
-function graphNodeForDefinition(d: ExtractedDefinition, id: NodeId): GraphNode {
+function graphNodeForDefinition(
+  d: ExtractedDefinition,
+  id: NodeId,
+  description?: string,
+): GraphNode {
   // We synthesize the graph node based on NodeKind. Each branch sets only
   // the fields valid on that kind so `@opencodehub/core-types` sees a
   // well-typed record.
@@ -650,6 +671,8 @@ function graphNodeForDefinition(d: ExtractedDefinition, id: NodeId): GraphNode {
     endLine: d.endLine,
   } as const;
 
+  const descField = description !== undefined ? { description } : {};
+
   switch (d.kind) {
     case "Function":
       return {
@@ -659,6 +682,7 @@ function graphNodeForDefinition(d: ExtractedDefinition, id: NodeId): GraphNode {
         ...(d.parameterCount !== undefined ? { parameterCount: d.parameterCount } : {}),
         ...(d.returnType !== undefined ? { returnType: d.returnType } : {}),
         isExported: d.isExported,
+        ...descField,
       };
     case "Method":
       return {
@@ -669,6 +693,7 @@ function graphNodeForDefinition(d: ExtractedDefinition, id: NodeId): GraphNode {
         ...(d.parameterCount !== undefined ? { parameterCount: d.parameterCount } : {}),
         ...(d.returnType !== undefined ? { returnType: d.returnType } : {}),
         isExported: d.isExported,
+        ...descField,
       };
     case "Constructor":
       return {
@@ -679,6 +704,7 @@ function graphNodeForDefinition(d: ExtractedDefinition, id: NodeId): GraphNode {
         ...(d.parameterCount !== undefined ? { parameterCount: d.parameterCount } : {}),
         ...(d.returnType !== undefined ? { returnType: d.returnType } : {}),
         isExported: d.isExported,
+        ...descField,
       };
     case "Class":
       return { ...base, kind: "Class", isExported: d.isExported };
@@ -767,6 +793,127 @@ function posixJoin(dir: string, rel: string): string {
   if (dir === "") return rel;
   if (rel === "") return dir;
   return `${dir}/${rel}`;
+}
+
+/**
+ * Resolve a description (docstring / JSDoc / rustdoc / godoc) for a
+ * definition by matching the captured `@doc` locations against the
+ * definition's body range, per per-language rules.
+ *
+ * Match rules:
+ *   - Python: the first doc capture strictly inside the definition
+ *     body (captured by the `(string) @doc` query).
+ *   - TS/JS/TSX: a JSDoc block comment whose end line is 1-2 lines
+ *     before the definition's start line.
+ *   - Rust: a contiguous block of triple-slash line comments or
+ *     rustdoc block comments immediately above the definition.
+ *   - Go: a contiguous `//` comment group immediately above the
+ *     definition.
+ */
+function descriptionForDefinition(
+  d: ExtractedDefinition,
+  docs: readonly { startLine: number; endLine: number; text: string }[],
+  lang: LanguageId,
+): string | undefined {
+  if (docs.length === 0) return undefined;
+  if (lang === "python") {
+    for (const doc of docs) {
+      if (doc.startLine >= d.startLine && doc.endLine <= d.endLine) {
+        return stripPythonDocstring(doc.text);
+      }
+    }
+    return undefined;
+  }
+  if (lang === "typescript" || lang === "tsx" || lang === "javascript") {
+    // JSDoc: find the CLOSEST `/** */` block whose end line sits within
+    // two lines of the definition start.
+    let best: { startLine: number; endLine: number; text: string } | undefined;
+    for (const doc of docs) {
+      if (!doc.text.startsWith("/**")) continue;
+      const delta = d.startLine - doc.endLine;
+      if (delta < 0 || delta > 2) continue;
+      if (best === undefined || doc.endLine > best.endLine) best = doc;
+    }
+    return best !== undefined ? stripJsDoc(best.text) : undefined;
+  }
+  if (lang === "rust") {
+    // Rustdoc: collect contiguous `///` or `/** */` captures ending
+    // right above the definition start.
+    let lineCursor = d.startLine - 1;
+    const accum: string[] = [];
+    for (let i = docs.length - 1; i >= 0; i--) {
+      const doc = docs[i];
+      if (doc === undefined) continue;
+      const isLineDoc = doc.text.startsWith("///");
+      const isBlockDoc = doc.text.startsWith("/**") && doc.text.endsWith("*/");
+      if (!isLineDoc && !isBlockDoc) continue;
+      if (doc.endLine !== lineCursor) continue;
+      accum.unshift(stripRustDoc(doc.text));
+      lineCursor = doc.startLine - 1;
+    }
+    if (accum.length === 0) return undefined;
+    const joined = accum.join(" ").trim();
+    return joined.length > 0 ? joined : undefined;
+  }
+  if (lang === "go") {
+    // godoc: contiguous `// ...` comments ending right above the decl.
+    let lineCursor = d.startLine - 1;
+    const accum: string[] = [];
+    for (let i = docs.length - 1; i >= 0; i--) {
+      const doc = docs[i];
+      if (doc === undefined) continue;
+      if (!doc.text.startsWith("//")) continue;
+      if (doc.endLine !== lineCursor) continue;
+      accum.unshift(doc.text.replace(/^\/\/\s?/, "").trim());
+      lineCursor = doc.startLine - 1;
+    }
+    if (accum.length === 0) return undefined;
+    const joined = accum.join(" ").trim();
+    return joined.length > 0 ? joined : undefined;
+  }
+  return undefined;
+}
+
+/** Strip leading/trailing triple quotes from a Python docstring. */
+function stripPythonDocstring(raw: string): string {
+  let s = raw.trim();
+  if (s.startsWith('"""') || s.startsWith("'''")) s = s.slice(3);
+  if (s.endsWith('"""') || s.endsWith("'''")) s = s.slice(0, -3);
+  // Drop r/b/u prefixes if present before the triple quote (handled above).
+  return s.trim();
+}
+
+/** Strip JSDoc markers and leading "* " decorations from a block. */
+function stripJsDoc(raw: string): string {
+  let s = raw.trim();
+  if (s.startsWith("/**")) s = s.slice(3);
+  if (s.endsWith("*/")) s = s.slice(0, -2);
+  // Drop leading " * " on each line.
+  const lines = s
+    .split("\n")
+    .map((line) => line.replace(/^\s*\*\s?/, "").trimEnd())
+    .filter((line) => !line.startsWith("@")); // drop JSDoc tags
+  return lines.join(" ").trim();
+}
+
+/** Strip triple-slash or rustdoc block markers from a fragment. */
+function stripRustDoc(raw: string): string {
+  let s = raw;
+  if (s.startsWith("///")) {
+    s = s.slice(3);
+    if (s.startsWith(" ")) s = s.slice(1);
+    return s.trim();
+  }
+  if (s.startsWith("/**")) {
+    s = s.slice(3);
+    if (s.endsWith("*/")) s = s.slice(0, -2);
+    const lines = s
+      .split("\n")
+      .map((line) => line.replace(/^\s*\*\s?/, "").trimEnd())
+      .filter((line) => !line.startsWith("@"));
+    return lines.join(" ").trim();
+  }
+  return s.trim();
 }
 
 function normalizePath(p: string): string {
