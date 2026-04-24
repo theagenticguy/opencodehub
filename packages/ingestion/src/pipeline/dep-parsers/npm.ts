@@ -94,7 +94,8 @@ async function parsePackageLock(
     return [];
   }
 
-  return collectFromGraph(graph, relPath);
+  const licenses = harvestLicensesFromLockJson(lockContents);
+  return collectFromGraph(graph, relPath, licenses);
 }
 
 async function parsePnpmLock(
@@ -127,7 +128,115 @@ async function parsePnpmLock(
     return [];
   }
 
-  return collectFromGraph(graph, relPath);
+  // pnpm v9+ lockfiles inline `resolution.integrity` + optionally
+  // per-snapshot licenses — harvest what's present, best-effort.
+  const licenses = harvestLicensesFromPnpmLockYaml(lockContents);
+  return collectFromGraph(graph, relPath, licenses);
+}
+
+/**
+ * Parse `pnpm-lock.yaml` text for `name@version → license` pairs.
+ * Pure string scanning to avoid pulling in a YAML parser for a
+ * best-effort field.
+ */
+function harvestLicensesFromPnpmLockYaml(lockContents: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let currentKey: string | undefined;
+  for (const rawLine of lockContents.split(/\r?\n/)) {
+    // pnpm snapshot keys: `  '/foo@1.2.3':` or `  '/@scope/foo@1.2.3':`.
+    const snapshot = /^\s+['"]?(\/?[^'"\s@]+(?:\/[^'"\s@]+)?@[^'"\s]+)['"]?:\s*$/.exec(rawLine);
+    if (snapshot !== null) {
+      currentKey = (snapshot[1] ?? "").replace(/^\//, "");
+      continue;
+    }
+    const lic = /^\s+license:\s*(.+?)\s*$/.exec(rawLine);
+    if (lic !== null && currentKey !== undefined) {
+      const val = (lic[1] ?? "").replace(/^['"]|['"]$/g, "");
+      if (val.length > 0) out.set(currentKey, val);
+    }
+  }
+  return out;
+}
+
+/**
+ * Scan `package-lock.json` / `pnpm-lock.yaml` contents for a
+ * `name@version → license` map. Best-effort; returns an empty map on any
+ * parse issue (licenses are optional metadata, not a pipeline invariant).
+ */
+function harvestLicensesFromLockJson(lockContents: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let json: unknown;
+  try {
+    json = JSON.parse(lockContents);
+  } catch {
+    return out;
+  }
+  if (!isObject(json)) return out;
+  // v2/v3 lockfile: `packages: { "node_modules/foo": { version, license } }`.
+  const pkgs = json["packages"];
+  if (isObject(pkgs)) {
+    for (const [path, entry] of Object.entries(pkgs)) {
+      if (path === "") continue;
+      if (!isObject(entry)) continue;
+      const version = typeof entry["version"] === "string" ? entry["version"] : "";
+      const license = readLicenseField(entry["license"]);
+      const name = pathToPackageName(path);
+      if (name === undefined || version === "" || license === undefined) continue;
+      out.set(`${name}@${version}`, license);
+    }
+  }
+  // Legacy v1 lockfile: `dependencies: { foo: { version, license } }`.
+  const deps = json["dependencies"];
+  if (isObject(deps)) collectLegacyLockLicenses(deps, out);
+  return out;
+}
+
+function pathToPackageName(lockPath: string): string | undefined {
+  // `node_modules/foo` or `node_modules/@scope/name` — return the
+  // rightmost `node_modules/<name>` segment. Nested forms follow the
+  // same suffix shape so the same scan works.
+  const idx = lockPath.lastIndexOf("node_modules/");
+  if (idx < 0) return undefined;
+  const tail = lockPath.slice(idx + "node_modules/".length);
+  if (tail === "") return undefined;
+  if (tail.startsWith("@")) {
+    const parts = tail.split("/");
+    if (parts.length < 2) return undefined;
+    return `${parts[0]}/${parts[1]}`;
+  }
+  return tail.split("/")[0];
+}
+
+function collectLegacyLockLicenses(
+  deps: Record<string, unknown>,
+  out: Map<string, string>,
+): void {
+  for (const [name, entry] of Object.entries(deps)) {
+    if (!isObject(entry)) continue;
+    const version = typeof entry["version"] === "string" ? entry["version"] : "";
+    const license = readLicenseField(entry["license"]);
+    if (version !== "" && license !== undefined) out.set(`${name}@${version}`, license);
+    const nested = entry["dependencies"];
+    if (isObject(nested)) collectLegacyLockLicenses(nested, out);
+  }
+}
+
+/** `license` may be a string, `{ type, url }`, or an array of those. */
+function readLicenseField(raw: unknown): string | undefined {
+  if (typeof raw === "string" && raw.length > 0) return raw;
+  if (isObject(raw)) {
+    const t = raw["type"];
+    if (typeof t === "string" && t.length > 0) return t;
+  }
+  if (Array.isArray(raw)) {
+    const parts: string[] = [];
+    for (const item of raw) {
+      const got = readLicenseField(item);
+      if (got !== undefined) parts.push(got);
+    }
+    if (parts.length > 0) return parts.join(" OR ");
+  }
+  return undefined;
 }
 
 async function parseBarePackageJson(
@@ -202,6 +311,7 @@ async function readManifestAndLock(
 function collectFromGraph(
   graph: DepGraphLike,
   lockfileSource: string,
+  licenses: ReadonlyMap<string, string> = new Map(),
 ): readonly ParsedDependency[] {
   const out: ParsedDependency[] = [];
   const seen = new Set<string>();
@@ -219,11 +329,13 @@ function collectFromGraph(
     const key = `${name}@${version}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const license = licenses.get(key);
     out.push({
       ecosystem: NPM_ECO,
       name,
       version,
       lockfileSource,
+      ...(license !== undefined ? { license } : {}),
     });
   }
   return out;

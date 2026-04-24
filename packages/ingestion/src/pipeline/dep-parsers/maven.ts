@@ -33,6 +33,12 @@ interface MavenDependency {
   readonly artifactId?: string;
   readonly version?: string;
   readonly scope?: string;
+  /**
+   * Non-standard per-dep license. Standard Maven only declares licenses
+   * at the project / parent-POM level, so this is almost always
+   * undefined; populated when a BOM or enterprise extension attaches it.
+   */
+  readonly license?: string;
 }
 
 export const parseMavenDeps: ParseDepsFn = async (input) => {
@@ -111,6 +117,7 @@ function collectDependencies(bag: unknown, out: ParsedDependency[], lockfileSour
       name: `${dep.groupId}:${dep.artifactId}`,
       version,
       lockfileSource,
+      ...(dep.license !== undefined ? { license: dep.license } : {}),
     });
   }
 }
@@ -121,11 +128,16 @@ function toMavenDependency(item: unknown): MavenDependency | undefined {
   const artifactId = toText(item["artifactId"]);
   const version = toText(item["version"]);
   const scope = toText(item["scope"]);
+  // A small fraction of Maven poms attach a free-form `<license>` child
+  // to each `<dependency>` (via extensions like the Eclipse Dash plugin
+  // or Spring Cloud BOMs). Best-effort read; undefined for standard poms.
+  const license = toText(item["license"]);
   return {
     ...(groupId !== undefined ? { groupId } : {}),
     ...(artifactId !== undefined ? { artifactId } : {}),
     ...(version !== undefined ? { version } : {}),
     ...(scope !== undefined ? { scope } : {}),
+    ...(license !== undefined ? { license } : {}),
   };
 }
 
