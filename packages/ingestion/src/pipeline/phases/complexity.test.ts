@@ -73,6 +73,14 @@ function findCallable(ctx: PipelineContext, name: string): CallableMetrics | und
   return undefined;
 }
 
+function findHalstead(ctx: PipelineContext, name: string): number | undefined {
+  for (const n of ctx.graph.nodes()) {
+    if (n.kind !== "Function" && n.kind !== "Method" && n.kind !== "Constructor") continue;
+    if (n.name === name) return n.halsteadVolume;
+  }
+  return undefined;
+}
+
 describe(`${COMPLEXITY_PHASE_NAME}Phase`, () => {
   it("computes Python cyclomatic, nesting, and NLOC for a single-if function", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-py-"));
@@ -226,6 +234,64 @@ describe(`${COMPLEXITY_PHASE_NAME}Phase`, () => {
       const { complexityOut } = await runThroughComplexity(repo);
       assert.equal(complexityOut.symbolsAnnotated, 0);
       assert.equal(complexityOut.skipped, 0);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("populates halsteadVolume on every callable across TS, Python, Go", async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-halstead-"));
+    try {
+      await fs.writeFile(
+        path.join(repo, "m.ts"),
+        [
+          "export function tsAdd(a: number, b: number): number {",
+          "  return a + b;",
+          "}",
+          "export function tsBranch(x: number): number {",
+          "  if (x > 0) { return x; }",
+          "  return -x;",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      await fs.writeFile(
+        path.join(repo, "m.py"),
+        [
+          "def py_add(a, b):",
+          "    return a + b",
+          "",
+          "def py_branch(x):",
+          "    if x > 0:",
+          "        return x",
+          "    return -x",
+          "",
+        ].join("\n"),
+      );
+      await fs.writeFile(
+        path.join(repo, "main.go"),
+        [
+          "package m",
+          "",
+          "func GoAdd(a, b int) int { return a + b }",
+          "func GoBranch(x int) int {",
+          "\tif x > 0 { return x }",
+          "\treturn -x",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      const { ctx } = await runThroughComplexity(repo);
+      const names = ["tsAdd", "tsBranch", "py_add", "py_branch", "GoAdd", "GoBranch"];
+      let populated = 0;
+      for (const n of names) {
+        const v = findHalstead(ctx, n);
+        if (typeof v === "number" && v > 0) populated += 1;
+      }
+      assert.ok(
+        populated >= Math.ceil(names.length * 0.99),
+        `expected >=99% of callables to carry halsteadVolume, got ${populated}/${names.length}`,
+      );
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
