@@ -1,0 +1,41 @@
+{
+  "name": "@opencodehub/cli",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "codehub": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b && node scripts/copy-ci-templates.mjs",
+    "test": "node --test './dist/**/*.test.js'",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@iarna/toml": "2.2.5",
+    "@opencodehub/analysis": "workspace:*",
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/embedder": "workspace:*",
+    "@opencodehub/ingestion": "workspace:*",
+    "@opencodehub/mcp": "workspace:*",
+    "@opencodehub/sarif": "workspace:*",
+    "@opencodehub/scanners": "workspace:*",
+    "@opencodehub/search": "workspace:*",
+    "@opencodehub/storage": "workspace:*",
+    "cli-table3": "0.6.5",
+    "commander": "14.0.3",
+    "envinfo": "7.21.0",
+    "listr2": "10.2.1",
+    "write-file-atomic": "7.0.1",
+    "yaml": "2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "@types/write-file-atomic": "4.0.3",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "opencodehub-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo-level scripts (not a workspace package — here to carry ESM + type settings for loose .ts scripts)."
+}

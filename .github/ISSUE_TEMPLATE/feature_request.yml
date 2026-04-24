@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new MCP tool, language, scanner, or capability.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the agent workflow or developer pain-point this addresses.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you expect this to work from an agent's or a user's perspective?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or adjacent tools that solve part of this.
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to draft a PR if the direction is endorsed

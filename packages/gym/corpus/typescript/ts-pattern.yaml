@@ -1,0 +1,772 @@
+language: typescript
+corpus:
+  name: ts-pattern
+  commit: 1fed6208ee0c7f662e7e5239cdc7ee791e0fa246
+  path: typescript/ts-pattern
+tool:
+  name: typescript-language-server
+  version: 5.1.3
+cases:
+  # ---------------------------------------------------------------------------
+  # references (6)
+  # ---------------------------------------------------------------------------
+
+  - id: ts-pattern.references.matchPattern
+    kind: references
+    target:
+      symbolName: matchPattern
+      file: src/internals/helpers.ts
+      line: 32
+      column: 14
+    expected:
+      - file: src/match.ts
+        line: 75
+        column: 34
+        enclosing: "Method:src/match.ts:MatchExpression.with"
+      - file: src/is-matching.ts
+        line: 47
+        column: 7
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/is-matching.ts
+        line: 51
+        column: 12
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/patterns.ts
+        line: 187
+        column: 27
+        enclosing: "Function:src/patterns.ts:optional"
+      - file: src/patterns.ts
+        line: 248
+        column: 13
+        enclosing: "Function:src/patterns.ts:array"
+      - file: src/patterns.ts
+        line: 300
+        column: 13
+        enclosing: "Function:src/patterns.ts:set"
+      - file: src/patterns.ts
+        line: 370
+        column: 30
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 371
+        column: 32
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 428
+        column: 11
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 468
+        column: 11
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 498
+        column: 19
+        enclosing: "Function:src/patterns.ts:not"
+      - file: src/patterns.ts
+        line: 599
+        column: 19
+        enclosing: "Function:src/patterns.ts:select"
+      - file: src/internals/helpers.ts
+        line: 88
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 91
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 95
+        column: 15
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 101
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 111
+        column: 9
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+    labeler: opus-4-7
+    labeler_note: >-
+      matchPattern is the core recursive helper that every pattern combinator
+      calls into. References span 4 source files (match.ts, is-matching.ts,
+      patterns.ts, internals/helpers.ts) and include recursive self-calls, so
+      this exercises cross-module reference resolution AND same-file recursion.
+      Import statements, the declaration itself, and JSDoc/comment mentions are
+      excluded.
+
+  - id: ts-pattern.references.getSelectionKeys
+    kind: references
+    target:
+      symbolName: getSelectionKeys
+      file: src/internals/helpers.ts
+      line: 120
+      column: 14
+    expected:
+      - file: src/patterns.ts
+        line: 182
+        column: 13
+        enclosing: "Function:src/patterns.ts:optional"
+      - file: src/patterns.ts
+        line: 190
+        column: 33
+        enclosing: "Function:src/patterns.ts:optional"
+      - file: src/patterns.ts
+        line: 237
+        column: 13
+        enclosing: "Function:src/patterns.ts:array"
+      - file: src/patterns.ts
+        line: 254
+        column: 36
+        enclosing: "Function:src/patterns.ts:array"
+      - file: src/patterns.ts
+        line: 306
+        column: 36
+        enclosing: "Function:src/patterns.ts:set"
+      - file: src/patterns.ts
+        line: 380
+        column: 19
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 380
+        column: 49
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 433
+        column: 56
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 465
+        column: 11
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 473
+        column: 56
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 605
+        column: 42
+        enclosing: "Function:src/patterns.ts:select"
+      - file: src/internals/helpers.ts
+        line: 125
+        column: 57
+        enclosing: "Function:src/internals/helpers.ts:getSelectionKeys"
+      - file: src/internals/helpers.ts
+        line: 126
+        column: 44
+        enclosing: "Function:src/internals/helpers.ts:getSelectionKeys"
+    labeler: opus-4-7
+    labeler_note: >-
+      getSelectionKeys is the selection-tree walker used by every combinator
+      with named captures. Many patterns.ts combinators (optional/array/set/
+      map/intersection/union/select) both define a protocol-shaped property
+      of the same name AND call the helper — only the helper-call occurrences
+      are listed (property-name sites inside the matcher-protocol object
+      literals are excluded, as are imports).
+
+  - id: ts-pattern.references.isMatching
+    kind: references
+    target:
+      symbolName: isMatching
+      file: src/is-matching.ts
+      line: 41
+      column: 17
+    expected:
+      - file: src/index.ts
+        line: 4
+        column: 10
+      - file: src/patterns.ts
+        line: 1142
+        column: 25
+        enclosing: "Function:src/patterns.ts:shape"
+    labeler: opus-4-7
+    labeler_note: >-
+      isMatching has a thin in-library surface — it is re-exported through
+      index.ts and called exactly once internally (inside `shape`, which wraps
+      it in a `when` guard). Targets the implementation signature at line 41
+      (overloads live at lines 20 and 36). Good stress on overload-aware
+      reference resolution.
+
+  - id: ts-pattern.references.when
+    kind: references
+    target:
+      symbolName: when
+      file: src/patterns.ts
+      line: 517
+      column: 17
+    expected:
+      - file: src/patterns.ts
+        line: 660
+        column: 42
+        enclosing: "Variable:src/patterns.ts:any"
+      - file: src/patterns.ts
+        line: 687
+        column: 3
+        enclosing: "Variable:src/patterns.ts:startsWith"
+      - file: src/patterns.ts
+        line: 701
+        column: 3
+        enclosing: "Variable:src/patterns.ts:endsWith"
+      - file: src/patterns.ts
+        line: 713
+        column: 3
+        enclosing: "Variable:src/patterns.ts:minLength"
+      - file: src/patterns.ts
+        line: 725
+        column: 3
+        enclosing: "Variable:src/patterns.ts:length"
+      - file: src/patterns.ts
+        line: 737
+        column: 3
+        enclosing: "Variable:src/patterns.ts:maxLength"
+      - file: src/patterns.ts
+        line: 751
+        column: 3
+        enclosing: "Variable:src/patterns.ts:includes"
+      - file: src/patterns.ts
+        line: 765
+        column: 3
+        enclosing: "Variable:src/patterns.ts:regex"
+      - file: src/patterns.ts
+        line: 795
+        column: 54
+        enclosing: "Variable:src/patterns.ts:string"
+      - file: src/patterns.ts
+        line: 811
+        column: 3
+        enclosing: "Variable:src/patterns.ts:between"
+      - file: src/patterns.ts
+        line: 825
+        column: 3
+        enclosing: "Variable:src/patterns.ts:lt"
+      - file: src/patterns.ts
+        line: 839
+        column: 3
+        enclosing: "Variable:src/patterns.ts:gt"
+      - file: src/patterns.ts
+        line: 853
+        column: 3
+        enclosing: "Variable:src/patterns.ts:lte"
+      - file: src/patterns.ts
+        line: 867
+        column: 3
+        enclosing: "Variable:src/patterns.ts:gte"
+      - file: src/patterns.ts
+        line: 879
+        column: 3
+        enclosing: "Function:src/patterns.ts:int"
+      - file: src/patterns.ts
+        line: 891
+        column: 3
+        enclosing: "Function:src/patterns.ts:finite"
+      - file: src/patterns.ts
+        line: 903
+        column: 3
+        enclosing: "Function:src/patterns.ts:positive"
+      - file: src/patterns.ts
+        line: 915
+        column: 3
+        enclosing: "Function:src/patterns.ts:negative"
+      - file: src/patterns.ts
+        line: 942
+        column: 54
+        enclosing: "Variable:src/patterns.ts:number"
+      - file: src/patterns.ts
+        line: 962
+        column: 3
+        enclosing: "Variable:src/patterns.ts:betweenBigInt"
+      - file: src/patterns.ts
+        line: 976
+        column: 3
+        enclosing: "Variable:src/patterns.ts:ltBigInt"
+      - file: src/patterns.ts
+        line: 990
+        column: 3
+        enclosing: "Variable:src/patterns.ts:gtBigInt"
+      - file: src/patterns.ts
+        line: 1004
+        column: 3
+        enclosing: "Variable:src/patterns.ts:lteBigInt"
+      - file: src/patterns.ts
+        line: 1018
+        column: 3
+        enclosing: "Variable:src/patterns.ts:gteBigInt"
+      - file: src/patterns.ts
+        line: 1030
+        column: 3
+        enclosing: "Variable:src/patterns.ts:positiveBigInt"
+      - file: src/patterns.ts
+        line: 1042
+        column: 3
+        enclosing: "Variable:src/patterns.ts:negativeBigInt"
+      - file: src/patterns.ts
+        line: 1068
+        column: 54
+        enclosing: "Variable:src/patterns.ts:bigint"
+      - file: src/patterns.ts
+        line: 1078
+        column: 50
+        enclosing: "Variable:src/patterns.ts:boolean"
+      - file: src/patterns.ts
+        line: 1088
+        column: 48
+        enclosing: "Variable:src/patterns.ts:symbol"
+      - file: src/patterns.ts
+        line: 1098
+        column: 50
+        enclosing: "Variable:src/patterns.ts:nullish"
+      - file: src/patterns.ts
+        line: 1108
+        column: 58
+        enclosing: "Variable:src/patterns.ts:nonNullable"
+      - file: src/patterns.ts
+        line: 1121
+        column: 20
+        enclosing: "Function:src/patterns.ts:instanceOf"
+      - file: src/patterns.ts
+        line: 1142
+        column: 20
+        enclosing: "Function:src/patterns.ts:shape"
+    labeler: opus-4-7
+    labeler_note: >-
+      `when` is the primitive guard constructor; all of the typed wildcards
+      (P.string, P.number, P.bigint, P.boolean, P.symbol, P.nullish,
+      P.nonNullable, P.any) and every refinement (startsWith, between, int,
+      positive…) is a single `when(predicate)` call. Exercises densely-packed
+      in-file references with many distinct enclosing scopes (module-level
+      consts and arrow-expression helpers alike). Targets the overload
+      implementation at line 517; two prior overloads live at 517 and 523 in
+      the same file but share the line number shown.
+
+  - id: ts-pattern.references.Pattern
+    kind: references
+    target:
+      symbolName: Pattern
+      file: src/types/Pattern.ts
+      line: 148
+      column: 13
+    expected:
+      - file: src/patterns.ts
+        line: 95
+        column: 35
+      - file: src/patterns.ts
+        line: 113
+        column: 43
+      - file: src/patterns.ts
+        line: 220
+        column: 25
+        enclosing: "Function:src/patterns.ts:array"
+      - file: src/patterns.ts
+        line: 273
+        column: 25
+        enclosing: "Function:src/patterns.ts:set"
+      - file: src/patterns.ts
+        line: 335
+        column: 22
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 418
+        column: 36
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 418
+        column: 55
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 454
+        column: 36
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 454
+        column: 55
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 1138
+        column: 52
+        enclosing: "Function:src/patterns.ts:shape"
+      - file: src/is-matching.ts
+        line: 20
+        column: 44
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/is-matching.ts
+        line: 36
+        column: 44
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/is-matching.ts
+        line: 41
+        column: 44
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/match.ts
+        line: 56
+        column: 21
+        enclosing: "Method:src/match.ts:MatchExpression.with"
+      - file: src/types/Match.ts
+        line: 35
+        column: 21
+      - file: src/types/Match.ts
+        line: 48
+        column: 9
+      - file: src/types/Match.ts
+        line: 64
+        column: 22
+      - file: src/types/Match.ts
+        line: 65
+        column: 22
+      - file: src/types/Match.ts
+        line: 86
+        column: 22
+      - file: src/types/Match.ts
+        line: 87
+        column: 22
+      - file: src/types/Match.ts
+        line: 88
+        column: 22
+      - file: src/types/Match.ts
+        line: 89
+        column: 37
+      - file: src/types/Match.ts
+        line: 133
+        column: 23
+      - file: src/types/InvertPattern.ts
+        line: 104
+        column: 45
+      - file: src/types/InvertPattern.ts
+        line: 295
+        column: 51
+      - file: src/types/FindSelected.ts
+        line: 169
+        column: 12
+    labeler: opus-4-7
+    labeler_note: >-
+      `Pattern<a>` is the generic pattern type consumed by every combinator and
+      every .with overload. Exercises broad in-file + cross-module type-position
+      reference resolution across 6 files (patterns.ts, is-matching.ts,
+      match.ts, types/Match.ts, types/InvertPattern.ts, types/FindSelected.ts).
+      Word-boundary-isolated — PatternMatcher/UnknownPattern/KnownPattern/
+      StringPattern/NumberPattern/… compound names and compound reductions
+      (InvertPattern) are deliberately excluded.
+
+  - id: ts-pattern.references.Matcher
+    kind: references
+    target:
+      symbolName: Matcher
+      file: src/types/Pattern.ts
+      line: 49
+      column: 18
+    expected:
+      - file: src/patterns.ts
+        line: 118
+        column: 36
+        enclosing: "Function:src/patterns.ts:chainable"
+      - file: src/patterns.ts
+        line: 147
+        column: 41
+        enclosing: "Function:src/patterns.ts:arrayChainable"
+      - file: src/patterns.ts
+        line: 767
+        column: 42
+        enclosing: "Variable:src/patterns.ts:stringChainable"
+      - file: src/patterns.ts
+        line: 917
+        column: 42
+        enclosing: "Variable:src/patterns.ts:numberChainable"
+      - file: src/patterns.ts
+        line: 1044
+        column: 42
+        enclosing: "Variable:src/patterns.ts:bigintChainable"
+      - file: src/types/Pattern.ts
+        line: 82
+        column: 53
+      - file: src/types/Pattern.ts
+        line: 93
+        column: 32
+      - file: src/types/Pattern.ts
+        line: 95
+        column: 35
+      - file: src/types/Pattern.ts
+        line: 97
+        column: 41
+      - file: src/types/Pattern.ts
+        line: 99
+        column: 30
+      - file: src/types/Pattern.ts
+        line: 101
+        column: 31
+      - file: src/types/Pattern.ts
+        line: 103
+        column: 30
+      - file: src/types/Pattern.ts
+        line: 105
+        column: 30
+      - file: src/types/Pattern.ts
+        line: 107
+        column: 39
+      - file: src/types/Pattern.ts
+        line: 109
+        column: 56
+      - file: src/types/Pattern.ts
+        line: 120
+        column: 7
+      - file: src/types/Pattern.ts
+        line: 121
+        column: 5
+      - file: src/types/Pattern.ts
+        line: 266
+        column: 13
+      - file: src/types/FindSelected.ts
+        line: 104
+        column: 15
+      - file: src/types/InvertPattern.ts
+        line: 30
+        column: 20
+      - file: src/types/InvertPattern.ts
+        line: 110
+        column: 15
+      - file: src/types/InvertPattern.ts
+        line: 311
+        column: 17
+      - file: src/internals/helpers.ts
+        line: 18
+        column: 9
+        enclosing: "Variable:src/internals/helpers.ts:isMatcher"
+      - file: src/internals/helpers.ts
+        line: 19
+        column: 24
+        enclosing: "Variable:src/internals/helpers.ts:isMatcher"
+      - file: src/internals/helpers.ts
+        line: 26
+        column: 9
+        enclosing: "Variable:src/internals/helpers.ts:isOptionalPattern"
+    labeler: opus-4-7
+    labeler_note: >-
+      The Matcher interface is the structural contract every pattern
+      combinator output satisfies. The ArrayP/OptionalP/MapP/SetP/AndP/OrP/
+      NotP/GuardP/GuardExcludeP/SelectP/CustomP type aliases in types/Pattern.ts
+      are all `Matcher<...>` re-shapings, and patterns.ts closes over the
+      interface via its five `chainable` helper constraints. Compound names
+      AnyMatcher/UnknownMatcher/PatternMatcher are word-boundary-excluded from
+      this set.
+
+  # ---------------------------------------------------------------------------
+  # callers (4)
+  # ---------------------------------------------------------------------------
+
+  - id: ts-pattern.callers.matchPattern
+    kind: callers
+    target:
+      symbolName: matchPattern
+      file: src/internals/helpers.ts
+      line: 32
+      column: 14
+    expected:
+      - file: src/match.ts
+        line: 75
+        column: 34
+        enclosing: "Method:src/match.ts:MatchExpression.with"
+      - file: src/is-matching.ts
+        line: 47
+        column: 7
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/is-matching.ts
+        line: 51
+        column: 12
+        enclosing: "Function:src/is-matching.ts:isMatching"
+      - file: src/patterns.ts
+        line: 187
+        column: 27
+        enclosing: "Function:src/patterns.ts:optional"
+      - file: src/patterns.ts
+        line: 248
+        column: 13
+        enclosing: "Function:src/patterns.ts:array"
+      - file: src/patterns.ts
+        line: 300
+        column: 13
+        enclosing: "Function:src/patterns.ts:set"
+      - file: src/patterns.ts
+        line: 370
+        column: 30
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 371
+        column: 32
+        enclosing: "Function:src/patterns.ts:map"
+      - file: src/patterns.ts
+        line: 428
+        column: 11
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 468
+        column: 11
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 498
+        column: 19
+        enclosing: "Function:src/patterns.ts:not"
+      - file: src/patterns.ts
+        line: 599
+        column: 19
+        enclosing: "Function:src/patterns.ts:select"
+      - file: src/internals/helpers.ts
+        line: 88
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 91
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 95
+        column: 15
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 101
+        column: 13
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+      - file: src/internals/helpers.ts
+        line: 111
+        column: 9
+        enclosing: "Function:src/internals/helpers.ts:matchPattern"
+    labeler: opus-4-7
+    labeler_note: >-
+      Mirrors the matchPattern references case but stresses callHierarchy —
+      the same set of sites must be returned with enclosing-symbol attribution.
+      Includes 5 recursive self-calls inside matchPattern (tuple/variadic/
+      object traversal branches) so this also tests same-symbol recursion in
+      the incoming-calls graph.
+
+  - id: ts-pattern.callers.isMatching
+    kind: callers
+    target:
+      symbolName: isMatching
+      file: src/is-matching.ts
+      line: 41
+      column: 17
+    expected:
+      - file: src/patterns.ts
+        line: 1142
+        column: 25
+        enclosing: "Function:src/patterns.ts:shape"
+    labeler: opus-4-7
+    labeler_note: >-
+      isMatching has exactly one internal caller — the `shape` combinator
+      wraps an isMatching-typed-guard inside a `when`. The index.ts re-export
+      is a re-export, not a call, so it is intentionally omitted from the
+      callHierarchy answer. Good minimal-signal test for caller precision.
+
+  - id: ts-pattern.callers.flatMap
+    kind: callers
+    target:
+      symbolName: flatMap
+      file: src/internals/helpers.ts
+      line: 132
+      column: 14
+    expected:
+      - file: src/patterns.ts
+        line: 433
+        column: 9
+        enclosing: "Function:src/patterns.ts:intersection"
+      - file: src/patterns.ts
+        line: 463
+        column: 9
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/patterns.ts
+        line: 473
+        column: 9
+        enclosing: "Function:src/patterns.ts:union"
+      - file: src/internals/helpers.ts
+        line: 125
+        column: 40
+        enclosing: "Variable:src/internals/helpers.ts:getSelectionKeys"
+      - file: src/internals/helpers.ts
+        line: 126
+        column: 12
+        enclosing: "Variable:src/internals/helpers.ts:getSelectionKeys"
+    labeler: opus-4-7
+    labeler_note: >-
+      flatMap is a tiny internal utility with exactly five call sites — two
+      inside getSelectionKeys (recursive walk over object/array patterns) and
+      three inside patterns.ts (intersection + two in union's selection-key
+      aggregation). Small, closed, fully-enumerable callers set — this is the
+      canary test for incoming-calls precision.
+
+  - id: ts-pattern.callers.match
+    kind: callers
+    target:
+      symbolName: match
+      file: src/match.ts
+      line: 32
+      column: 17
+    expected:
+      - file: src/index.ts
+        line: 3
+        column: 10
+    labeler: opus-4-7
+    labeler_note: >-
+      The public `match` entrypoint has no in-library callers — the only
+      in-repo reference is the re-export through src/index.ts. tsserver's
+      callHierarchy traditionally does NOT classify a bare re-export as a
+      call, but reference providers DO list it. Some LSPs return [] here and
+      others return the re-export; we label the re-export as the expected
+      answer (the "correct" modeling for differential eval purposes) so
+      regressions surface as mismatches to triage.
+
+  # ---------------------------------------------------------------------------
+  # implementations (3) — all waived: ts-pattern's type-level API is expressed
+  # as type aliases and structurally-typed object literals, for which
+  # tsserver's textDocument/implementation commonly returns an empty set.
+  # The cases are kept so the gym distinguishes "LSP returned nothing" from
+  # "case not present" and exposes any future improvement in tsserver's
+  # implementations provider.
+  # ---------------------------------------------------------------------------
+
+  - id: ts-pattern.implementations.Matcher
+    kind: implementations
+    target:
+      symbolName: Matcher
+      file: src/types/Pattern.ts
+      line: 49
+      column: 18
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: >-
+      Matcher is a structural interface — every combinator in patterns.ts
+      returns an object literal of shape `{ [matcher]() { return { match,
+      getSelectionKeys?, matcherType? }; } }`, but none use an `implements
+      Matcher` clause. tsserver's implementations provider does not surface
+      these structural implementers reliably; waived pending empirical tie-
+      break against the oracle.
+
+  - id: ts-pattern.implementations.Match
+    kind: implementations
+    target:
+      symbolName: Match
+      file: src/types/Match.ts
+      line: 22
+      column: 13
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: >-
+      Match is a generic type alias (object type with `.with`/`.when`/
+      `.otherwise`/`.exhaustive`/`.run`/`.returnType` members). Its sole
+      runtime inhabitant is the internal MatchExpression class in src/match.ts,
+      coerced via `as any` — there is no `implements Match<...>` clause.
+      tsserver returns no implementations for type aliases; waived.
+
+  - id: ts-pattern.implementations.MatchedValue
+    kind: implementations
+    target:
+      symbolName: MatchedValue
+      file: src/types/Pattern.ts
+      line: 73
+      column: 13
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: >-
+      MatchedValue is a pure helper type alias (`WithDefault<ExtractPreciseValue
+      <a, invpattern>, a>`). Type aliases have no implementations by definition;
+      waived to lock in the empty-result expectation.

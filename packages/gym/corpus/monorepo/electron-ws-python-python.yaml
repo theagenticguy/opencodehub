@@ -1,0 +1,129 @@
+language: python
+corpus:
+  name: electron-ws-python
+  commit: 92d563c20d86e87df9f946f1b2ad550b193905d6
+  path: monorepo/electron-ws-python
+tool:
+  name: pyright
+  version: 1.1.390
+cases:
+  # ---------------------------------------------------------------------------
+  # Confirmed cases (3) — pyright should resolve these intra-Python refs.
+  # All three live inside backend/ so a single pyright project root resolves
+  # them without any cross-language help.
+  # ---------------------------------------------------------------------------
+
+  - id: mono-py.references.handle_user_message
+    kind: references
+    target:
+      symbolName: handle_user_message
+      file: backend/handlers.py
+      line: 24
+      column: 11
+    expected:
+      - file: backend/server.py
+        line: 15
+        column: 69
+      - file: backend/server.py
+        line: 23
+        column: 19
+        enclosing: "Function:backend/server.py:handle_message"
+    labeler: opus-4-7
+    labeler_note: >-
+      handle_user_message is the Python handler for the `user_message`
+      WebSocket payload. server.py imports it (line 15) and dispatches to it
+      from the `match msg.get("type")` block inside handle_message (line 23).
+      Both sites are intra-backend refs that pyright resolves cleanly.
+      The renderer-side call sites that produce the `{type: "user_message"}`
+      payload are invisible to pyright — tracked as the waived
+      mono-py.callers.handle_user_message_cross_language case below.
+
+  - id: mono-py.callers.handle_message
+    kind: callers
+    target:
+      symbolName: handle_message
+      file: backend/server.py
+      line: 19
+      column: 11
+    expected:
+      - file: backend/server.py
+        line: 35
+        column: 15
+        enclosing: "Function:backend/server.py:_connection"
+    labeler: opus-4-7
+    labeler_note: >-
+      handle_message is the top-level WebSocket dispatcher. Its only in-repo
+      caller is the `async for raw in ws` loop inside _connection() at line
+      35. main() wires _connection into websockets.serve() but never calls
+      handle_message directly, and the `if __name__ == "__main__"` entry
+      runs main() via asyncio.run — neither is a caller of handle_message.
+      Minimal-signal intra-module case that stresses caller precision.
+
+  - id: mono-py.references.UserMessagePayload
+    kind: references
+    target:
+      symbolName: UserMessagePayload
+      file: backend/models.py
+      line: 14
+      column: 7
+    expected:
+      - file: backend/models.py
+        line: 20
+        column: 14
+        enclosing: "Class:backend/models.py:UserMessage"
+      - file: backend/handlers.py
+        line: 20
+        column: 5
+      - file: backend/handlers.py
+        line: 25
+        column: 36
+        enclosing: "Function:backend/handlers.py:handle_user_message"
+      - file: backend/server.py
+        line: 16
+        column: 45
+      - file: backend/server.py
+        line: 23
+        column: 43
+        enclosing: "Function:backend/server.py:handle_message"
+    labeler: opus-4-7
+    labeler_note: >-
+      UserMessagePayload is a Pydantic BaseModel used as (a) the `payload`
+      field type of UserMessage in models.py, (b) the type annotation on
+      handle_user_message's payload parameter in handlers.py, and (c) the
+      constructor call inside server.handle_message that instantiates the
+      payload from the raw dict. Imports in handlers.py and server.py are
+      included because pyright reports import sites as references. Five
+      intra-backend rows total — pyright resolves these cleanly.
+
+  # ---------------------------------------------------------------------------
+  # Waived (1) — documented v1 gap: WebSocket message-type dispatch boundary.
+  # Static reference tooling cannot bridge the TS-side
+  # JSON.stringify({type: "user_message", ...}) to the Python-side
+  # `match msg.get("type")` dispatch. The only static evidence is the string
+  # literal "user_message" on both sides.
+  # ---------------------------------------------------------------------------
+
+  - id: mono-py.callers.handle_user_message_cross_language
+    kind: callers
+    target:
+      symbolName: handle_user_message
+      file: backend/handlers.py
+      line: 24
+      column: 11
+    expected: []
+    waived: true
+    labeler: opus-4-7
+    labeler_note: >-
+      The renderer-side producer of the `{type: "user_message"}` payload —
+      app/renderer/stores/chatStore.ts:sendMessage — is a caller of
+      handle_user_message in the sense that a real user interaction flows
+      from sendMessage through the WebSocket into server.handle_message and
+      is dispatched into handle_user_message. pyright, being a Python-only
+      type checker, cannot see that cross-language CALLS edge; the only
+      static evidence connecting the two sides is the string literal
+      "user_message" appearing in both chatStore.ts:17 and server.py:22.
+      This is a documented v1 gap for the reference-graph oracle: the
+      WebSocket message-type dispatch boundary is not resolvable without
+      string-tracking or a protocol-aware analyzer. Waived with empty
+      expected so the gate-3 regression check skips this case rather than
+      treating string-bridged answers as a regression.

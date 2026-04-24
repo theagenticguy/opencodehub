@@ -1,0 +1,32 @@
+{
+  "name": "@opencodehub/summarizer",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — structured code-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "reference"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test './dist/**/*.test.js'",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "3.1035.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "typescript": "6.0.3"
+  }
+}

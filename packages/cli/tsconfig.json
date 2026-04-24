@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "references": [
+    { "path": "../analysis" },
+    { "path": "../core-types" },
+    { "path": "../embedder" },
+    { "path": "../storage" },
+    { "path": "../search" },
+    { "path": "../ingestion" },
+    { "path": "../sarif" },
+    { "path": "../scanners" }
+  ]
+}
+

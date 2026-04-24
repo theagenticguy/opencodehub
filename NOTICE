@@ -1,0 +1,29 @@
+OpenCodeHub
+Copyright 2026 OpenCodeHub contributors
+
+This product includes software developed by the OpenCodeHub project
+(https://github.com/theagenticguy/opencodehub).
+
+----
+
+Third-party dependencies and their licenses are enumerated in
+THIRD_PARTY_LICENSES.md (generated from SBOM.cdx.json). All runtime
+dependencies are OSI-approved permissive licenses (Apache-2.0, MIT, ISC,
+BSD-2-Clause, BSD-3-Clause, 0BSD, CC0-1.0, BlueOak-1.0.0, Python-2.0).
+
+Two SPDX license-data packages (spdx-exceptions, spdx-ranges) include
+CC-BY-3.0 attribution for the license list data. Attribution is preserved
+unmodified in the installed package metadata.
+
+----
+
+This product vendors tree-sitter-stack-graphs Python rules from:
+
+  github/stack-graphs (MIT OR Apache-2.0)
+  https://github.com/github/stack-graphs
+  Pinned at commit fcb7705d5b38ae13b3665a9b2c882e5a97243d44
+  Vendored under vendor/stack-graphs-python/ (rule data only, no Rust evaluator code)
+
+The TypeScript rule evaluator that consumes these .tsg files is an
+independent clean-room implementation authored for OpenCodeHub
+(packages/ingestion/src/providers/resolution/stack-graphs/).

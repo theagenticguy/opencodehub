@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": [
+    "src/providers/resolution/stack-graphs/__fixtures__/simple-import.ts",
+    "src/providers/resolution/stack-graphs/__fixtures__/simple-import-target.ts",
+    "src/providers/resolution/stack-graphs/__fixtures__/default-export.ts",
+    "src/providers/resolution/stack-graphs/__fixtures__/default-export-consumer.ts",
+    "src/providers/resolution/stack-graphs/__fixtures__/barrel-reexport/**/*.ts",
+    "src/providers/resolution/stack-graphs/__fixtures__/barrel-star/**/*.ts"
+  ],
+  "references": [
+    { "path": "../analysis" },
+    { "path": "../core-types" },
+    { "path": "../embedder" },
+    { "path": "../lsp-oracle" },
+    { "path": "../storage" },
+    { "path": "../summarizer" }
+  ]
+}

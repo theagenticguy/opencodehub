@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm exec biome ci .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build workspace .d.ts so cross-package types resolve
+        run: pnpm -r build
+      - run: pnpm -r exec tsc --noEmit
+
+  test:
+    # Node 24 temporarily dropped from matrix: tree-sitter@0.25.0 fails to
+    # compile against Node 24's V8 ABI. Upstream fix landed in node-tree-sitter
+    # git tag v0.25.1 but is blocked on an npm OIDC publish issue
+    # (tree-sitter/node-tree-sitter#268, #276). Re-add `24` to the matrix once
+    # 0.25.1+ lands on npm. Types stay on @types/node@24.x so we surface any
+    # type-level Node 24 breakage early.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - name: Ensure node-gyp is available for native tree-sitter build
+        run: npm i -g node-gyp
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r test
+
+  sarif-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm -F @opencodehub/sarif build
+      - run: pnpm -F @opencodehub/sarif run validate-schema
+
+  banned-strings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: bash scripts/check-banned-strings.sh
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: license allowlist
+        run: >
+          pnpm exec license-checker-rseidelsohn
+          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD'
+          --excludePrivatePackages
+          --production
+
+  osv:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install osv-scanner
+        run: |
+          curl -sL -o /tmp/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.3.5/osv-scanner_linux_amd64
+          chmod +x /tmp/osv-scanner
+      - name: Scan lockfile (SARIF output)
+        run: |
+          /tmp/osv-scanner scan source \
+            --lockfile=pnpm-lock.yaml \
+            --format=sarif \
+            --output=results.sarif || true
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+        if: always()
+      - name: Fail on vulnerabilities
+        run: /tmp/osv-scanner scan source --lockfile=pnpm-lock.yaml

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      typescript-tooling:
+        patterns: ["typescript", "@biomejs/*", "@types/*"]
+      tree-sitter:
+        patterns: ["tree-sitter*", "web-tree-sitter"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: "/packages/eval"
+    schedule:
+      interval: weekly

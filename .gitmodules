@@ -1,0 +1,19 @@
+[submodule "packages/gym/corpus/repos/python/sdk-python"]
+	path = packages/gym/corpus/repos/python/sdk-python
+	url = https://github.com/strands-agents/sdk-python.git
+	# commit pinned in corpus YAML; keep submodule at the same SHA
+
+[submodule "packages/gym/corpus/repos/typescript/ts-pattern"]
+	path = packages/gym/corpus/repos/typescript/ts-pattern
+	url = https://github.com/gvergnaud/ts-pattern.git
+	# pin: v5.5.0 tag (pin tracked manually)
+
+[submodule "packages/gym/corpus/repos/go/cobra"]
+	path = packages/gym/corpus/repos/go/cobra
+	url = https://github.com/spf13/cobra.git
+	# pin: latest stable tag (pin tracked manually)
+
+[submodule "packages/gym/corpus/repos/rust/thiserror"]
+	path = packages/gym/corpus/repos/rust/thiserror
+	url = https://github.com/dtolnay/thiserror.git
+	# pin: v2.0.0 tag (pin tracked manually)
