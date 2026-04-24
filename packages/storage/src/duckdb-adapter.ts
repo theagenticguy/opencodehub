@@ -1067,13 +1067,20 @@ const NODE_COLUMNS: readonly string[] = [
   "ownership_drift_30d",
   "ownership_drift_90d",
   "ownership_drift_365d",
-  // v2.0 extensions (append-only)
+  // v1.2 extensions (append-only). New columns MUST go to the end of this
+  // list and the tail of the CREATE TABLE in schema-ddl.ts — reordering
+  // rewrites every `VALUES (?, ?, ...)` slot and breaks existing graphs.
   "deadness",
   "coverage_percent",
   "covered_lines_json",
   "cyclomatic_complexity",
   "nesting_depth",
   "nloc",
+  "halstead_volume",
+  "input_schema_json",
+  "partial_fingerprint",
+  "baseline_state",
+  "suppressed_json",
 ];
 
 /**
@@ -1158,15 +1165,55 @@ function nodeToRow(node: GraphNode): readonly (SqlParam | readonly string[])[] {
     numberOrNull(n["ownershipDrift30d"]),
     numberOrNull(n["ownershipDrift90d"]),
     numberOrNull(n["ownershipDrift365d"]),
-    // v2.0 extensions: coverage overlay (Q.2) + complexity fields (Q.2 gate).
-    // coveredLines flattens to a JSON array so the column stays TEXT.
-    stringOrNull(n["deadness"]),
+    // v1.2 extensions. Each column is populated by a single phase and stays
+    // NULL for kinds the phase doesn't touch:
+    //   - `deadness`: dead-code phase (callables). Hyphenated
+    //     `unreachable-export` is rewritten here into the schema's
+    //     underscored form so consumers query a single spelling.
+    //   - `coverage_percent` / `covered_lines_json`: coverage phase. File
+    //     nodes carry the numeric array (flattened to JSON), callables may
+    //     carry an already-serialised string — prefer the string.
+    //   - `cyclomatic_complexity` / `nesting_depth` / `nloc` /
+    //     `halstead_volume`: complexity phase (callables).
+    //   - `input_schema_json`: tools phase (Tool nodes).
+    //   - `partial_fingerprint` / `baseline_state` / `suppressed_json`:
+    //     SARIF ingest (Finding nodes).
+    stringOrNull(normalizeDeadness(n["deadness"])),
     numberOrNull(n["coveragePercent"]),
-    jsonArrayOrNull(n["coveredLines"]),
+    coveredLinesOrNull(n["coveredLines"], n["coveredLinesJson"]),
     numberOrNull(n["cyclomaticComplexity"]),
     numberOrNull(n["nestingDepth"]),
     numberOrNull(n["nloc"]),
+    numberOrNull(n["halsteadVolume"]),
+    stringOrNull(n["inputSchemaJson"]),
+    stringOrNull(n["partialFingerprint"]),
+    stringOrNull(n["baselineState"]),
+    stringOrNull(n["suppressedJson"]),
   ];
+}
+
+/**
+ * Translate the hyphenated `unreachable-export` produced by the analysis
+ * helper into the underscored form the `deadness` column stores. Every
+ * other value (`live` / `dead`) already matches the schema enum.
+ */
+function normalizeDeadness(v: unknown): unknown {
+  if (v === "unreachable-export") return "unreachable_export";
+  return v;
+}
+
+/**
+ * Resolve the value for the `covered_lines_json` column. File nodes carry a
+ * `coveredLines: readonly number[]` field (flattened via canonical JSON);
+ * callables carry an already-serialised `coveredLinesJson` string. Prefer
+ * the string when present so we don't re-stringify work the caller already
+ * did.
+ */
+function coveredLinesOrNull(coveredLines: unknown, coveredLinesJson: unknown): string | null {
+  if (typeof coveredLinesJson === "string" && coveredLinesJson.length > 0) {
+    return coveredLinesJson;
+  }
+  return jsonArrayOrNull(coveredLines);
 }
 
 /**
