@@ -121,6 +121,14 @@ export interface PipelineOptions {
   /** Override the model directory used by the embedder. */
   readonly embeddingsModelDir?: string;
   /**
+   * Hierarchical tiers to emit when `embeddings=true` (P03). Defaults to
+   * `["symbol"]` so v1.0 behaviour is preserved. Pass
+   * `["symbol", "file", "community"]` to emit all three tiers; the phase
+   * de-dupes and normalizes the order. Unknown tier names are silently
+   * filtered at the TS type level.
+   */
+  readonly embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
+  /**
    * When `true`, the SBOM phase emits `.codehub/sbom.cyclonedx.json` and
    * `.codehub/sbom.spdx.json` from Dependency nodes. When `false` (the
    * default), the phase is a no-op. Toggled via the `codehub analyze

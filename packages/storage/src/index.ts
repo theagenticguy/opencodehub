@@ -4,6 +4,7 @@ export type {
   CochangeLookupOptions,
   CochangeRow,
   CochangeStore,
+  EmbeddingGranularity,
   EmbeddingRow,
   IGraphStore,
   SearchQuery,
