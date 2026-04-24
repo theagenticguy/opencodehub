@@ -64,5 +64,8 @@
     "ajv-formats": "3.0.1",
     "ajv-formats-draft2019": "1.6.1",
     "typescript": "6.0.3"
+  },
+  "optionalDependencies": {
+    "ts-morph": "^25.0.1"
   }
 }

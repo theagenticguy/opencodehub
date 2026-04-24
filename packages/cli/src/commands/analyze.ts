@@ -96,6 +96,13 @@ export interface AnalyzeOptions {
    * `<repo>/.codehub/skills/<slug>/`. Off by default — operators opt in.
    */
   readonly skills?: boolean;
+  /**
+   * When true, detectors that pattern-match on receiver identifiers drop
+   * heuristic-only matches entirely — edges only emit when a receiver's
+   * module origin was confirmed via the import graph or ts-morph
+   * (DET-O-001). Off by default so legacy repos keep emitting.
+   */
+  readonly strictDetectors?: boolean;
   /** Test hook: override the home dir used for the registry. */
   readonly home?: string;
 }
@@ -201,6 +208,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     summaries: summariesEnabled,
     maxSummariesPerRun: resolvedMaxSummaries,
     ...(opts.summaryModel !== undefined ? { summaryModel: opts.summaryModel } : {}),
+    ...(opts.strictDetectors !== undefined ? { strictDetectors: opts.strictDetectors } : {}),
     ...(summaryCacheAdapter !== undefined
       ? { summaryCacheAdapter: summaryCacheAdapter.adapter }
       : {}),
