@@ -58,6 +58,10 @@ program
     "--wasm-only",
     "Force the web-tree-sitter WASM runtime even when the native binding is available (useful for deterministic CI across platforms)",
   )
+  .option(
+    "--strict-detectors",
+    "Drop heuristic-only matches from the route / ORM detectors — emit edges only when the receiver's module origin was confirmed (DET-O-001)",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
     // `--wasm-only` is honored by the parse worker via the `OCH_WASM_ONLY`
@@ -105,6 +109,7 @@ program
         ? { summaryModel: opts["summaryModel"] }
         : {}),
       skills: opts["skills"] === true,
+      strictDetectors: opts["strictDetectors"] === true,
     });
   });
 
