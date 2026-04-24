@@ -90,6 +90,30 @@ describe("cppProvider (behavior)", () => {
     assert.ok(sources.includes("db.h"));
   });
 
+  it("parses C++20 import (named module, <system>, \"user\")", () => {
+    const source = `import std;
+export import math.core;
+import <vector>;
+import "utility.hpp";
+
+int main() { return 0; }
+`;
+    const imports = cppProvider.extractImports({
+      filePath: "app.cpp",
+      sourceText: source,
+    });
+    const byKind = new Map<string, string[]>();
+    for (const i of imports) {
+      const bucket = byKind.get(i.kind) ?? [];
+      bucket.push(i.source);
+      byKind.set(i.kind, bucket);
+    }
+    assert.ok(byKind.get("named")?.includes("std"));
+    assert.ok(byKind.get("named")?.includes("math.core"));
+    assert.ok(byKind.get("package-wildcard")?.includes("vector"));
+    assert.ok(byKind.get("package-wildcard")?.includes("utility.hpp"));
+  });
+
   it("extracts calls", () => {
     const defs = cppProvider.extractDefinitions({
       filePath: fx.filePath,

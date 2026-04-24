@@ -224,11 +224,123 @@ function extractGoImports(input: ExtractImportsInput): readonly ExtractedImport[
   return out;
 }
 
-function extractGoHeritage(_input: ExtractHeritageInput): readonly ExtractedHeritage[] {
-  // Go has struct embedding and interface satisfaction but no explicit
-  // hierarchy edges. Accurately modelling "T implements I" requires a
-  // type checker that compares method sets — deferred past MVP.
-  return [];
+/**
+ * Go heritage detector.
+ *
+ * Go has no `extends` / `implements` keyword — interface satisfaction is
+ * structural. A type `T` implements interface `I` iff the method set of
+ * `T` is a superset of `I`'s method set. This detector:
+ *
+ *   1. Collects every method the file declares, grouped by receiver type.
+ *   2. Collects every interface declared in the file, with its method
+ *      set read from the raw source (the unified query doesn't capture
+ *      interface method names).
+ *   3. Emits one `IMPLEMENTS` edge per (type, interface) pair whose
+ *      method-set-of-T is a superset of method-set-of-I, subject to the
+ *      conservative guard: both sides must live in the SAME package
+ *      (which for a per-file pass means the same file) OR both must be
+ *      exported (uppercase first letter). Cross-file satisfaction is a
+ *      v2 enhancement — the v1 detector is per-file.
+ */
+function extractGoHeritage(input: ExtractHeritageInput): readonly ExtractedHeritage[] {
+  const { filePath, definitions } = input;
+  const out: ExtractedHeritage[] = [];
+
+  // Group methods by receiver type.
+  const methodsByType = new Map<string, Set<string>>();
+  for (const d of definitions) {
+    if (d.kind !== "Method" || d.owner === undefined) continue;
+    const bag = methodsByType.get(d.owner) ?? new Set<string>();
+    bag.add(d.name);
+    methodsByType.set(d.owner, bag);
+  }
+  if (methodsByType.size === 0) return out;
+
+  // Collect interfaces with their method sets by parsing source around
+  // each `Interface` definition's startLine/endLine. `sourceText` is the
+  // raw file bytes, which `extractHeritage` does not receive directly —
+  // so we reconstruct a minimal scan from the captures the provider
+  // holds. The cleanest path: use the definitions array plus a fresh
+  // parse of the interface body substring taken from the header file.
+  // Instead of re-parsing, we walk the `definitions` to find Interface
+  // records and then inspect the original captures' `text` field; our
+  // Go query emits `@definition.interface` on the full type_declaration
+  // so the capture text contains the interface body.
+  const interfaces = collectInterfaceMethodSets(input);
+
+  for (const [typeName, typeMethods] of methodsByType) {
+    const typeIsExported = isExportedIdent(typeName);
+    for (const { name: ifaceName, methods: ifaceMethods } of interfaces) {
+      if (ifaceMethods.size === 0) continue; // empty interface — everyone satisfies it; skip for signal
+      if (!isSuperset(typeMethods, ifaceMethods)) continue;
+      // Conservative guard: skip when one side is unexported and they
+      // aren't in the same file (our per-file proxy for "same package").
+      // Since everything we see here is from one file, same-file IS the
+      // same-package signal.
+      const ifaceIsExported = isExportedIdent(ifaceName);
+      if (!typeIsExported && !ifaceIsExported) continue;
+      out.push({
+        childQualifiedName: typeName,
+        parentName: ifaceName,
+        filePath,
+        relation: "IMPLEMENTS",
+        startLine: 1,
+      });
+    }
+  }
+  return out;
+}
+
+function isSuperset(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  for (const x of b) {
+    if (!a.has(x)) return false;
+  }
+  return true;
+}
+
+function isExportedIdent(name: string): boolean {
+  return /^[A-Z]/.test(name);
+}
+
+/**
+ * Read interface method sets from the captures attached to each
+ * `@definition.interface`. The query captures the whole
+ * type_declaration, so `capture.text` contains the interface body — we
+ * extract method names via a narrow regex. Embedded interfaces are
+ * ignored (v1 scope); the spec explicitly accepts this conservative
+ * posture.
+ */
+function collectInterfaceMethodSets(
+  input: ExtractHeritageInput,
+): readonly { name: string; methods: Set<string> }[] {
+  const { captures, definitions } = input;
+  const interfaceCaps = captures.filter((c) => c.tag === "definition.interface");
+  const out: { name: string; methods: Set<string> }[] = [];
+  for (const cap of interfaceCaps) {
+    const def = definitions.find(
+      (d) => d.kind === "Interface" && d.startLine === cap.startLine,
+    );
+    if (def === undefined) continue;
+    const methods = readInterfaceMethodNames(cap.text);
+    out.push({ name: def.name, methods });
+  }
+  return out;
+}
+
+function readInterfaceMethodNames(body: string): Set<string> {
+  const out = new Set<string>();
+  // Interface body: `interface { Method1() ; Method2(x int) error ; ... }`.
+  // Each method is an identifier immediately followed by `(`. We skip
+  // embedded interface identifiers (they have no `(` after them).
+  const re = /^\s*([A-Z_][A-Za-z0-9_]*|[a-z_][A-Za-z0-9_]*)\s*\(/gm;
+  for (const m of body.matchAll(re)) {
+    const name = m[1];
+    if (name === undefined) continue;
+    // Skip reserved words that could lead to false positives.
+    if (name === "interface" || name === "type" || name === "func") continue;
+    out.add(name);
+  }
+  return out;
 }
 
 export const goProvider: LanguageProvider = {
