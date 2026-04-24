@@ -24,6 +24,7 @@ import type {
   SearchQuery,
   SearchResult,
   SqlParam,
+  SymbolSummaryRow,
   VectorQuery,
   VectorResult,
 } from "@opencodehub/storage";
@@ -40,6 +41,8 @@ interface FakeStoreOptions {
   readonly searchRows?: readonly SearchResult[];
   readonly vectorRows?: readonly VectorResult[];
   readonly nodes?: ReadonlyMap<string, FakeNode>;
+  /** P04 symbol summaries — keyed by nodeId. Omit to simulate legacy indexes. */
+  readonly summaryRows?: ReadonlyMap<string, SymbolSummaryRow>;
 }
 
 interface FakeStoreHandle {
@@ -56,6 +59,8 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   const searchRows = opts.searchRows ?? [];
   const vectorRows = opts.vectorRows ?? [];
   const nodes = opts.nodes ?? new Map<string, FakeNode>();
+  const summaryRows = opts.summaryRows;
+
 
   const handle: FakeStoreHandle = {
     lastQuery: null,
@@ -67,7 +72,8 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   };
   // Minimal DuckDbStore surface: the CLI query path calls `search`,
   // `vectorSearch`, `query` (for the embeddings probe + metadata
-  // hydration), and `close`. Stubbing those is enough; the rest is cast.
+  // hydration), `lookupSymbolSummariesByNode` (for P04 summary join),
+  // and `close`. Stubbing those is enough; the rest is cast.
   const impl = {
     search: async (q: SearchQuery) => {
       handle.lastQuery = q.text;
@@ -105,6 +111,20 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
       }
       throw new Error(`unsupported sql in fake store: ${normalized}`);
     },
+    ...(summaryRows !== undefined
+      ? {
+          lookupSymbolSummariesByNode: async (
+            nodeIds: readonly string[],
+          ): Promise<readonly SymbolSummaryRow[]> => {
+            const out: SymbolSummaryRow[] = [];
+            for (const id of nodeIds) {
+              const row = summaryRows.get(id);
+              if (row !== undefined) out.push(row);
+            }
+            return out;
+          },
+        }
+      : {}),
     close: async () => {
       handle.closed = true;
     },
@@ -470,4 +490,134 @@ test("cli query: --bm25-only skips the embedder probe entirely", async () => {
   assert.equal(handle.vectorCalls, 0);
   assert.equal(parsed.results.length, 1);
   assert.deepEqual(parsed.results[0]?.sources, ["bm25"]);
+});
+
+// ---------------------------------------------------------------------------
+// P04 summary join — `symbol_summaries` rows flow into query hits
+// ---------------------------------------------------------------------------
+
+test("cli query: summary rows are joined onto each hit in --json output (P04)", async () => {
+  const summaryRows: ReadonlyMap<string, SymbolSummaryRow> = new Map([
+    [
+      "F:foo",
+      {
+        nodeId: "F:foo",
+        contentHash: "c0ffee",
+        promptVersion: "1",
+        modelId: "global.anthropic.claude-haiku-4-5-v1:0",
+        summaryText: "Greet the user by name.",
+        signatureSummary: "name: string",
+        returnsTypeSummary: "a greeting string",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ],
+  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+      { nodeId: "F:bar", score: 1, filePath: "src/bar.ts", name: "bar", kind: "Function" },
+    ],
+    summaryRows,
+  });
+  const stdout = await captureStdout(async () => {
+    await runQuery("foo", { json: true }, hooksFor(handle, "/tmp/fake"));
+  });
+  const parsed = JSON.parse(stdout) as {
+    results: Array<{ nodeId: string; summary?: string; signatureSummary?: string }>;
+  };
+  const foo = parsed.results.find((r) => r.nodeId === "F:foo");
+  const bar = parsed.results.find((r) => r.nodeId === "F:bar");
+  assert.ok(foo, "F:foo must be present");
+  assert.equal(foo.summary, "Greet the user by name.");
+  assert.equal(foo.signatureSummary, "name: string");
+  assert.ok(bar, "F:bar must be present");
+  assert.equal(bar.summary, undefined, "bar has no summary row; field must be absent");
+});
+
+test("cli query: summary join renders a SUMMARY column in the text formatter", async () => {
+  const summaryRows: ReadonlyMap<string, SymbolSummaryRow> = new Map([
+    [
+      "F:foo",
+      {
+        nodeId: "F:foo",
+        contentHash: "c0ffee",
+        promptVersion: "1",
+        modelId: "m",
+        summaryText: "Greet the user by name.",
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ],
+  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+    summaryRows,
+  });
+  const stdout = await captureStdout(async () => {
+    await runQuery("foo", {}, hooksFor(handle, "/tmp/fake"));
+  });
+  assert.ok(stdout.includes("SUMMARY"), "SUMMARY column header must render when summaries present");
+  assert.ok(stdout.includes("Greet the user by name."), "summary text must appear in the row");
+});
+
+test("cli query: text formatter suppresses SUMMARY column when no summary row exists", async () => {
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
+  const stdout = await captureStdout(async () => {
+    await runQuery("foo", {}, hooksFor(handle, "/tmp/fake"));
+  });
+  assert.ok(
+    !stdout.includes("SUMMARY"),
+    "SUMMARY column must not render when no hit carries a summary",
+  );
+});
+
+test("cli query: summary text is truncated to 120 chars in the text table", async () => {
+  const longText = "x".repeat(500);
+  const summaryRows: ReadonlyMap<string, SymbolSummaryRow> = new Map([
+    [
+      "F:foo",
+      {
+        nodeId: "F:foo",
+        contentHash: "c0ffee",
+        promptVersion: "1",
+        modelId: "m",
+        summaryText: longText,
+        createdAt: "2026-04-22T00:00:00.000Z",
+      },
+    ],
+  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+    summaryRows,
+  });
+  const stdout = await captureStdout(async () => {
+    await runQuery("foo", {}, hooksFor(handle, "/tmp/fake"));
+  });
+  // Text formatter cap is 120 chars; the last row must not carry the full
+  // 500-char body.
+  assert.ok(!stdout.includes(longText), "full untruncated summary must not appear");
+  assert.ok(stdout.includes("…"), "truncation ellipsis must mark the cap");
+});
+
+test("cli query: store without lookupSymbolSummariesByNode degrades silently", async () => {
+  // When `summaryRows` is omitted, the fake store does not install the
+  // lookup method — the CLI probe must short-circuit to an empty join
+  // without throwing.
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
+  const stdout = await captureStdout(async () => {
+    await runQuery("foo", { json: true }, hooksFor(handle, "/tmp/fake"));
+  });
+  const parsed = JSON.parse(stdout) as { results: Array<{ summary?: string }> };
+  assert.equal(parsed.results[0]?.summary, undefined);
 });

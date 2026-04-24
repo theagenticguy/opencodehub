@@ -43,7 +43,7 @@ import {
   hybridSearch,
   tryOpenEmbedder,
 } from "@opencodehub/search";
-import type { DuckDbStore, SqlParam } from "@opencodehub/storage";
+import type { DuckDbStore, SqlParam, SymbolSummaryRow } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -129,6 +129,10 @@ interface QueryRow {
   readonly sources: readonly ("bm25" | "vector")[];
   /** Present iff `include_content: true` was requested and the file was readable. */
   readonly content?: string;
+  /** Present iff a `symbol_summaries` row exists for this node (P04). */
+  readonly summary?: string;
+  /** Compact one-line signature summary from the same row. */
+  readonly signatureSummary?: string;
 }
 
 /** Node metadata hydrated from the `nodes` table after fusion. */
@@ -168,6 +172,40 @@ interface ProcessSymbol {
   readonly kind: string;
   readonly filePath: string;
   readonly step: number;
+}
+
+/**
+ * Batched summary join for the top-K ranked hits. Short-circuits to an
+ * empty map when either `symbol_summaries` does not exist / is empty (the
+ * `summariesJoined` probe already ran) or the input list is empty. Any
+ * lookup failure is swallowed — summary enrichment is never load-bearing.
+ *
+ * We collapse multiple prompt-version rows per node by keeping the last
+ * one in `(node_id ASC, prompt_version ASC, content_hash ASC)` order,
+ * which is the storage layer's documented ordering contract — that
+ * deterministically selects the newest prompt version.
+ */
+async function lookupSummariesForHits(
+  store: DuckDbStore,
+  summariesJoined: boolean,
+  nodeIds: readonly string[],
+): Promise<Map<string, SymbolSummaryRow>> {
+  const out = new Map<string, SymbolSummaryRow>();
+  if (!summariesJoined) return out;
+  const uniqIds = Array.from(new Set(nodeIds));
+  if (uniqIds.length === 0) return out;
+  try {
+    const rows = await store.lookupSymbolSummariesByNode(uniqIds);
+    for (const row of rows) {
+      // Overwriting per node id keeps the newest prompt version because of
+      // the ORDER BY contract in `lookupSymbolSummariesByNode`.
+      out.set(row.nodeId, row);
+    }
+  } catch {
+    // Table missing / schema drift / I/O failure: return an empty map so
+    // the query surfaces degrade silently to "no summaries attached".
+  }
+  return out;
 }
 
 /**
@@ -619,7 +657,31 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       }
 
       const fs = fsFactory();
-      const baseRows = await enrichWithContext(store, fs, resolved.repoPath, ranked);
+      const enrichedRows = await enrichWithContext(store, fs, resolved.repoPath, ranked);
+
+      // Join `symbol_summaries` onto each hit when P04 data is present.
+      // Single round trip for the whole top-K via `IN (...)`; missing rows
+      // simply omit `summary` / `signatureSummary`. Any lookup failure
+      // degrades silently — summaries are enrichment, not load-bearing.
+      const summaryMap = await lookupSummariesForHits(
+        store,
+        summariesJoined,
+        enrichedRows.map((r) => r.nodeId),
+      );
+      const baseRows: readonly QueryRow[] =
+        summaryMap.size === 0
+          ? enrichedRows
+          : enrichedRows.map((r) => {
+              const row = summaryMap.get(r.nodeId);
+              if (row === undefined) return r;
+              return {
+                ...r,
+                summary: row.summaryText,
+                ...(row.signatureSummary !== undefined
+                  ? { signatureSummary: row.signatureSummary }
+                  : {}),
+              };
+            });
 
       // When `include_content` is requested, re-read each result's source
       // between startLine/endLine and attach a capped `content` body. This
