@@ -208,6 +208,15 @@ export interface SearchResult {
   readonly filePath: string;
   readonly name: string;
   readonly kind: string;
+  /**
+   * Populated by the MCP / CLI query surfaces after the base search when a
+   * `symbol_summaries` row exists for this node (see {@link SymbolSummaryRow}).
+   * The storage-layer `search()` call never fills this — it is always a
+   * post-join, driven by the P04 summarize-enrichment path.
+   */
+  readonly summary?: string;
+  /** Compact one-line gist of the signature, mirroring `SymbolSummaryRow.signatureSummary`. */
+  readonly signatureSummary?: string;
 }
 
 export interface VectorQuery {
