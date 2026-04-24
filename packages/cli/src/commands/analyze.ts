@@ -62,18 +62,28 @@ export interface AnalyzeOptions {
    */
   readonly coverage?: boolean;
   /**
-   * When true, the `summarize` phase walks LSP-confirmed callable symbols
-   * and (when `maxSummariesPerRun > 0`) invokes Bedrock to generate
-   * structured summaries. Defaults to false so analyze stays free until
-   * the operator explicitly opts in.
+   * When true (the post-P04 default), the `summarize` phase walks LSP-
+   * confirmed callable symbols and invokes Bedrock to generate structured
+   * summaries within the resolved cost cap. Pass `false` (or
+   * `CODEHUB_BEDROCK_DISABLED=1`) to force the phase off.
    */
   readonly summaries?: boolean;
   /**
-   * Upper bound on Bedrock calls per run. `0` (the default) runs the
-   * phase in dry-run mode — eligible symbols are enumerated but never
-   * summarized. Any positive integer caps the batch size at that value.
+   * Upper bound on Bedrock calls per run. Accepts either a non-negative
+   * integer or the literal string `"auto"`. Default `"auto"` resolves to
+   * `min(floor(lspConfirmedCallableCount × 0.1), 500)` at run time, using
+   * a prior-run heuristic seeded from `store_meta.stats["embeddingsCount"]`
+   * when available and falling back to 50 on first run. Any positive
+   * integer caps the batch size at that value; `0` runs the phase in
+   * dry-run mode.
    */
-  readonly maxSummariesPerRun?: number;
+  readonly maxSummariesPerRun?: number | "auto";
+  /**
+   * Override the Bedrock model id used by the summarize phase. When
+   * undefined, the phase uses `DEFAULT_MODEL_ID` from
+   * `@opencodehub/summarizer`.
+   */
+  readonly summaryModel?: string;
   /**
    * When true, walk Communities with `symbolCount >= 5` after analyze
    * completes and emit one `SKILL.md` per cluster under
@@ -140,13 +150,33 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // reports mode="full" with reason="no-prior-graph".
   const incrementalFrom = opts.force === true ? undefined : await loadPreviousGraph(repoPath);
 
+  // Resolve the effective `summaries` flag. P04 flipped the default ON, so
+  // `undefined` now means "on". The `CODEHUB_BEDROCK_DISABLED=1` env kill-
+  // switch forces off regardless of the flag; `offline` is enforced later
+  // inside the phase itself (the phase's own invariant).
+  const summariesEnabled = resolveSummariesEnabled(opts.summaries, process.env);
+
   // Open a read-only store upfront so the `summarize` phase can probe the
-  // prior summary rows before work is queued. We keep the handle open for
-  // the duration of `runIngestion` and close it in a finally block.
-  // `summaries` must be enabled for the adapter to matter; skip the cost
-  // of a read-only open when the flag is off.
-  const summaryCacheAdapter =
-    opts.summaries === true ? await openSummaryCacheAdapter(repoPath) : undefined;
+  // prior summary rows before work is queued AND so we can inspect the
+  // prior run's `storeMeta.stats` to resolve `--max-summaries auto`. We
+  // keep the handle open for the duration of `runIngestion` and close it
+  // in a finally block. `summaries` must be enabled for the adapter to
+  // matter; skip the cost of a read-only open when the flag is off.
+  const summaryCacheAdapter = summariesEnabled
+    ? await openSummaryCacheAdapter(repoPath)
+    : undefined;
+
+  // Resolve `--max-summaries auto` against the prior run's callable count,
+  // if any. `auto` bounds the cap at 10% of the LSP-confirmed callable
+  // symbols (capped at 500); on a cold first run the prior meta is absent
+  // and we fall back to a conservative 50. `0` and positive integers pass
+  // through unchanged. Unknown inputs (string without the "auto" literal)
+  // are treated as "auto" for forward compatibility.
+  const resolvedMaxSummaries = await resolveMaxSummariesCap(
+    repoPath,
+    opts.maxSummariesPerRun,
+    summariesEnabled,
+  );
 
   const pipelineOptions: Parameters<typeof pipeline.runIngestion>[1] = {
     ...(opts.force !== undefined ? { force: opts.force } : {}),
@@ -159,10 +189,9 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       : {}),
     ...(opts.sbom !== undefined ? { sbom: opts.sbom } : {}),
     ...(opts.coverage !== undefined ? { coverage: opts.coverage } : {}),
-    ...(opts.summaries !== undefined ? { summaries: opts.summaries } : {}),
-    ...(opts.maxSummariesPerRun !== undefined
-      ? { maxSummariesPerRun: opts.maxSummariesPerRun }
-      : {}),
+    summaries: summariesEnabled,
+    maxSummariesPerRun: resolvedMaxSummaries,
+    ...(opts.summaryModel !== undefined ? { summaryModel: opts.summaryModel } : {}),
     ...(summaryCacheAdapter !== undefined
       ? { summaryCacheAdapter: summaryCacheAdapter.adapter }
       : {}),
@@ -208,7 +237,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     // Surface the summarize-phase counters whenever the flag was enabled —
     // even in dry-run (maxSummaries=0) mode — so operators can inspect how
     // many symbols WOULD have been summarized before unlocking Bedrock.
-    if (opts.summaries === true && result.summarize !== undefined) {
+    if (summariesEnabled && result.summarize !== undefined) {
       const s = result.summarize;
       log(
         `codehub analyze: summarize — considered=${s.considered}, ` +
@@ -385,6 +414,101 @@ async function loadPreviousGraph(repoPath: string): Promise<pipeline.PreviousGra
       }
     }
     return { files: scanState.files, importEdges, heritageEdges };
+  } catch {
+    return undefined;
+  } finally {
+    await store.close();
+  }
+}
+
+/**
+ * Resolve the effective `summaries` flag, honoring the
+ * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch (SUM-S-001) and the P04
+ * default-on contract (absent flag → enabled).
+ *
+ * Truth table (post-P04):
+ *   - env var set + flag undefined  → false (kill-switch wins)
+ *   - env var set + flag true       → false (kill-switch wins)
+ *   - env var set + flag false      → false
+ *   - env var unset + flag undefined → true  (default on)
+ *   - env var unset + flag true     → true
+ *   - env var unset + flag false    → false (explicit --no-summaries)
+ *
+ * Exported for unit tests; the production call site reads `process.env`.
+ */
+export function resolveSummariesEnabled(
+  flag: boolean | undefined,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+): boolean {
+  if (env["CODEHUB_BEDROCK_DISABLED"] === "1") return false;
+  return flag !== false;
+}
+
+/**
+ * Resolve `--max-summaries auto` / explicit numeric caps into a concrete
+ * numeric budget the pipeline can consume.
+ *
+ * Pre-run heuristic (P04): `auto` bounds the cap at
+ * `min(floor(lspConfirmedCallableCount × 0.1), 500)`. We cannot cheaply
+ * compute that before the pipeline runs (LSP phases haven't yielded
+ * yet), so we use the prior run's stored counts when available:
+ *
+ *   - If a DuckDB store is readable at the expected path, count nodes
+ *     whose kind is Function/Method/Class. That count is the best proxy
+ *     for "LSP-confirmed callables" we can get before the parse phase.
+ *   - If no prior store exists (fresh clone, first analyze), fall back
+ *     to a conservative first-run cap of 50. The next invocation has
+ *     the prior counts and can resolve `auto` accurately.
+ *
+ * Explicit numeric caps pass through unchanged; negative values clamp to
+ * 0 (dry-run). When summaries are disabled we short-circuit to 0 so the
+ * phase's cost-cap branch is hit regardless.
+ *
+ * Exported for unit tests; the production call site passes
+ * `countPriorCallableSymbols` for the seed lookup.
+ */
+export async function resolveMaxSummariesCap(
+  repoPath: string,
+  raw: number | "auto" | undefined,
+  summariesEnabled: boolean,
+  seedLookup: (repoPath: string) => Promise<number | undefined> = countPriorCallableSymbols,
+): Promise<number> {
+  if (!summariesEnabled) return 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.floor(raw));
+  }
+  // Default or explicit "auto" — consult prior graph counts.
+  const seed = await seedLookup(repoPath);
+  if (seed === undefined) {
+    // First run: give Bedrock a bounded foothold so the operator sees
+    // the feature light up without the phase sitting idle in dry-run.
+    return 50;
+  }
+  return Math.min(Math.floor(seed * 0.1), 500);
+}
+
+/**
+ * Count callable symbols (Function / Method / Class) recorded by the
+ * prior run. Returns `undefined` when no prior DuckDB index exists or
+ * the count query fails — callers treat that as "no prior run" and fall
+ * back to the first-run heuristic.
+ */
+async function countPriorCallableSymbols(repoPath: string): Promise<number | undefined> {
+  const dbPath = resolveDbPath(repoPath);
+  const store = new DuckDbStore(dbPath, { readOnly: true });
+  try {
+    await store.open();
+  } catch {
+    return undefined;
+  }
+  try {
+    const rows = await store.query(
+      "SELECT COUNT(*) AS n FROM nodes WHERE kind IN ('Function','Method','Class')",
+    );
+    const first = rows[0];
+    if (!first) return undefined;
+    const n = Number(first["n"] ?? 0);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
   } catch {
     return undefined;
   } finally {

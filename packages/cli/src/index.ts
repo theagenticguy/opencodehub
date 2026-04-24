@@ -31,25 +31,49 @@ program
   .option("--coverage", "Overlay lcov/cobertura/jacoco/coverage.py report onto File nodes")
   .option(
     "--summaries",
-    "Enable the gated summarize phase (structured Bedrock summaries per callable)",
+    "Enable the summarize phase (default ON: structured Bedrock summaries per callable). Use --no-summaries to disable.",
   )
   .option(
-    "--max-summaries <n>",
-    "Cap on Bedrock summarize calls per run. 0 (default) runs the phase in dry-run mode",
-    (v) => Number.parseInt(v, 10),
-    0,
+    "--no-summaries",
+    "Disable the summarize phase entirely (equivalent to CODEHUB_BEDROCK_DISABLED=1).",
+  )
+  .option(
+    "--max-summaries <n|auto>",
+    'Cap on Bedrock summarize calls per run. "auto" (default) scales the cap to 10% of the LSP-confirmed callable count (max 500).',
+    "auto",
+  )
+  .option(
+    "--summary-model <id>",
+    "Override the Bedrock model id used by the summarize phase (defaults to DEFAULT_MODEL_ID).",
   )
   .option(
     "--skills",
     "After analyze, emit one SKILL.md per Community (symbolCount >= 5) under .codehub/skills/",
   )
-  .action(async (path: string | undefined, opts: Record<string, boolean | number>) => {
+  .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
-    const maxSummariesRaw = opts["maxSummaries"];
-    const maxSummaries =
-      typeof maxSummariesRaw === "number" && Number.isFinite(maxSummariesRaw)
-        ? Math.max(0, Math.floor(maxSummariesRaw))
-        : 0;
+    // Pass the raw flag straight through to `runAnalyze`. The env
+    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) is re-checked inside
+    // `runAnalyze` via `resolveSummariesEnabled` so tests that call
+    // `runAnalyze` directly honor the same truth table.
+    const summaries = opts["summaries"] === false ? false : undefined;
+
+    // --max-summaries accepts either a positive integer or the literal
+    // string "auto". Unknown strings fall back to "auto" so the CLI never
+    // refuses a run over flag syntax.
+    const rawMax = opts["maxSummaries"];
+    let maxSummariesPerRun: number | "auto";
+    if (rawMax === "auto" || rawMax === undefined) {
+      maxSummariesPerRun = "auto";
+    } else if (typeof rawMax === "number" && Number.isFinite(rawMax)) {
+      maxSummariesPerRun = Math.max(0, Math.floor(rawMax));
+    } else if (typeof rawMax === "string") {
+      const parsed = Number.parseInt(rawMax, 10);
+      maxSummariesPerRun = Number.isFinite(parsed) ? Math.max(0, parsed) : "auto";
+    } else {
+      maxSummariesPerRun = "auto";
+    }
+
     await mod.runAnalyze(path ?? process.cwd(), {
       force: opts["force"] === true,
       embeddings: opts["embeddings"] === true,
@@ -59,8 +83,11 @@ program
       skipAgentsMd: opts["skipAgentsMd"] === true,
       sbom: opts["sbom"] === true,
       coverage: opts["coverage"] === true,
-      summaries: opts["summaries"] === true,
-      maxSummariesPerRun: maxSummaries,
+      ...(summaries === false ? { summaries } : {}),
+      maxSummariesPerRun,
+      ...(typeof opts["summaryModel"] === "string"
+        ? { summaryModel: opts["summaryModel"] }
+        : {}),
       skills: opts["skills"] === true,
     });
   });
