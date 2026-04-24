@@ -83,8 +83,9 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
   const byteCapPerFile = ctx.options.byteCapPerFile ?? DEFAULT_BYTE_CAP_PER_FILE;
   const maxTotalFiles = ctx.options.maxTotalFiles ?? DEFAULT_MAX_TOTAL_FILES;
 
+  // Layered gitignore chain — nested `.gitignore` files stack from repo
+  // root downward; deeper layers override shallower ones (DET-E-004).
   const chain = await loadGitignoreChain(ctx.repoPath);
-  const rootRules = chain[""] ?? [];
 
   const hardcoded = new Set<string>(HARDCODED_IGNORES);
   const collected: ScannedFile[] = [];
@@ -92,7 +93,7 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
   let capHit = false;
 
   await walk(ctx.repoPath, "", {
-    rootRules,
+    chain,
     hardcoded,
     byteCapPerFile,
     maxTotalFiles,
@@ -137,7 +138,7 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
 }
 
 interface WalkParams {
-  readonly rootRules: readonly IgnoreRule[];
+  readonly chain: ReadonlyMap<string, readonly IgnoreRule[]>;
   readonly hardcoded: ReadonlySet<string>;
   readonly byteCapPerFile: number;
   readonly maxTotalFiles: number;
@@ -174,7 +175,7 @@ async function walk(repoRoot: string, relDir: string, p: WalkParams): Promise<vo
 
     const relPath = relDir === "" ? name : `${relDir}/${name}`;
     const isDir = entry.isDirectory();
-    const ignored = shouldIgnore(relPath, p.rootRules, { isDirectory: isDir });
+    const ignored = shouldIgnore(relPath, p.chain, { isDirectory: isDir });
     if (ignored) continue;
 
     if (isDir) {

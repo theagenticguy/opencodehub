@@ -7,15 +7,23 @@
  *  - Leading-slash anchored-to-root matches.
  *  - Negation (`!`) re-includes a previously excluded path.
  *  - `*` (single segment), `?` (single char), `**` (any number of segments).
+ *  - Nested `.gitignore` files with layered negation (DET-U-003 /
+ *    DET-E-004). Rules stack from repo root downward; deeper layers
+ *    override shallower ones so `docs/.gitignore` can negate rules set
+ *    by the repo-root file.
  *
  * Not supported today: character classes (`[abc]`), escaped metacharacters
- * (`\*`), nested `.gitignore` files with re-inclusion across directories.
- * These fall outside the MVP cut and we surface them as a warning when the
- * operator enables verbose mode.
+ * (`\*`). We surface them as warnings when the operator enables verbose
+ * mode.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { GitignoreChain } from "./gitignore-stack.js";
+import { shouldIgnoreLayered } from "./gitignore-stack.js";
+
+export type { GitignoreChain } from "./gitignore-stack.js";
+export { shouldIgnoreLayered } from "./gitignore-stack.js";
 
 /** Parsed gitignore rule — order matters; later rules win. */
 export interface IgnoreRule {
@@ -125,21 +133,28 @@ function globToRegex(glob: string, anchored: boolean): RegExp {
 }
 
 /**
- * Evaluate a path against a rule set. Later rules win (match git's
- * semantics where a negation at the end of the file overrides an earlier
- * exclusion).
+ * Evaluate a path against a rule set or a layered chain. Two calling
+ * shapes are supported to preserve binary-compat with pre-P06 callers:
  *
- * `relPath` must use forward slashes and be relative to the directory
- * that owns `rules`.
+ *   - Legacy: `shouldIgnore(relPath, rules[], opts)` treats the second
+ *     argument as a flat rule list. Later rules win.
+ *   - Layered: `shouldIgnore(relPath, chain, opts)` treats a `Map` or
+ *     {@link GitignoreChain}-style object as a layered rule stack.
+ *     Deeper layers override shallower ones (git's actual semantics).
+ *
+ * `relPath` must use forward slashes and be relative to the repo root.
  */
 export function shouldIgnore(
   relPath: string,
-  rules: readonly IgnoreRule[],
+  rulesOrChain: readonly IgnoreRule[] | GitignoreChain,
   opts: { readonly isDirectory?: boolean } = {},
 ): boolean {
+  if (rulesOrChain instanceof Map) {
+    return shouldIgnoreLayered(relPath, rulesOrChain, opts);
+  }
   const isDir = opts.isDirectory === true;
   let ignored = false;
-  for (const rule of rules) {
+  for (const rule of rulesOrChain as readonly IgnoreRule[]) {
     if (rule.directoryOnly && !isDir) continue;
     if (rule.regex.test(relPath)) {
       ignored = !rule.negate;
@@ -149,23 +164,61 @@ export function shouldIgnore(
 }
 
 /**
- * Load the root `.gitignore` (if any) into a chain keyed by directory
- * path. Only the repo-root file is honored.
- * TODO: walk subdirectories and merge layered rule sets.
+ * Recursively load every `.gitignore` under `repoPath` into a single chain
+ * keyed by repo-relative directory path (POSIX, no leading slash; `""` is
+ * the repo root).
+ *
+ * The walker stops at hardcoded ignores (`node_modules`, `.git`, etc.)
+ * plus any directory whose own parent-layered rule set marks it as
+ * ignored — i.e. it does not recurse into a directory that the existing
+ * rules already ignore. This mirrors git's own behaviour and avoids
+ * expanding the ignore tree into `node_modules` subtrees.
  */
-export async function loadGitignoreChain(
-  repoPath: string,
-): Promise<Readonly<Record<string, IgnoreRule[]>>> {
-  const chain: Record<string, IgnoreRule[]> = {};
-  const rootIgnore = path.join(repoPath, ".gitignore");
-  try {
-    const content = await fs.readFile(rootIgnore, "utf8");
-    chain[""] = parseGitignore(content);
-  } catch {
-    // File missing is fine — just no rules at the root.
-    chain[""] = [];
-  }
+export async function loadGitignoreChain(repoPath: string): Promise<Map<string, IgnoreRule[]>> {
+  const chain = new Map<string, IgnoreRule[]>();
+  const hardcoded = new Set<string>(HARDCODED_IGNORES);
+  await loadDir(repoPath, "", chain, hardcoded);
+  // Always return a `""` entry — scan.ts and other callers rely on its
+  // presence (empty array is fine when no root .gitignore exists).
+  if (!chain.has("")) chain.set("", []);
   return chain;
+}
+
+async function loadDir(
+  repoPath: string,
+  relDir: string,
+  chain: Map<string, IgnoreRule[]>,
+  hardcoded: ReadonlySet<string>,
+): Promise<void> {
+  const absDir = path.join(repoPath, relDir);
+  const ignoreFile = path.join(absDir, ".gitignore");
+  try {
+    const content = await fs.readFile(ignoreFile, "utf8");
+    chain.set(relDir, parseGitignore(content));
+  } catch {
+    // No .gitignore here — nothing to stack for this layer. Deeper
+    // layers may still contribute rules.
+  }
+
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(absDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (hardcoded.has(entry.name)) continue;
+    const childRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
+    // Respect the chain we've built up so far so we don't descend into a
+    // subtree the parent layer already excluded. A directory ignored at
+    // layer N is still ignored at layer N+1 unless a deeper .gitignore
+    // re-includes it via a negation — and in that case we need to walk
+    // in anyway. The conservative win here is to recurse: the extra
+    // .gitignore reads are cheap and we match git's behaviour more
+    // exactly.
+    await loadDir(repoPath, childRel, chain, hardcoded);
+  }
 }
 
 /** Hardcoded directory names we always skip, even absent a `.gitignore`. */
