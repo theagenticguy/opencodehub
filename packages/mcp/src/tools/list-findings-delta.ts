@@ -131,7 +131,21 @@ export async function runListFindingsDelta(
       const baselineRead = await readSarif(baselinePath);
       const warnings: string[] = [];
       let diff: DiffResult;
-      if (baselineRead.kind === "missing") {
+      // Fast path: the current log already carries per-result
+      // `baselineState` tags (written by `codehub scan --baseline` and
+      // mirrored to the `baseline_state` column by `codehub ingest-sarif`).
+      // Reuse them instead of re-running the diff — the SARIF on disk is
+      // the source of truth for the `baseline_state` column, so reading
+      // from it is equivalent to reading from the column.
+      const tagged = reuseStoredBaselineStates(currentRead.log);
+      if (tagged !== undefined) {
+        diff = tagged;
+        if (baselineRead.kind === "missing") {
+          warnings.push(
+            `No baseline found at ${baselinePath}; returning baselineState tags already written by the most recent scan.`,
+          );
+        }
+      } else if (baselineRead.kind === "missing") {
         warnings.push(
           `No baseline found at ${baselinePath}; treating every current finding as new. Run \`codehub baseline freeze\` to establish a baseline.`,
         );
@@ -309,4 +323,41 @@ function formatRow(row: FindingDeltaRow): string {
   const loc = row.startLine !== undefined ? `${row.filePath}:${row.startLine}` : row.filePath;
   const msg = row.message ? ` — ${row.message}` : "";
   return `  - [${row.severity}] ${row.scannerId}:${row.ruleId} at ${loc}${msg}`;
+}
+
+/**
+ * Walk every SARIF result in `log`; if at least one result carries a
+ * `baselineState` tag, rebuild a {@link DiffResult} directly from those
+ * tags without re-running the diff. Returns `undefined` when no tags are
+ * present so the caller can fall back to the full diff path.
+ *
+ * Baseline-only findings (`fixed`) aren't re-emitted by the scanner path,
+ * so the `fixed` bucket is always empty here — consumers that need it
+ * must still run the full diff against a frozen baseline.
+ */
+function reuseStoredBaselineStates(log: SarifLog): DiffResult | undefined {
+  const newR: SarifResult[] = [];
+  const unchanged: SarifResult[] = [];
+  const updated: SarifResult[] = [];
+  let anyTagged = false;
+  for (const run of log.runs) {
+    const results = run.results;
+    if (!Array.isArray(results)) continue;
+    for (const r of results) {
+      if (r === undefined) continue;
+      const tag = (r as SarifResult & { baselineState?: unknown }).baselineState;
+      if (tag === "new") {
+        newR.push(r);
+        anyTagged = true;
+      } else if (tag === "unchanged") {
+        unchanged.push(r);
+        anyTagged = true;
+      } else if (tag === "updated") {
+        updated.push(r);
+        anyTagged = true;
+      }
+    }
+  }
+  if (!anyTagged) return undefined;
+  return { new: newR, fixed: [], unchanged, updated };
 }

@@ -1272,3 +1272,227 @@ test("setMeta / getMeta round-trips cacheHitRatio / cacheSizeBytes / lastCompact
     await store.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// v1.2 reserved columns (P08)
+// ---------------------------------------------------------------------------
+
+test("v1.2: reserved columns round-trip through nodes table", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.ts", "complex");
+    // Callable carrying every v1.2 reserved column.
+    g.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "complex",
+      filePath: "src/a.ts",
+      startLine: 1,
+      endLine: 20,
+      cyclomaticComplexity: 7,
+      nestingDepth: 3,
+      nloc: 15,
+      halsteadVolume: 42.5,
+      deadness: "live",
+      coveragePercent: 0.83,
+      coveredLinesJson: JSON.stringify([1, 2, 3, 5, 8, 13]),
+    });
+    const toolId = makeNodeId("Tool", "tools/echo.ts", "echo");
+    g.addNode({
+      id: toolId,
+      kind: "Tool",
+      name: "echo",
+      filePath: "tools/echo.ts",
+      toolName: "echo",
+      inputSchemaJson: '{"properties":{"s":{"type":"string"}},"type":"object"}',
+    });
+    const findingId = makeNodeId("Finding", "src/a.ts", "semgrep:rule:5");
+    g.addNode({
+      id: findingId,
+      kind: "Finding",
+      name: "semgrep:rule",
+      filePath: "src/a.ts",
+      ruleId: "rule",
+      severity: "error",
+      scannerId: "semgrep",
+      message: "boom",
+      propertiesBag: {},
+      startLine: 5,
+      partialFingerprint: "ab".repeat(16),
+      baselineState: "new",
+      suppressedJson: '[{"kind":"external","justification":"accepted"}]',
+    });
+    await store.bulkLoad(g);
+
+    const rows = await store.query(
+      `SELECT id, cyclomatic_complexity, nesting_depth, nloc, halstead_volume,
+              deadness, coverage_percent, covered_lines_json,
+              input_schema_json, partial_fingerprint, baseline_state,
+              suppressed_json
+       FROM nodes
+       WHERE id = ? OR id = ? OR id = ?
+       ORDER BY id`,
+      [findingId, funcId, toolId],
+    );
+    assert.equal(rows.length, 3);
+    const byId = new Map(rows.map((r) => [String(r["id"]), r]));
+    const funcRow = byId.get(funcId);
+    const toolRow = byId.get(toolId);
+    const findingRow = byId.get(findingId);
+    assert.ok(funcRow && toolRow && findingRow);
+    assert.equal(Number(funcRow["cyclomatic_complexity"]), 7);
+    assert.equal(Number(funcRow["nesting_depth"]), 3);
+    assert.equal(Number(funcRow["nloc"]), 15);
+    assert.equal(Number(funcRow["halstead_volume"]), 42.5);
+    assert.equal(funcRow["deadness"], "live");
+    assert.equal(Number(funcRow["coverage_percent"]), 0.83);
+    assert.equal(funcRow["covered_lines_json"], JSON.stringify([1, 2, 3, 5, 8, 13]));
+    assert.equal(
+      toolRow["input_schema_json"],
+      '{"properties":{"s":{"type":"string"}},"type":"object"}',
+    );
+    assert.equal(findingRow["partial_fingerprint"], "ab".repeat(16));
+    assert.equal(findingRow["baseline_state"], "new");
+    assert.equal(
+      findingRow["suppressed_json"],
+      '[{"kind":"external","justification":"accepted"}]',
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("v1.2: nodes without reserved fields round-trip to NULL (v1.0-style graph)", async () => {
+  const dbPath = await scratchDbPath();
+  const writer = new DuckDbStore(dbPath);
+  await writer.open();
+  try {
+    await writer.createSchema();
+    const g = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.ts", "plain");
+    g.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "plain",
+      filePath: "src/a.ts",
+      startLine: 1,
+      endLine: 3,
+    });
+    await writer.bulkLoad(g);
+  } finally {
+    await writer.close();
+  }
+
+  // Reopen with a fresh adapter (mimics "v1.0 graph opened by v1.2 reader").
+  const reader = new DuckDbStore(dbPath, { readOnly: true });
+  await reader.open();
+  try {
+    const rows = await reader.query(
+      `SELECT cyclomatic_complexity, nesting_depth, nloc, halstead_volume,
+              deadness, coverage_percent, covered_lines_json,
+              input_schema_json, partial_fingerprint, baseline_state,
+              suppressed_json
+       FROM nodes WHERE kind = 'Function'`,
+    );
+    assert.equal(rows.length, 1);
+    const r = rows[0];
+    assert.ok(r);
+    for (const col of [
+      "cyclomatic_complexity",
+      "nesting_depth",
+      "nloc",
+      "halstead_volume",
+      "deadness",
+      "coverage_percent",
+      "covered_lines_json",
+      "input_schema_json",
+      "partial_fingerprint",
+      "baseline_state",
+      "suppressed_json",
+    ]) {
+      assert.equal(r[col], null, `column ${col} must be NULL on a plain node`);
+    }
+  } finally {
+    await reader.close();
+  }
+});
+
+test("v1.2: dead-code hyphen verdict maps to underscored column value", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.ts", "exported");
+    // The analysis helper emits "unreachable-export" (hyphen); the column
+    // schema and core-types enum use "unreachable_export" (underscore). The
+    // adapter's normaliser must bridge the two forms.
+    g.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "exported",
+      filePath: "src/a.ts",
+      startLine: 1,
+      endLine: 3,
+      // Cast through unknown because the in-memory graph tolerates the
+      // hyphen form, but the persistent enum uses underscore.
+      ...({ deadness: "unreachable-export" } as unknown as { deadness: "unreachable_export" }),
+    });
+    await store.bulkLoad(g);
+    const rows = await store.query("SELECT deadness FROM nodes WHERE id = ?", [funcId]);
+    assert.equal(rows[0]?.["deadness"], "unreachable_export");
+  } finally {
+    await store.close();
+  }
+});
+
+test("v1.2: graphHash stays deterministic when reserved fields are populated", async () => {
+  const g1 = new KnowledgeGraph();
+  const g2 = new KnowledgeGraph();
+  const funcId = makeNodeId("Function", "src/a.ts", "graphHashed");
+  // Build two graphs with the SAME set of fields but declared in different
+  // literal orders — canonical JSON must re-sort keys so both hashes agree.
+  g1.addNode({
+    id: funcId,
+    kind: "Function",
+    name: "graphHashed",
+    filePath: "src/a.ts",
+    startLine: 1,
+    endLine: 10,
+    cyclomaticComplexity: 4,
+    halsteadVolume: 17.25,
+    nestingDepth: 2,
+    nloc: 8,
+    deadness: "live",
+    coveragePercent: 0.5,
+    coveredLinesJson: JSON.stringify([1, 2]),
+  });
+  g2.addNode({
+    id: funcId,
+    kind: "Function",
+    name: "graphHashed",
+    filePath: "src/a.ts",
+    startLine: 1,
+    endLine: 10,
+    // Different insertion order, same values.
+    coveredLinesJson: JSON.stringify([1, 2]),
+    coveragePercent: 0.5,
+    deadness: "live",
+    nloc: 8,
+    nestingDepth: 2,
+    halsteadVolume: 17.25,
+    cyclomaticComplexity: 4,
+  });
+  assert.equal(graphHash(g1), graphHash(g2));
+
+  // Re-hashing the same graph twice must produce a stable hex string.
+  const h1 = graphHash(g1);
+  const h2 = graphHash(g1);
+  assert.equal(h1, h2);
+  assert.ok(/^[0-9a-f]{64}$/.test(h1), "graphHash must be a 64-char hex sha256");
+});
