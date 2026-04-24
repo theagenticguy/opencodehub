@@ -88,6 +88,14 @@ export interface OwnershipOptions {
   readonly ownershipSkipCommitGraphWarmup?: boolean;
   /** Reference "now" in epoch seconds — overrides wall-clock for tests. */
   readonly temporalNowEpochSec?: number;
+  /**
+   * Drop any file whose path is inside a git submodule registered on the repo
+   * before running blame. Default `true` — blaming a submodule's contents
+   * against the outer repo produces confusing 280+ "blame failed" warnings
+   * and misattributes ownership. The submodule list is sourced from
+   * {@link ScanOutput.submodulePaths}.
+   */
+  readonly excludeSubmodules?: boolean;
 }
 
 export interface OwnershipOutput {
@@ -162,8 +170,12 @@ async function runOwnership(
   const concurrency = opts.ownershipBlameConcurrency;
   const warmCommitGraph = opts.ownershipSkipCommitGraphWarmup !== true;
   const nowEpochSec = opts.temporalNowEpochSec ?? Math.floor(Date.now() / 1000);
+  const excludeSubmodules = opts.excludeSubmodules !== false; // default true
 
-  const sortedPaths = [...scan.files].map((f) => f.relPath).sort();
+  const allSorted = [...scan.files].map((f) => f.relPath).sort();
+  const sortedPaths = excludeSubmodules
+    ? filterOutSubmodules(allSorted, scan.submodulePaths)
+    : allSorted;
   if (sortedPaths.length === 0) return emptyResult;
 
   const blameOptsBase = { warmCommitGraph } as const;
@@ -568,4 +580,24 @@ function clamp01(v: number): number {
   if (v < 0) return 0;
   if (v > 1) return 1;
   return v;
+}
+
+/**
+ * Drop any path that is itself a submodule root or lives beneath one. The
+ * check is a prefix match against `submodulePaths` (which are normalised
+ * repo-relative POSIX paths without trailing slashes). An empty
+ * `submodulePaths` list is a no-op. Input order is preserved.
+ */
+export function filterOutSubmodules(
+  paths: readonly string[],
+  submodulePaths: readonly string[],
+): readonly string[] {
+  if (submodulePaths.length === 0) return paths;
+  return paths.filter((p) => {
+    for (const sub of submodulePaths) {
+      if (p === sub) return false;
+      if (p.startsWith(`${sub}/`)) return false;
+    }
+    return true;
+  });
 }
