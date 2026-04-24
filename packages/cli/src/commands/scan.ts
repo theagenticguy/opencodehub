@@ -30,6 +30,7 @@ import { join, resolve } from "node:path";
 import {
   applyBaselineState,
   applySuppressions,
+  enrichWithFingerprints,
   loadSuppressions,
   type SarifLog,
   SarifLogSchema,
@@ -133,6 +134,12 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
   };
   const result = await runScanners(repoPath, wrappers, runnerOpts);
 
+  // Stamp `opencodehub/v1` + `primaryLocationLineHash` fingerprints on
+  // every result before anything else touches the log so downstream
+  // consumers (baseline diff, ingest-sarif, `list_findings_delta`) all
+  // read the same match keys.
+  const enriched = enrichWithFingerprints(result.sarif);
+
   // Optional baseline diff: tag every result with
   // `baselineState` so downstream consumers (scan output, ingest-sarif,
   // verdict) can distinguish pre-existing debt from newly introduced
@@ -140,7 +147,7 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
   // from the severity-gate exit code below.
   const baselineLog = await loadBaselineLog(opts.baseline);
   const afterBaseline: SarifLog =
-    baselineLog !== undefined ? applyBaselineState(result.sarif, baselineLog) : result.sarif;
+    baselineLog !== undefined ? applyBaselineState(enriched, baselineLog) : enriched;
 
   // : tag suppressed findings from `.codehub/suppressions.yaml` +
   // inline `codehub-suppress: <ruleId> <reason>` comments. Suppressed
