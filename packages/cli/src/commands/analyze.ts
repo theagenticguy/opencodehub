@@ -45,6 +45,12 @@ export interface AnalyzeOptions {
   readonly embeddingsVariant?: "fp32" | "int8";
   /** Override the embedder model directory (mostly useful for tests). */
   readonly embeddingsModelDir?: string;
+  /**
+   * Hierarchical tiers to emit when `embeddings=true` (P03). Defaults to
+   * `["symbol"]`. Pass `["symbol", "file", "community"]` for the full
+   * hierarchical index — enables `codehub query --zoom` coarse-to-fine.
+   */
+  readonly embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
   readonly offline?: boolean;
   readonly verbose?: boolean;
   readonly skipAgentsMd?: boolean;
@@ -186,6 +192,9 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     ...(opts.embeddingsVariant !== undefined ? { embeddingsVariant: opts.embeddingsVariant } : {}),
     ...(opts.embeddingsModelDir !== undefined
       ? { embeddingsModelDir: opts.embeddingsModelDir }
+      : {}),
+    ...(opts.embeddingsGranularity !== undefined
+      ? { embeddingsGranularity: opts.embeddingsGranularity }
       : {}),
     ...(opts.sbom !== undefined ? { sbom: opts.sbom } : {}),
     ...(opts.coverage !== undefined ? { coverage: opts.coverage } : {}),
