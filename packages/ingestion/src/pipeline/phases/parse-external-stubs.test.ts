@@ -15,7 +15,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { KnowledgeGraph } from "@opencodehub/core-types";
+import { graphHash, KnowledgeGraph } from "@opencodehub/core-types";
 import type { PipelineContext } from "../types.js";
 import { parsePhase } from "./parse.js";
 import { SCAN_PHASE_NAME, scanPhase } from "./scan.js";
@@ -103,6 +103,33 @@ describe("parsePhase external-specifier stubs", () => {
         (n) => n.kind === "CodeElement" && n.filePath === "<external>",
       );
       assert.equal(externalStubs.length, 0);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("graphHash is stable across two runs on the same external-stub set", async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), "och-extstub-det-"));
+    try {
+      await fs.writeFile(
+        path.join(repo, "a.ts"),
+        [
+          "import { PrismaClient } from '@prisma/client';",
+          "import express from 'express';",
+          "",
+        ].join("\n"),
+      );
+      await fs.writeFile(
+        path.join(repo, "b.ts"),
+        "import { createClient } from '@supabase/supabase-js';\n",
+      );
+      const first = await runParseOn(repo);
+      const second = await runParseOn(repo);
+      assert.equal(
+        graphHash(first.graph),
+        graphHash(second.graph),
+        "external-stub emission must be byte-deterministic",
+      );
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
