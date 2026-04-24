@@ -25,6 +25,7 @@
 import { promises as fs } from "node:fs";
 import type { ProjectProfileNode, RouteNode } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
+import { importsMapFromExtracted } from "../../extract/receiver-resolver.js";
 import { detectSpringRoutes } from "../../extract/route-detector-java.js";
 import { detectNestJsRoutes } from "../../extract/route-detector-nestjs.js";
 import { detectFastApiRoutes } from "../../extract/route-detector-python.js";
@@ -36,7 +37,7 @@ import {
 } from "../../extract/route-detector.js";
 import type { ExtractedRoute } from "../../extract/types.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
-import { PARSE_PHASE_NAME } from "./parse.js";
+import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
 
 /** Extensions that could plausibly host a Next.js route or Express code. */
@@ -69,17 +70,27 @@ export const routesPhase: PipelinePhase<RoutesOutput> = {
   // `profile` is a dependency so the detected-frameworks gating can
   // read the ProjectProfile node out of the graph without a race.
   deps: [PARSE_PHASE_NAME, "profile"],
-  async run(ctx) {
+  async run(ctx, deps) {
     const scan = ctx.phaseOutputs.get(SCAN_PHASE_NAME) as ScanOutput | undefined;
     if (scan === undefined) {
       throw new Error("routes: scan output missing from phase outputs");
     }
-    return runRoutes(ctx, scan);
+    const parse = deps.get(PARSE_PHASE_NAME) as ParseOutput | undefined;
+    if (parse === undefined) {
+      throw new Error("routes: parse output missing from dependency map");
+    }
+    return runRoutes(ctx, scan, parse);
   },
 };
 
-async function runRoutes(ctx: PipelineContext, scan: ScanOutput): Promise<RoutesOutput> {
+async function runRoutes(
+  ctx: PipelineContext,
+  scan: ScanOutput,
+  parse: ParseOutput,
+): Promise<RoutesOutput> {
   const frameworks = readDetectedFrameworks(ctx);
+  const importsByFile = importsMapFromExtracted(parse.importsByFile);
+  const strictDetectors = ctx.options.strictDetectors === true;
 
   // Bundle files we might hand to TS/JS detectors (Next.js, Express,
   // NestJS). Each entry is read once so all three detectors share the
@@ -96,7 +107,12 @@ async function runRoutes(ctx: PipelineContext, scan: ScanOutput): Promise<Routes
   // Express is file-local.
   const expressRoutes: ExtractedRoute[] = [];
   for (const entry of bundle) {
-    for (const r of detectExpressRoutes({ filePath: entry.filePath, content: entry.content })) {
+    for (const r of detectExpressRoutes({
+      filePath: entry.filePath,
+      content: entry.content,
+      importsByFile,
+      strictDetectors,
+    })) {
       expressRoutes.push(r);
     }
   }
