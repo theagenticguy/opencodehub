@@ -50,8 +50,17 @@ program
     "--skills",
     "After analyze, emit one SKILL.md per Community (symbolCount >= 5) under .codehub/skills/",
   )
+  .option(
+    "--wasm-only",
+    "Force the web-tree-sitter WASM runtime even when the native binding is available (useful for deterministic CI across platforms)",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
+    // `--wasm-only` is honored by the parse worker via the `OCH_WASM_ONLY`
+    // env var; set it here before the worker pool spawns.
+    if (opts["wasmOnly"] === true) {
+      process.env["OCH_WASM_ONLY"] = "1";
+    }
     // Pass the raw flag straight through to `runAnalyze`. The env
     // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) is re-checked inside
     // `runAnalyze` via `resolveSummariesEnabled` so tests that call
