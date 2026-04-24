@@ -12,6 +12,12 @@
  * The direct-dependency version is captured verbatim from the manifest.
  * For packages.lock.json we emit every package regardless of whether it
  * was declared `Direct` or `Transitive` — the SBOM needs the full set.
+ *
+ * License detection: csproj / packages.lock.json rarely carry per-dep
+ * licenses (those live in each `.nupkg`'s nuspec). The parser still
+ * looks for a non-standard `<License>` child on `<PackageReference>` and
+ * for a `license` field on lockfile entries (used by a few custom
+ * tooling pipelines); it leaves the field undefined otherwise.
  */
 
 import { promises as fs } from "node:fs";
@@ -87,13 +93,14 @@ async function parseMsbuildProject(
     const refRaw = group["PackageReference"];
     const refs: unknown[] = Array.isArray(refRaw) ? refRaw : refRaw === undefined ? [] : [refRaw];
     for (const ref of refs) {
-      const { name, version } = extractPackageRef(ref);
+      const { name, version, license } = extractPackageRef(ref);
       if (!name) continue;
       out.push({
         ecosystem: NUGET_ECO,
         name,
         version: version ?? "UNKNOWN",
         lockfileSource: relPath,
+        ...(license !== undefined ? { license } : {}),
       });
     }
   }
@@ -143,7 +150,11 @@ async function parsePackagesLock(
   return out;
 }
 
-function extractPackageRef(ref: unknown): { name?: string; version?: string } {
+function extractPackageRef(ref: unknown): {
+  name?: string;
+  version?: string;
+  license?: string;
+} {
   if (!isObject(ref)) return {};
   const includeAttr = ref["@_Include"];
   const versionAttr = ref["@_Version"];
@@ -155,9 +166,20 @@ function extractPackageRef(ref: unknown): { name?: string; version?: string } {
   else if (typeof versionAttr === "number") version = String(versionAttr);
   else if (typeof versionChild === "string") version = versionChild.trim();
   else if (typeof versionChild === "number") version = String(versionChild);
+
+  // Non-standard `<License>` attribute / element, emitted by a few
+  // custom tooling pipelines that predeclare license metadata next to
+  // the version pin.
+  const licenseAttr = ref["@_License"];
+  const licenseChild = ref["License"];
+  let license: string | undefined;
+  if (typeof licenseAttr === "string" && licenseAttr.length > 0) license = licenseAttr.trim();
+  else if (typeof licenseChild === "string" && licenseChild.length > 0) license = licenseChild.trim();
+
   return {
     ...(name !== undefined ? { name } : {}),
     ...(version !== undefined ? { version } : {}),
+    ...(license !== undefined ? { license } : {}),
   };
 }
 

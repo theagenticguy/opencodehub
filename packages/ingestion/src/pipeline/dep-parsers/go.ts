@@ -13,6 +13,12 @@
  * The version is the raw Go module pseudo-version string (e.g.
  * `v1.2.3`, or `v0.0.0-20231201123456-abcdef012345`) exactly as it appears
  * in the source file.
+ *
+ * License detection: neither go.mod nor go.sum carries license metadata.
+ * The canonical source is `pkg.go.dev` + the module's `LICENSE` file,
+ * both of which live behind a network boundary this phase forbids.
+ * Per-dep `license` therefore stays undefined and the dependencies
+ * phase maps that to the `"UNKNOWN"` sentinel.
  */
 
 import { promises as fs } from "node:fs";

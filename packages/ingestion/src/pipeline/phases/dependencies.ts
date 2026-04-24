@@ -189,7 +189,9 @@ async function runDependencies(
   const nodeById = new Map<NodeId, DependencyNode>();
   for (const d of deduped) {
     const id = depNodeId(d.ecosystem, d.name, d.version);
-    if (!nodeById.has(id)) {
+    const license = normalizeLicenseField(d.license);
+    const existing = nodeById.get(id);
+    if (existing === undefined) {
       const node: DependencyNode = {
         id,
         kind: "Dependency",
@@ -198,9 +200,13 @@ async function runDependencies(
         version: d.version,
         ecosystem: d.ecosystem,
         lockfileSource: d.lockfileSource,
-        license: "UNKNOWN",
+        license,
       };
       nodeById.set(id, node);
+    } else if (existing.license === "UNKNOWN" && license !== "UNKNOWN") {
+      // Upgrade UNKNOWN when a later source for the same coordinate
+      // carries a real license.
+      nodeById.set(id, { ...existing, license });
     }
   }
 
@@ -307,4 +313,17 @@ function compareNodeByIdString(a: DependencyNode, b: DependencyNode): number {
   const bv = b.id as string;
   if (av === bv) return 0;
   return av < bv ? -1 : 1;
+}
+
+/**
+ * Normalize a parser-supplied license value onto the DependencyNode.
+ * Drops empty strings, collapses to `"UNKNOWN"` when the parser did not
+ * find one, and leaves SPDX-normalisation to downstream callers that
+ * need it (the `license_audit` tool does its own pass).
+ */
+function normalizeLicenseField(raw: string | undefined): string {
+  if (raw === undefined) return "UNKNOWN";
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "UNKNOWN";
+  return trimmed;
 }

@@ -7,9 +7,12 @@
  * a de-duplicated list of parsed dependencies. Parsers never throw on
  * malformed input — they log via `onWarn` and return `[]` instead.
  *
- * License detection is intentionally deferred to
- * (`license_audit` MCP tool + dedicated license detector package); every
- * parser emits `license: "UNKNOWN"` for v1.0.
+ * License detection: each parser populates `ParsedDependency.license`
+ * directly from the manifest field when one is present (SPDX identifier
+ * or a free-form string — the `dependencies` phase normalises through
+ * `spdx-correct` before storage). The value is `undefined` when the
+ * manifest does not carry license metadata; the phase converts that to
+ * the canonical `"UNKNOWN"` sentinel on the DependencyNode.
  */
 
 import type { DependencyNode } from "@opencodehub/core-types";
@@ -26,6 +29,13 @@ export interface ParsedDependency {
   readonly version: string;
   /** Repo-relative POSIX path to the manifest / lockfile. */
   readonly lockfileSource: string;
+  /**
+   * License declaration as it appears in the manifest (SPDX id or a
+   * free-form expression). `undefined` when the manifest entry did not
+   * carry a license; the `dependencies` phase maps that to the
+   * `"UNKNOWN"` sentinel on the DependencyNode.
+   */
+  readonly license?: string;
 }
 
 /** Warning sink threaded through every parser for best-effort logging. */
@@ -56,18 +66,28 @@ export function compareParsedDependency(a: ParsedDependency, b: ParsedDependency
 
 /**
  * De-duplicate a list of `ParsedDependency` on
- * `(ecosystem, name, version, lockfileSource)`. Callers rely on the
- * returned array being sorted canonically so graph output is byte-stable.
+ * `(ecosystem, name, version, lockfileSource)`. When two records collide,
+ * we keep the first occurrence but prefer a defined `license` over an
+ * undefined one — a lockfile with no license + a sibling manifest that
+ * carries one should surface as "has license" after dedup. Callers rely
+ * on the returned array being sorted canonically so graph output is
+ * byte-stable.
  */
 export function dedupAndSort(deps: readonly ParsedDependency[]): readonly ParsedDependency[] {
-  const seen = new Set<string>();
-  const out: ParsedDependency[] = [];
+  const byKey = new Map<string, ParsedDependency>();
   for (const d of deps) {
     const key = `${d.ecosystem}\x00${d.name}\x00${d.version}\x00${d.lockfileSource}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(d);
+    const existing = byKey.get(key);
+    if (existing === undefined) {
+      byKey.set(key, d);
+      continue;
+    }
+    // Prefer an entry carrying a license over one that doesn't.
+    if (existing.license === undefined && d.license !== undefined) {
+      byKey.set(key, d);
+    }
   }
+  const out = [...byKey.values()];
   out.sort(compareParsedDependency);
   return out;
 }

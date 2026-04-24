@@ -65,11 +65,16 @@ async function parseCargoLock(
       const name = pkg["name"];
       const version = pkg["version"];
       if (typeof name !== "string" || typeof version !== "string") continue;
+      // Cargo.lock v3+ may include `license` when the crate publishes it.
+      // Standard v1/v2 lockfiles omit the field; best-effort readback.
+      const licenseRaw = pkg["license"];
+      const license = typeof licenseRaw === "string" && licenseRaw.length > 0 ? licenseRaw : undefined;
       out.push({
         ecosystem: CARGO_ECO,
         name,
         version,
         lockfileSource: relPath,
+        ...(license !== undefined ? { license } : {}),
       });
     }
   }

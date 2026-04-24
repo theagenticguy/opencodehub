@@ -235,15 +235,50 @@ async function parseUvLock(
       const name = pkg["name"];
       const version = pkg["version"];
       if (typeof name !== "string" || typeof version !== "string") continue;
+      // uv.lock records the PyPI trove license when the package declares
+      // one. Best-effort — undefined when the package entry omits it.
+      const license = readPyLicense(pkg);
       out.push({
         ecosystem: PYPI_ECO,
         name,
         version,
         lockfileSource: relPath,
+        ...(license !== undefined ? { license } : {}),
       });
     }
   }
   return out;
+}
+
+/**
+ * Read a PEP 621 / PEP 639 license declaration from a TOML object. Four
+ * shapes coexist in the wild:
+ *   - `license = "MIT"`                 (PEP 639 SPDX expression)
+ *   - `license = { text = "MIT" }`      (PEP 621 table)
+ *   - `license = { file = "LICENSE" }`  (PEP 621 — returns `"file:LICENSE"`)
+ *   - `license-expression = "MIT"`      (PEP 639 alternate key)
+ * Plus the trove-classifier fallback: `License :: OSI Approved :: MIT`.
+ */
+function readPyLicense(pkg: Record<string, unknown>): string | undefined {
+  const direct = pkg["license"];
+  if (typeof direct === "string" && direct.length > 0) return direct;
+  if (isObject(direct)) {
+    const text = direct["text"];
+    if (typeof text === "string" && text.length > 0) return text;
+    const file = direct["file"];
+    if (typeof file === "string" && file.length > 0) return `file:${file}`;
+  }
+  const expr = pkg["license-expression"];
+  if (typeof expr === "string" && expr.length > 0) return expr;
+  const classifiers = pkg["classifiers"];
+  if (Array.isArray(classifiers)) {
+    for (const c of classifiers) {
+      if (typeof c !== "string") continue;
+      const m = /^License\s*::\s*(?:OSI Approved\s*::\s*)?(.+)$/.exec(c.trim());
+      if (m !== null && m[1] !== undefined) return m[1].trim();
+    }
+  }
+  return undefined;
 }
 
 /**
