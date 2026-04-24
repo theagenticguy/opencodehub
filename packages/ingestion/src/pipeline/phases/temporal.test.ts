@@ -69,6 +69,7 @@ function buildScanOutput(relPaths: readonly string[]): ScanOutput {
       grammarSha: null,
     })),
     totalBytes: 0,
+    submodulePaths: [],
   };
 }
 

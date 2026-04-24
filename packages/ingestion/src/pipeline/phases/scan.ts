@@ -59,6 +59,14 @@ export interface ScanOutput {
   /** `undefined` when `skipGit` is set or the repo is not a git checkout. */
   readonly gitHead?: string;
   readonly totalBytes: number;
+  /**
+   * Paths (relative to `repoPath`, POSIX-separated, no trailing slash) of every
+   * git submodule registered in this repo. Populated via `git ls-tree -r -z
+   * HEAD` filtered for tree-entry mode `160000` (the Linguist canonical
+   * pattern). Falls back to textual parsing of `.gitmodules` when `skipGit`
+   * is set. Empty when the repo has no submodules or is not a git checkout.
+   */
+  readonly submodulePaths: readonly string[];
 }
 
 export const SCAN_PHASE_NAME = "scan";
@@ -112,14 +120,19 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
   collected.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
 
   let gitHead: string | undefined;
+  let submodulePaths: readonly string[] = [];
   if (ctx.options.skipGit !== true) {
     gitHead = await tryGitHead(ctx.repoPath);
+    submodulePaths = await listGitSubmodules(ctx.repoPath);
+  } else {
+    submodulePaths = await parseGitmodulesSubmodules(ctx.repoPath);
   }
 
   return {
     files: collected,
     ...(gitHead !== undefined ? { gitHead } : {}),
     totalBytes,
+    submodulePaths,
   };
 }
 
@@ -244,6 +257,114 @@ function firstLine(buf: Buffer): string | undefined {
     return slice;
   }
   return slice.slice(0, nl);
+}
+
+/**
+ * Enumerate submodule paths by asking git for the tree at HEAD and filtering
+ * for gitlink entries (mode `160000`). This is the canonical pattern GitHub
+ * Linguist uses — it works on bare repos, detached worktrees, and
+ * partially-initialised submodules alike (does not depend on `.git/config`
+ * being populated via `git submodule init`).
+ *
+ * Output paths are POSIX-separated relative paths, no trailing slash.
+ * Returns an empty array when `git` is unavailable, the repo is not a git
+ * checkout, or there are no submodules.
+ */
+async function listGitSubmodules(repoPath: string): Promise<readonly string[]> {
+  return new Promise((resolveProm) => {
+    let stdout = "";
+    let settled = false;
+    const child = spawn("git", ["ls-tree", "-r", "-z", "HEAD"], {
+      cwd: repoPath,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => {
+      if (!settled) {
+        settled = true;
+        resolveProm([]);
+      }
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        resolveProm([]);
+        return;
+      }
+      resolveProm(parseLsTreeSubmodules(stdout));
+    });
+  });
+}
+
+/**
+ * Parse the NUL-delimited output of `git ls-tree -r -z HEAD`. Each record is
+ * `<mode> SP <type> SP <sha> TAB <path>`. We keep records whose mode is
+ * exactly `160000` (gitlink) — that is the submodule marker in git's tree
+ * format. All other entries (blobs, trees, symlinks) are dropped.
+ */
+function parseLsTreeSubmodules(raw: string): readonly string[] {
+  const out: string[] = [];
+  for (const record of raw.split("\0")) {
+    if (record.length === 0) continue;
+    const tabIdx = record.indexOf("\t");
+    if (tabIdx < 0) continue;
+    const header = record.slice(0, tabIdx);
+    const path = record.slice(tabIdx + 1);
+    // header: "<mode> <type> <sha>"
+    const firstSpace = header.indexOf(" ");
+    if (firstSpace < 0) continue;
+    const mode = header.slice(0, firstSpace);
+    if (mode !== "160000") continue;
+    out.push(normalizeSubmodulePath(path));
+  }
+  return out;
+}
+
+/**
+ * Textual `.gitmodules` fallback, used when `skipGit` is true and we cannot
+ * spawn `git`. The format is an INI-like file with stanzas like:
+ *
+ *     [submodule "fixtures/python/sample"]
+ *         path = fixtures/python/sample
+ *         url = https://github.com/...
+ *
+ * We tolerate leading whitespace and trailing CR bytes; unrecognised lines
+ * are ignored. Missing file → empty list.
+ */
+async function parseGitmodulesSubmodules(repoPath: string): Promise<readonly string[]> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(path.join(repoPath, ".gitmodules"), "utf8");
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("path")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    if (key !== "path") continue;
+    const value = trimmed.slice(eqIdx + 1).trim();
+    if (value.length === 0) continue;
+    out.push(normalizeSubmodulePath(value));
+  }
+  return out;
+}
+
+function normalizeSubmodulePath(p: string): string {
+  // Normalise to POSIX separators and strip any trailing slash; never emit a
+  // leading "./" prefix. `git ls-tree` already emits POSIX-separated paths,
+  // but `.gitmodules` can contain arbitrary text — be defensive.
+  let out = p.replace(/\\/g, "/");
+  while (out.endsWith("/")) out = out.slice(0, -1);
+  if (out.startsWith("./")) out = out.slice(2);
+  return out;
 }
 
 async function tryGitHead(repoPath: string): Promise<string | undefined> {

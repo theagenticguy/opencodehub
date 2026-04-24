@@ -1,12 +1,16 @@
 import { strict as assert } from "node:assert";
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { promisify } from "node:util";
 import { KnowledgeGraph } from "@opencodehub/core-types";
 import type { PipelineContext } from "../types.js";
 import { scanPhase } from "./scan.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("scanPhase", () => {
   let repo: string;
@@ -118,5 +122,88 @@ describe("scanPhase", () => {
     });
     await scanPhase.run(ctx, new Map());
     assert.ok(warnings.some((m) => /> cap/.test(m)));
+  });
+
+  it("exports empty submodulePaths for a repo with no submodules", async () => {
+    const out = await scanPhase.run(makeCtx(), new Map());
+    assert.deepEqual([...out.submodulePaths], []);
+  });
+});
+
+describe("scanPhase — submodule enumeration (ING-E-002, ING-S-001)", () => {
+  let outerRepo: string;
+  let innerRepo: string;
+
+  async function runGit(cwd: string, args: readonly string[]): Promise<void> {
+    await execFileAsync("git", args as string[], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test Author",
+        GIT_AUTHOR_EMAIL: "author@example.com",
+        GIT_COMMITTER_NAME: "Test Author",
+        GIT_COMMITTER_EMAIL: "author@example.com",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_SYSTEM: "/dev/null",
+      },
+    });
+  }
+
+  before(async () => {
+    // Build a tiny inner repo with one commit; then clone it as a submodule
+    // inside an outer repo. This exercises the real `git ls-tree` code path
+    // so the 160000-mode filter must fire for the test to pass.
+    outerRepo = await mkdtemp(path.join(tmpdir(), "och-scan-sub-outer-"));
+    innerRepo = await mkdtemp(path.join(tmpdir(), "och-scan-sub-inner-"));
+
+    await runGit(innerRepo, ["init", "-q", "-b", "main"]);
+    await runGit(innerRepo, ["config", "commit.gpgsign", "false"]);
+    await fs.writeFile(path.join(innerRepo, "inner.ts"), "export const I = 1;\n");
+    await runGit(innerRepo, ["add", "inner.ts"]);
+    await runGit(innerRepo, ["commit", "-q", "-m", "inner: init"]);
+
+    await runGit(outerRepo, ["init", "-q", "-b", "main"]);
+    await runGit(outerRepo, ["config", "commit.gpgsign", "false"]);
+    await runGit(outerRepo, ["config", "protocol.file.allow", "always"]);
+    await fs.writeFile(path.join(outerRepo, "a.ts"), "export const A = 1;\n");
+    await runGit(outerRepo, ["add", "a.ts"]);
+    await runGit(outerRepo, ["commit", "-q", "-m", "outer: init"]);
+    await runGit(outerRepo, [
+      "-c",
+      "protocol.file.allow=always",
+      "submodule",
+      "add",
+      "-q",
+      innerRepo,
+      "vendor/inner",
+    ]);
+    await runGit(outerRepo, ["commit", "-q", "-m", "outer: add submodule"]);
+  });
+
+  after(async () => {
+    await rm(outerRepo, { recursive: true, force: true });
+    await rm(innerRepo, { recursive: true, force: true });
+  });
+
+  it("enumerates submodule paths from `git ls-tree` gitlink entries", async () => {
+    const ctx: PipelineContext = {
+      repoPath: outerRepo,
+      options: {},
+      graph: new KnowledgeGraph(),
+      phaseOutputs: new Map(),
+    };
+    const out = await scanPhase.run(ctx, new Map());
+    assert.deepEqual([...out.submodulePaths], ["vendor/inner"]);
+  });
+
+  it("falls back to .gitmodules textual parse when skipGit is true", async () => {
+    const ctx: PipelineContext = {
+      repoPath: outerRepo,
+      options: { skipGit: true },
+      graph: new KnowledgeGraph(),
+      phaseOutputs: new Map(),
+    };
+    const out = await scanPhase.run(ctx, new Map());
+    assert.deepEqual([...out.submodulePaths], ["vendor/inner"]);
   });
 });
