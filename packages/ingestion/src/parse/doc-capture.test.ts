@@ -8,9 +8,9 @@
 
 import { strict as assert } from "node:assert";
 import { after, describe, it } from "node:test";
+import { parseFixture } from "../providers/test-helpers.js";
 import type { ParseCapture } from "./types.js";
 import { ParsePool } from "./worker-pool.js";
-import { parseFixture } from "../providers/test-helpers.js";
 
 describe("@doc capture across languages", () => {
   const pool = new ParsePool({ minThreads: 1, maxThreads: 1 });

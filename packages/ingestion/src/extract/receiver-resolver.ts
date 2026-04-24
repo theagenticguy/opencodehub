@@ -95,7 +95,7 @@ export function resolveReceiver(
       if (imp.localAlias !== undefined && imp.localAlias === identifier) {
         return { identifier, moduleName: imp.source, source: "import-graph" };
       }
-      if (imp.importedNames !== undefined && imp.importedNames.includes(identifier)) {
+      if (imp.importedNames?.includes(identifier)) {
         return { identifier, moduleName: imp.source, source: "import-graph" };
       }
     }

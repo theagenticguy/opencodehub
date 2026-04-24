@@ -317,9 +317,7 @@ function collectInterfaceMethodSets(
   const interfaceCaps = captures.filter((c) => c.tag === "definition.interface");
   const out: { name: string; methods: Set<string> }[] = [];
   for (const cap of interfaceCaps) {
-    const def = definitions.find(
-      (d) => d.kind === "Interface" && d.startLine === cap.startLine,
-    );
+    const def = definitions.find((d) => d.kind === "Interface" && d.startLine === cap.startLine);
     if (def === undefined) continue;
     const methods = readInterfaceMethodNames(cap.text);
     out.push({ name: def.name, methods });
@@ -351,11 +349,7 @@ export const goProvider: LanguageProvider = {
   typeConfig: { structural: true, nominal: true, generics: true },
   heritageEdge: null,
   isExportedIdentifier: (name) => /^[A-Z]/.test(name),
-  complexityDefinitionKinds: [
-    "function_declaration",
-    "method_declaration",
-    "func_literal",
-  ],
+  complexityDefinitionKinds: ["function_declaration", "method_declaration", "func_literal"],
   halsteadOperatorKinds: [
     "+",
     "-",

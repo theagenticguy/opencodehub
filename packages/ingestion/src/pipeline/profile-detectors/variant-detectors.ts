@@ -97,8 +97,7 @@ export function resolveReactScaffold(input: VariantResolveInput): string | null 
  */
 export function resolveNextjsRouter(input: VariantResolveInput): string | null {
   const hasApp =
-    hasPathStartingWith(input.relPaths, "app/") ||
-    hasPathStartingWith(input.relPaths, "src/app/");
+    hasPathStartingWith(input.relPaths, "app/") || hasPathStartingWith(input.relPaths, "src/app/");
   const hasPages =
     hasPathStartingWith(input.relPaths, "pages/") ||
     hasPathStartingWith(input.relPaths, "src/pages/");

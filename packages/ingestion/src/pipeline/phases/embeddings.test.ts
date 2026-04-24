@@ -16,7 +16,7 @@
  */
 
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -26,8 +26,8 @@ import type { SymbolSummaryRow } from "@opencodehub/storage";
 
 import type { PipelineContext, PipelineOptions, ProgressEvent } from "../types.js";
 import { embeddingsPhase } from "./embeddings.js";
-import { SUMMARIZE_PHASE_NAME } from "./summarize.js";
 import { SCAN_PHASE_NAME } from "./scan.js";
+import { SUMMARIZE_PHASE_NAME } from "./summarize.js";
 
 function ctxFor(
   graph: KnowledgeGraph,
@@ -367,9 +367,7 @@ describe("embeddingsPhase — hierarchical tiers (P03)", () => {
         embeddingsGranularity: ["symbol"],
       } as unknown as PipelineOptions,
       graph,
-      phaseOutputs: new Map<string, unknown>([
-        [SUMMARIZE_PHASE_NAME, { rows: [summary] }],
-      ]),
+      phaseOutputs: new Map<string, unknown>([[SUMMARIZE_PHASE_NAME, { rows: [summary] }]]),
     };
     const out = await embeddingsPhase.run(ctx, new Map());
     assert.equal(out.summaryFused, true, "phase flags that summaries fused");

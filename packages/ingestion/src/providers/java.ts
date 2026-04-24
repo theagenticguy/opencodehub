@@ -248,11 +248,7 @@ export const javaProvider: LanguageProvider = {
   heritageEdge: "EXTENDS",
   inferImplicitReceiver: () => "this",
   isExportedIdentifier: (_name, context) => context === "top-level",
-  complexityDefinitionKinds: [
-    "method_declaration",
-    "constructor_declaration",
-    "lambda_expression",
-  ],
+  complexityDefinitionKinds: ["method_declaration", "constructor_declaration", "lambda_expression"],
   halsteadOperatorKinds: [
     "+",
     "-",

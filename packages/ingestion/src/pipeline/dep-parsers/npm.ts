@@ -207,10 +207,7 @@ function pathToPackageName(lockPath: string): string | undefined {
   return tail.split("/")[0];
 }
 
-function collectLegacyLockLicenses(
-  deps: Record<string, unknown>,
-  out: Map<string, string>,
-): void {
+function collectLegacyLockLicenses(deps: Record<string, unknown>, out: Map<string, string>): void {
   for (const [name, entry] of Object.entries(deps)) {
     if (!isObject(entry)) continue;
     const version = typeof entry["version"] === "string" ? entry["version"] : "";

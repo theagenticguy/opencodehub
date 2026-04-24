@@ -105,9 +105,7 @@ program
       coverage: opts["coverage"] === true,
       ...(summaries === false ? { summaries } : {}),
       maxSummariesPerRun,
-      ...(typeof opts["summaryModel"] === "string"
-        ? { summaryModel: opts["summaryModel"] }
-        : {}),
+      ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),
       skills: opts["skills"] === true,
       strictDetectors: opts["strictDetectors"] === true,
     });
@@ -214,10 +212,8 @@ program
     Number.parseInt(v, 10),
   )
   .option("--bm25-only", "Skip the embedder probe and run BM25 search only")
-  .option(
-    "--rerank-top-k <n>",
-    "RRF top-k passed to hybrid fusion (default 50)",
-    (v) => Number.parseInt(v, 10),
+  .option("--rerank-top-k <n>", "RRF top-k passed to hybrid fusion (default 50)", (v) =>
+    Number.parseInt(v, 10),
   )
   .option(
     "--zoom",
@@ -563,9 +559,7 @@ function splitList(raw: string): readonly string[] {
  * Parse the single-value `--granularity` flag used by `codehub query`.
  * Accepts exactly one tier (symbol/file/community); rejects CSV lists.
  */
-function parseQueryGranularity(
-  raw: unknown,
-): "symbol" | "file" | "community" | undefined {
+function parseQueryGranularity(raw: unknown): "symbol" | "file" | "community" | undefined {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
   const trimmed = raw.trim();
   if (trimmed === "symbol" || trimmed === "file" || trimmed === "community") return trimmed;

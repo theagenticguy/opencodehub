@@ -30,4 +30,5 @@ examples/fixtures/**/.codehub/
 # Local agent / planning scratch space
 .erpaval/
 .claude/settings.local.json
+.claude/worktrees/
 .handoff/

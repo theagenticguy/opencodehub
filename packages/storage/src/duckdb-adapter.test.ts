@@ -370,10 +370,7 @@ test("embeddings rows default to granularity='symbol' when not set", async () =>
         contentHash: "h",
       },
     ]);
-    const rows = await store.query(
-      "SELECT granularity FROM embeddings WHERE node_id = ?",
-      [id],
-    );
+    const rows = await store.query("SELECT granularity FROM embeddings WHERE node_id = ?", [id]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.["granularity"], "symbol");
   } finally {
@@ -1478,10 +1475,7 @@ test("v1.2: reserved columns round-trip through nodes table", async () => {
     );
     assert.equal(findingRow["partial_fingerprint"], "ab".repeat(16));
     assert.equal(findingRow["baseline_state"], "new");
-    assert.equal(
-      findingRow["suppressed_json"],
-      '[{"kind":"external","justification":"accepted"}]',
-    );
+    assert.equal(findingRow["suppressed_json"], '[{"kind":"external","justification":"accepted"}]');
   } finally {
     await store.close();
   }

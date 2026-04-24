@@ -18,10 +18,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import type { FrameworkDetection } from "@opencodehub/core-types";
-import {
-  detectFrameworksStructured,
-  type FrameworkDetectorInput,
-} from "./framework-detector.js";
+import { detectFrameworksStructured, type FrameworkDetectorInput } from "./framework-detector.js";
 import { FRAMEWORK_CATALOG } from "./frameworks-catalog.js";
 
 // ---------------------------------------------------------------------------
@@ -263,7 +260,9 @@ describe("framework detection — positive fixtures per catalog entry", () => {
       [
         [
           "package.json",
-          JSON.stringify({ dependencies: { "@nestjs/core": "10.0.0", "@nestjs/platform-express": "10.0.0" } }),
+          JSON.stringify({
+            dependencies: { "@nestjs/core": "10.0.0", "@nestjs/platform-express": "10.0.0" },
+          }),
         ],
       ],
       ["typescript"],
@@ -358,12 +357,7 @@ describe("framework detection — positive fixtures per catalog entry", () => {
   it("20c. Playwright via @playwright/test", () => {
     const input = mkInput(
       ["package.json", "playwright.config.ts"],
-      [
-        [
-          "package.json",
-          JSON.stringify({ devDependencies: { "@playwright/test": "1.40.0" } }),
-        ],
-      ],
+      [["package.json", JSON.stringify({ devDependencies: { "@playwright/test": "1.40.0" } })]],
       ["typescript"],
     );
     const out = detectFrameworksStructured(input);
@@ -539,7 +533,10 @@ describe("framework detection — variant axes", () => {
       ["Gemfile", "config/routes.rb", "config/application.rb"],
       [
         ["Gemfile", 'gem "rails"\n'],
-        ["config/application.rb", "module X\n  class Application < Rails::Application\n    config.api_only = true\n  end\nend\n"],
+        [
+          "config/application.rb",
+          "module X\n  class Application < Rails::Application\n    config.api_only = true\n  end\nend\n",
+        ],
       ],
       ["ruby"],
     );
@@ -623,12 +620,7 @@ describe("framework detection — parent linkage (FRM-UN-001)", () => {
   it("Next.js carries parent=react when both are present", () => {
     const input = mkInput(
       ["package.json", "app/page.tsx"],
-      [
-        [
-          "package.json",
-          JSON.stringify({ dependencies: { next: "14.0.0", react: "18.0.0" } }),
-        ],
-      ],
+      [["package.json", JSON.stringify({ dependencies: { next: "14.0.0", react: "18.0.0" } })]],
       ["typescript"],
     );
     const out = detectFrameworksStructured(input);

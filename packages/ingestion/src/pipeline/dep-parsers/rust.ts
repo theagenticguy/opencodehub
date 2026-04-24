@@ -68,7 +68,8 @@ async function parseCargoLock(
       // Cargo.lock v3+ may include `license` when the crate publishes it.
       // Standard v1/v2 lockfiles omit the field; best-effort readback.
       const licenseRaw = pkg["license"];
-      const license = typeof licenseRaw === "string" && licenseRaw.length > 0 ? licenseRaw : undefined;
+      const license =
+        typeof licenseRaw === "string" && licenseRaw.length > 0 ? licenseRaw : undefined;
       out.push({
         ecosystem: CARGO_ECO,
         name,

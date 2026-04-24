@@ -13,6 +13,7 @@
 // re-export here lets existing imports from `../parse/types.js` keep
 // working without a churn pass on every call site.
 import type { LanguageId } from "@opencodehub/core-types";
+
 export type { LanguageId } from "@opencodehub/core-types";
 
 /** A single tagged node extracted from a parse tree by the unified query. */

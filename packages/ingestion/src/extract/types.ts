@@ -21,14 +21,7 @@ export interface ExtractedRoute {
   /** Response payload keys scraped from the handler body (best effort). */
   readonly responseKeys?: readonly string[];
   /** Framework the detector is claiming. */
-  readonly framework:
-    | "nextjs"
-    | "express"
-    | "fastapi"
-    | "spring"
-    | "nestjs"
-    | "rails"
-    | "unknown";
+  readonly framework: "nextjs" | "express" | "fastapi" | "spring" | "nestjs" | "rails" | "unknown";
 }
 
 /** A single tool definition (MCP / JSON-RPC) discovered by heuristic scan. */

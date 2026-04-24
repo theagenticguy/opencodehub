@@ -26,15 +26,15 @@ import { promises as fs } from "node:fs";
 import type { ProjectProfileNode, RouteNode } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
 import { importsMapFromExtracted } from "../../extract/receiver-resolver.js";
-import { detectSpringRoutes } from "../../extract/route-detector-java.js";
-import { detectNestJsRoutes } from "../../extract/route-detector-nestjs.js";
-import { detectFastApiRoutes } from "../../extract/route-detector-python.js";
-import { detectRailsRoutes } from "../../extract/route-detector-rails.js";
 import {
   detectExpressRoutes,
   detectNextJsRoutes,
   populateNextJsResponseKeys,
 } from "../../extract/route-detector.js";
+import { detectSpringRoutes } from "../../extract/route-detector-java.js";
+import { detectNestJsRoutes } from "../../extract/route-detector-nestjs.js";
+import { detectFastApiRoutes } from "../../extract/route-detector-python.js";
+import { detectRailsRoutes } from "../../extract/route-detector-rails.js";
 import type { ExtractedRoute } from "../../extract/types.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
@@ -155,7 +155,9 @@ async function runRoutes(
   // Rails — profile-gated. Only scans `config/routes*.rb`.
   const railsRoutes: ExtractedRoute[] = [];
   if (frameworks.has("rails")) {
-    const routeFiles = scan.files.filter((f) => /(^|\/)config\/routes(?:\.[\w-]+)?\.rb$/.test(f.relPath));
+    const routeFiles = scan.files.filter((f) =>
+      /(^|\/)config\/routes(?:\.[\w-]+)?\.rb$/.test(f.relPath),
+    );
     const routesBundle = await readBundle(ctx, routeFiles);
     for (const entry of routesBundle) {
       for (const r of detectRailsRoutes(entry.filePath, entry.content)) {

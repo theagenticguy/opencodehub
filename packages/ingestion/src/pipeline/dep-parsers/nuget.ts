@@ -174,7 +174,8 @@ function extractPackageRef(ref: unknown): {
   const licenseChild = ref["License"];
   let license: string | undefined;
   if (typeof licenseAttr === "string" && licenseAttr.length > 0) license = licenseAttr.trim();
-  else if (typeof licenseChild === "string" && licenseChild.length > 0) license = licenseChild.trim();
+  else if (typeof licenseChild === "string" && licenseChild.length > 0)
+    license = licenseChild.trim();
 
   return {
     ...(name !== undefined ? { name } : {}),

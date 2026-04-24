@@ -243,11 +243,7 @@ describe("hybridSearch", () => {
       file: [],
       symbol: [{ nodeId: "sym-fallback", distance: 0.9 }],
     };
-    const fused = await hybridSearch(
-      store,
-      { text: "q", mode: "zoom" },
-      new FakeEmbedder(),
-    );
+    const fused = await hybridSearch(store, { text: "q", mode: "zoom" }, new FakeEmbedder());
     assert.equal(fused.length, 1);
     assert.equal(fused[0]?.nodeId, "sym-fallback");
     assert.equal(store.vectorCalls, 2);

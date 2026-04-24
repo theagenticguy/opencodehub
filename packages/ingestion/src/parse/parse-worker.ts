@@ -21,8 +21,8 @@ import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
 import { loadGrammar } from "./grammar-registry.js";
-import { getUnifiedQuery } from "./unified-queries.js";
 import type { LanguageId, ParseBatch, ParseCapture, ParseResult, ParseTask } from "./types.js";
+import { getUnifiedQuery } from "./unified-queries.js";
 import { isNativeAvailable, openWasmParser, type WasmParserHandle } from "./wasm-fallback.js";
 
 const requireFn = createRequire(import.meta.url);
@@ -57,9 +57,7 @@ export default async function parseBatch(batch: ParseBatch): Promise<ParseResult
   // or `--wasm-only` forced).
   if ((!isNativeAvailable() || forceWasmOnly()) && !warnedWasm) {
     warnedWasm = true;
-    process.stderr.write(
-      "[parse-worker] using web-tree-sitter (WASM) runtime\n",
-    );
+    process.stderr.write("[parse-worker] using web-tree-sitter (WASM) runtime\n");
   }
 
   const results: ParseResult[] = [];

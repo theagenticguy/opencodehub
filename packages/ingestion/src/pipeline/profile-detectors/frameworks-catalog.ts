@@ -378,7 +378,11 @@ export const FRAMEWORK_CATALOG: readonly FrameworkRule[] = [
     category: "mobile_desktop",
     tier: "D",
     ecosystem: "rust",
-    fileMarkers: ["src-tauri/tauri.conf.json", "src-tauri/tauri.conf.json5", "src-tauri/Tauri.toml"],
+    fileMarkers: [
+      "src-tauri/tauri.conf.json",
+      "src-tauri/tauri.conf.json5",
+      "src-tauri/Tauri.toml",
+    ],
     variants: [
       { discriminator: "tauri-version", value: "v1" },
       { discriminator: "tauri-version", value: "v2" },

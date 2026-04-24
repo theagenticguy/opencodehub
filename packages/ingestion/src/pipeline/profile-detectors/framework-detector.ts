@@ -32,9 +32,9 @@ import {
   type ManifestKey,
 } from "./frameworks-catalog.js";
 import {
+  VARIANT_RESOLVERS,
   type VariantResolveInput,
   type VariantResolver,
-  VARIANT_RESOLVERS,
 } from "./variant-detectors.js";
 
 /** Input to the dispatcher. */
@@ -185,17 +185,17 @@ function buildDetection(
   return det;
 }
 
-function inferConfidence(
-  rule: FrameworkRule,
-  hit: RuleHit,
-): FrameworkDetection["confidence"] {
+function inferConfidence(rule: FrameworkRule, hit: RuleHit): FrameworkDetection["confidence"] {
   if (rule.tier === "C") return "composite";
   if (hit.hasManifestHit) return "deterministic";
   // tier D/H with only file-level hits → heuristic.
   return "heuristic";
 }
 
-function resolveVariant(rule: FrameworkRule, resolverInput: VariantResolveInput): string | undefined {
+function resolveVariant(
+  rule: FrameworkRule,
+  resolverInput: VariantResolveInput,
+): string | undefined {
   if (!rule.variants || rule.variants.length === 0) return undefined;
   // All variants on one rule share a discriminator. Use the first entry's
   // discriminator to pick the resolver; the resolver itself returns the

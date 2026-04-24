@@ -38,8 +38,7 @@ const METHOD_ANNOTATIONS: ReadonlyMap<string, string> = new Map([
 const METHOD_DECORATOR_RE =
   /@\s*(Get|Post|Put|Delete|Patch|Options|Head|All)\s*\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)?\s*\)/g;
 
-const CONTROLLER_RE =
-  /@\s*Controller\s*\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)?\s*\)/g;
+const CONTROLLER_RE = /@\s*Controller\s*\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)?\s*\)/g;
 
 const CLASS_DECL_RE = /\bclass\s+([A-Za-z_$][\w$]*)/g;
 
@@ -109,7 +108,8 @@ function collectControllerRanges(content: string): readonly ControllerRange[] {
   for (let i = 0; i < classStarts.length; i++) {
     const start = classStarts[i];
     if (start === undefined) continue;
-    const end = i + 1 < classStarts.length ? (classStarts[i + 1] ?? content.length) : content.length;
+    const end =
+      i + 1 < classStarts.length ? (classStarts[i + 1] ?? content.length) : content.length;
     const prefix = readControllerPrefixAbove(content, start);
     out.push({ startIdx: start, endIdx: end, prefix });
   }
