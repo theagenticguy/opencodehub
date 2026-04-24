@@ -37,14 +37,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createNodeFs, type FsAbstraction } from "@opencodehub/analysis";
 import type { Embedder } from "@opencodehub/embedder";
 import type { FusedHit, SymbolHit } from "@opencodehub/search";
-import { bm25Search, hybridSearch } from "@opencodehub/search";
+import {
+  bm25Search,
+  embeddingsPopulated,
+  hybridSearch,
+  tryOpenEmbedder,
+} from "@opencodehub/search";
 import type { DuckDbStore, SqlParam } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
-  type EmbedderFactory,
   fromToolResult,
   type ToolContext,
   type ToolResult,
@@ -164,23 +168,6 @@ interface ProcessSymbol {
   readonly kind: string;
   readonly filePath: string;
   readonly step: number;
-}
-
-/**
- * Decide whether the store has any embeddings persisted. Any failure
- * (e.g. schema mismatch, extension missing) returns false so callers
- * transparently fall back to BM25.
- */
-async function embeddingsPopulated(store: DuckDbStore): Promise<boolean> {
-  try {
-    const rows = await store.query("SELECT COUNT(*) AS n FROM embeddings", []);
-    const first = rows[0];
-    if (!first) return false;
-    const n = Number(first["n"] ?? 0);
-    return Number.isFinite(n) && n > 0;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -416,24 +403,6 @@ async function defaultOpenEmbedder(): Promise<Embedder> {
 }
 
 /**
- * Open an embedder, or return null if unavailable. Any failure (missing
- * weights, native load error, unexpected exception) is treated the same
- * way: warn to stderr and fall back to BM25. We never abort the query.
- */
-async function tryOpenEmbedder(open: EmbedderFactory): Promise<Embedder | null> {
-  try {
-    return await open();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    // stdout is reserved for JSON-RPC on stdio transports; warn to stderr.
-    console.warn(
-      `[mcp:query] hybrid search unavailable (embeddings populated but embedder could not open): ${message}. Falling back to BM25.`,
-    );
-    return null;
-  }
-}
-
-/**
  * Walk PROCESS_STEP edges backwards from each top-K hit to find containing
  * Process nodes, then walk PROCESS_STEP edges forward from each matched
  * Process's entry point to enumerate its ordered member symbols. All of
@@ -613,7 +582,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       let mode: "bm25" | "hybrid" = "bm25";
 
       if (await embeddingsPopulated(store)) {
-        const embedder = await tryOpenEmbedder(openEmbedder);
+        const embedder = await tryOpenEmbedder<Embedder>(openEmbedder, "[mcp:query]");
         if (embedder) {
           try {
             const fused = await hybridSearch(
