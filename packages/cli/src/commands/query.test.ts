@@ -1,22 +1,16 @@
 /**
- * Tests for `codehub query` CLI command — the P1-5 parity surface.
+ * Tests for `codehub query` CLI command — parity with the MCP `query` tool.
  *
- * Coverage mirrors the MCP-side tests one-for-one so CLI and MCP stay at
- * parity: `--context` / `--goal` prefix the search text, `--content`
- * attaches the symbol body, absent flags leave the search text untouched.
+ * We cover:
+ *   - `--context` / `--goal` prefix the search text.
+ *   - `--content` attaches + caps source bodies.
+ *   - `--max-symbols` is accepted through the type surface (no-op today).
+ *   - Hybrid path runs when embeddings are populated + embedder resolves.
+ *   - Hybrid collapses to BM25 with a stderr warning when the embedder fails.
+ *   - `--bm25-only` skips the embedder probe entirely.
  *
- * The suite intercepts `openStoreForCommand` via a module-level substitution
- * so we never need to spin up a real DuckDB handle — the search surface is
- * already covered by the storage package. What we validate here is the
- * CLI-layer plumbing:
- *   1. `--context` is prefixed with the em-dash separator.
- *   2. `--goal` is prefixed with the em-dash separator.
- *   3. Both together keep order `context — goal — text`.
- *   4. Neither flag leaves the text untouched.
- *   5. `--content` reads the file and attaches a capped body.
- *   6. `--content` silently omits the field when the file is missing.
- *   7. `--content` caps long files at 2000 chars with an ellipsis.
- *   8. `--max-symbols` is accepted through the type surface (no-op MVP).
+ * The fake store intercepts the `embeddings` count probe so we can steer
+ * the hybrid-vs-BM25 branch without staging DuckDB or ONNX weights.
  */
 
 import assert from "node:assert/strict";
@@ -24,30 +18,92 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import type { DuckDbStore, SearchQuery, SearchResult } from "@opencodehub/storage";
+import type { Embedder } from "@opencodehub/embedder";
+import type {
+  DuckDbStore,
+  SearchQuery,
+  SearchResult,
+  SqlParam,
+  VectorQuery,
+  VectorResult,
+} from "@opencodehub/storage";
 import { runQuery } from "./query.js";
+
+interface FakeNode {
+  readonly name: string;
+  readonly kind: string;
+  readonly filePath: string;
+}
+
+interface FakeStoreOptions {
+  readonly embeddingRows?: number;
+  readonly searchRows?: readonly SearchResult[];
+  readonly vectorRows?: readonly VectorResult[];
+  readonly nodes?: ReadonlyMap<string, FakeNode>;
+}
 
 interface FakeStoreHandle {
   lastQuery: string | null;
   searchCalls: number;
+  vectorCalls: number;
+  embeddingCountQueries: number;
   closed: boolean;
   readonly store: DuckDbStore;
 }
 
-function makeFakeStore(rows: readonly SearchResult[]): FakeStoreHandle {
+function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
+  const embeddingRows = opts.embeddingRows ?? 0;
+  const searchRows = opts.searchRows ?? [];
+  const vectorRows = opts.vectorRows ?? [];
+  const nodes = opts.nodes ?? new Map<string, FakeNode>();
+
   const handle: FakeStoreHandle = {
     lastQuery: null,
     searchCalls: 0,
+    vectorCalls: 0,
+    embeddingCountQueries: 0,
     closed: false,
     store: {} as DuckDbStore,
   };
-  // Minimal DuckDbStore surface: the CLI query path only calls `search` and
-  // `close`, so we stub those and cast the rest. Keeps the fake narrow.
+  // Minimal DuckDbStore surface: the CLI query path calls `search`,
+  // `vectorSearch`, `query` (for the embeddings probe + metadata
+  // hydration), and `close`. Stubbing those is enough; the rest is cast.
   const impl = {
     search: async (q: SearchQuery) => {
       handle.lastQuery = q.text;
       handle.searchCalls += 1;
-      return rows;
+      return searchRows;
+    },
+    vectorSearch: async (_q: VectorQuery) => {
+      handle.vectorCalls += 1;
+      return vectorRows;
+    },
+    query: async (
+      sql: string,
+      params: readonly SqlParam[] = [],
+    ): Promise<readonly Record<string, unknown>[]> => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized === "SELECT COUNT(*) AS n FROM embeddings") {
+        handle.embeddingCountQueries += 1;
+        return [{ n: embeddingRows }];
+      }
+      if (normalized.startsWith("SELECT id, name, kind, file_path FROM nodes WHERE id IN")) {
+        const idSet = new Set(params.map((p) => String(p)));
+        const out: Record<string, unknown>[] = [];
+        for (const id of idSet) {
+          const meta = nodes.get(id);
+          if (meta) {
+            out.push({
+              id,
+              name: meta.name,
+              kind: meta.kind,
+              file_path: meta.filePath,
+            });
+          }
+        }
+        return out;
+      }
+      throw new Error(`unsupported sql in fake store: ${normalized}`);
     },
     close: async () => {
       handle.closed = true;
@@ -72,6 +128,36 @@ async function captureStdout(fn: () => Promise<void>): Promise<string> {
   return chunks.join("\n");
 }
 
+/** Capture console.warn output during `fn`. */
+async function captureStderr(fn: () => Promise<void>): Promise<string[]> {
+  const orig = console.warn;
+  const out: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    out.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    await fn();
+  } finally {
+    console.warn = orig;
+  }
+  return out;
+}
+
+class FakeEmbedder implements Embedder {
+  readonly dim = 4;
+  readonly modelId = "fake-embedder/test";
+  closeCount = 0;
+  async embed(_text: string): Promise<Float32Array> {
+    return new Float32Array([0.1, 0.2, 0.3, 0.4]);
+  }
+  async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
+    return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
+  }
+  async close(): Promise<void> {
+    this.closeCount += 1;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -84,9 +170,11 @@ function hooksFor(handle: FakeStoreHandle, repoPath: string) {
 }
 
 test("cli query: --context is prefixed to the search text", async () => {
-  const handle = makeFakeStore([
-    { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
-  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
   await captureStdout(async () => {
     await runQuery(
       "validate user",
@@ -98,9 +186,11 @@ test("cli query: --context is prefixed to the search text", async () => {
 });
 
 test("cli query: --goal is prefixed to the search text", async () => {
-  const handle = makeFakeStore([
-    { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
-  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
   await captureStdout(async () => {
     await runQuery(
       "validate user",
@@ -112,9 +202,11 @@ test("cli query: --goal is prefixed to the search text", async () => {
 });
 
 test("cli query: --context + --goal are both prefixed in declared order", async () => {
-  const handle = makeFakeStore([
-    { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
-  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
   await captureStdout(async () => {
     await runQuery(
       "validate user",
@@ -132,9 +224,11 @@ test("cli query: --context + --goal are both prefixed in declared order", async 
 });
 
 test("cli query: without --context/--goal the search text is untouched", async () => {
-  const handle = makeFakeStore([
-    { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
-  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
   await captureStdout(async () => {
     await runQuery("validate user", {}, hooksFor(handle, "/tmp/fake"));
   });
@@ -149,9 +243,11 @@ test("cli query: --content attaches the file body to each JSON result", async ()
     const fileAbs = resolve(repoPath, fileRel);
     await mkdir(resolve(repoPath, "src"), { recursive: true });
     await writeFile(fileAbs, "export function foo() { return 42; }\n", "utf8");
-    const handle = makeFakeStore([
-      { nodeId: "F:foo", score: 2, filePath: fileRel, name: "foo", kind: "Function" },
-    ]);
+    const handle = makeFakeStore({
+      searchRows: [
+        { nodeId: "F:foo", score: 2, filePath: fileRel, name: "foo", kind: "Function" },
+      ],
+    });
     const stdout = await captureStdout(async () => {
       await runQuery("foo", { content: true, json: true }, hooksFor(handle, repoPath));
     });
@@ -173,15 +269,17 @@ test("cli query: --content silently omits the field when the file is missing", a
   try {
     const repoPath = resolve(home, "repo");
     await mkdir(repoPath, { recursive: true });
-    const handle = makeFakeStore([
-      {
-        nodeId: "F:gone",
-        score: 2,
-        filePath: "src/deleted.ts",
-        name: "gone",
-        kind: "Function",
-      },
-    ]);
+    const handle = makeFakeStore({
+      searchRows: [
+        {
+          nodeId: "F:gone",
+          score: 2,
+          filePath: "src/deleted.ts",
+          name: "gone",
+          kind: "Function",
+        },
+      ],
+    });
     const stdout = await captureStdout(async () => {
       await runQuery("gone", { content: true, json: true }, hooksFor(handle, repoPath));
     });
@@ -207,9 +305,11 @@ test("cli query: --content caps long files at 2000 chars with an ellipsis", asyn
     await mkdir(resolve(repoPath, "src"), { recursive: true });
     // 3000-char file — safely past the 2000 cap.
     await writeFile(fileAbs, "x".repeat(3000), "utf8");
-    const handle = makeFakeStore([
-      { nodeId: "F:big", score: 2, filePath: fileRel, name: "big", kind: "Function" },
-    ]);
+    const handle = makeFakeStore({
+      searchRows: [
+        { nodeId: "F:big", score: 2, filePath: fileRel, name: "big", kind: "Function" },
+      ],
+    });
     const stdout = await captureStdout(async () => {
       await runQuery("big", { content: true, json: true }, hooksFor(handle, repoPath));
     });
@@ -224,17 +324,150 @@ test("cli query: --content caps long files at 2000 chars with an ellipsis", asyn
   }
 });
 
-test("cli query: --max-symbols is accepted without error (MVP no-op)", async () => {
+test("cli query: --max-symbols is accepted without error (today a no-op)", async () => {
   // The CLI surface forwards --max-symbols for MCP parity; the store's
   // `search()` is not process-aware today, so the flag is a no-op. The
   // invariant tested here is that the surface compiles and runs green when
   // the option is supplied.
-  const handle = makeFakeStore([
-    { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
-  ]);
+  const handle = makeFakeStore({
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
   await captureStdout(async () => {
     await runQuery("foo", { maxSymbols: 3 }, hooksFor(handle, "/tmp/fake"));
   });
   assert.equal(handle.searchCalls, 1);
   assert.equal(handle.closed, true, "store.close() must run even on no-op flags");
+});
+
+// ---------------------------------------------------------------------------
+// P02: hybrid-by-default, BM25 fallback, --bm25-only
+// ---------------------------------------------------------------------------
+
+test("cli query: embeddings populated + embedder opens → hybrid path, mode=hybrid", async () => {
+  const nodes: ReadonlyMap<string, FakeNode> = new Map([
+    ["F:foo", { name: "foo", kind: "Function", filePath: "src/foo.ts" }],
+    ["F:bar", { name: "bar", kind: "Function", filePath: "src/bar.ts" }],
+    ["F:baz", { name: "baz", kind: "Function", filePath: "src/baz.ts" }],
+  ]);
+  const handle = makeFakeStore({
+    embeddingRows: 10,
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+      { nodeId: "F:bar", score: 1, filePath: "src/bar.ts", name: "bar", kind: "Function" },
+    ],
+    vectorRows: [
+      { nodeId: "F:bar", distance: 0.1 },
+      { nodeId: "F:baz", distance: 0.2 },
+    ],
+    nodes,
+  });
+  const fake = new FakeEmbedder();
+  const stdout = await captureStdout(async () => {
+    await runQuery(
+      "auth handler",
+      { json: true },
+      { ...hooksFor(handle, "/tmp/fake"), openEmbedder: async () => fake },
+    );
+  });
+  const parsed = JSON.parse(stdout) as {
+    mode: "bm25" | "hybrid";
+    results: Array<{ nodeId: string; sources: string[] }>;
+  };
+  assert.equal(parsed.mode, "hybrid", "mode must be hybrid when embedder opens");
+  assert.equal(handle.vectorCalls, 1, "vectorSearch must run exactly once");
+  assert.equal(handle.embeddingCountQueries, 1, "embeddings probe must fire once");
+  assert.equal(fake.closeCount, 1, "embedder.close() must run after use");
+  const ids = parsed.results.map((r) => r.nodeId).sort();
+  assert.deepEqual(ids, ["F:bar", "F:baz", "F:foo"]);
+  const bar = parsed.results.find((r) => r.nodeId === "F:bar");
+  assert.ok(bar !== undefined);
+  assert.deepEqual([...bar.sources].sort(), ["bm25", "vector"]);
+});
+
+test("cli query: embeddings populated + embedder fails → warn + BM25 fallback, mode=bm25", async () => {
+  const nodes: ReadonlyMap<string, FakeNode> = new Map([
+    ["F:foo", { name: "foo", kind: "Function", filePath: "src/foo.ts" }],
+  ]);
+  const handle = makeFakeStore({
+    embeddingRows: 5,
+    searchRows: [
+      { nodeId: "F:foo", score: 3, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+    // If the BM25 fallback accidentally routed through the vector path
+    // these rows would bump `handle.vectorCalls`; we assert it stays at 0.
+    vectorRows: [{ nodeId: "F:bar", distance: 0.1 }],
+    nodes,
+  });
+  let stdout = "";
+  const warnings = await captureStderr(async () => {
+    stdout = await captureStdout(async () => {
+      await runQuery(
+        "auth handler",
+        { json: true },
+        {
+          ...hooksFor(handle, "/tmp/fake"),
+          openEmbedder: async () => {
+            const err = new Error(
+              "Arctic Embed XS weights not found. Run `codehub setup --embeddings`.",
+            );
+            (err as unknown as { code: string }).code = "EMBEDDER_NOT_SETUP";
+            throw err;
+          },
+        },
+      );
+    });
+  });
+  const parsed = JSON.parse(stdout) as {
+    mode: "bm25" | "hybrid";
+    results: Array<{ nodeId: string; sources: string[] }>;
+  };
+  assert.equal(parsed.mode, "bm25", "fallback must report BM25 mode");
+  assert.equal(handle.vectorCalls, 0, "vectorSearch must not be called on fallback");
+  assert.equal(parsed.results.length, 1);
+  assert.deepEqual(parsed.results[0]?.sources, ["bm25"]);
+  assert.ok(
+    warnings.some((w) => w.includes("hybrid search unavailable") && w.includes("[cli:query]")),
+    "a single [cli:query] warning must fire when the embedder can't open",
+  );
+});
+
+test("cli query: --bm25-only skips the embedder probe entirely", async () => {
+  const handle = makeFakeStore({
+    // High embeddingRows would normally trigger hybrid; --bm25-only must
+    // prevent the probe from even running.
+    embeddingRows: 100,
+    searchRows: [
+      { nodeId: "F:foo", score: 3, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+  });
+  let openerCalls = 0;
+  const stdout = await captureStdout(async () => {
+    await runQuery(
+      "auth handler",
+      { json: true, bm25Only: true },
+      {
+        ...hooksFor(handle, "/tmp/fake"),
+        openEmbedder: async () => {
+          openerCalls += 1;
+          throw new Error("opener must not be called when --bm25-only is set");
+        },
+      },
+    );
+  });
+  const parsed = JSON.parse(stdout) as {
+    mode: "bm25" | "hybrid";
+    results: Array<{ sources: string[] }>;
+  };
+  assert.equal(parsed.mode, "bm25");
+  assert.equal(openerCalls, 0, "openEmbedder must not be invoked under --bm25-only");
+  assert.equal(
+    handle.embeddingCountQueries,
+    0,
+    "embeddings probe must not run when --bm25-only is set",
+  );
+  assert.equal(handle.vectorCalls, 0);
+  assert.equal(parsed.results.length, 1);
+  assert.deepEqual(parsed.results[0]?.sources, ["bm25"]);
 });
