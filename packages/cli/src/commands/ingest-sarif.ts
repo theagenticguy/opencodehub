@@ -19,8 +19,15 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type FindingNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
-import { SarifLogSchema, type SarifResult, type SarifRun } from "@opencodehub/sarif";
-import { DuckDbStore, resolveDbPath } from "@opencodehub/storage";
+import {
+  applyBaselineState,
+  enrichWithFingerprints,
+  type SarifLog,
+  SarifLogSchema,
+  type SarifResult,
+  type SarifRun,
+} from "@opencodehub/sarif";
+import { DuckDbStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 
 export interface IngestSarifOptions {
@@ -52,9 +59,24 @@ export async function runIngestSarif(
       `codehub ingest-sarif: ${sarifPath} is not a valid SARIF 2.1.0 log: ${validation.error.message}`,
     );
   }
-  const log = validation.data;
+  let log = validation.data;
 
   const repoPath = await resolveRepoPath(opts);
+
+  // Stamp `opencodehub/v1` + `primaryLocationLineHash` partial fingerprints
+  // onto every result. The call is idempotent: an already-enriched input
+  // produces the same fingerprints, so re-ingesting a SARIF file leaves the
+  // column stable.
+  log = enrichWithFingerprints(log);
+
+  // Optional baseline overlay. When `<repo>/.codehub/baseline.sarif` exists
+  // we tag every result with SARIF 2.1.0 `baselineState` so the
+  // `baseline_state` column is populated; missing baseline leaves it NULL
+  // (consumers treat NULL as "new" by convention).
+  const baselineLog = await loadRepoBaseline(repoPath);
+  if (baselineLog !== undefined) {
+    log = applyBaselineState(log, baselineLog);
+  }
 
   const { graph, summary } = buildFindingsGraph(log.runs);
 
@@ -194,6 +216,8 @@ function buildFindingNode(scannerId: string, result: SarifResult): BuildFindingO
   }
 
   const suppressedJson = extractSuppressedJson(result);
+  const partialFingerprint = extractOpenCodeHubFingerprint(result);
+  const baselineState = extractBaselineState(result);
   const node: FindingNode = {
     id,
     kind: "Finding",
@@ -207,6 +231,8 @@ function buildFindingNode(scannerId: string, result: SarifResult): BuildFindingO
     startLine,
     ...(endLine !== undefined ? { endLine } : {}),
     ...(suppressedJson !== undefined ? { suppressedJson } : {}),
+    ...(partialFingerprint !== undefined ? { partialFingerprint } : {}),
+    ...(baselineState !== undefined ? { baselineState } : {}),
   };
 
   const reason =
@@ -263,6 +289,57 @@ function extractSymbolId(result: SarifResult): string | undefined {
   const v = record["opencodehub.symbolId"];
   if (typeof v === "string" && v.length > 0) return v;
   return undefined;
+}
+
+/**
+ * Pull the `opencodehub/v1` entry out of `result.partialFingerprints` and
+ * persist it on the FindingNode. Enrichment runs before ingest so this
+ * lookup always succeeds for well-formed inputs — if it doesn't, the
+ * column stays NULL (e.g. SARIF files that predate enrichment).
+ */
+function extractOpenCodeHubFingerprint(result: SarifResult): string | undefined {
+  const pf = result.partialFingerprints;
+  if (pf === null || pf === undefined || typeof pf !== "object") return undefined;
+  const v = (pf as Record<string, unknown>)["opencodehub/v1"];
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Read `result.baselineState` as a typed literal. `applyBaselineState`
+ * only writes `"new" | "unchanged" | "updated"` (baseline-only findings
+ * stay outside the current log); `"absent"` can arrive via third-party
+ * tooling so we accept it for completeness.
+ */
+function extractBaselineState(result: SarifResult): FindingNode["baselineState"] | undefined {
+  const v = (result as SarifResult & { baselineState?: unknown }).baselineState;
+  if (v === "new" || v === "unchanged" || v === "updated" || v === "absent") {
+    return v;
+  }
+  return undefined;
+}
+
+/**
+ * Load `<repo>/.codehub/baseline.sarif` if present. Missing file resolves
+ * to undefined; malformed file raises so the caller can surface the
+ * validation error instead of silently dropping baselineState.
+ */
+async function loadRepoBaseline(repoPath: string): Promise<SarifLog | undefined> {
+  const candidate = resolve(`${resolveRepoMetaDir(repoPath)}/baseline.sarif`);
+  let raw: string;
+  try {
+    raw = await readFile(candidate, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  const result = SarifLogSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `codehub ingest-sarif: baseline at ${candidate} is not a valid SARIF 2.1.0 log: ${result.error.message}`,
+    );
+  }
+  return result.data;
 }
 
 async function resolveRepoPath(opts: IngestSarifOptions): Promise<string> {

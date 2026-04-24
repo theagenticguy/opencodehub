@@ -109,6 +109,44 @@ test("buildFindingsGraph adds a second FOUND_IN edge when opencodehub.symbolId i
   assert.ok(targets.some((t) => t === "Function:foo.py:authenticate"));
 });
 
+test("buildFindingsGraph persists partialFingerprint + baselineState + suppressedJson", () => {
+  const runs: SarifRun[] = [
+    run("semgrep", [
+      {
+        ruleId: "semgrep.sqli",
+        level: "warning",
+        message: { text: "SQLi" },
+        partialFingerprints: { "opencodehub/v1": "f".repeat(32) },
+        baselineState: "unchanged",
+        suppressions: [
+          {
+            kind: "external",
+            justification: "accepted risk",
+          },
+        ],
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "src/db.ts" },
+              region: { startLine: 50 },
+            },
+          },
+        ],
+      } as SarifRun["results"] extends readonly (infer R)[] | undefined ? R : never,
+    ]),
+  ];
+  const { graph, summary } = buildFindingsGraph(runs);
+  assert.equal(summary.findingsEmitted, 1);
+  const finding = [...graph.nodes()].find((n) => n.kind === "Finding");
+  assert.ok(finding && finding.kind === "Finding");
+  assert.equal(finding.partialFingerprint, "f".repeat(32));
+  assert.equal(finding.baselineState, "unchanged");
+  assert.ok(finding.suppressedJson);
+  const parsed = JSON.parse(finding.suppressedJson as string);
+  assert.equal(parsed[0]?.kind, "external");
+  assert.equal(parsed[0]?.justification, "accepted risk");
+});
+
 test("buildFindingsGraph maps severity correctly", () => {
   const runs: SarifRun[] = [
     run("tool", [
