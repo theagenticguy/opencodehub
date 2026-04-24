@@ -32,6 +32,12 @@ export interface ExtractedTool {
   readonly handlerFile: string;
   /** Description string from the tool definition literal, if present. */
   readonly description?: string;
+  /**
+   * Canonical (key-sorted) JSON-encoded `inputSchema` literal harvested
+   * from the tool definition object, when present. Absent when the
+   * detector can't find a parseable literal nearby.
+   */
+  readonly inputSchemaJson?: string;
 }
 
 /** A file -> ORM model call edge discovered by regex scan. */

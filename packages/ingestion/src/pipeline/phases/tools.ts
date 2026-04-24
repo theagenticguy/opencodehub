@@ -95,6 +95,7 @@ async function runTools(ctx: PipelineContext, scan: ScanOutput): Promise<ToolsOu
       filePath: t.handlerFile,
       toolName: t.toolName,
       ...(t.description !== undefined ? { description: t.description } : {}),
+      ...(t.inputSchemaJson !== undefined ? { inputSchemaJson: t.inputSchemaJson } : {}),
     };
     ctx.graph.addNode(node);
     toolCount += 1;

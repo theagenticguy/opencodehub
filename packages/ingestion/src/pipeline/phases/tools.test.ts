@@ -102,6 +102,48 @@ describe("toolsPhase", () => {
     }
   });
 
+  it("captures the inputSchema literal as canonical JSON on the Tool node", async () => {
+    const schemaRepo = await mkdtemp(path.join(tmpdir(), "och-tools-schema-"));
+    try {
+      await fs.mkdir(path.join(schemaRepo, "tools"), { recursive: true });
+      await fs.writeFile(
+        path.join(schemaRepo, "tools", "schema-tool.ts"),
+        [
+          "export const definition = {",
+          "  name: 'with_schema',",
+          "  description: 'tool with input schema',",
+          "  inputSchema: {",
+          "    type: 'object',",
+          "    properties: { s: { type: 'string' } },",
+          "    required: ['s'],",
+          "  },",
+          "};",
+          "",
+        ].join("\n"),
+      );
+      const { ctx } = await buildCtxWithParse(schemaRepo);
+      await toolsPhase.run(
+        ctx,
+        new Map<string, unknown>([[PARSE_PHASE_NAME, ctx.phaseOutputs.get(PARSE_PHASE_NAME)]]),
+      );
+      const tool = [...ctx.graph.nodes()].find(
+        (n) => n.kind === "Tool" && n.name === "with_schema",
+      );
+      assert.ok(tool, "expected Tool node with_schema");
+      const schema = (tool as { inputSchemaJson?: string }).inputSchemaJson;
+      assert.ok(typeof schema === "string" && schema.length > 0, "inputSchemaJson must be set");
+      // Canonical JSON: keys sorted recursively.
+      const parsed = JSON.parse(schema);
+      assert.equal(parsed.type, "object");
+      assert.deepEqual(parsed.required, ["s"]);
+      assert.deepEqual(Object.keys(parsed).sort(), ["properties", "required", "type"]);
+      assert.deepEqual(Object.keys(parsed.properties), ["s"]);
+      assert.equal(parsed.properties.s.type, "string");
+    } finally {
+      await rm(schemaRepo, { recursive: true, force: true });
+    }
+  });
+
   it("warns on duplicate tool names across files", async () => {
     const dup = await mkdtemp(path.join(tmpdir(), "och-tools-dup-"));
     try {
