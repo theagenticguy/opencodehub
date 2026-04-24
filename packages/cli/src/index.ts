@@ -21,6 +21,10 @@ program
   .option("--force", "Ignore registry cache and re-run the pipeline")
   .option("--embeddings", "Embed symbols and populate the DuckDB embeddings table")
   .option("--embeddings-int8", "Use the int8 embedder variant (~23 MB) instead of fp32")
+  .option(
+    "--granularity <csv>",
+    "Hierarchical embedding tiers to emit, comma-separated. Values: symbol, file, community. Default: symbol. Example: --granularity symbol,file,community",
+  )
   .option("--offline", "Assert no network access during analyze")
   .option("--verbose", "Emit per-phase pipeline progress")
   .option("--skip-agents-md", "Do not write the AGENTS.md / CLAUDE.md stanza")
@@ -83,10 +87,13 @@ program
       maxSummariesPerRun = "auto";
     }
 
+    const granularity = parseGranularityCsv(opts["granularity"]);
+
     await mod.runAnalyze(path ?? process.cwd(), {
       force: opts["force"] === true,
       embeddings: opts["embeddings"] === true,
       embeddingsVariant: opts["embeddingsInt8"] === true ? "int8" : "fp32",
+      ...(granularity !== undefined ? { embeddingsGranularity: granularity } : {}),
       offline: opts["offline"] === true,
       verbose: opts["verbose"] === true,
       skipAgentsMd: opts["skipAgentsMd"] === true,
@@ -530,6 +537,33 @@ function splitList(raw: string): readonly string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/**
+ * Parse a comma-separated `--granularity` value into the narrow set of
+ * hierarchical embedding tiers the ingestion phase accepts. Returns
+ * `undefined` when the flag was not supplied so callers can preserve the
+ * upstream default (`["symbol"]`). Unknown tokens throw so users see the
+ * typo rather than a silent fallback.
+ */
+function parseGranularityCsv(
+  raw: string | number | boolean | undefined,
+): readonly ("symbol" | "file" | "community")[] | undefined {
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  const valid = new Set(["symbol", "file", "community"] as const);
+  const out: ("symbol" | "file" | "community")[] = [];
+  const seen = new Set<string>();
+  for (const token of splitList(raw)) {
+    if (!valid.has(token as "symbol")) {
+      throw new Error(
+        `Unknown granularity tier: "${token}". Expected one of: ${[...valid].join(", ")}`,
+      );
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token as "symbol");
+  }
+  return out;
 }
 
 function parseEditors(
