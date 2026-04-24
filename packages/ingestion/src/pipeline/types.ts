@@ -157,9 +157,17 @@ export interface PipelineOptions {
    * Defaults to `0`, which runs the phase in dry-run mode: it enumerates
    * eligible symbols and reports `wouldHaveSummarized` without contacting
    * Bedrock. Set to a positive integer (e.g. 10) to actually summarize a
-   * bounded subset. Ignored when `summaries !== true`.
+   * bounded subset. Ignored when `summaries !== true`. The CLI resolves
+   * `--max-summaries auto` to a concrete integer before calling into the
+   * pipeline, so this field is always numeric inside the pipeline.
    */
   readonly maxSummariesPerRun?: number | undefined;
+  /**
+   * Override the Bedrock model id used by the summarize phase. When
+   * undefined, the phase uses `DEFAULT_MODEL_ID` from
+   * `@opencodehub/summarizer`.
+   */
+  readonly summaryModel?: string | undefined;
 }
 
 /** Lightweight progress event emitted during pipeline execution. */

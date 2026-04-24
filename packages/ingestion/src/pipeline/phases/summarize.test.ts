@@ -540,3 +540,160 @@ describe("summarizePhase — phase name constant", () => {
     assert.equal(summarizePhase.name, "summarize");
   });
 });
+
+describe("summarizePhase — credential soft-fail (SUM-UN-001)", () => {
+  it("returns skippedReason=no-credentials when the summarizer throws NoCredentialsError", async () => {
+    const graph = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.py", "alpha") as NodeId;
+    const callerId = makeNodeId("Function", "src/b.py", "driver") as NodeId;
+    graph.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "alpha",
+      filePath: "src/a.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    graph.addNode({
+      id: callerId,
+      kind: "Function",
+      name: "driver",
+      filePath: "src/b.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    addConfirmedEdge(graph, callerId, funcId);
+
+    const sourceMap = new Map<string, string>([
+      ["/unused/src/a.py", "def alpha():\n    return 1\n    # tail\n"],
+      ["/unused/src/b.py", "def driver():\n    alpha()\n    return 0\n"],
+    ]);
+
+    // Fake summarizer whose first call throws a credential-missing error.
+    // The phase must convert that into a soft-fail (no rows, no failure
+    // counter) because SUM-UN-001 guarantees analyze stays green for
+    // contributors without AWS credentials.
+    const credErr = new Error("Could not load credentials from any providers");
+    (credErr as { name: string }).name = "CredentialsProviderError";
+    const adapter: SummarizerAdapter = {
+      summarize: async () => {
+        throw credErr;
+      },
+    };
+    __setSummarizePhaseTestHooks__({
+      summarizerFactory: () => adapter,
+      sourceReader: makeFixedSourceReader(sourceMap),
+    });
+
+    const ctx = buildHarnessContext(graph, { summaries: true, maxSummariesPerRun: 5 });
+    const out = await summarizePhase.run(ctx, new Map());
+
+    assert.equal(out.enabled, false, "credential failure must surface as enabled=false");
+    assert.equal(out.skippedReason, "no-credentials");
+    assert.equal(out.summarized, 0);
+    assert.equal(out.failed, 0, "soft-fail must not bump the failure counter");
+    assert.equal(out.rows.length, 0);
+  });
+
+  it("converts a credential error thrown by the factory itself into soft-fail", async () => {
+    // When AWS_PROFILE is empty / unset and the SDK cannot resolve a
+    // provider chain, the failure surfaces at `BedrockRuntimeClient`
+    // construction rather than on the first .send(). Exercise that path
+    // by having the factory itself throw.
+    const graph = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.py", "alpha") as NodeId;
+    const callerId = makeNodeId("Function", "src/b.py", "driver") as NodeId;
+    graph.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "alpha",
+      filePath: "src/a.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    graph.addNode({
+      id: callerId,
+      kind: "Function",
+      name: "driver",
+      filePath: "src/b.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    addConfirmedEdge(graph, callerId, funcId);
+
+    const sourceMap = new Map<string, string>([
+      ["/unused/src/a.py", "def alpha():\n    return 1\n    # tail\n"],
+      ["/unused/src/b.py", "def driver():\n    alpha()\n    return 0\n"],
+    ]);
+
+    __setSummarizePhaseTestHooks__({
+      summarizerFactory: () => {
+        const err = new Error("Unable to load credentials from any providers");
+        (err as { name: string }).name = "CredentialsProviderError";
+        throw err;
+      },
+      sourceReader: makeFixedSourceReader(sourceMap),
+    });
+
+    const ctx = buildHarnessContext(graph, { summaries: true, maxSummariesPerRun: 5 });
+    const out = await summarizePhase.run(ctx, new Map());
+
+    assert.equal(out.enabled, false);
+    assert.equal(out.skippedReason, "no-credentials");
+    assert.equal(out.summarized, 0);
+    assert.equal(out.failed, 0);
+    assert.equal(out.rows.length, 0);
+  });
+});
+
+describe("summarizePhase — summaryModel override", () => {
+  it("threads opts.summaryModel through to the row.modelId", async () => {
+    const graph = new KnowledgeGraph();
+    const funcId = makeNodeId("Function", "src/a.py", "alpha") as NodeId;
+    const callerId = makeNodeId("Function", "src/b.py", "driver") as NodeId;
+    graph.addNode({
+      id: funcId,
+      kind: "Function",
+      name: "alpha",
+      filePath: "src/a.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    graph.addNode({
+      id: callerId,
+      kind: "Function",
+      name: "driver",
+      filePath: "src/b.py",
+      startLine: 1,
+      endLine: 3,
+    });
+    addConfirmedEdge(graph, callerId, funcId);
+
+    const sourceMap = new Map<string, string>([
+      ["/unused/src/a.py", "def alpha():\n    return 1\n    # tail\n"],
+      ["/unused/src/b.py", "def driver():\n    alpha()\n    return 0\n"],
+    ]);
+    // Capture the modelId the factory received so we can assert the flag
+    // is plumbed end-to-end.
+    let seenModelId: string | undefined;
+    const { adapter } = makeFakeSummarizer(() => okResult("p", "ts"));
+    __setSummarizePhaseTestHooks__({
+      summarizerFactory: ({ modelId }) => {
+        seenModelId = modelId;
+        return adapter;
+      },
+      sourceReader: makeFixedSourceReader(sourceMap),
+    });
+
+    // Build a context with the override attached via the options bag —
+    // mirrors how the CLI plumbs `--summary-model <id>` through
+    // `PipelineOptions.summaryModel`.
+    const ctx = buildHarnessContext(graph, { summaries: true, maxSummariesPerRun: 5 });
+    (ctx.options as unknown as Record<string, unknown>)["summaryModel"] = "override.test-model-1";
+
+    const out = await summarizePhase.run(ctx, new Map());
+    assert.equal(seenModelId, "override.test-model-1");
+    assert.equal(out.modelId, "override.test-model-1");
+    for (const row of out.rows) assert.equal(row.modelId, "override.test-model-1");
+  });
+});
