@@ -1,6 +1,6 @@
 /**
  * Complexity phase — annotate Function / Method / Constructor nodes with
- * cyclomatic complexity, maximum nesting depth, and NLOC.
+ * cyclomatic complexity, maximum nesting depth, NLOC, and Halstead volume.
  *
  * Runs after `parse` (it needs the definitions and their line ranges) and
  * before any phase that depends on complexity-derived signals (none yet at
@@ -15,6 +15,9 @@
  *     the body. An unnested body reports 0.
  *   - `nloc`: count of non-blank, non-comment-only physical lines between
  *     the definition's `startLine` and `endLine` (inclusive).
+ *   - `halsteadVolume`: (N1+N2) * log2(n1+n2) Halstead volume computed from
+ *     leaf-token operator vs operand counts. Requires the provider to
+ *     declare a `halsteadOperatorKinds` list; omitted when absent.
  *
  * The phase mutates the shared {@link KnowledgeGraph} by re-adding each
  * callable node with the extra fields set; {@link KnowledgeGraph.addNode}
@@ -28,9 +31,10 @@
  *
  * Robustness:
  *   - A missing file, empty body, or re-parse error increments `skipped`
- *     rather than throwing. Halstead volume is deferred to v1.1.
- *   - Languages without providers (the six v1.1 additions) are simply
- *     absent from `parse`'s output and never reach this phase.
+ *     rather than throwing.
+ *   - Providers without a `complexityDefinitionKinds` table cause that
+ *     language's callables to be skipped with a single debug note — no
+ *     throw.
  */
 
 import { promises as fs } from "node:fs";
@@ -39,6 +43,7 @@ import type { GraphNode, NodeId, NodeKind } from "@opencodehub/core-types";
 import { loadGrammar } from "../../parse/grammar-registry.js";
 import type { LanguageId } from "../../parse/types.js";
 import type { ExtractedDefinition } from "../../providers/extraction-types.js";
+import { getProvider } from "../../providers/registry.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
@@ -304,49 +309,41 @@ const NESTING_NODE_TYPES: Partial<Record<LanguageId, ReadonlySet<string>>> = {
 };
 
 /**
- * Node types that represent a function/method/constructor definition in each
- * grammar. Used to locate the subtree corresponding to each
- * {@link ExtractedDefinition} by matching byte positions.
+ * Per-language definition-node lookup. Populated lazily from each
+ * provider's {@link LanguageProvider.complexityDefinitionKinds}. Missing
+ * providers return `undefined`; the phase skips those languages with a
+ * single debug note per language.
  */
-const DEFINITION_NODE_TYPES: Partial<Record<LanguageId, ReadonlySet<string>>> = {
-  typescript: new Set([
-    "function_declaration",
-    "function_expression",
-    "arrow_function",
-    "method_definition",
-    "method_signature",
-    "generator_function_declaration",
-    "generator_function",
-  ]),
-  tsx: new Set([
-    "function_declaration",
-    "function_expression",
-    "arrow_function",
-    "method_definition",
-    "method_signature",
-    "generator_function_declaration",
-    "generator_function",
-  ]),
-  javascript: new Set([
-    "function_declaration",
-    "function_expression",
-    "arrow_function",
-    "method_definition",
-    "generator_function_declaration",
-    "generator_function",
-  ]),
-  python: new Set(["function_definition"]),
-  go: new Set(["function_declaration", "method_declaration", "func_literal"]),
-  rust: new Set(["function_item"]),
-  java: new Set(["method_declaration", "constructor_declaration"]),
-  csharp: new Set([
-    "method_declaration",
-    "constructor_declaration",
-    "local_function_statement",
-    "destructor_declaration",
-    "operator_declaration",
-  ]),
-};
+const definitionTypeCache = new Map<LanguageId, ReadonlySet<string> | undefined>();
+function definitionTypesFor(lang: LanguageId): ReadonlySet<string> | undefined {
+  if (definitionTypeCache.has(lang)) return definitionTypeCache.get(lang);
+  let provider: ReturnType<typeof getProvider> | undefined;
+  try {
+    provider = getProvider(lang);
+  } catch {
+    provider = undefined;
+  }
+  const kinds = provider?.complexityDefinitionKinds;
+  const set = kinds !== undefined && kinds.length > 0 ? new Set(kinds) : undefined;
+  definitionTypeCache.set(lang, set);
+  return set;
+}
+
+/** Per-language Halstead operator lookup — same semantics as above. */
+const halsteadOperatorCache = new Map<LanguageId, ReadonlySet<string> | undefined>();
+function halsteadOperatorsFor(lang: LanguageId): ReadonlySet<string> | undefined {
+  if (halsteadOperatorCache.has(lang)) return halsteadOperatorCache.get(lang);
+  let provider: ReturnType<typeof getProvider> | undefined;
+  try {
+    provider = getProvider(lang);
+  } catch {
+    provider = undefined;
+  }
+  const kinds = provider?.halsteadOperatorKinds;
+  const set = kinds !== undefined && kinds.length > 0 ? new Set(kinds) : undefined;
+  halsteadOperatorCache.set(lang, set);
+  return set;
+}
 
 /** Single-line comment prefixes per language. Used by NLOC. */
 const LINE_COMMENT_PREFIX: Partial<Record<LanguageId, readonly string[]>> = {
@@ -374,7 +371,7 @@ function* walk(node: TsNode): IterableIterator<TsNode> {
 
 function countDecisionsIn(body: TsNode, lang: LanguageId): number {
   const decisions = DECISION_NODE_TYPES[lang];
-  const definitions = DEFINITION_NODE_TYPES[lang];
+  const definitions = definitionTypesFor(lang);
   if (decisions === undefined || definitions === undefined) return 0;
   let count = 0;
 
@@ -425,7 +422,7 @@ function contributesToCyclomatic(node: TsNode, lang: LanguageId): boolean {
 
 function maxNestingIn(body: TsNode, lang: LanguageId): number {
   const nesting = NESTING_NODE_TYPES[lang];
-  const definitions = DEFINITION_NODE_TYPES[lang];
+  const definitions = definitionTypesFor(lang);
   if (nesting === undefined || definitions === undefined) return 0;
   let best = 0;
 
@@ -585,11 +582,16 @@ async function runComplexity(
       continue;
     }
 
-    const defTypesForLang = DEFINITION_NODE_TYPES[lang];
+    const defTypesForLang = definitionTypesFor(lang);
     if (defTypesForLang === undefined) {
-      // Language has a tree-sitter grammar but no complexity walker yet
-      // (e.g. the six v1.1 additions). Skip so the phase stays forward-
-      // compatible without failing the pipeline.
+      // Provider did not declare `complexityDefinitionKinds`. Emit a single
+      // debug note per language (via the progress callback), skip the
+      // callables, and stay forward-compatible for future providers.
+      ctx.onProgress?.({
+        phase: COMPLEXITY_PHASE_NAME,
+        kind: "warn",
+        message: `complexity: language "${lang}" provider missing complexityDefinitionKinds; skipping`,
+      });
       skipped += callableDefs.length;
       continue;
     }
@@ -618,8 +620,16 @@ async function runComplexity(
       const cyclomaticComplexity = 1 + decisions;
       const nestingDepth = maxNestingIn(body, lang);
       const nloc = computeNloc(sourceText, def.startLine, def.endLine, lang);
+      const halsteadVolume = computeHalsteadVolume(body, lang);
 
-      const updated = annotateNode(ctx, def, cyclomaticComplexity, nestingDepth, nloc);
+      const updated = annotateNode(
+        ctx,
+        def,
+        cyclomaticComplexity,
+        nestingDepth,
+        nloc,
+        halsteadVolume,
+      );
       if (updated) {
         annotated += 1;
       } else {
@@ -682,10 +692,17 @@ function annotateNode(
   cyclomaticComplexity: number,
   nestingDepth: number,
   nloc: number,
+  halsteadVolume: number | undefined,
 ): boolean {
   const existing = findCallableNode(ctx, def);
   if (existing === undefined) return false;
-  const updated: GraphNode = withComplexity(existing, cyclomaticComplexity, nestingDepth, nloc);
+  const updated: GraphNode = withComplexity(
+    existing,
+    cyclomaticComplexity,
+    nestingDepth,
+    nloc,
+    halsteadVolume,
+  );
   ctx.graph.addNode(updated);
   return true;
 }
@@ -714,6 +731,7 @@ function withComplexity(
   cyclomaticComplexity: number,
   nestingDepth: number,
   nloc: number,
+  halsteadVolume: number | undefined,
 ): GraphNode {
   // Only callable kinds carry these fields; other kinds fall through
   // unchanged, matching the optional-field contract in core-types.
@@ -723,9 +741,131 @@ function withComplexity(
       cyclomaticComplexity,
       nestingDepth,
       nloc,
+      ...(halsteadVolume !== undefined ? { halsteadVolume } : {}),
     } as GraphNode;
   }
   return node;
+}
+
+// -------- Halstead volume --------------------------------------------------
+
+/**
+ * Compute the Halstead volume for a function body.
+ *
+ * Halstead's metric treats every token as either an "operator" or an
+ * "operand". Operators are the syntactic tokens that perform work
+ * (`+`, `&&`, `=`, `if`, `return`, …); operands are the identifiers and
+ * literals they act on.
+ *
+ * Volume V = (N1 + N2) * log2(n1 + n2), where:
+ *   - n1 = unique operator count
+ *   - n2 = unique operand count
+ *   - N1 = total operator occurrences
+ *   - N2 = total operand occurrences
+ *
+ * Returns `undefined` when the provider did not declare
+ * `halsteadOperatorKinds` or when the body contains no countable tokens.
+ */
+function computeHalsteadVolume(body: TsNode, lang: LanguageId): number | undefined {
+  const operators = halsteadOperatorsFor(lang);
+  if (operators === undefined) return undefined;
+  const definitions = definitionTypesFor(lang);
+  if (definitions === undefined) return undefined;
+
+  const operatorCounts = new Map<string, number>();
+  const operandCounts = new Map<string, number>();
+
+  // Iterative walk; avoids stack overflow on very large functions. We do
+  // not descend into nested function/method definitions — their tokens
+  // belong to their own volume computation.
+  const stack: { node: TsNode; skip: boolean }[] = [{ node: body, skip: false }];
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (frame === undefined) break;
+    const { node, skip } = frame;
+    if (skip) continue;
+
+    const enteringNested = node !== body && definitions.has(node.type);
+
+    // Leaf = no children. A leaf's `type` holds either a token ("+") or a
+    // semantic name ("identifier", "number", "string"); we bucket by type
+    // string. Non-leaf internal nodes do not contribute tokens on their own.
+    if (node.childCount === 0) {
+      const t = node.type;
+      if (operators.has(t)) {
+        operatorCounts.set(t, (operatorCounts.get(t) ?? 0) + 1);
+      } else if (isHalsteadOperand(t)) {
+        // Use the operand text so `x` and `y` are distinct identifiers.
+        // Fall back to the type string if the text is empty (guard against
+        // grammars that return empty leaves for synthesized tokens).
+        const key = node.text.length > 0 ? `${t}:${node.text}` : t;
+        operandCounts.set(key, (operandCounts.get(key) ?? 0) + 1);
+      }
+      continue;
+    }
+
+    for (let i = node.childCount - 1; i >= 0; i--) {
+      const child = node.child(i);
+      if (child !== null) {
+        stack.push({ node: child, skip: enteringNested });
+      }
+    }
+  }
+
+  const n1 = operatorCounts.size;
+  const n2 = operandCounts.size;
+  let N1 = 0;
+  let N2 = 0;
+  for (const v of operatorCounts.values()) N1 += v;
+  for (const v of operandCounts.values()) N2 += v;
+
+  const totalVocab = n1 + n2;
+  if (totalVocab === 0) return undefined;
+  if (totalVocab === 1) return 0;
+  const volume = (N1 + N2) * Math.log2(totalVocab);
+  return Number.isFinite(volume) ? volume : undefined;
+}
+
+/** Leaf-node type names we treat as Halstead operands. */
+const HALSTEAD_OPERAND_TYPES: ReadonlySet<string> = new Set([
+  "identifier",
+  "property_identifier",
+  "type_identifier",
+  "field_identifier",
+  "shorthand_property_identifier",
+  "namespace_identifier",
+  "package_identifier",
+  "simple_identifier",
+  "constant",
+  "number",
+  "integer",
+  "integer_literal",
+  "float",
+  "float_literal",
+  "string",
+  "string_literal",
+  "string_content",
+  "raw_string_literal",
+  "true",
+  "false",
+  "null",
+  "nil",
+  "undefined",
+  "none",
+  "None",
+  "boolean_literal",
+  "char_literal",
+  "character_literal",
+  "escape_sequence",
+  "regex",
+  "regex_pattern",
+  "self",
+  "super",
+  "this",
+]);
+
+function isHalsteadOperand(type: string): boolean {
+  return HALSTEAD_OPERAND_TYPES.has(type);
 }
 
 // Re-export the NodeId type name so downstream phases can refer to the exact
