@@ -143,11 +143,14 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
     )`,
 
     // In-place migration: older DuckDB files that were created against the
-    // v1.0 schema lack the `granularity` column entirely — CREATE TABLE IF
-    // NOT EXISTS is a no-op on those. Add the column defensively so readers
-    // can filter on it without special-casing. DuckDB supports IF NOT EXISTS
-    // on ADD COLUMN since 0.9.
-    `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS granularity TEXT NOT NULL DEFAULT 'symbol'`,
+    // v1.0 schema lack the `granularity` column entirely. DuckDB rejects
+    // ADD COLUMN … NOT NULL (see DuckDB "Parser Error: Adding columns with
+    // constraints not yet supported"), so we add it nullable with a
+    // DEFAULT, then fill rows where the column is NULL. On a fresh index
+    // the CREATE TABLE above already shipped the column — this pair of
+    // statements is a cheap no-op in that case.
+    `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS granularity TEXT DEFAULT 'symbol'`,
+    `UPDATE embeddings SET granularity = 'symbol' WHERE granularity IS NULL`,
 
     `CREATE INDEX IF NOT EXISTS idx_embeddings_node ON embeddings (node_id)`,
     `CREATE INDEX IF NOT EXISTS idx_embeddings_hash ON embeddings (content_hash)`,

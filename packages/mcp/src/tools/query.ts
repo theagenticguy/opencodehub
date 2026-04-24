@@ -113,6 +113,25 @@ const QueryInput = {
     .describe(
       "Maximum number of symbols to return in `process_symbols` after process grouping (default 50). `results[]` remains capped by `limit`.",
     ),
+  granularity: z
+    .enum(["symbol", "file", "community"])
+    .optional()
+    .describe(
+      "Hierarchical embedding tier to search. Defaults to 'symbol' (v1.0 behaviour). Set to 'community' to retrieve architectural clusters; set to 'file' to score files. Requires the index to have been built with `--granularity symbol,file,community`.",
+    ),
+  mode: z
+    .enum(["flat", "zoom"])
+    .optional()
+    .describe(
+      "Retrieval strategy. 'flat' (default) runs one symbol-tier ANN pass fused with BM25. 'zoom' runs a coarse file-tier pass first, then restricts the symbol-tier pass to symbols inside the top file shortlist (`zoom_fanout` files by default).",
+    ),
+  zoom_fanout: z
+    .number()
+    .int()
+    .positive()
+    .max(50)
+    .optional()
+    .describe("How many files to shortlist at the coarse step when `mode=zoom`. Default 10."),
 };
 
 /** Row shape returned to the MCP client. Stable across BM25-only + hybrid. */
@@ -591,6 +610,12 @@ interface QueryArgs {
   readonly goal?: string;
   readonly include_content?: boolean;
   readonly max_symbols?: number;
+  /** Hierarchical tier filter (P03). Defaults to "symbol". */
+  readonly granularity?: "symbol" | "file" | "community";
+  /** "flat" (default) or "zoom" coarse-to-fine retrieval. */
+  readonly mode?: "flat" | "zoom";
+  /** Coarse file-tier fanout when mode=zoom. */
+  readonly zoom_fanout?: number;
 }
 
 export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolResult> {
@@ -629,6 +654,9 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
                 text: searchText,
                 limit,
                 ...(kinds !== undefined ? { kinds } : {}),
+                ...(args.mode !== undefined ? { mode: args.mode } : {}),
+                ...(args.zoom_fanout !== undefined ? { zoomFanout: args.zoom_fanout } : {}),
+                ...(args.granularity !== undefined ? { granularity: args.granularity } : {}),
               },
               embedder,
             );
@@ -802,6 +830,9 @@ export function registerQueryTool(server: McpServer, ctx: ToolContext): void {
         ...(args.goal !== undefined ? { goal: args.goal } : {}),
         ...(args.include_content !== undefined ? { include_content: args.include_content } : {}),
         ...(args.max_symbols !== undefined ? { max_symbols: args.max_symbols } : {}),
+        ...(args.granularity !== undefined ? { granularity: args.granularity } : {}),
+        ...(args.mode !== undefined ? { mode: args.mode } : {}),
+        ...(args.zoom_fanout !== undefined ? { zoom_fanout: args.zoom_fanout } : {}),
       };
       return fromToolResult(await runQuery(ctx, typed));
     },
