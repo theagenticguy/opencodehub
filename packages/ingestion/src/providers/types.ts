@@ -146,6 +146,21 @@ export interface LanguageProvider {
    */
   readonly resolverStrategyName?: string;
 
+  /**
+   * Tree-sitter node-type names that start a new function/method/constructor
+   * body for complexity counting. The complexity phase dispatches on these;
+   * providers without a table are silently skipped by the phase.
+   */
+  readonly complexityDefinitionKinds?: readonly string[];
+
+  /**
+   * Tree-sitter node-type names that count as Halstead operators. Every other
+   * leaf/identifier in the body counts as an operand. Omission disables the
+   * Halstead-volume computation for that language (phase emits complexity
+   * only).
+   */
+  readonly halsteadOperatorKinds?: readonly string[];
+
   // ---- Behavioral hooks ---------------------------------------------------
 
   /**
