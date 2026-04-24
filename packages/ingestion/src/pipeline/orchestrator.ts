@@ -251,6 +251,7 @@ function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
     embeddings?: boolean;
     embeddingsVariant?: "fp32" | "int8";
     embeddingsModelDir?: string;
+    embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
     sbom?: boolean;
     reproducibleSbom?: boolean;
     incrementalFrom?: PreviousGraph;
@@ -270,6 +271,9 @@ function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
   if (options.reproducibleSbom !== undefined) typed.reproducibleSbom = options.reproducibleSbom;
   if (options.embeddingsModelDir !== undefined) {
     typed.embeddingsModelDir = options.embeddingsModelDir;
+  }
+  if (options.embeddingsGranularity !== undefined) {
+    typed.embeddingsGranularity = options.embeddingsGranularity;
   }
   if (options.incrementalFrom !== undefined) typed.incrementalFrom = options.incrementalFrom;
   if (options.summaries !== undefined) typed.summaries = options.summaries;
