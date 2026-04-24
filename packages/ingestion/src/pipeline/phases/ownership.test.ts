@@ -11,7 +11,7 @@ import { KnowledgeGraph, makeNodeId } from "@opencodehub/core-types";
 import type { ExtractedDefinition } from "../../providers/extraction-types.js";
 import type { PipelineContext } from "../types.js";
 import { COMMUNITIES_PHASE_NAME } from "./communities.js";
-import { ownershipPhase } from "./ownership.js";
+import { filterOutSubmodules, ownershipPhase } from "./ownership.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
 import { TEMPORAL_PHASE_NAME } from "./temporal.js";
@@ -40,7 +40,10 @@ async function runGit(
   return stdout;
 }
 
-function buildScanOutput(relPaths: readonly string[]): ScanOutput {
+function buildScanOutput(
+  relPaths: readonly string[],
+  submodulePaths: readonly string[] = [],
+): ScanOutput {
   return {
     files: relPaths.map((p) => ({
       absPath: `/virtual/${p}`,
@@ -50,6 +53,7 @@ function buildScanOutput(relPaths: readonly string[]): ScanOutput {
       grammarSha: null,
     })),
     totalBytes: 0,
+    submodulePaths,
   };
 }
 
@@ -100,6 +104,33 @@ function makeCtx(
     phaseOutputs: new Map(),
   };
 }
+
+describe("filterOutSubmodules", () => {
+  it("returns input unchanged when submodulePaths is empty", () => {
+    const input = ["a.ts", "b/c.ts"];
+    const out = filterOutSubmodules(input, []);
+    assert.deepEqual([...out], input);
+  });
+
+  it("drops paths equal to a submodule root", () => {
+    const out = filterOutSubmodules(["keep.ts", "vendor/inner"], ["vendor/inner"]);
+    assert.deepEqual([...out], ["keep.ts"]);
+  });
+
+  it("drops paths beneath a submodule root (prefix + slash)", () => {
+    const out = filterOutSubmodules(
+      ["keep.ts", "vendor/inner/deep/file.ts", "vendor/inner2/ok.ts"],
+      ["vendor/inner"],
+    );
+    assert.deepEqual([...out], ["keep.ts", "vendor/inner2/ok.ts"]);
+  });
+
+  it("does not match partial segment prefixes", () => {
+    // "vendor/in" must NOT match "vendor/inner/..."
+    const out = filterOutSubmodules(["vendor/inner/file.ts"], ["vendor/in"]);
+    assert.deepEqual([...out], ["vendor/inner/file.ts"]);
+  });
+});
 
 describe("ownershipPhase — skipGit kill switch", () => {
   it("returns zero-filled output without spawning git", async () => {
@@ -192,6 +223,82 @@ describe("ownershipPhase — blame integration", () => {
       assert.equal(contrib.emailPlain, undefined, "privacy default should suppress emailPlain");
       assert.ok(contrib.emailHash.length === 64, "emailHash must be a 64-char sha256");
     }
+  });
+
+  it("skips submodule paths by default so blame never fires on them", async () => {
+    // Wire a fake scan with two real files plus one "submodule" path. The
+    // submodule path does not exist on disk, so if the filter is off we
+    // would see a blame warning for it. With the filter on (the default),
+    // no warning and no blame.
+    const warnings: string[] = [];
+    const graph = new KnowledgeGraph();
+    addFileNode(graph, "foo.ts");
+    const ctx: PipelineContext = {
+      repoPath: repo,
+      options: {} as PipelineContext["options"],
+      graph,
+      phaseOutputs: new Map(),
+      onProgress: (ev) => {
+        if (ev.kind === "warn" && ev.message !== undefined) warnings.push(ev.message);
+      },
+    };
+    const deps = new Map<string, unknown>([
+      [
+        SCAN_PHASE_NAME,
+        buildScanOutput(["foo.ts", "vendor/mod/does-not-exist.ts"], ["vendor/mod"]),
+      ],
+      [PARSE_PHASE_NAME, buildParseOutput(new Map())],
+      [
+        TEMPORAL_PHASE_NAME,
+        { signalsEmitted: 0, filesSkipped: 0, windowDays: 365, subprocessCount: 0 },
+      ],
+      [
+        COMMUNITIES_PHASE_NAME,
+        { communityCount: 0, memberCount: 0, unclusteredCount: 0, usedFallback: false },
+      ],
+    ]);
+    await ownershipPhase.run(ctx, deps);
+    for (const msg of warnings) {
+      assert.ok(
+        !msg.includes("vendor/mod/does-not-exist.ts"),
+        `submodule paths must be filtered before blame; got warning: ${msg}`,
+      );
+    }
+  });
+
+  it("blames submodule paths when excludeSubmodules=false (opt-out)", async () => {
+    const warnings: string[] = [];
+    const graph = new KnowledgeGraph();
+    addFileNode(graph, "foo.ts");
+    const ctx: PipelineContext = {
+      repoPath: repo,
+      options: { excludeSubmodules: false } as PipelineContext["options"],
+      graph,
+      phaseOutputs: new Map(),
+      onProgress: (ev) => {
+        if (ev.kind === "warn" && ev.message !== undefined) warnings.push(ev.message);
+      },
+    };
+    const deps = new Map<string, unknown>([
+      [
+        SCAN_PHASE_NAME,
+        buildScanOutput(["foo.ts", "vendor/mod/does-not-exist.ts"], ["vendor/mod"]),
+      ],
+      [PARSE_PHASE_NAME, buildParseOutput(new Map())],
+      [
+        TEMPORAL_PHASE_NAME,
+        { signalsEmitted: 0, filesSkipped: 0, windowDays: 365, subprocessCount: 0 },
+      ],
+      [
+        COMMUNITIES_PHASE_NAME,
+        { communityCount: 0, memberCount: 0, unclusteredCount: 0, usedFallback: false },
+      ],
+    ]);
+    await ownershipPhase.run(ctx, deps);
+    assert.ok(
+      warnings.some((m) => m.includes("vendor/mod/does-not-exist.ts")),
+      "with excludeSubmodules=false, blame should run on submodule paths and emit its warning",
+    );
   });
 
   it("emits plain emails when privacyHashEmails=false", async () => {
