@@ -425,7 +425,7 @@ test("cli query: embeddings populated + embedder fails → warn + BM25 fallback,
           ...hooksFor(handle, "/tmp/fake"),
           openEmbedder: async () => {
             const err = new Error(
-              "Arctic Embed XS weights not found. Run `codehub setup --embeddings`.",
+              "gte-modernbert-base weights not found. Run `codehub setup --embeddings`.",
             );
             (err as unknown as { code: string }).code = "EMBEDDER_NOT_SETUP";
             throw err;

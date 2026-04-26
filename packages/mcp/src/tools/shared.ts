@@ -20,7 +20,7 @@ import { RepoResolveError, type ResolvedRepo, resolveRepo } from "../repo-resolv
 /**
  * Factory for opening an embedder on demand. The default factory imports
  * `@opencodehub/embedder` and calls `openOnnxEmbedder()`; tests inject a
- * fake so they don't need Arctic Embed XS weights on disk. The factory
+ * fake so they don't need gte-modernbert-base weights on disk. The factory
  * must throw on failure — the `query` tool treats any throw as
  * "embedder unavailable, warn + fall back to BM25".
  */

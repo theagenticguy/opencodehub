@@ -21,7 +21,7 @@
  *
  * Hybrid ranking priority matches the MCP tool:
  *   1. `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` → HTTP embedder.
- *   2. Otherwise local ONNX Arctic Embed XS weights.
+ *   2. Otherwise local ONNX gte-modernbert-base weights.
  *   3. On failure to open (missing weights, unreachable HTTP) → warn + BM25.
  */
 
@@ -55,7 +55,7 @@ export interface QueryRuntimeHooks {
   readonly openStore?: (opts: QueryOptions) => Promise<OpenStoreResult>;
   /**
    * Embedder factory — production uses the default lazy-import path; tests
-   * inject a fake so they don't need Arctic Embed XS weights on disk. Any
+   * inject a fake so they don't need gte-modernbert-base weights on disk. Any
    * throw is caught by {@link tryOpenEmbedder} and collapses to BM25.
    */
   readonly openEmbedder?: () => Promise<Embedder>;

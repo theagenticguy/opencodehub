@@ -7,7 +7,7 @@
  *      corpus extends transparently (see {@link bm25CorpusHasSummaries}) so
  *      summarized prose participates as soon as the ingestion phase lands.
  *   2. HNSW vector search over the `embeddings` table. The query text is
- *      embedded with the same Arctic Embed XS ONNX model the ingestion
+ *      embedded with the same gte-modernbert-base ONNX model the ingestion
  *      pipeline uses, so the vectors live in the same space.
  *
  * Graceful fallback:
@@ -438,7 +438,7 @@ function fusedAsRanked(
  * Default production factory — lazy-imports `@opencodehub/embedder` so the
  * ONNX runtime native binding only loads when the tool actually needs it.
  * Tests replace this via `ctx.openEmbedder` so they don't have to stage
- * Arctic Embed XS weight files on disk.
+ * gte-modernbert-base weight files on disk.
  *
  * Priority:
  *   1. If `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` are set, route
@@ -794,7 +794,7 @@ export function registerQueryTool(server: McpServer, ctx: ToolContext): void {
       description: [
         "True hybrid retrieval over the indexed code graph: BM25 keyword search",
         "(over symbol name + signature + description) fused with HNSW vector",
-        "search (Arctic Embed XS, 384-dim) via Reciprocal Rank Fusion (k=60).",
+        "search (gte-modernbert-base, 768-dim) via Reciprocal Rank Fusion (k=60).",
         "Each result carries `rank`, `nodeId`, `name`, `kind`, `filePath`,",
         "`startLine`/`endLine`, a capped `snippet` (~200 chars), the fused",
         "`score`, and `sources` indicating which ranker(s) contributed (`bm25`",

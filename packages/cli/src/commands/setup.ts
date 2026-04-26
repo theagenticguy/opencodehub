@@ -229,9 +229,9 @@ async function writeSingle(
  * allows the CLI `log`/`warn` sinks to be overridden for tests.
  */
 export interface SetupEmbeddingsOptions {
-  /** Variant to install. Defaults to `fp32` (~90 MB). */
+  /** Variant to install. Defaults to `fp32` (~596 MB). */
   readonly variant?: "fp32" | "int8";
-  /** Custom model directory. Defaults to `~/.codehub/models/arctic-embed-xs/<variant>/`. */
+  /** Custom model directory. Defaults to `~/.codehub/models/gte-modernbert-base/<variant>/`. */
   readonly modelDir?: string;
   /** Re-download even if files already match their SHA256 pin. */
   readonly force?: boolean;
@@ -247,7 +247,7 @@ export interface SetupEmbeddingsOptions {
 /**
  * Public entry point for `codehub setup --embeddings`.
  *
- * Downloads the five pinned Arctic Embed XS files into the target dir with
+ * Downloads the five pinned gte-modernbert-base files into the target dir with
  * streaming SHA256 verification and atomic rename. Returns the downloader
  * summary so programmatic callers can assert on byte counts and locations.
  */

@@ -15,7 +15,7 @@ For any task that touches code understanding, debugging, impact analysis, refact
 2. Read `codehub://repo/{name}/context` — codebase stats and a staleness envelope.
 3. Match the task to a skill below and follow that skill's checklist.
 
-> If the context envelope reports the index is stale, run `codehub analyze` in the terminal first. If it says weights are missing, run `codehub setup --embeddings` to fetch the 384d Arctic Embed XS ONNX weights.
+> If the context envelope reports the index is stale, run `codehub analyze` in the terminal first. If it says weights are missing, run `codehub setup --embeddings` to fetch the 768d gte-modernbert-base ONNX weights.
 
 ## Skills
 

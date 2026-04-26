@@ -460,7 +460,9 @@ test("query: populated embeddings + EMBEDDER_NOT_SETUP → warn + BM25 fallback"
   };
   try {
     const opener: EmbedderFactory = async () => {
-      const err = new Error("Arctic Embed XS weights not found. Run `codehub setup --embeddings`.");
+      const err = new Error(
+        "gte-modernbert-base weights not found. Run `codehub setup --embeddings`.",
+      );
       // Shape matches EmbedderNotSetupError.code.
       (err as unknown as { code: string }).code = "EMBEDDER_NOT_SETUP";
       throw err;

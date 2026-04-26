@@ -6,7 +6,7 @@
  *     that POSTs to an OpenAI-compatible `/v1/embeddings` server (Infinity,
  *     vLLM, TEI, Ollama, LM Studio, OpenAI). No ONNX weights needed.
  *   - When `endpointUrl` is absent, {@link openEmbedder} falls back to the
- *     local ONNX Arctic Embed XS path (original deterministic embedder).
+ *     local ONNX gte-modernbert-base path (deterministic embedder).
  *
  * Offline invariant: when `offline === true` and `endpointUrl` is set,
  * {@link openEmbedder} throws. The HTTP path opens sockets; offline mode
@@ -32,9 +32,9 @@ export {
   readHttpEmbedderConfigFromEnv,
 } from "./http-embedder.js";
 export {
-  ARCTIC_EMBED_XS_PINS,
-  ARCTIC_EMBED_XS_REPO,
   embedderModelId,
+  GTE_MODERNBERT_BASE_PINS,
+  GTE_MODERNBERT_BASE_REPO,
   type PinnedFile,
   type VariantPins,
 } from "./model-pins.js";
@@ -71,7 +71,7 @@ export interface OpenEmbedderOptions {
   readonly modelId?: string;
   /** Bearer token for the HTTP request. Optional; sent as `unused` when absent. */
   readonly apiKey?: string;
-  /** Expected response-vector dimension. Defaults to 384 for HTTP. */
+  /** Expected response-vector dimension. Defaults to 768 for HTTP. */
   readonly dims?: number;
   /**
    * Pass-through options for the ONNX backend when HTTP is not selected.
