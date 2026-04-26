@@ -13,7 +13,7 @@
 
 import type { Embedder } from "./types.js";
 
-export const DEFAULT_EMBEDDER_DIM = 384;
+export const DEFAULT_EMBEDDER_DIM = 768;
 
 /** Whether the deprecation warning has already fired in this process. */
 let warnedOnce = false;

@@ -1,7 +1,7 @@
 {
   "name": "@opencodehub/embedder",
   "version": "0.1.0",
-  "description": "OpenCodeHub — ONNX-based deterministic text embedder (Arctic Embed XS)",
+  "description": "OpenCodeHub — ONNX-based deterministic text embedder (gte-modernbert-base)",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

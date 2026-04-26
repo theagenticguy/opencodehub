@@ -105,7 +105,7 @@ test("embedder weights check reports warn when no model present", async () => {
 test("embedder weights check reports ok when fp32 weights present", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-emb-ok-"));
   try {
-    const base = join(home, ".codehub", "models", "arctic-embed-xs");
+    const base = join(home, ".codehub", "models", "gte-modernbert-base", "fp32");
     await mkdir(base, { recursive: true });
     await writeFile(join(base, "model.onnx"), "fake weights");
     const checks = buildChecks({ home, skipNative: true });
@@ -126,7 +126,7 @@ test("embedder weights check reports ok when fp32 weights present", async () => 
 test("embedder weights check reports ok when int8 weights present (underscore filename)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-emb-int8-"));
   try {
-    const base = join(home, ".codehub", "models", "arctic-embed-xs");
+    const base = join(home, ".codehub", "models", "gte-modernbert-base", "int8");
     await mkdir(base, { recursive: true });
     // Canonical filename from embedder/src/paths.ts:modelFileName("int8").
     await writeFile(join(base, "model_int8.onnx"), "fake int8 weights");
@@ -147,7 +147,7 @@ test("embedder weights check reports ok when int8 weights present (underscore fi
 test("embedder weights check reports warn when only hyphenated int8 file is present", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-emb-hyphen-"));
   try {
-    const base = join(home, ".codehub", "models", "arctic-embed-xs");
+    const base = join(home, ".codehub", "models", "gte-modernbert-base", "int8");
     await mkdir(base, { recursive: true });
     await writeFile(join(base, "model-int8.onnx"), "wrong filename");
     const checks = buildChecks({ home, skipNative: true });

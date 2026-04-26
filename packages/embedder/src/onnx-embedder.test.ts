@@ -6,11 +6,11 @@
  *      `code` literal. Guarantees the CLI and search layer can pattern-match
  *      the error to degrade to BM25-only.
  *   2. Real weights present → byte-identical output across three repeat
- *      calls + L2 norm ≈ 1 + dim === 384. Only runs when the cache dir is
+ *      calls + L2 norm ≈ 1 + dim === 768. Only runs when the cache dir is
  *      populated. CI does NOT populate this dir.
  *
  * When weights are absent we also run a mock-based check of the Embedder
- * contract (dim=384, embedBatch preserves input order, close() is
+ * contract (dim=768, embedBatch preserves input order, close() is
  * idempotent) so the interface is covered unconditionally.
  */
 
@@ -74,11 +74,11 @@ describe("openOnnxEmbedder: missing weights", () => {
 /**
  * A hand-rolled `Embedder` used when real weights are unavailable. Its
  * `embed` produces a deterministic fake vector (index-based) so we can still
- * exercise the downstream contract: L2 norm ≈ 1, dim=384, embedBatch
+ * exercise the downstream contract: L2 norm ≈ 1, dim=768, embedBatch
  * preserves order, close() is idempotent.
  */
 class MockEmbedder implements Embedder {
-  readonly dim = 384;
+  readonly dim = 768;
   readonly modelId = embedderModelId("fp32");
   #closed = false;
 
@@ -130,17 +130,17 @@ describe("Embedder contract (mocked)", () => {
     const m = new MockEmbedder();
     // Static type check: `m satisfies Embedder` is enforced by the class
     // declaration. Here we re-check at runtime.
-    equal(m.dim, 384);
-    equal(m.modelId, "snowflake-arctic-embed-xs/fp32");
+    equal(m.dim, 768);
+    equal(m.modelId, "gte-modernbert-base/fp32");
     equal(typeof m.embed, "function");
     equal(typeof m.embedBatch, "function");
     equal(typeof m.close, "function");
   });
 
-  it("dim === 384", async () => {
+  it("dim === 768", async () => {
     const m = new MockEmbedder();
     const v = await m.embed("hello world");
-    equal(v.length, 384);
+    equal(v.length, 768);
   });
 
   it("L2 norm is ~1 (within 1e-6)", async () => {
@@ -199,9 +199,9 @@ async function hasRealWeights(): Promise<boolean> {
 }
 
 describe("OnnxEmbedder: real weights (optional)", () => {
-  it("produces byte-identical vectors across 3 calls and has dim=384", async (t) => {
+  it("produces byte-identical vectors across 3 calls and has dim=768", async (t) => {
     if (!(await hasRealWeights())) {
-      t.skip("Arctic Embed XS weights not installed — run `codehub setup --embeddings`");
+      t.skip("gte-modernbert-base weights not installed — run `codehub setup --embeddings`");
       return;
     }
     let embedder: Embedder | undefined;
@@ -211,9 +211,9 @@ describe("OnnxEmbedder: real weights (optional)", () => {
       const a = await embedder.embed(text);
       const b = await embedder.embed(text);
       const c = await embedder.embed(text);
-      equal(a.length, 384);
-      equal(embedder.dim, 384);
-      equal(embedder.modelId, "snowflake-arctic-embed-xs/fp32");
+      equal(a.length, 768);
+      equal(embedder.dim, 768);
+      equal(embedder.modelId, "gte-modernbert-base/fp32");
       deepEqual(new Uint8Array(a.buffer), new Uint8Array(b.buffer));
       deepEqual(new Uint8Array(a.buffer), new Uint8Array(c.buffer));
 

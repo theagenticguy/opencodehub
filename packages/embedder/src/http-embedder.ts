@@ -42,7 +42,7 @@ export interface HttpEmbedderConfig {
   /** Model id sent in the `model` field of the request body. */
   readonly modelId: string;
   /**
-   * Expected response-vector dimension. Defaults to 384 (Arctic Embed XS).
+   * Expected response-vector dimension. Defaults to 768 (gte-modernbert-base).
    * Every response is asserted against this so a remote model swap can
    * never silently pollute downstream vector indexes.
    */
@@ -60,8 +60,8 @@ export interface HttpEmbedderConfig {
   readonly fetchImpl?: typeof fetch;
 }
 
-/** Default dim for Arctic Embed XS (the fallback when env doesn't set it). */
-const DEFAULT_DIMS = 384;
+/** Default dim for gte-modernbert-base (the fallback when env doesn't set it). */
+const DEFAULT_DIMS = 768;
 
 /**
  * Read HTTP embedder config from the process environment. Returns `null`

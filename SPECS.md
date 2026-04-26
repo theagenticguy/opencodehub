@@ -13,8 +13,8 @@ At ingestion time the system parses 14 languages via native `tree-sitter`
 bindings (WASM fallback available), layers per-language LSP oracles for
 Python, TypeScript/JavaScript, Go, and Rust to upgrade tree-sitter heuristic
 edges to compiler-grade edges, clusters the graph into Communities and
-Processes, and optionally populates embeddings from a pinned Arctic Embed XS
-ONNX model (fp32 ~90 MB or int8 ~23 MB) or an OpenAI-compatible HTTP
+Processes, and optionally populates embeddings from a pinned gte-modernbert-base
+ONNX model (fp32 ~596 MB or int8 ~150 MB) or an OpenAI-compatible HTTP
 endpoint.
 
 At query time it exposes an MCP server with roughly 27 tools (`query`,
@@ -151,7 +151,7 @@ last-analyzed commit) atomically and expose it via `getMeta`.
 BM25 + ANN search, fuse results with reciprocal rank fusion (`DEFAULT_RRF_K`),
 and return symbols grouped by their participating `Process`.
 
-4.2 Where Arctic Embed XS weights are absent and no HTTP embedder is
+4.2 Where gte-modernbert-base weights are absent and no HTTP embedder is
 configured, the system shall fall back to BM25-only search and log a
 one-shot `[mcp] hybrid:` warning to stderr.
 
@@ -249,7 +249,7 @@ shall reject it with `SqlGuardError`.
 claude-code, cursor, codex, windsurf, and opencode; pass `--undo` to
 restore the most recent `.bak`.
 
-7.4 The `setup --embeddings` command shall download Arctic Embed XS
+7.4 The `setup --embeddings` command shall download gte-modernbert-base
 weights (fp32 or int8) with SHA256 pins validated against
 `model-pins.ts`.
 

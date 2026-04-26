@@ -1,8 +1,8 @@
 /**
- * Resolves the on-disk location of Arctic Embed XS weight files.
+ * Resolves the on-disk location of gte-modernbert-base weight files.
  *
  * Layout convention:
- *   ${CODEHUB_HOME:-~/.codehub}/models/arctic-embed-xs/${variant}/
+ *   ${CODEHUB_HOME:-~/.codehub}/models/gte-modernbert-base/${variant}/
  *     ├── model.onnx          (or model_int8.onnx)
  *     ├── tokenizer.json
  *     ├── tokenizer_config.json
@@ -16,7 +16,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const MODEL_SUBDIR = "models/arctic-embed-xs";
+const MODEL_SUBDIR = "models/gte-modernbert-base";
 
 /**
  * Root directory that holds every OpenCodeHub-managed artefact (model weights,

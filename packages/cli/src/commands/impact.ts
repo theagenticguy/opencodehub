@@ -16,6 +16,12 @@ export interface ImpactOptions {
   readonly repo?: string;
   readonly home?: string;
   readonly json?: boolean;
+  /** Exact node id (uid) from a prior result; skips name disambiguation. */
+  readonly targetUid?: string;
+  /** File path substring to disambiguate same-named symbols. */
+  readonly filePath?: string;
+  /** Kind filter (Function, Method, Class, Interface, …). */
+  readonly kind?: string;
 }
 
 function mapDirection(dir: "up" | "down" | "both"): "upstream" | "downstream" | "both" {
@@ -29,19 +35,46 @@ export async function runImpact(symbol: string, opts: ImpactOptions = {}): Promi
   const direction = opts.direction ?? "both";
   const { store, repoPath } = await openStoreForCommand(opts);
   try {
-    const result = await runImpactAnalysis(store, {
+    const query: {
+      target: string;
+      direction: "upstream" | "downstream" | "both";
+      maxDepth: number;
+      targetUid?: string;
+      filePath?: string;
+      kind?: string;
+    } = {
       target: symbol,
       direction: mapDirection(direction),
       maxDepth: depth,
-    });
+    };
+    if (opts.targetUid !== undefined && opts.targetUid.length > 0) {
+      query.targetUid = opts.targetUid;
+    }
+    if (opts.filePath !== undefined && opts.filePath.length > 0) {
+      query.filePath = opts.filePath;
+    }
+    if (opts.kind !== undefined && opts.kind.length > 0) query.kind = opts.kind;
+    const result = await runImpactAnalysis(store, query);
 
     if (result.ambiguous) {
-      console.warn(
-        `impact: "${symbol}" matched ${result.targetCandidates.length} symbols in ${repoPath} — narrow the query with a node id or --repo.`,
-      );
       if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
+        process.exitCode = 1;
+        return;
       }
+      const candidates = result.targetCandidates.slice(0, 10);
+      console.warn(
+        `impact: "${symbol}" matched ${result.targetCandidates.length} symbols in ${repoPath}. Re-call with --target-uid, --file-path, or --kind.`,
+      );
+      for (let i = 0; i < candidates.length; i += 1) {
+        const c = candidates[i];
+        if (!c) continue;
+        console.warn(`  ${i + 1}. [${c.kind}] ${c.name} — ${c.filePath}  (${c.id})`);
+      }
+      if (result.targetCandidates.length > candidates.length) {
+        console.warn(`  … ${result.targetCandidates.length - candidates.length} more`);
+      }
+      process.exitCode = 1;
       return;
     }
 

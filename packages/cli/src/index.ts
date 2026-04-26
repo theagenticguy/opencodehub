@@ -136,8 +136,8 @@ program
   )
   .option("--force", "Overwrite an existing codehub entry without prompting; re-download weights")
   .option("--undo", "Restore the most recent .bak next to each config")
-  .option("--embeddings", "Download Arctic Embed XS ONNX weights (SHA256-pinned)")
-  .option("--int8", "Use the int8 weight variant (~23 MB) instead of fp32 (~90 MB)")
+  .option("--embeddings", "Download gte-modernbert-base ONNX weights (SHA256-pinned)")
+  .option("--int8", "Use the int8 weight variant (~150 MB) instead of fp32 (~596 MB)")
   .option("--model-dir <path>", "Override the target directory for embedder weights")
   .option("--plugin", "Install the Claude Code plugin to ~/.claude/plugins/opencodehub/")
   .action(async (opts: Record<string, string | boolean | undefined>) => {
@@ -265,6 +265,12 @@ program
   .option("--direction <dir>", "up | down | both", "both")
   .option("--repo <name>", "Registered repo name (default: current directory)")
   .option("--json", "Emit JSON on stdout")
+  .option(
+    "--target-uid <id>",
+    "Exact node id from a prior result; bypasses name-based disambiguation",
+  )
+  .option("--file-path <hint>", "File path (or suffix) to disambiguate same-named symbols")
+  .option("--kind <kind>", "Kind filter (Function, Method, Class, Interface, …)")
   .action(async (symbol: string, opts: Record<string, unknown>) => {
     const mod = await import("./commands/impact.js");
     const directionRaw = typeof opts["direction"] === "string" ? opts["direction"] : "both";
@@ -275,6 +281,45 @@ program
       direction,
       ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
       json: opts["json"] === true,
+      ...(typeof opts["targetUid"] === "string" ? { targetUid: opts["targetUid"] } : {}),
+      ...(typeof opts["filePath"] === "string" ? { filePath: opts["filePath"] } : {}),
+      ...(typeof opts["kind"] === "string" ? { kind: opts["kind"] } : {}),
+    });
+  });
+
+program
+  .command("detect-changes")
+  .description(
+    "Map an uncommitted or committed diff onto affected graph symbols + processes. Useful in CI without launching the MCP server.",
+  )
+  .option(
+    "--scope <scope>",
+    "unstaged | staged | all | compare  (default: all = working tree + index)",
+    "all",
+  )
+  .option(
+    "--compare-ref <ref>",
+    "Git ref to compare against (required when --scope=compare, e.g. origin/main)",
+  )
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--json", "Emit JSON on stdout")
+  .option("--strict", "Exit 1 on MEDIUM+ risk (default: exit 1 only on HIGH / CRITICAL)")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/detect-changes.js");
+    const rawScope = typeof opts["scope"] === "string" ? opts["scope"] : "all";
+    const scope: "unstaged" | "staged" | "all" | "compare" =
+      rawScope === "unstaged" || rawScope === "staged" || rawScope === "compare" ? rawScope : "all";
+    if (rawScope !== scope && rawScope !== "all") {
+      throw new Error(
+        `Unknown --scope value: "${rawScope}". Expected one of: unstaged, staged, all, compare`,
+      );
+    }
+    await mod.runDetectChangesCmd({
+      scope,
+      ...(typeof opts["compareRef"] === "string" ? { compareRef: opts["compareRef"] } : {}),
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      json: opts["json"] === true,
+      strict: opts["strict"] === true,
     });
   });
 

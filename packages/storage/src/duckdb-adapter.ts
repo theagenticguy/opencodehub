@@ -55,13 +55,13 @@ import { assertReadOnlySql } from "./sql-guard.js";
 
 export interface DuckDbStoreOptions {
   readonly readOnly?: boolean;
-  /** Fixed vector dimension for the `embeddings.vector` column. Default 384. */
+  /** Fixed vector dimension for the `embeddings.vector` column. Default 768. */
   readonly embeddingDim?: number;
   /** Default query timeout for `query()` calls in ms. Default 5000. */
   readonly timeoutMs?: number;
 }
 
-const DEFAULT_EMBEDDING_DIM = 384;
+const DEFAULT_EMBEDDING_DIM = 768;
 const DEFAULT_TIMEOUT_MS = 5_000;
 // NOTE: widened to `readonly string[]` so new relation names added by the
 // core-types v1.1 migration (FOUND_IN / DEPENDS_ON / OWNED_BY) can be
