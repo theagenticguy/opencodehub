@@ -250,8 +250,14 @@ test("electron-ws-python typescript corpus has 5 cases", async () => {
   assert.equal(kinds.get("references"), 3);
   assert.equal(kinds.get("callers"), 2);
   const waived = corpus.cases.filter((c) => c.waived === true);
-  assert.equal(waived.length, 1);
-  assert.equal(waived[0]?.id, "mono-ts.references.window.quickwork.takeScreenshot");
+  // 2: the original cross-ambient-module reference, + the import-as-caller
+  // waiver documented in the YAML (tsserver treats imports as non-callers,
+  // which matches LSP semantics).
+  assert.equal(waived.length, 2);
+  assert.deepEqual(waived.map((c) => c.id).sort(), [
+    "mono-ts.callers.registerScreenshotHandler",
+    "mono-ts.references.window.quickwork.takeScreenshot",
+  ]);
 });
 
 test("electron-ws-python python corpus has 4 cases", async () => {
