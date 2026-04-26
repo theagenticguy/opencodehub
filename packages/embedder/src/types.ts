@@ -1,8 +1,8 @@
 /**
  * Public types for the @opencodehub/embedder package.
  *
- * The embedder turns a piece of text into a deterministic 384-dim Float32Array
- * using the Arctic Embed XS ONNX model. Callers in @opencodehub/search and
+ * The embedder turns a piece of text into a deterministic 768-dim Float32Array
+ * using the gte-modernbert-base ONNX model. Callers in @opencodehub/search and
  * @opencodehub/mcp consume this via the `Embedder` interface; the concrete
  * implementation is opened with `openOnnxEmbedder`.
  */
@@ -13,10 +13,10 @@
  * contract the graphHash CI gate relies on.
  */
 export interface Embedder {
-  /** Output dimension. Always 384 for Arctic Embed XS. */
+  /** Output dimension. Always 768 for gte-modernbert-base. */
   readonly dim: number;
   /**
-   * Stable model identifier, e.g. `snowflake-arctic-embed-xs/fp32`. Used by
+   * Stable model identifier, e.g. `gte-modernbert-base/fp32`. Used by
    * the storage layer to tag `embeddings.model` so incompatible vectors are
    * never mixed in the same HNSW index.
    */
@@ -38,14 +38,14 @@ export interface EmbedderConfig {
   /**
    * Directory containing `model.onnx` (or `model_int8.onnx`) and the four
    * tokenizer JSON files. Defaults to
-   * `${CODEHUB_HOME:-~/.codehub}/models/arctic-embed-xs/${variant}/`.
+   * `${CODEHUB_HOME:-~/.codehub}/models/gte-modernbert-base/${variant}/`.
    */
   readonly modelDir?: string;
   /** Which ONNX weight file to load. Defaults to `fp32`. */
   readonly variant?: "fp32" | "int8";
   /**
    * Max tokens of the user-supplied text, before `[CLS]`/`[SEP]` are added.
-   * Defaults to 510 so the full sequence fits in the model's 512-token
+   * Defaults to 8190 so the full sequence fits in ModernBERT's 8192-token
    * position embedding table.
    */
   readonly maxSequenceLength?: number;

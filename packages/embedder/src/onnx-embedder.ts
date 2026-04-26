@@ -1,8 +1,8 @@
 /**
- * Deterministic ONNX-based embedder for Snowflake Arctic Embed XS.
+ * Deterministic ONNX-based embedder for Alibaba gte-modernbert-base.
  *
  * Loads weights from disk (populated by `codehub setup --embeddings`), runs
- * inference with every nondeterminism knob disabled, and emits a 384-dim
+ * inference with every nondeterminism knob disabled, and emits a 768-dim
  * Float32Array per input. The same input MUST produce byte-identical output
  * across repeat calls; this is the contract the graphHash CI gate relies
  * on.
@@ -23,10 +23,11 @@ import { embedderModelId } from "./model-pins.js";
 import { modelFileName, resolveModelDir, TOKENIZER_FILES } from "./paths.js";
 import { type Embedder, type EmbedderConfig, EmbedderNotSetupError } from "./types.js";
 
-// Arctic Embed XS is built on MiniLM-L6-H384. These numbers are part of the
-// model contract, not a config knob — do not expose to callers.
-const EMBED_DIM = 384;
-const MODEL_MAX_POSITION = 512; // includes [CLS] + [SEP]
+// gte-modernbert-base is a ModernBERT-base encoder (22 layers, 12 heads,
+// 768 hidden). These numbers are part of the model contract, not a config
+// knob — do not expose to callers.
+const EMBED_DIM = 768;
+const MODEL_MAX_POSITION = 8192; // ModernBERT's position embedding table
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -53,7 +54,7 @@ async function assertModelFiles(
   }
   if (missing.length > 0) {
     throw new EmbedderNotSetupError(
-      `Arctic Embed XS weights not found in ${modelDir}: ` +
+      `gte-modernbert-base weights not found in ${modelDir}: ` +
         `missing ${missing.join(", ")}. ` +
         `Run \`codehub setup --embeddings\` while online.`,
     );
@@ -108,8 +109,8 @@ function buildSessionOptions(): InferenceSession.SessionOptions {
 
 /**
  * Encode `text` using the supplied Tokenizer and produce padded/truncated
- * input_ids, attention_mask, and token_type_ids arrays of length
- * `targetLength`. BigInt64Array matches the model's int64 input type.
+ * input_ids and attention_mask arrays. BigInt64Array matches the model's
+ * int64 input type. ModernBERT has no token_type_ids input.
  */
 function encodeForModel(
   tokenizer: Tokenizer,
@@ -118,64 +119,55 @@ function encodeForModel(
 ): {
   readonly inputIds: BigInt64Array;
   readonly attentionMask: BigInt64Array;
-  readonly tokenTypeIds: BigInt64Array;
   readonly seqLen: number;
 } {
   const enc = tokenizer.encode(text, {
     add_special_tokens: true,
-    return_token_type_ids: true,
   });
   // Truncate to the model's max_position_embeddings.
   const ids = enc.ids.slice(0, maxModelLength);
   const mask = enc.attention_mask.slice(0, maxModelLength);
-  const types = (enc.token_type_ids ?? new Array<number>(ids.length).fill(0)).slice(
-    0,
-    maxModelLength,
-  );
 
   const seqLen = ids.length;
   const inputIds = new BigInt64Array(seqLen);
   const attentionMask = new BigInt64Array(seqLen);
-  const tokenTypeIds = new BigInt64Array(seqLen);
   for (let i = 0; i < seqLen; i++) {
     inputIds[i] = BigInt(ids[i] ?? 0);
     attentionMask[i] = BigInt(mask[i] ?? 0);
-    tokenTypeIds[i] = BigInt(types[i] ?? 0);
   }
-  return { inputIds, attentionMask, tokenTypeIds, seqLen };
+  return { inputIds, attentionMask, seqLen };
 }
 
 /**
- * Pad three parallel BigInt64Arrays (ids, mask, types) up to `padTo` with the
- * BERT convention: id=0 (PAD), mask=0, type=0. Returns fresh arrays so the
- * callers may keep the originals.
+ * Pad two parallel BigInt64Arrays (ids, mask) up to `padTo`. ModernBERT's
+ * pad_token_id is 50283 (not 0 as in BERT); the attention mask is 0 for
+ * padding positions so the model ignores them regardless.
  */
+const MODERNBERT_PAD_ID = 50283n;
+
 function padToLength(
   ids: BigInt64Array,
   mask: BigInt64Array,
-  types: BigInt64Array,
   padTo: number,
 ): {
   readonly ids: BigInt64Array;
   readonly mask: BigInt64Array;
-  readonly types: BigInt64Array;
 } {
   if (ids.length === padTo) {
-    return { ids, mask, types };
+    return { ids, mask };
   }
-  const outIds = new BigInt64Array(padTo);
+  const outIds = new BigInt64Array(padTo).fill(MODERNBERT_PAD_ID);
   const outMask = new BigInt64Array(padTo);
-  const outTypes = new BigInt64Array(padTo);
   outIds.set(ids);
   outMask.set(mask);
-  outTypes.set(types);
-  return { ids: outIds, mask: outMask, types: outTypes };
+  return { ids: outIds, mask: outMask };
 }
 
 /**
  * Extract the [CLS] vector (index 0 of last_hidden_state) for batch item
- * `rowIdx`. The model is MiniLM-style so sentence-transformers convention
- * (and the Snowflake-published usage notes) call for CLS pooling.
+ * `rowIdx`. gte-modernbert-base ships `1_Pooling/config.json` with
+ * `pooling_mode_cls_token: true`, so we grab the first-token hidden state and
+ * L2-normalize it downstream.
  */
 function clsPool(
   lastHidden: Float32Array,
@@ -265,29 +257,26 @@ class OnnxEmbedder implements Embedder {
     }
     if (batchMax === 0) {
       // Degenerate case: every input tokenized to zero tokens. Return zero
-      // vectors (still dim=384) so callers downstream get a stable shape.
+      // vectors (still dim=768) so callers downstream get a stable shape.
       return texts.map(() => new Float32Array(EMBED_DIM));
     }
 
     // Build flat [B, seqLen] buffers.
     const batchSize = encoded.length;
-    const flatIds = new BigInt64Array(batchSize * batchMax);
+    const flatIds = new BigInt64Array(batchSize * batchMax).fill(MODERNBERT_PAD_ID);
     const flatMask = new BigInt64Array(batchSize * batchMax);
-    const flatTypes = new BigInt64Array(batchSize * batchMax);
     for (let b = 0; b < batchSize; b++) {
       const e = encoded[b];
       if (e === undefined) continue;
-      const padded = padToLength(e.inputIds, e.attentionMask, e.tokenTypeIds, batchMax);
+      const padded = padToLength(e.inputIds, e.attentionMask, batchMax);
       flatIds.set(padded.ids, b * batchMax);
       flatMask.set(padded.mask, b * batchMax);
-      flatTypes.set(padded.types, b * batchMax);
     }
 
     const dims: readonly number[] = [batchSize, batchMax];
     const feeds: Record<string, Tensor> = {
       input_ids: new Tensor("int64", flatIds, dims),
       attention_mask: new Tensor("int64", flatMask, dims),
-      token_type_ids: new Tensor("int64", flatTypes, dims),
     };
     const results = await this.#session.run(feeds, ["last_hidden_state"]);
     const hidden = results["last_hidden_state"];
@@ -332,7 +321,7 @@ class OnnxEmbedder implements Embedder {
 }
 
 /**
- * Open a deterministic Arctic Embed XS embedder.
+ * Open a deterministic gte-modernbert-base embedder.
  *
  * Throws {@link EmbedderNotSetupError} if the weight files are not present —
  * callers in the CLI use this to surface `codehub setup --embeddings`
@@ -344,7 +333,7 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
   const normalize = cfg.normalize ?? true;
   // `maxSequenceLength` is the caller-facing budget in user tokens; the
   // actual model input adds 2 slots for [CLS]/[SEP], capped at
-  // MODEL_MAX_POSITION (512) to fit the position embedding table.
+  // MODEL_MAX_POSITION (8192) to fit the position embedding table.
   const userMax = cfg.maxSequenceLength ?? MODEL_MAX_POSITION - 2;
   const maxModelLength = Math.min(userMax + 2, MODEL_MAX_POSITION);
 

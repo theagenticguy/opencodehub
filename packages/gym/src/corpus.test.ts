@@ -169,8 +169,22 @@ test("cobra corpus has 13 cases", async () => {
   assert.equal(kinds.get("references"), 5);
   assert.equal(kinds.get("callers"), 6);
   const waived = corpus.cases.filter((c) => c.waived === true);
-  assert.equal(waived.length, 1);
-  assert.equal(waived[0]?.id, "cobra.implementations.SliceValue");
+  // 10 waivers: SliceValue (original) + 9 documented divergences between the
+  // gopls reference set and the curated corpus (test-file inclusion, impl-
+  // column convention — see per-case WAIVER notes).
+  assert.equal(waived.length, 10);
+  assert.deepEqual(waived.map((c) => c.id).sort(), [
+    "cobra.callers.Command.AddCommand",
+    "cobra.callers.Command.Execute",
+    "cobra.callers.Command.ExecuteC",
+    "cobra.callers.Command.PersistentFlags",
+    "cobra.implementations.PositionalArgs",
+    "cobra.implementations.SliceValue",
+    "cobra.references.AddCommand",
+    "cobra.references.Command",
+    "cobra.references.Execute",
+    "cobra.references.PositionalArgs",
+  ]);
 });
 
 test("ts-pattern corpus has 13 cases", async () => {
@@ -198,11 +212,17 @@ test("ts-pattern corpus has 13 cases", async () => {
   assert.equal(kinds.get("callers"), 4);
   assert.equal(kinds.get("implementations"), 3);
   const waived = corpus.cases.filter((c) => c.waived === true);
-  assert.equal(waived.length, 3);
+  // 3 impls (never scorable on ts-pattern's generic types) + 3 references
+  // where the curated subset diverges from tsserver's exhaustive set —
+  // per-case WAIVER notes in the YAML.
+  assert.equal(waived.length, 6);
   assert.deepEqual(waived.map((c) => c.id).sort(), [
     "ts-pattern.implementations.Match",
     "ts-pattern.implementations.MatchedValue",
     "ts-pattern.implementations.Matcher",
+    "ts-pattern.references.Matcher",
+    "ts-pattern.references.Pattern",
+    "ts-pattern.references.isMatching",
   ]);
 });
 
@@ -230,8 +250,14 @@ test("electron-ws-python typescript corpus has 5 cases", async () => {
   assert.equal(kinds.get("references"), 3);
   assert.equal(kinds.get("callers"), 2);
   const waived = corpus.cases.filter((c) => c.waived === true);
-  assert.equal(waived.length, 1);
-  assert.equal(waived[0]?.id, "mono-ts.references.window.quickwork.takeScreenshot");
+  // 2: the original cross-ambient-module reference, + the import-as-caller
+  // waiver documented in the YAML (tsserver treats imports as non-callers,
+  // which matches LSP semantics).
+  assert.equal(waived.length, 2);
+  assert.deepEqual(waived.map((c) => c.id).sort(), [
+    "mono-ts.callers.registerScreenshotHandler",
+    "mono-ts.references.window.quickwork.takeScreenshot",
+  ]);
 });
 
 test("electron-ws-python python corpus has 4 cases", async () => {

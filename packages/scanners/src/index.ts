@@ -26,20 +26,27 @@ export {
   BANDIT_SPEC,
   BETTERLEAKS_SPEC,
   BIOME_SPEC,
+  CHECKOV_DOCKER_COMPOSE_SPEC,
   CHECKOV_SPEC,
+  CLAMAV_SPEC,
   filterSpecsByLanguages,
   filterSpecsByProfile,
   findSpec,
+  GRYPE_SPEC,
   HADOLINT_SPEC,
   NPM_AUDIT_SPEC,
   OSV_SCANNER_SPEC,
   P1_SPECS,
   P2_SPECS,
   PIP_AUDIT_SPEC,
+  RADON_SPEC,
+  RUFF_SPEC,
   SEMGREP_SPEC,
   SPECTRAL_SPEC,
   TFLINT_SPEC,
   TRIVY_SPEC,
+  TY_SPEC,
+  VULTURE_SPEC,
 } from "./catalog.js";
 export type { NpmAuditConvertOptions } from "./converters/npm-audit-to-sarif.js";
 export { npmAuditJsonToSarif } from "./converters/npm-audit-to-sarif.js";
@@ -64,47 +71,72 @@ export { createBetterleaksWrapper } from "./wrappers/betterleaks.js";
 export { createBiomeWrapper } from "./wrappers/biome.js";
 export type { CheckovWrapperOptions } from "./wrappers/checkov.js";
 export { createCheckovWrapper } from "./wrappers/checkov.js";
+export { createClamAvWrapper } from "./wrappers/clamav.js";
+export type { CheckovDockerComposeWrapperOptions } from "./wrappers/docker-compose.js";
+export { createCheckovDockerComposeWrapper } from "./wrappers/docker-compose.js";
+export { createGrypeWrapper } from "./wrappers/grype.js";
 export type { HadolintWrapperOptions } from "./wrappers/hadolint.js";
 export { createHadolintWrapper } from "./wrappers/hadolint.js";
 export { createNpmAuditWrapper } from "./wrappers/npm-audit.js";
 export { createOsvScannerWrapper } from "./wrappers/osv-scanner.js";
 export type { PipAuditWrapperOptions } from "./wrappers/pip-audit.js";
 export { createPipAuditWrapper } from "./wrappers/pip-audit.js";
+export { createRadonWrapper } from "./wrappers/radon.js";
+export { createRuffWrapper } from "./wrappers/ruff.js";
 export { createSemgrepWrapper } from "./wrappers/semgrep.js";
 export type { WrapperDeps } from "./wrappers/shared.js";
 export type { SpectralWrapperOptions } from "./wrappers/spectral.js";
 export { createSpectralWrapper } from "./wrappers/spectral.js";
 export { createTflintWrapper } from "./wrappers/tflint.js";
 export { createTrivyWrapper } from "./wrappers/trivy.js";
+export { createTyWrapper } from "./wrappers/ty.js";
+export { createVultureWrapper } from "./wrappers/vulture.js";
 
 import {
   BANDIT_SPEC,
   BETTERLEAKS_SPEC,
   BIOME_SPEC,
+  CHECKOV_DOCKER_COMPOSE_SPEC,
   CHECKOV_SPEC,
+  CLAMAV_SPEC,
+  GRYPE_SPEC,
   HADOLINT_SPEC,
   NPM_AUDIT_SPEC,
   OSV_SCANNER_SPEC,
   PIP_AUDIT_SPEC,
+  RADON_SPEC,
+  RUFF_SPEC,
   SEMGREP_SPEC,
   SPECTRAL_SPEC,
   TFLINT_SPEC,
   TRIVY_SPEC,
+  TY_SPEC,
+  VULTURE_SPEC,
 } from "./catalog.js";
 import type { ScannerSpec, ScannerWrapper } from "./spec.js";
 import { createBanditWrapper } from "./wrappers/bandit.js";
 import { createBetterleaksWrapper } from "./wrappers/betterleaks.js";
 import { createBiomeWrapper } from "./wrappers/biome.js";
 import { type CheckovWrapperOptions, createCheckovWrapper } from "./wrappers/checkov.js";
+import { createClamAvWrapper } from "./wrappers/clamav.js";
+import {
+  type CheckovDockerComposeWrapperOptions,
+  createCheckovDockerComposeWrapper,
+} from "./wrappers/docker-compose.js";
+import { createGrypeWrapper } from "./wrappers/grype.js";
 import { createHadolintWrapper, type HadolintWrapperOptions } from "./wrappers/hadolint.js";
 import { createNpmAuditWrapper } from "./wrappers/npm-audit.js";
 import { createOsvScannerWrapper } from "./wrappers/osv-scanner.js";
 import { createPipAuditWrapper, type PipAuditWrapperOptions } from "./wrappers/pip-audit.js";
+import { createRadonWrapper } from "./wrappers/radon.js";
+import { createRuffWrapper } from "./wrappers/ruff.js";
 import { createSemgrepWrapper } from "./wrappers/semgrep.js";
 import { DEFAULT_DEPS, type WrapperDeps } from "./wrappers/shared.js";
 import { createSpectralWrapper, type SpectralWrapperOptions } from "./wrappers/spectral.js";
 import { createTflintWrapper } from "./wrappers/tflint.js";
 import { createTrivyWrapper } from "./wrappers/trivy.js";
+import { createTyWrapper } from "./wrappers/ty.js";
+import { createVultureWrapper } from "./wrappers/vulture.js";
 
 /**
  * Per-scanner context passed to `createDefaultWrappers`. Some wrappers
@@ -120,6 +152,7 @@ import { createTrivyWrapper } from "./wrappers/trivy.js";
  */
 export interface DefaultWrapperContext {
   readonly checkov?: CheckovWrapperOptions;
+  readonly checkovDockerCompose?: CheckovDockerComposeWrapperOptions;
   readonly hadolint?: HadolintWrapperOptions;
   readonly spectral?: SpectralWrapperOptions;
   readonly pipAudit?: PipAuditWrapperOptions;
@@ -177,6 +210,23 @@ function createWrapperFor(
       return deps ? createTflintWrapper(deps) : createTflintWrapper();
     case SPECTRAL_SPEC.id:
       return createSpectralWrapper(deps ?? DEFAULT_DEPS, ctx.spectral ?? {});
+    case RUFF_SPEC.id:
+      return deps ? createRuffWrapper(deps) : createRuffWrapper();
+    case GRYPE_SPEC.id:
+      return deps ? createGrypeWrapper(deps) : createGrypeWrapper();
+    case VULTURE_SPEC.id:
+      return deps ? createVultureWrapper(deps) : createVultureWrapper();
+    case RADON_SPEC.id:
+      return deps ? createRadonWrapper(deps) : createRadonWrapper();
+    case TY_SPEC.id:
+      return deps ? createTyWrapper(deps) : createTyWrapper();
+    case CLAMAV_SPEC.id:
+      return deps ? createClamAvWrapper(deps) : createClamAvWrapper();
+    case CHECKOV_DOCKER_COMPOSE_SPEC.id:
+      return createCheckovDockerComposeWrapper(
+        deps ?? DEFAULT_DEPS,
+        ctx.checkovDockerCompose ?? {},
+      );
     default:
       return undefined;
   }

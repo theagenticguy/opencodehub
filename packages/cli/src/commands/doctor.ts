@@ -107,6 +107,24 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
       "P1 scanner — install from https://github.com/google/osv-scanner",
     ),
   );
+  list.push(
+    binaryOnPathCheck("bandit", "P1 scanner — install with `uv tool install 'bandit[sarif]'`"),
+  );
+  list.push(binaryOnPathCheck("ruff", "P1 scanner — install with `uv tool install ruff`"));
+  list.push(
+    binaryOnPathCheck(
+      "grype",
+      "P1 scanner — install with `brew install anchore/grype/grype` or from https://github.com/anchore/grype",
+    ),
+  );
+  list.push(binaryOnPathCheck("vulture", "P1 scanner — install with `uv tool install vulture`"));
+  list.push(
+    binaryOnPathCheck("pip-audit", "P1 scanner — install with `uv tool install pip-audit`"),
+  );
+  list.push(binaryOnPathCheck("radon", "P2 scanner — install with `uv tool install radon`"));
+  list.push(
+    binaryOnPathCheck("ty", "P2 scanner (beta) — install with `uv tool install ty` (Astral)"),
+  );
   list.push(embedderWeightsCheck(home));
   list.push(registryPathCheck(home));
   list.push(sarifSchemaCheck(repoRoot));
@@ -260,9 +278,9 @@ function embedderWeightsCheck(home: string): Check {
       // NOT hyphen). A historical hyphenated path name lingered here and
       // caused false-negative `warn`s for users who had int8 weights on
       // disk.
-      const base = join(home, ".codehub", "models", "arctic-embed-xs");
-      const fp32 = join(base, "model.onnx");
-      const int8 = join(base, "model_int8.onnx");
+      const base = join(home, ".codehub", "models", "gte-modernbert-base");
+      const fp32 = join(base, "fp32", "model.onnx");
+      const int8 = join(base, "int8", "model_int8.onnx");
       const fp32Ok = await fileExists(fp32);
       const int8Ok = await fileExists(int8);
       if (!fp32Ok && !int8Ok) {

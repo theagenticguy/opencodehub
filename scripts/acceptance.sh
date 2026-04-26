@@ -205,10 +205,10 @@ echo
 # 10. Embeddings determinism (SKIP if weights absent)
 # ---------------------------------------------------------------------------
 echo "10/${TOTAL_GATES}: embeddings determinism"
-# Weights live under ${CODEHUB_HOME:-~/.codehub}/models/arctic-embed-xs/{fp32,int8}/model*.onnx.
+# Weights live under ${CODEHUB_HOME:-~/.codehub}/models/gte-modernbert-base/{fp32,int8}/model*.onnx.
 # We probe the fp32 variant first; if that's missing we try int8. Either is
 # enough for a byte-identical determinism check.
-MODEL_ROOT="${CODEHUB_HOME:-$HOME/.codehub}/models/arctic-embed-xs"
+MODEL_ROOT="${CODEHUB_HOME:-$HOME/.codehub}/models/gte-modernbert-base"
 FP32_ONNX="$MODEL_ROOT/fp32/model.onnx"
 INT8_ONNX="$MODEL_ROOT/int8/model_int8.onnx"
 if [ -f "$FP32_ONNX" ] || [ -f "$INT8_ONNX" ]; then

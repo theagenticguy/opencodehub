@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { ReadableStream } from "node:stream/web";
 import { describe, it } from "node:test";
 
-import { ARCTIC_EMBED_XS_PINS } from "@opencodehub/embedder";
+import { GTE_MODERNBERT_BASE_PINS } from "@opencodehub/embedder";
 
 import {
   downloadEmbedderWeights,
@@ -88,7 +88,7 @@ function makeFetchWith(
 }
 
 /**
- * Monkeypatch ARCTIC_EMBED_XS_PINS[variant] for a single test. Because the
+ * Monkeypatch GTE_MODERNBERT_BASE_PINS[variant] for a single test. Because the
  * pins are `readonly`, we rebuild the structure by casting into a mutable
  * shape. The test restores on completion.
  */
@@ -97,8 +97,8 @@ function withOverridePins<T>(
   newFiles: readonly { name: string; url: string; sizeBytes: number; sha256: string }[],
   fn: () => Promise<T>,
 ): Promise<T> {
-  const original = ARCTIC_EMBED_XS_PINS[variant];
-  const mutable = ARCTIC_EMBED_XS_PINS as unknown as {
+  const original = GTE_MODERNBERT_BASE_PINS[variant];
+  const mutable = GTE_MODERNBERT_BASE_PINS as unknown as {
     [k in "fp32" | "int8"]: {
       variant: "fp32" | "int8";
       files: readonly { name: string; url: string; sizeBytes: number; sha256: string }[];
@@ -114,7 +114,7 @@ describe("downloadEmbedderWeights", () => {
   it("downloads a pinned file, verifies SHA256, and atomically renames", async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-happy-"));
     try {
-      const body = new TextEncoder().encode("hello-arctic-xs");
+      const body = new TextEncoder().encode("hello-gte-mb");
       const url = "https://example.test/fp32/model.onnx";
       const pins = [{ name: "model.onnx", url, sizeBytes: body.length, sha256: sha256(body) }];
       const { fetch: fakeFetch, calls } = makeFetchWith(new Map([[url, body]]));

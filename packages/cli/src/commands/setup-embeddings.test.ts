@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { ReadableStream } from "node:stream/web";
 import { describe, it } from "node:test";
 
-import { ARCTIC_EMBED_XS_PINS } from "@opencodehub/embedder";
+import { GTE_MODERNBERT_BASE_PINS } from "@opencodehub/embedder";
 
 import { runSetupEmbeddings } from "./setup.js";
 
@@ -40,7 +40,7 @@ describe("runSetupEmbeddings", () => {
       // Build a tiny per-file body keyed by pin name; substitute our SHAs into
       // the manifest so the downloader's verification passes.
       const bodies = new Map<string, Uint8Array>();
-      const originals = ARCTIC_EMBED_XS_PINS.fp32.files;
+      const originals = GTE_MODERNBERT_BASE_PINS.fp32.files;
       const replaced = originals.map((f, idx) => {
         const body = new TextEncoder().encode(`pin-${idx}-${f.name}`);
         bodies.set(f.url, body);
@@ -52,7 +52,7 @@ describe("runSetupEmbeddings", () => {
         };
       });
 
-      const mutable = ARCTIC_EMBED_XS_PINS as unknown as {
+      const mutable = GTE_MODERNBERT_BASE_PINS as unknown as {
         fp32: { variant: "fp32"; files: readonly (typeof replaced)[number][] };
       };
       const saved = mutable.fp32;

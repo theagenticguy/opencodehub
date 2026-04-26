@@ -36,12 +36,12 @@ describe("paths", () => {
 
   it("resolveModelDir builds fp32 path by default", () => {
     const dir = resolveModelDir();
-    equal(dir, join(homedir(), ".codehub", "models", "arctic-embed-xs", "fp32"));
+    equal(dir, join(homedir(), ".codehub", "models", "gte-modernbert-base", "fp32"));
   });
 
   it("resolveModelDir respects int8 variant", () => {
     const dir = resolveModelDir(undefined, "int8");
-    equal(dir, join(homedir(), ".codehub", "models", "arctic-embed-xs", "int8"));
+    equal(dir, join(homedir(), ".codehub", "models", "gte-modernbert-base", "int8"));
   });
 
   it("resolveModelDir returns override unchanged when provided", () => {

@@ -1,5 +1,5 @@
 /**
- * Embeddings phase — generates 384-dim vectors across one or more
+ * Embeddings phase — generates 768-dim vectors across one or more
  * hierarchical tiers and materialises them into the phase output as an
  * array of `EmbeddingRow`s the CLI upserts into DuckDB.
  *
@@ -124,7 +124,7 @@ export interface EmbedderPhaseOutput {
   readonly chunksTotal: number;
   /**
    * Stable id tag for the embedder that produced these rows — e.g.
-   * `snowflake-arctic-embed-xs/fp32`. Empty string when the phase was a
+   * `gte-modernbert-base/fp32`. Empty string when the phase was a
    * no-op (flag off or weights missing).
    */
   readonly embeddingsModelId: string;
