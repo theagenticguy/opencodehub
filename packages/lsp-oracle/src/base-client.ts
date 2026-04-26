@@ -437,14 +437,23 @@ export abstract class BaseLspClient {
       const from = call.from;
       if (from === undefined) continue;
       const rel = toRelativeFilePath(this.workspaceRoot, uriToFsPath(from.uri));
-      const sel = from.selectionRange ?? from.range;
-      out.push({
-        file: rel,
-        line: sel.start.line + 1,
-        character: sel.start.character + 1,
-        enclosingSymbolName: from.name,
-        source: "callHierarchy",
-      });
+      // LSP `callHierarchy/incomingCalls` returns one `fromRanges[]` per
+      // incoming call: each range is the exact call-site inside `from`.
+      // Emit one CallerSite per call-site so the oracle surfaces the same
+      // shape gopls / rust-analyzer / tsserver do when asked directly.
+      // Fall back to the caller's selectionRange only when fromRanges is
+      // missing, which happens for a handful of older LSP servers.
+      const ranges =
+        call.fromRanges.length > 0 ? call.fromRanges : [from.selectionRange ?? from.range];
+      for (const r of ranges) {
+        out.push({
+          file: rel,
+          line: r.start.line + 1,
+          character: r.start.character + 1,
+          enclosingSymbolName: from.name,
+          source: "callHierarchy",
+        });
+      }
     }
     return out;
   }
