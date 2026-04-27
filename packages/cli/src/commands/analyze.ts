@@ -51,6 +51,19 @@ export interface AnalyzeOptions {
    * hierarchical index — enables `codehub query --zoom` coarse-to-fine.
    */
   readonly embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
+  /**
+   * Number of parallel ONNX embedder workers. Defaults to 1 (legacy
+   * single-threaded path). Values >= 2 fan inference out across a
+   * Piscina pool; each worker holds its own ~300 MB ONNX session, so
+   * scale with host memory in mind. Ignored under the HTTP backend.
+   */
+  readonly embeddingsWorkers?: number;
+  /**
+   * Chunks per `embedBatch()` call. Defaults to 32. Larger batches
+   * amortize tokenizer + tensor-feed overhead but increase peak memory;
+   * `1` restores the pre-refactor one-node-per-call pattern.
+   */
+  readonly embeddingsBatchSize?: number;
   readonly offline?: boolean;
   readonly verbose?: boolean;
   readonly skipAgentsMd?: boolean;
@@ -202,6 +215,10 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       : {}),
     ...(opts.embeddingsGranularity !== undefined
       ? { embeddingsGranularity: opts.embeddingsGranularity }
+      : {}),
+    ...(opts.embeddingsWorkers !== undefined ? { embeddingsWorkers: opts.embeddingsWorkers } : {}),
+    ...(opts.embeddingsBatchSize !== undefined
+      ? { embeddingsBatchSize: opts.embeddingsBatchSize }
       : {}),
     ...(opts.sbom !== undefined ? { sbom: opts.sbom } : {}),
     ...(opts.coverage !== undefined ? { coverage: opts.coverage } : {}),
