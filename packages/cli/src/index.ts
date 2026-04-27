@@ -28,7 +28,7 @@ program
   )
   .option(
     "--embeddings-workers <n|auto>",
-    'Parallel ONNX embedder workers (each ~300 MB RSS on fp32). "auto" = os.cpus().length - 1, min 1. Default 1 (legacy in-process path).',
+    'Parallel ONNX embedder workers (each ~300 MB RSS on fp32). "auto" = os.cpus().length - 1, min 1. Default: "auto" when --embeddings is on (was 1 until 2026-04-27; single-threaded ONNX inference on a 100k-node repo took ~45 min, so CLI now opts into parallel by default). Pass --embeddings-workers 1 for the legacy in-process path.',
   )
   .option(
     "--embeddings-batch-size <n>",
@@ -101,7 +101,15 @@ program
     }
 
     const granularity = parseGranularityCsv(opts["granularity"]);
-    const embeddingsWorkers = parseWorkerCount(opts["embeddingsWorkers"]);
+    // When --embeddings is on and the user didn't pick a worker count, default
+    // to "auto" — single-threaded ONNX inference on 100k+ nodes takes ~45 min
+    // vs ~6–8 min with all cores busy. Power users can still pass
+    // `--embeddings-workers 1` for the legacy path.
+    const workersRaw =
+      opts["embeddings"] === true && opts["embeddingsWorkers"] === undefined
+        ? "auto"
+        : opts["embeddingsWorkers"];
+    const embeddingsWorkers = parseWorkerCount(workersRaw);
     const embeddingsBatchSize = parsePositiveInt(opts["embeddingsBatchSize"]);
 
     await mod.runAnalyze(path ?? process.cwd(), {

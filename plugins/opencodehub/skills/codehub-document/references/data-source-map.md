@@ -76,26 +76,52 @@ Subagents use the ledger two ways:
 | `doc-diagrams`      | `sql` (relations), `dependencies`                           | `context` per process, `query` for actor labels           |
 | `doc-cross-repo`    | `group_list`, `group_status`, `group_contracts`             | `group_query`, `route_map` per member                     |
 
+## Schema preflight (non-optional)
+
+**Before composing any SQL query over `nodes`, `relations`, or any other
+graph table, Phase 0 MUST probe the schema once and cache the result in
+`.prefetch.md`.** Subagents then consult the cached schema instead of
+guessing column names, which would fail with `Binder Error: Referenced
+column "X" not found in FROM clause`.
+
+The probe is one SQL call:
+
+```
+sql("SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_name IN ('nodes','relations') ORDER BY table_name, column_name")
+```
+
+Write the result as a dedicated `.context.md § Schema` subsection (top 30
+rows, no cap) and as a digest line in `.prefetch.md` with
+`keys: ["table_name","column_name"]`.
+
+Historical note: `nodes` does not have a `path` column — routes store their
+endpoint under `name` (as `"METHOD /path"`), and the file path is
+`file_path`. Observed during a 2026-04-27 dogfood when subagent prompts
+blindly referenced `path` and hit a Binder Error on an otherwise fresh
+graph. The preflight prevents this class of bug across every subagent.
+
 ## Phase 0 algorithm (pseudocode)
 
 ```
 1. profile = project_profile({repo})
-2. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
-3. processes = sql("SELECT … FROM nodes WHERE kind='Process' …")
-4. routes = route_map({repo})
-5. tools = tool_map({repo})
-6. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
-7. owners_summary = [owners({path}) for path in top_folders]
-8. staleness = list_repos → entry for this repo → _meta.codehub/staleness
+2. schema = sql("SELECT table_name, column_name FROM information_schema.columns …")
+3. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
+4. processes = sql("SELECT … FROM nodes WHERE kind='Process' …")
+5. routes = route_map({repo})
+6. tools = tool_map({repo})
+7. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
+8. owners_summary = [owners({path}) for path in top_folders]
+9. staleness = list_repos → entry for this repo → _meta.codehub/staleness
 
-9. if --group:
+10. if --group:
      group_manifest = group_list
      group_contracts_matrix = group_contracts({group})
      group_freshness = group_status({group})
      // precondition check: every member fresh; abort otherwise
 
-10. write .context.md (enforce 200-line cap; truncate per-section, mark flags)
-11. write .prefetch.md (one JSON line per tool call with sha256 of response)
+11. write .context.md (enforce 200-line cap; truncate per-section, mark flags)
+12. write .prefetch.md (one JSON line per tool call with sha256 of response)
 ```
 
 The algorithm is **deterministic** given the same `graph_hash` — the file list and section structure are identical across runs; only the exact content varies.
