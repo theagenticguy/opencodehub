@@ -1,0 +1,89 @@
+---
+title: "codehub-contract-map"
+description: "Group-only. Consumer/producer contract matrix across a repo group, with Mermaid flow."
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Standalone group-only skill. Renders `group_contracts` into a Markdown +
+Mermaid artifact. Fires on direct invocations ("map the contracts")
+without needing the full `codehub-document` orchestration.
+
+<Aside type="caution" title="GROUP MODE ONLY">
+This skill refuses on single-repo scope. Use `codehub-document` with
+`reference/public-api.md` for single-repo API surface instead.
+</Aside>
+
+## Frontmatter
+
+```yaml
+name: codehub-contract-map
+argument-hint: "<group-name> [--output <path>] [--committed]"
+color: magenta
+model: sonnet
+```
+
+## Preconditions
+
+1. A `<group-name>` positional argument is required. Missing or unknown group:
+   `Contract map requires a named group — run 'codehub group list' to see registered groups.`
+2. Every member repo must be `fresh` per `mcp__opencodehub__group_status`. Stale members abort with named repos.
+
+## Process
+
+1. `mcp__opencodehub__group_list` — confirm `<group-name>`.
+2. `mcp__opencodehub__group_status({group})` — confirm freshness per member.
+3. `mcp__opencodehub__group_contracts({group})` — the spine.
+4. If zero contracts: write the artifact with a "No inter-repo contracts detected" banner. **Don't error** (spec 001 AC-5-5).
+5. `mcp__opencodehub__group_query({group, text: "api handlers"})` — disambiguate producer-side locations.
+6. `mcp__opencodehub__route_map({repo})` per member — for handler citations.
+7. Build the N×N consumer/producer matrix + Mermaid flow + notable-contracts list.
+8. Write to the resolved output path.
+
+## Output shape
+
+```markdown
+# <group> · Contract map
+
+## Contracts matrix
+Rows = producers, columns = consumers. Cell = contract count.
+
+|       | billing | core | web |
+|-------|---------|------|-----|
+| billing | —     | 3    | 5   |
+| core  | —       | —    | 12  |
+| web   | —       | —    | —   |
+
+## Flow
+```mermaid
+flowchart LR
+  web --> billing : 5
+  web --> core : 12
+  billing --> core : 3
+```
+
+## Notable contracts
+- **`web:packages/checkout/src/api.ts:22`** → **`billing:packages/api/src/handlers/invoice.ts:45`**
+  - Method: `POST /v1/invoices`
+  - Shape: `{amount, userId, idempotencyKey}`
+...
+```
+
+<Aside type="note" title="Citation grammar">
+Every citation in a contract map uses the group-qualified form:
+`` `<repo>:<path>:<LOC>` ``. Plain `path:LOC` is rejected.
+</Aside>
+
+## Arguments
+
+| Flag | Meaning |
+|---|---|
+| `<group-name>` (required) | The group to map. Must appear in `group_list`. |
+| `--output <path>` | Override output path. |
+| `--committed` | Write to `docs/<group>/contracts.md` instead of `.codehub/groups/<name>/contracts.md`. |
+
+## Related
+
+- [codehub-document](/opencodehub/skills/codehub-document/) — full group-mode docs
+- [ADR 0007 — Artifact factory](/opencodehub/architecture/adr-0007/)
+- [Skills index](/opencodehub/skills/)

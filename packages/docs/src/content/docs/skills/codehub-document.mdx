@@ -1,0 +1,121 @@
+---
+title: "codehub-document"
+description: "Primary artifact generator. Single-repo and group mode, 4-phase orchestration, .docmeta.json sidecar."
+---
+
+import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Primary artifact generator. Ports codeprobe's proven `/document` pattern to
+OpenCodeHub's graph and extends it with first-class **group mode**.
+
+Writes a tree of cross-linked Markdown under `.codehub/docs/` (single-repo)
+or `.codehub/groups/<name>/docs/` (group mode) plus a `.docmeta.json`
+sidecar that drives `--refresh`.
+
+## Frontmatter
+
+```yaml
+name: codehub-document
+argument-hint: "[output-dir] [--group <name>] [--committed] [--refresh] [--section <name>]"
+color: indigo
+model: sonnet
+```
+
+<Aside type="note" title="Model policy">
+Runs on Sonnet by default. Switches to Opus only when `--refresh --group`
+is combined — the refresh pruning + partial subagent fan-out needs the
+extra judgment. Full-scan single-repo generation does not.
+</Aside>
+
+## Preconditions
+
+1. `mcp__opencodehub__list_repos` returns the target. Otherwise: run `codehub analyze`.
+2. `codehub status` reports fresh. Otherwise: run `codehub analyze`.
+3. Group mode only: every member repo must be `fresh` per `mcp__opencodehub__group_status`. Stale members abort with named repos.
+
+## Four-phase orchestration
+
+<Tabs>
+  <TabItem label="Phase 0 · Precompute">
+    Inline, no subagent. Writes two shared-context files on disk:
+
+    - **`<docs-root>/.context.md`** (hard 200-line cap) — repo profile, top communities, top processes, routes, MCP tools, owners summary, staleness envelope. Group mode adds the manifest + contracts matrix + freshness table.
+    - **`<docs-root>/.prefetch.md`** — newline-delimited JSON ledger of tool calls with `{tool, args, sha256, keys, cached_at, truncated}`. Subagents read this instead of re-calling tools.
+
+    Prompt dedup via filesystem, not copy-paste.
+  </TabItem>
+  <TabItem label="Phase AB · Content">
+    Four subagents dispatched in a single message:
+
+    - `doc-architecture` → `architecture/{system-overview,module-map,data-flow}.md`
+    - `doc-reference` → `reference/{public-api,cli,mcp-tools}.md`
+    - `doc-behavior` → `behavior/{processes,state-machines}.md`
+    - `doc-analysis` → `analysis/{risk-hotspots,ownership,dead-code}.md`
+
+    In group mode, fan-out multiplies by member count (4 × N subagents).
+    Claude Code's concurrent-Agent ceiling is ~10 per message — groups of
+    3+ repos batch by role.
+  </TabItem>
+  <TabItem label="Phase CD · Diagrams">
+    Two subagents in parallel:
+
+    - `doc-diagrams` → `diagrams/{architecture,behavioral,structural}/*.md`
+    - `doc-cross-repo` → `cross-repo/{portfolio-map,contracts-matrix,dependency-flow}.md` *(group mode only)*
+
+    Skipped silently in single-repo mode.
+  </TabItem>
+  <TabItem label="Phase E · Assembler">
+    **Deterministic Markdown assembly. No LLM call.**
+
+    1. Regex over backtick `path:LOC` (or `repo:path:LOC`) citations.
+    2. Build co-occurrence index: `source_file → [docs_citing_it]`.
+    3. For any two docs sharing ≥ 2 common sources, append `## See also` footers.
+    4. In group mode: add `## See also (other repos in group)` to every `cross-repo/*.md`.
+    5. Write `README.md` (landing page with determinism disclaimer) + `.docmeta.json`.
+
+    Same inputs, same output. See [`.docmeta.json` schema](/opencodehub/reference/docmeta-schema/).
+  </TabItem>
+</Tabs>
+
+## Arguments
+
+| Flag | Meaning |
+|---|---|
+| `[output-dir]` | Where to write. Default `.codehub/docs/` (gitignored). With `--committed`, default flips to `docs/codehub/`. |
+| `--group <name>` | Enable group mode. Phase 0 calls `group_list` + `group_status` + `group_contracts` + `group_query`. Phase CD dispatches `doc-cross-repo`. |
+| `--committed` | Write to a committed path instead of `.codehub/docs/`. Does not touch `.gitignore`. |
+| `--refresh` | Regenerate only sections whose `sources[]` mtimes are newer than the section's `mtime`. Phase E always re-runs. |
+| `--section <name>` | Regenerate one named section (e.g., `architecture/system-overview`). |
+
+## Invocation examples
+
+```bash
+# Single-repo, default gitignored output
+/codehub-document
+
+# Group mode with an explicit output
+/codehub-document docs/platform --group platform --committed
+
+# Refresh stale sections only
+/codehub-document --refresh
+
+# One-section regenerate
+/codehub-document --section architecture/system-overview
+```
+
+## Output contract
+
+See [ADR 0009](/opencodehub/architecture/adr-0009/) for the full contract.
+
+- No YAML frontmatter on outputs.
+- Every factual claim carries a backtick `path:LOC` citation (or `repo:path:LOC` in group mode).
+- Mermaid diagrams only (no SVG/PNG).
+- `.docmeta.json` is the source of truth for `--refresh` and staleness.
+
+## Related
+
+- [ADR 0007 — Artifact factory](/opencodehub/architecture/adr-0007/)
+- [ADR 0008 — codeprobe pattern port](/opencodehub/architecture/adr-0008/)
+- [ADR 0009 — Output conventions](/opencodehub/architecture/adr-0009/)
+- [`.docmeta.json` schema](/opencodehub/reference/docmeta-schema/)
+- [Skills index](/opencodehub/skills/)

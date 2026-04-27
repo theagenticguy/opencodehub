@@ -100,6 +100,58 @@ resolves to the `scip-code` fork rather than upstream `sourcegraph`.
 
 [Read ADR 0006](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0006-scip-indexer-pins.md)
 
+### ADR 0007 — Artifact factory
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Ship an artifact-generation skill family inside
+`plugins/opencodehub/` that turns the graph into committed Markdown.
+Four P0 skills (`codehub-document`, `codehub-pr-description`,
+`codehub-onboarding`, `codehub-contract-map`), six `doc-*` subagents,
+Phase 0 precompute, `.docmeta.json` + Phase E assembler, PostToolUse
+staleness hook, discoverability patches.
+
+Scope exclusions (durable, not timeline): no hosted/managed/SaaS tier,
+no remote/HTTP MCP server, no agent SDK, no `grounding_pack`
+compositor tool, no own coding agent, no LLM-based PR review, no
+IDE plugin/LSP, no model fine-tuning.
+
+[Read ADR 0007](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0007-artifact-factory.md)
+
+### ADR 0008 — codeprobe pattern port
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Port codeprobe's four-phase `/document` pattern (Phase 0
+precompute → Phase AB parallel content → Phase CD parallel diagrams +
+specialty → Phase E deterministic assembler) to OpenCodeHub, with
+three adaptations: six subagents instead of eight (supply-chain tools
+pre-digest), group mode as a first-class topology, and an extended
+assembler contract that handles both `path:LOC` and `repo:path:LOC`
+citation forms.
+
+Preserves the pattern invariants verbatim: shared-context files on
+disk (not in-prompt copy-paste), eight-section agent scaffold,
+deterministic Phase E (no LLM call), `.docmeta.json` as source of
+truth for `--refresh`, no YAML frontmatter on outputs.
+
+[Read ADR 0008](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0008-codeprobe-pattern-port.md)
+
+### ADR 0009 — Artifact output conventions
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Single authoritative output contract. `.codehub/docs/`
+gitignored default; `--committed` opts in to `docs/codehub/`. Backtick
+citation grammar with a single Phase E regex covering both single-repo
+and group-qualified forms. `.docmeta.json` schema v1 with
+`cross_repo_refs[]` for group mode. Mermaid-only diagrams (no
+SVG/PNG). 20-node diagram cap with a Legend table for overflow.
+Deterministic structure; non-deterministic prose; disclaimer on every
+generated `README.md`.
+
+[Read ADR 0009](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0009-artifact-output-conventions.md)
+
 ## Superseded
 
 ### ADR 0003 — CI toolchain pins (gopls ↔ Go, pnpm build-script allowlist)
