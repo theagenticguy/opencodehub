@@ -1,0 +1,24 @@
+{
+  "name": "@opencodehub/docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OpenCodeHub documentation site (Astro + Starlight)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "clean": "rm -rf dist .astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.38.4",
+    "astro": "^6.1.9",
+    "sharp": "^0.34.1"
+  }
+}

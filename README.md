@@ -1,6 +1,7 @@
 # OpenCodeHub
 
 [![CI](https://github.com/theagenticguy/opencodehub/actions/workflows/ci.yml/badge.svg)](https://github.com/theagenticguy/opencodehub/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/Docs-Starlight-6ee7b7)](https://theagenticguy.github.io/opencodehub/)
 [![CodeQL](https://github.com/theagenticguy/opencodehub/actions/workflows/codeql.yml/badge.svg)](https://github.com/theagenticguy/opencodehub/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/theagenticguy/opencodehub/badge)](https://securityscorecards.dev/viewer/?uri=github.com/theagenticguy/opencodehub)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
@@ -134,6 +135,18 @@ commit log and summarised in each release's generated CHANGELOG.
 - **Third-party license inventory** at [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md)
 - **CI gates**: license allowlist, banned-strings grep, OSV vulnerability scan, CodeQL SAST, OpenSSF Scorecard
 - **Zero open CVEs** on the lockfile at release time
+
+## Documentation
+
+Full user guide, MCP tool reference, and contributor documentation
+are published at **https://theagenticguy.github.io/opencodehub/**.
+
+Prefer to read locally:
+
+```bash
+mise run docs:dev
+# http://localhost:4321/opencodehub
+```
 
 ## Contributing
 
