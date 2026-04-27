@@ -2,7 +2,7 @@
 
 ## ts-pattern.yaml
 
-Golden corpus of 13 LSP-oracle cases (6 `references`, 4 `callers`, 3
+Golden corpus of 13 SCIP-indexer cases (6 `references`, 4 `callers`, 3
 `implementations`) against the [`ts-pattern`][tsp] fixture pinned at tag
 `v5.5.0`, commit `1fed6208ee0c7f662e7e5239cdc7ee791e0fa246`, vendored as a
 submodule at `packages/gym/corpus/repos/typescript/ts-pattern`. Expected
@@ -16,7 +16,7 @@ a target substring (e.g., `UnknownPattern` for the `Pattern` target,
 target) were filtered out with word-boundary matching. The three
 `implementations` cases are waived because ts-pattern's type surface is
 expressed entirely as type aliases and structurally-typed object literals, for
-which `typescript-language-server` returns no implementers — the cases are
+which `scip-typescript` returns no implementers without SymbolInformation.relationships — the cases are
 retained so the gym distinguishes "LSP returned nothing" from "no case
 present" and exposes any future tsserver improvement.
 

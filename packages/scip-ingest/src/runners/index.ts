@@ -127,15 +127,28 @@ function buildCommand(kind: IndexerKind, opts: RunIndexerOptions, scipPath: stri
   const name = opts.projectName ?? pathBasename(opts.projectRoot);
 
   switch (kind) {
-    case "typescript":
+    case "typescript": {
+      // scip-typescript needs a tsconfig.json at a reachable project
+      // dir. Monorepo fixtures often keep the tsconfig one level in
+      // (e.g. `app/`). We run the indexer from the projectRoot and
+      // pass the sub-dir as a positional `[projects...]` argument so
+      // the emitted document paths stay rooted at projectRoot — the
+      // factory's relativize() assumes that.
+      const tsRoot = resolveTypeScriptRoot(cwd);
+      const args: string[] = ["index", "--output", scipPath];
+      if (tsRoot !== cwd) {
+        const rel = tsRoot.slice(cwd.length).replace(/^[\\/]+/, "");
+        args.push(rel);
+      }
       return {
         cmd: "scip-typescript",
-        args: ["index", "--output", scipPath],
+        args,
         cwd,
         versionCmd: "scip-typescript",
         versionArgs: ["--version"],
         tool: "scip-typescript",
       };
+    }
     case "python":
       return {
         cmd: "scip-python",
@@ -254,4 +267,28 @@ async function probeVersion(cmd: string, args: readonly string[], cwd: string): 
 function pathBasename(p: string): string {
   const parts = resolve(p).split(/[\\/]/);
   return parts[parts.length - 1] ?? p;
+}
+
+function resolveTypeScriptRoot(projectRoot: string): string {
+  if (existsSync(join(projectRoot, "tsconfig.json"))) return projectRoot;
+  // Prefer the conventional subdirectories first; fall back to a shallow
+  // scan for any child dir that owns a tsconfig.json.
+  const preferred = ["app", "packages", "src", "web", "client"];
+  for (const p of preferred) {
+    if (existsSync(join(projectRoot, p, "tsconfig.json"))) {
+      return join(projectRoot, p);
+    }
+  }
+  try {
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    for (const entry of readdirSync(projectRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const candidate = join(projectRoot, entry.name, "tsconfig.json");
+      if (existsSync(candidate)) return join(projectRoot, entry.name);
+    }
+  } catch {
+    // Fall through; return projectRoot and let scip-typescript report.
+  }
+  return projectRoot;
 }

@@ -26,7 +26,7 @@ independent manifests that happen to point at the same fixture tree.
 ## Confirmed vs waived
 
 The confirmed cases (7 total across the two files) are refs/callers
-that a well-tuned tsserver or pyright **should** return correctly:
+that scip-typescript / scip-python **should** return correctly:
 
 - Multi-tsconfig cross-project refs (`WsMessage`, `QuickworkBridge`)
   where the renderer and main-process tsconfigs both include

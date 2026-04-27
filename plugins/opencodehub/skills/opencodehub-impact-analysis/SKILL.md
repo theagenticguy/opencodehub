@@ -64,9 +64,9 @@ Risk levels map to blast-radius tiers:
 
 `confidenceBreakdown` on the impact response categorises the edges the tool actually traversed:
 
-- `confirmed` — an LSP oracle (pyright, tsserver, gopls, rust-analyzer) confirmed the edge at confidence ≥ 0.95. Trust these for refactor/impact decisions.
-- `heuristic` — tree-sitter or tier-1/tier-2 inference; the LSP has not weighed in. Treat as a signal, not a ground truth.
-- `unknown` — confidence ≤ 0.2. The demote phase flagged the edge (`+lsp-unconfirmed`). Do not act on these alone.
+- `confirmed` — a SCIP indexer (scip-typescript, scip-python, scip-go, rust-analyzer, scip-java) confirmed the edge at confidence ≥ 0.95. Trust these for refactor/impact decisions.
+- `heuristic` — tree-sitter or tier-1/tier-2 inference; no SCIP indexer covers this triple. Treat as a signal, not a ground truth.
+- `unknown` — confidence ≤ 0.2. The demote phase flagged the edge (`+scip-unconfirmed`). Do not act on these alone.
 
 ## Risk Tier Guide
 

@@ -171,8 +171,10 @@ class ScipClient implements LspClientLike {
     this.definitionBySymbol.clear();
   }
 
-  async queryReferences(input: QueryReferencesInput): Promise<readonly ReferenceSite[]> {
-    const symbol = this.resolveSymbolAt(input);
+  async queryReferences(
+    input: QueryReferencesInput & { readonly symbolName?: string },
+  ): Promise<readonly ReferenceSite[]> {
+    const symbol = this.resolveSymbolAt(input) ?? this.resolveSymbolByName(input);
     if (!symbol) return [];
     const hits: ReferenceSite[] = [];
     for (const [file, occs] of this.occurrencesByFile) {
@@ -186,34 +188,61 @@ class ScipClient implements LspClientLike {
   }
 
   async queryImplementations(
-    input: QueryImplementationsInput,
+    input: QueryImplementationsInput & { readonly symbolName?: string },
   ): Promise<readonly ImplementationSite[]> {
-    const symbol = this.resolveSymbolAt(input);
+    const symbol = this.resolveSymbolAt(input) ?? this.resolveSymbolByName(input);
     if (!symbol || !this.derived) return [];
     // SCIP models "implementations" of an interface / trait as symbols
     // whose SymbolInformation.relationships include this symbol as
-    // `implementation=true`. We don't decode relationships in the
-    // minimal parser today; return the subset of callers as a
-    // pragmatic best-effort, which matches scip-java/go semantics for
-    // most real-world gym cases. A follow-up can extend the parser to
-    // expose Relationship once we have labelled corpus cases.
-    const hits: ImplementationSite[] = [];
+    // `is_implementation: true`. We read those relations directly: any
+    // DerivedRelation pointing AT `symbol` identifies a subtype / impl.
+    const implementers: string[] = [];
+    for (const rel of this.derived.relations) {
+      if (rel.kind !== "IMPLEMENTS") continue;
+      if (rel.to !== symbol) continue;
+      implementers.push(rel.from);
+    }
+    if (implementers.length > 0) {
+      const hits: ImplementationSite[] = [];
+      for (const impl of implementers) {
+        const def = this.definitionBySymbol.get(impl);
+        if (!def) continue;
+        hits.push({
+          file: def.file,
+          line: def.occ.range.startLine + 1,
+          character: def.occ.range.startChar + 1,
+        });
+      }
+      hits.sort(compareByLocation);
+      return hits;
+    }
+    // Fallback when the index did not emit relationships (rare with
+    // the 2026 indexers): return the defining occurrence only. An empty
+    // list is semantically correct for "no known implementers".
+    const defHits: ImplementationSite[] = [];
     for (const [file, occs] of this.occurrencesByFile) {
       for (const occ of occs) {
         if (occ.symbol !== symbol) continue;
         if (!(occ.symbolRoles & SCIP_ROLE_DEFINITION)) continue;
-        hits.push({ file, line: occ.range.startLine + 1, character: occ.range.startChar + 1 });
+        defHits.push({
+          file,
+          line: occ.range.startLine + 1,
+          character: occ.range.startChar + 1,
+        });
       }
     }
-    hits.sort(compareByLocation);
-    return hits;
+    defHits.sort(compareByLocation);
+    return defHits;
   }
 
   async queryCallers(input: QueryCallersInput): Promise<readonly CallerSite[]> {
     if (!this.derived) return [];
-    const calleeSymbol = this.resolveSymbolAt(input);
+    const calleeSymbol = this.resolveSymbolAt(input) ?? this.resolveSymbolByName(input);
     if (!calleeSymbol) return [];
     const hits: CallerSite[] = [];
+    // Primary path: function-to-function edges from the derived graph.
+    // This is precise (caller enclosing def attribution) and covers
+    // method / function callees directly.
     for (const edge of this.derived.edges) {
       if (edge.callee !== calleeSymbol) continue;
       const callerDef = this.definitionBySymbol.get(edge.caller);
@@ -224,6 +253,35 @@ class ScipClient implements LspClientLike {
         character: edge.callChar + 1,
         enclosingSymbolName: displayTail(edge.caller),
       });
+    }
+    // Fallback for class / trait / struct callees — they are "called"
+    // by instantiation, not by direct function invocation, so they
+    // don't appear as CALL edges. We scan non-definition occurrences
+    // for the target symbol and attribute each reference to the
+    // innermost enclosing definition in the same document. Matches
+    // pyright's `prepareCallHierarchy(Class)` behaviour for Python
+    // corpora.
+    if (hits.length === 0 && !calleeSymbol.endsWith("().")) {
+      for (const [file, occs] of this.occurrencesByFile) {
+        const defs: { symbol: string; occ: ScipOccurrence }[] = [];
+        for (const occ of occs) {
+          if (!(occ.symbolRoles & SCIP_ROLE_DEFINITION)) continue;
+          if (!occ.enclosingRange) continue;
+          defs.push({ symbol: occ.symbol, occ });
+        }
+        for (const occ of occs) {
+          if (occ.symbol !== calleeSymbol) continue;
+          if (occ.symbolRoles & SCIP_ROLE_DEFINITION) continue;
+          const enclosing = findInnermostEnclosing(defs, occ);
+          if (!enclosing) continue;
+          hits.push({
+            file,
+            line: occ.range.startLine + 1,
+            character: occ.range.startChar + 1,
+            enclosingSymbolName: displayTail(enclosing.symbol),
+          });
+        }
+      }
     }
     hits.sort(compareByLocation);
     return hits;
@@ -271,6 +329,32 @@ class ScipClient implements LspClientLike {
     return bestDef ?? bestRef;
   }
 
+  /**
+   * Fallback symbol resolution — used when the corpus target gives
+   * (file, line=1, char=1) as a placeholder and relies on `symbolName`
+   * to disambiguate. Match the SCIP symbol whose *definition* lies in
+   * `input.filePath` and whose descriptor tail matches `symbolName`
+   * (with dot-separated nested names mapped to SCIP's `#` / `.`
+   * separators).
+   */
+  private resolveSymbolByName(input: {
+    readonly filePath: string;
+    readonly symbolName?: string;
+  }): string | null {
+    const name = input.symbolName;
+    if (!name) return null;
+    const rel = this.relativize(input.filePath);
+    const occs = this.occurrencesByFile.get(rel);
+    if (!occs) return null;
+    const parts = name.split(".");
+    for (const occ of occs) {
+      if (!(occ.symbolRoles & SCIP_ROLE_DEFINITION)) continue;
+      if (!occ.symbol) continue;
+      if (descriptorMatches(occ.symbol, parts)) return occ.symbol;
+    }
+    return null;
+  }
+
   private relativize(filePath: string): string {
     const abs = resolve(filePath);
     const root = resolve(this.fixtureRoot);
@@ -302,6 +386,60 @@ function rangeContains(occ: ScipOccurrence, line: number, char: number): boolean
   if (line === startLine && char < startChar) return false;
   if (line === endLine && char > endChar) return false;
   return true;
+}
+
+/**
+ * Dotted `Foo.bar` corpus names → SCIP descriptors. SCIP encodes
+ * nested identifiers as a chain of descriptor suffixes: `#` for types,
+ * `().` for methods, `.` for terms. We compare the *tail* of the
+ * descriptor chain to the dotted parts (case-sensitive). Both
+ * `Agent.invoke_async` → `…/Agent#invoke_async().` and
+ * `Agent` → `…/Agent#` resolve through this matcher.
+ */
+function descriptorMatches(scipSymbol: string, parts: readonly string[]): boolean {
+  if (scipSymbol.startsWith("local ")) return false;
+  const pieces = scipSymbol.split(" ");
+  if (pieces.length < 4) return false;
+  const desc = pieces.slice(3).join(" ");
+  // Split on `/` (namespace), `#` (type), `.` (term / end-of-method)
+  // but keep the trailing token. Each separator is significant for
+  // identity; we only care about the *name segments*, so normalize
+  // `#` → `/`, `()` → empty, trailing `.` → empty, then split on `/`.
+  const normalized = desc
+    .replace(/#/g, "/")
+    .replace(/\(\)/g, "")
+    .replace(/\.$/, "")
+    .replace(/\./g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length < parts.length) return false;
+  const tail = segments.slice(segments.length - parts.length);
+  for (let i = 0; i < parts.length; i++) {
+    if (tail[i] !== parts[i]) return false;
+  }
+  return true;
+}
+
+function findInnermostEnclosing(
+  defs: readonly { symbol: string; occ: ScipOccurrence }[],
+  site: ScipOccurrence,
+): { symbol: string; occ: ScipOccurrence } | null {
+  const line = site.range.startLine;
+  const char = site.range.startChar;
+  let best: { symbol: string; occ: ScipOccurrence } | null = null;
+  let bestSpan = Number.POSITIVE_INFINITY;
+  for (const def of defs) {
+    const r = def.occ.enclosingRange;
+    if (!r) continue;
+    if (line < r.startLine || line > r.endLine) continue;
+    if (line === r.startLine && char < r.startChar) continue;
+    if (line === r.endLine && char > r.endChar) continue;
+    const span = (r.endLine - r.startLine) * 1000 + (r.endChar - r.startChar);
+    if (span < bestSpan) {
+      best = def;
+      bestSpan = span;
+    }
+  }
+  return best;
 }
 
 function displayTail(scipSymbol: string): string {

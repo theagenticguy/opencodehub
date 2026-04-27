@@ -18,7 +18,7 @@
  *      `confidence-demote` and downstream consumers expect.
  */
 
-export type { DerivedEdge, DerivedIndex, DerivedSymbol } from "./derive.js";
+export type { DerivedEdge, DerivedIndex, DerivedRelation, DerivedSymbol } from "./derive.js";
 export { deriveEdges, deriveIndex, findOccurrencesBySymbol } from "./derive.js";
 export type {
   BlastMetrics,
@@ -32,6 +32,7 @@ export type {
   ScipIndex,
   ScipOccurrence,
   ScipRange,
+  ScipRelationship,
   ScipSymbolInformation,
   ScipToolInfo,
 } from "./parse.js";

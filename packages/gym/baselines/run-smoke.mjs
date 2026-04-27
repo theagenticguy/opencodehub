@@ -192,7 +192,7 @@ for (const fixture of fixtures) {
     peakRssMb: analyze.peakRssMb,
     nodeCount: analyze.stats.nodeCount,
     edgeCount: analyze.stats.edgeCount,
-    lspPhaseEdges: analyze.stats.lspPhaseEdges,
+    scipPhaseEdges: analyze.stats.scipPhaseEdges,
     heuristicEdges: analyze.stats.heuristicEdges,
     demotedEdges: analyze.stats.demotedEdges,
     graphHash: analyze.stats.graphHash,
@@ -217,10 +217,11 @@ function tryVersion(cmd, args) {
 
 const toolchain = {
   node: process.version,
-  pyright: tryVersion("pyright", ["--version"]),
-  "typescript-language-server": tryVersion("typescript-language-server", ["--version"]),
-  gopls: tryVersion("gopls", ["version"]),
+  "scip-python": tryVersion("scip-python", ["--version"]),
+  "scip-typescript": tryVersion("scip-typescript", ["--version"]),
+  "scip-go": tryVersion("scip-go", ["--version"]),
   "rust-analyzer": tryVersion("rust-analyzer", ["--version"]),
+  "scip-java": tryVersion("scip-java", ["--version"]),
 };
 
 const performance = {

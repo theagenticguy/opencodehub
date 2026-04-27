@@ -1,6 +1,6 @@
 # Rust corpus
 
-Golden corpus for the gym's rust-analyzer oracle. Cases are auto-labeled by
+Golden corpus for the gym's rust-analyzer --scip oracle. Cases are auto-labeled by
 Opus-grade source reading against the pinned fixture at
 `packages/gym/corpus/repos/rust/thiserror` (tag `2.0.17`, commit
 `72ae716e6d6a7f7fdabdc394018c745b4d39ca45`). The fixture is a vendored
@@ -9,8 +9,8 @@ hand-written `src/` and `impl/src/` trees.
 
 ## Proc-macro-disabled tradeoff
 
-`RustAnalyzerClient` (see `packages/lsp-oracle/src/rust-analyzer-client.ts`)
-boots rust-analyzer with `procMacro.enable = false` by default. Under that
+The rust runner (see `packages/scip-ingest/src/runners/index.ts`)
+boots rust-analyzer scip run with `procMacro.enable = false` by default. Under that
 config, the output of `#[derive(Error)]` — which is thiserror's entire
 public-facing value proposition — is **not visible** to static reference,
 implementation, or caller resolution. Any case that counted derive-expansion

@@ -79,7 +79,7 @@ For any task that touches code understanding, debugging, impact analysis, refact
 
 ## Differentiators to surface in responses
 
-- **`confidenceBreakdown`** — every `context` and `impact` response carries a `{confirmed, heuristic, unknown}` tally. `confirmed` means an LSP oracle (pyright / tsserver / gopls / rust-analyzer) has confirmed the edge at confidence ≥ 0.95. `heuristic` is tree-sitter or tier-1/tier-2 inference the LSP has not confirmed. `unknown` is demoted (≤ 0.2) — the LSP contradicted the heuristic. Report this breakdown when an agent is about to take a destructive action based on edges.
+- **`confidenceBreakdown`** — every `context` and `impact` response carries a `{confirmed, heuristic, unknown}` tally. `confirmed` means a SCIP indexer (scip-typescript / scip-python / scip-go / rust-analyzer / scip-java) has confirmed the edge at confidence ≥ 0.95. `heuristic` is tree-sitter or tier-1/tier-2 inference the SCIP oracle has not confirmed. `unknown` is demoted (≤ 0.2) — a SCIP-confirmed edge exists at the same triple and the heuristic carries a `+scip-unconfirmed` reason suffix. Report this breakdown when an agent is about to take a destructive action based on edges.
 - **`cochanges` side-section** — `context` includes files historically co-edited with the target (by lift, from the dedicated `cochanges` table). This is a **git-history signal, not call dependencies** — label it that way when you report it. It is excluded from the graph hash.
 - **`verdict` + `list_findings` + `list_findings_delta`** — PR review grade is deterministic, not opinion.
 - **`license_audit`** + **`risk_trends`** + **`owners`** — first-class audit workflows without writing SQL.
@@ -144,16 +144,13 @@ WHERE n.kind = 'Process'
 ORDER BY n.step_count DESC;
 ```
 
-LSP-confirmed edges only (for strict impact queries):
+SCIP-confirmed edges only (for strict impact queries):
 
 ```sql
 SELECT from_id, to_id, type, reason
 FROM relations
 WHERE confidence >= 0.95
-  AND (reason LIKE 'lsp:pyright%'
-    OR reason LIKE 'lsp:tsserver%'
-    OR reason LIKE 'lsp:gopls%'
-    OR reason LIKE 'lsp:rust-analyzer%');
+  AND reason LIKE 'scip:%';
 ```
 
 ## Invariants agents must respect

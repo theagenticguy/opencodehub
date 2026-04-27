@@ -20,6 +20,20 @@ export interface DerivedEdge {
   readonly kind: "CALLS" | "REFERENCES";
 }
 
+/**
+ * Structural relationship edges sourced from
+ * `SymbolInformation.relationships`. `IMPLEMENTS` covers interface /
+ * trait implementation (`is_implementation: true`); `EXTENDS` covers
+ * class / prototype inheritance (synthesized from implementation
+ * edges on class-kind symbols when the target ends in `#` and the
+ * SCIP indexer did not emit a distinct relation flag).
+ */
+export interface DerivedRelation {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: "IMPLEMENTS" | "TYPE_OF";
+}
+
 export interface DerivedSymbol {
   readonly symbol: string;
   readonly displayName: string;
@@ -34,6 +48,7 @@ export interface DerivedIndex {
   readonly projectRoot: string;
   readonly symbols: readonly DerivedSymbol[];
   readonly edges: readonly DerivedEdge[];
+  readonly relations: readonly DerivedRelation[];
 }
 
 /**
@@ -164,12 +179,43 @@ export function deriveIndex(index: ScipIndex): DerivedIndex {
     for (const edge of deriveEdges(doc)) edges.push(edge);
   }
 
+  const relations: DerivedRelation[] = [];
+  const seenRelations = new Set<string>();
+  const collectRels = (sym: {
+    symbol: string;
+    relationships: readonly import("./parse.js").ScipRelationship[];
+  }) => {
+    for (const rel of sym.relationships) {
+      if (!rel.symbol) continue;
+      if (rel.isImplementation)
+        pushRel(relations, seenRelations, sym.symbol, rel.symbol, "IMPLEMENTS");
+      if (rel.isTypeDefinition)
+        pushRel(relations, seenRelations, sym.symbol, rel.symbol, "TYPE_OF");
+    }
+  };
+  for (const doc of index.documents) for (const s of doc.symbols) collectRels(s);
+  for (const s of index.externalSymbols) collectRels(s);
+
   return {
     tool: index.tool,
     projectRoot: index.projectRoot,
     symbols: [...symbols.values()],
     edges,
+    relations,
   };
+}
+
+function pushRel(
+  out: DerivedRelation[],
+  seen: Set<string>,
+  from: string,
+  to: string,
+  kind: DerivedRelation["kind"],
+): void {
+  const key = `${from}\x00${kind}\x00${to}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push({ from, to, kind });
 }
 
 function findDefinition(doc: ScipDocument, symbol: string): ScipRange | null {

@@ -25,11 +25,20 @@ export interface ScipOccurrence {
   readonly enclosingRange: ScipRange | null;
 }
 
+export interface ScipRelationship {
+  readonly symbol: string;
+  readonly isReference: boolean;
+  readonly isImplementation: boolean;
+  readonly isTypeDefinition: boolean;
+  readonly isDefinition: boolean;
+}
+
 export interface ScipSymbolInformation {
   readonly symbol: string;
   readonly displayName: string;
   readonly kind: number;
   readonly documentation: readonly string[];
+  readonly relationships: readonly ScipRelationship[];
 }
 
 export interface ScipDocument {
@@ -192,6 +201,7 @@ function parseSymbolInformation(buf: Uint8Array): ScipSymbolInformation {
   let displayName = "";
   let kind = 0;
   const documentation: string[] = [];
+  const relationships: ScipRelationship[] = [];
   const reader = new ProtoReader(buf);
   reader.forEachField((field, wire, self) => {
     switch (field) {
@@ -202,6 +212,10 @@ function parseSymbolInformation(buf: Uint8Array): ScipSymbolInformation {
       case 3: // documentation
         if (wire !== WireType.LENGTH_DELIMITED) return false;
         documentation.push(self.readString());
+        return true;
+      case 4: // relationships
+        if (wire !== WireType.LENGTH_DELIMITED) return false;
+        relationships.push(parseRelationship(self.readSubMessage()));
         return true;
       case 5: // kind
         if (wire !== WireType.VARINT) return false;
@@ -220,7 +234,44 @@ function parseSymbolInformation(buf: Uint8Array): ScipSymbolInformation {
     displayName: displayName || deriveDisplayName(symbol),
     kind,
     documentation,
+    relationships,
   };
+}
+
+function parseRelationship(buf: Uint8Array): ScipRelationship {
+  let symbol = "";
+  let isReference = false;
+  let isImplementation = false;
+  let isTypeDefinition = false;
+  let isDefinition = false;
+  const reader = new ProtoReader(buf);
+  reader.forEachField((field, wire, self) => {
+    switch (field) {
+      case 1:
+        if (wire !== WireType.LENGTH_DELIMITED) return false;
+        symbol = self.readString();
+        return true;
+      case 2:
+        if (wire !== WireType.VARINT) return false;
+        isReference = self.readVarint() !== 0;
+        return true;
+      case 3:
+        if (wire !== WireType.VARINT) return false;
+        isImplementation = self.readVarint() !== 0;
+        return true;
+      case 4:
+        if (wire !== WireType.VARINT) return false;
+        isTypeDefinition = self.readVarint() !== 0;
+        return true;
+      case 5:
+        if (wire !== WireType.VARINT) return false;
+        isDefinition = self.readVarint() !== 0;
+        return true;
+      default:
+        return false;
+    }
+  });
+  return { symbol, isReference, isImplementation, isTypeDefinition, isDefinition };
 }
 
 /**
