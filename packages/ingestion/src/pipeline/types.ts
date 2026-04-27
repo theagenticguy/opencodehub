@@ -129,6 +129,24 @@ export interface PipelineOptions {
    */
   readonly embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
   /**
+   * Number of ONNX embedder workers to run in parallel. `undefined` or
+   * `<= 1` preserves the legacy in-process path (single main-thread
+   * embedder, no Piscina overhead). Values >= 2 spin up a worker pool of
+   * independent OnnxEmbedder instances. Each worker holds its own
+   * session (~300 MB RSS on fp32), so sizing above `os.cpus().length - 1`
+   * buys nothing and risks memory pressure. Ignored when the HTTP
+   * backend is selected via `CODEHUB_EMBEDDING_URL`.
+   */
+  readonly embeddingsWorkers?: number;
+  /**
+   * Batch size for cross-node inference. The embeddings phase groups
+   * chunks across symbols/files/communities into a single
+   * `embedder.embedBatch()` call; this knob controls that batch size.
+   * Defaults to 32 (see `DEFAULT_EMBEDDING_BATCH_SIZE` in the phase
+   * module). `1` restores the legacy one-node-per-call pattern.
+   */
+  readonly embeddingsBatchSize?: number;
+  /**
    * When `true`, the SBOM phase emits `.codehub/sbom.cyclonedx.json` and
    * `.codehub/sbom.spdx.json` from Dependency nodes. When `false` (the
    * default), the phase is a no-op. Toggled via the `codehub analyze

@@ -8,6 +8,7 @@
  * run that subcommand.
  */
 
+import { cpus } from "node:os";
 import { Command } from "commander";
 
 const program = new Command()
@@ -24,6 +25,14 @@ program
   .option(
     "--granularity <csv>",
     "Hierarchical embedding tiers to emit, comma-separated. Values: symbol, file, community. Default: symbol. Example: --granularity symbol,file,community",
+  )
+  .option(
+    "--embeddings-workers <n|auto>",
+    'Parallel ONNX embedder workers (each ~300 MB RSS on fp32). "auto" = os.cpus().length - 1, min 1. Default 1 (legacy in-process path).',
+  )
+  .option(
+    "--embeddings-batch-size <n>",
+    "Chunks per embedBatch() call. Default 32. Set to 1 to restore the legacy one-node-per-call pattern.",
   )
   .option("--offline", "Assert no network access during analyze")
   .option("--verbose", "Emit per-phase pipeline progress")
@@ -92,12 +101,16 @@ program
     }
 
     const granularity = parseGranularityCsv(opts["granularity"]);
+    const embeddingsWorkers = parseWorkerCount(opts["embeddingsWorkers"]);
+    const embeddingsBatchSize = parsePositiveInt(opts["embeddingsBatchSize"]);
 
     await mod.runAnalyze(path ?? process.cwd(), {
       force: opts["force"] === true,
       embeddings: opts["embeddings"] === true,
       embeddingsVariant: opts["embeddingsInt8"] === true ? "int8" : "fp32",
       ...(granularity !== undefined ? { embeddingsGranularity: granularity } : {}),
+      ...(embeddingsWorkers !== undefined ? { embeddingsWorkers } : {}),
+      ...(embeddingsBatchSize !== undefined ? { embeddingsBatchSize } : {}),
       offline: opts["offline"] === true,
       verbose: opts["verbose"] === true,
       skipAgentsMd: opts["skipAgentsMd"] === true,
@@ -659,6 +672,35 @@ function parseGranularityCsv(
     out.push(token as "symbol");
   }
   return out;
+}
+
+/**
+ * Parse `--embeddings-workers`. Accepts a positive integer or the literal
+ * "auto" (resolves to `os.cpus().length - 1`, floor 1). Returns undefined
+ * when the flag wasn't supplied so the pipeline picks its own default.
+ */
+function parseWorkerCount(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "auto") {
+    return Math.max(1, cpus().length - 1);
+  }
+  const parsed = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(
+      `--embeddings-workers must be a positive integer or "auto"; got "${String(raw)}"`,
+    );
+  }
+  return Math.floor(parsed);
+}
+
+/** Parse a positive integer CLI flag, returning undefined when omitted. */
+function parsePositiveInt(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(`expected a positive integer; got "${String(raw)}"`);
+  }
+  return Math.floor(parsed);
 }
 
 function parseEditors(

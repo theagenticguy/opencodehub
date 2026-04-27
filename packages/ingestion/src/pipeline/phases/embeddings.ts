@@ -46,8 +46,19 @@ import type { EmbeddingGranularity, EmbeddingRow } from "@opencodehub/storage";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { ANNOTATE_PHASE_NAME } from "./annotate.js";
 import { COMMUNITIES_PHASE_NAME } from "./communities.js";
+import { openOnnxEmbedderPool } from "./embedder-pool.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
 import { SUMMARIZE_PHASE_NAME, type SummarizePhaseOutput } from "./summarize.js";
+
+/**
+ * Default batch size for cross-node inference. Picked so a single batch
+ * fully utilizes one ONNX session without blowing host memory on a typical
+ * M-series / Linux laptop: 32 symbols × ~500 tokens × 2 (int64 id+mask) is
+ * comfortably under 1 MB of tensor feed, and the quadratic attention cost
+ * is dominated by the per-chunk cost rather than the batch dimension.
+ * Callers can override via `options.embeddingsBatchSize`.
+ */
+const DEFAULT_EMBEDDING_BATCH_SIZE = 32;
 
 export const EMBEDDER_PHASE_NAME = "embeddings" as const;
 
@@ -427,6 +438,17 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
   // The offline invariant is non-negotiable: when `offline === true`, the
   // HTTP path is REFUSED even if the env vars are set — `tryOpenHttpEmbedder`
   // throws, and we rethrow rather than silently continuing to ONNX.
+  // `embeddingsWorkers` controls the ONNX worker-pool size. `undefined` or
+  // `<= 1` preserves the legacy in-process embedder (no pool, no worker
+  // overhead). Values >= 2 spin up a Piscina pool whose workers each hold
+  // their own OnnxEmbedder. The HTTP backend ignores the flag — its
+  // parallelism is driven by the remote server's capacity.
+  const workers = Math.max(1, Math.floor(ctx.options.embeddingsWorkers ?? 1));
+  const batchSize = Math.max(
+    1,
+    Math.floor(ctx.options.embeddingsBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE),
+  );
+
   let embedder: Embedder;
   try {
     const httpEmbedder = tryOpenHttpEmbedder({ offline: ctx.options.offline === true });
@@ -438,7 +460,18 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       if (ctx.options.embeddingsModelDir !== undefined) {
         cfg.modelDir = ctx.options.embeddingsModelDir;
       }
-      embedder = await openOnnxEmbedder(cfg);
+      if (workers > 1) {
+        // Weight canary: open (and immediately close) a main-thread
+        // OnnxEmbedder so EmbedderNotSetupError surfaces with its class
+        // identity preserved. Piscina's structured-clone transport would
+        // strip the prototype chain from a worker-raised error, breaking
+        // the `instanceof EmbedderNotSetupError` catch below.
+        const canary = await openOnnxEmbedder(cfg);
+        await canary.close();
+        embedder = openOnnxEmbedderPool({ workers, ...cfg });
+      } else {
+        embedder = await openOnnxEmbedder(cfg);
+      }
     }
   } catch (err) {
     if (err instanceof EmbedderNotSetupError) {
@@ -491,6 +524,22 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       }
     }
 
+    // Job-collection phase. Walk all requested tiers in canonical order
+    // (symbol → file → community) and accumulate one `EmbedJob` per chunk
+    // we'd like to embed. Each job knows how to emit its row once a
+    // vector arrives, keeping the dispatch loop below tier-agnostic.
+    //
+    // Row assembly order is preserved: the collection step runs tiers in
+    // the same sequence as the previous per-tier loops, so `rows[]` ends
+    // up identical to the pre-refactor layout modulo within-symbol chunk
+    // ordering (which is already controlled by `chunkIndex`).
+    interface EmbedJob {
+      readonly granularity: EmbeddingGranularity;
+      readonly text: string;
+      readonly emitRow: (vector: Float32Array) => EmbeddingRow;
+    }
+    const jobs: EmbedJob[] = [];
+
     // ---- Symbol tier ---------------------------------------------------
     if (tiers.includes("symbol")) {
       const eligible: EmbeddableSymbol[] = [];
@@ -501,9 +550,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
 
       for (const node of eligible) {
         const summary = summaryByNode.get(node.id);
-        // Summary-fused path reads the symbol body from disk when
-        // startLine/endLine are present; missing → fall through to
-        // signature/description text.
         let body: string | undefined;
         if (
           summary !== undefined &&
@@ -513,7 +559,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
         ) {
           body = readSourceSpan(ctx.repoPath, node.filePath, node.startLine, node.endLine);
         }
-
         const text = symbolText(node, summary, body);
         if (text.length === 0) {
           skipped += 1;
@@ -526,22 +571,22 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += chunks.length;
-        const vectors = await embedder.embedBatch(chunks);
-        for (let i = 0; i < vectors.length; i++) {
-          const vec = vectors[i];
-          const chunkText = chunks[i];
-          if (vec === undefined || chunkText === undefined) continue;
-          const row: EmbeddingRow = {
-            nodeId: node.id,
+        for (let i = 0; i < chunks.length; i++) {
+          const chunkText = chunks[i] ?? "";
+          const chunkIndex = i;
+          jobs.push({
             granularity: "symbol",
-            chunkIndex: i,
-            ...(node.startLine !== undefined ? { startLine: node.startLine } : {}),
-            ...(node.endLine !== undefined ? { endLine: node.endLine } : {}),
-            vector: vec,
-            contentHash: hashText("symbol", chunkText),
-          };
-          rows.push(row);
-          byGranularity["symbol"] = (byGranularity["symbol"] ?? 0) + 1;
+            text: chunkText,
+            emitRow: (vector) => ({
+              nodeId: node.id,
+              granularity: "symbol",
+              chunkIndex,
+              ...(node.startLine !== undefined ? { startLine: node.startLine } : {}),
+              ...(node.endLine !== undefined ? { endLine: node.endLine } : {}),
+              vector,
+              contentHash: hashText("symbol", chunkText),
+            }),
+          });
         }
       }
     }
@@ -553,7 +598,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       for (const n of ctx.graph.nodes()) {
         if (isFileNode(n)) fileNodeByPath.set(n.filePath, n);
       }
-      // Sort scan files so the embedding order is stable across runs.
       const scanFiles = scan ? [...scan.files] : [];
       scanFiles.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
 
@@ -561,17 +605,13 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
         const ext = path.extname(f.relPath).toLowerCase();
         if (!EMBEDDABLE_FILE_EXTS.has(ext)) continue;
         const fileNode = fileNodeByPath.get(f.relPath);
-        if (fileNode === undefined) continue; // node emission may have skipped it
+        if (fileNode === undefined) continue;
         const raw = readFileWhole(ctx.repoPath, f.relPath);
         if (raw === undefined || raw.length === 0) {
           skipped += 1;
           continue;
         }
         const truncated = raw.length > FILE_CHAR_CAP ? raw.slice(0, FILE_CHAR_CAP) : raw;
-        // Single chunk per file at v1.1 (spec: EMB-E-002). If the
-        // truncated text still overflows the embedder's token budget
-        // the chunker will split it; we keep only the first chunk so
-        // one file always maps to one file-tier row.
         const chunks = splitIntoChunks(truncated, maxUserTokens);
         const firstChunk = chunks[0];
         if (firstChunk === undefined) {
@@ -579,26 +619,22 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
-        const vectors = await embedder.embedBatch([firstChunk]);
-        const vec = vectors[0];
-        if (vec === undefined) continue;
-        rows.push({
-          nodeId: fileNode.id,
+        jobs.push({
           granularity: "file",
-          chunkIndex: 0,
-          vector: vec,
-          contentHash: hashText("file", firstChunk),
+          text: firstChunk,
+          emitRow: (vector) => ({
+            nodeId: fileNode.id,
+            granularity: "file",
+            chunkIndex: 0,
+            vector,
+            contentHash: hashText("file", firstChunk),
+          }),
         });
-        byGranularity["file"] = (byGranularity["file"] ?? 0) + 1;
       }
     }
 
     // ---- Community tier -----------------------------------------------
     if (tiers.includes("community")) {
-      // Community nodes carry `inferredLabel` + `keywords`. Walk MEMBER_OF
-      // edges (confidence 1.0, emitted by the communities phase) to
-      // enumerate the top symbols by name; the label text is
-      // `inferredLabel\nkeyword1 keyword2 …\ntopSymbol1 topSymbol2 …`.
       const membersByCommunity = new Map<string, string[]>();
       const nameById = new Map<string, string>();
       for (const n of ctx.graph.nodes()) {
@@ -623,10 +659,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
 
       for (const c of communities) {
         const members = membersByCommunity.get(c.id) ?? [];
-        // Sort members for determinism; take the first 10 names for the
-        // label (alphabetical — the community id itself is canonicalised
-        // by the lexicographically-smallest member, so this keeps the
-        // signal shape intact without leaking graph traversal order).
         const memberNames = members
           .map((m) => nameById.get(m))
           .filter((x): x is string => x !== undefined)
@@ -649,17 +681,49 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
-        const vectors = await embedder.embedBatch([firstChunk]);
-        const vec = vectors[0];
-        if (vec === undefined) continue;
-        rows.push({
-          nodeId: c.id,
+        jobs.push({
           granularity: "community",
-          chunkIndex: 0,
-          vector: vec,
-          contentHash: hashText("community", firstChunk),
+          text: firstChunk,
+          emitRow: (vector) => ({
+            nodeId: c.id,
+            granularity: "community",
+            chunkIndex: 0,
+            vector,
+            contentHash: hashText("community", firstChunk),
+          }),
         });
-        byGranularity["community"] = (byGranularity["community"] ?? 0) + 1;
+      }
+    }
+
+    // ---- Dispatch ------------------------------------------------------
+    // Cross-node batching: group jobs into fixed-size batches and embed
+    // them as a single `embedBatch()` call. When the embedder is a worker
+    // pool, successive batches ride different workers in parallel; when
+    // it's an in-process embedder the batching still cuts per-call
+    // overhead (tokenizer + tensor feed building amortize across the
+    // batch). We fire `workers` batches concurrently so the pool stays
+    // saturated — the pool's Piscina queue handles backpressure.
+    for (let i = 0; i < jobs.length; i += batchSize * workers) {
+      const waveEnd = Math.min(jobs.length, i + batchSize * workers);
+      const waveBatches: Promise<readonly Float32Array[]>[] = [];
+      const waveJobSlices: EmbedJob[][] = [];
+      for (let b = i; b < waveEnd; b += batchSize) {
+        const batchEnd = Math.min(waveEnd, b + batchSize);
+        const slice = jobs.slice(b, batchEnd);
+        waveJobSlices.push(slice);
+        waveBatches.push(embedder.embedBatch(slice.map((j) => j.text)));
+      }
+      const waveResults = await Promise.all(waveBatches);
+      for (let w = 0; w < waveResults.length; w++) {
+        const vectors = waveResults[w] ?? [];
+        const slice = waveJobSlices[w] ?? [];
+        for (let k = 0; k < slice.length; k++) {
+          const job = slice[k];
+          const vec = vectors[k];
+          if (job === undefined || vec === undefined) continue;
+          rows.push(job.emitRow(vec));
+          byGranularity[job.granularity] = (byGranularity[job.granularity] ?? 0) + 1;
+        }
       }
     }
 

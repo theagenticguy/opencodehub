@@ -405,6 +405,36 @@ describe("embeddingsPhase — hierarchical tiers (P03)", () => {
     assert.equal(a.embeddingsHash, b.embeddingsHash, "hash is stable across runs");
   });
 
+  it("produces the same embeddingsHash across batchSize=1 and batchSize=32", async () => {
+    const { repoPath, relPath } = makeRepo();
+    async function runWith(batchSize: number): Promise<string> {
+      const ctx: PipelineContext = {
+        repoPath,
+        options: {
+          embeddings: true,
+          embeddingsGranularity: ["symbol", "file", "community"],
+          embeddingsBatchSize: batchSize,
+        } as unknown as PipelineOptions,
+        graph: buildGraph(relPath),
+        phaseOutputs: new Map<string, unknown>([
+          [
+            SCAN_PHASE_NAME,
+            { files: [{ absPath: "", relPath, byteSize: 1, sha256: "h", grammarSha: null }] },
+          ],
+        ]),
+      };
+      const out = await embeddingsPhase.run(ctx, new Map());
+      return out.embeddingsHash;
+    }
+    const hashSmall = await runWith(1);
+    const hashLarge = await runWith(32);
+    assert.equal(
+      hashSmall,
+      hashLarge,
+      "cross-node batching must not perturb the deterministic row layout",
+    );
+  });
+
   it("scopes content hashes per tier so cross-tier collisions are impossible", async () => {
     const { repoPath, relPath } = makeRepo();
     const graph = buildGraph(relPath);
