@@ -12,7 +12,7 @@
  *     inference that the LSP oracle has not confirmed (either no coverage
  *     for the language, or the LSP was skipped).
  *   - `unknown` — confidence <= 0.2. Heuristic edges that the demote phase
- *     explicitly flagged as contradicted (`+lsp-unconfirmed`) or placeholders
+ *     explicitly flagged as contradicted (`+scip-unconfirmed`) or placeholders
  *     from the parser.
  *
  * The breakdown is a pure read-side aggregation — callers feed in the edges
@@ -20,7 +20,7 @@
  */
 
 import type { CodeRelation } from "@opencodehub/core-types";
-import { LSP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
+import { SCIP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
 
 export interface ConfidenceBreakdown {
   readonly confirmed: number;
@@ -70,7 +70,7 @@ export function computeConfidenceBreakdownFromRelations(
 
 function hasLspProvenance(reason: string | undefined): boolean {
   if (reason === undefined) return false;
-  for (const prefix of LSP_PROVENANCE_PREFIXES) {
+  for (const prefix of SCIP_PROVENANCE_PREFIXES) {
     if (reason.startsWith(prefix)) return true;
   }
   return false;

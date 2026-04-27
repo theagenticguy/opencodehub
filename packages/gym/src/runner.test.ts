@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runCommand } from "./cli.js";
+import type { ManifestLanguage } from "./manifest.js";
+import { replayManifest, runGym } from "./runner.js";
 import type {
   CallerSite,
   ImplementationSite,
@@ -13,9 +15,7 @@ import type {
   QueryImplementationsInput,
   QueryReferencesInput,
   ReferenceSite,
-} from "./lsp-factory.js";
-import type { ManifestLanguage } from "./manifest.js";
-import { replayManifest, runGym } from "./runner.js";
+} from "./scip-factory.js";
 
 /**
  * Scripted response for a single case. Keys are `${kind}:${symbolName}`
@@ -175,8 +175,8 @@ function writeTsCorpus(
     })
     .join("\n");
 
-  const toolName = language === "typescript" ? "typescript-language-server" : "pyright";
-  const toolVersion = language === "typescript" ? "5.1.3" : "1.1.390";
+  const toolName = language === "typescript" ? "scip-typescript" : "scip-python";
+  const toolVersion = language === "typescript" ? "0.4.0" : "0.6.6";
   const body = [
     `language: ${language}`,
     `corpus:`,
@@ -268,8 +268,8 @@ test("runGym: single-language TypeScript run writes manifest + scores both cases
     // One rollup per (language, tool, kind).
     const rollupKeys = result.rollups.map((r) => r.key).sort();
     assert.deepEqual(rollupKeys, [
-      "typescript/typescript-language-server/callers",
-      "typescript/typescript-language-server/references",
+      "typescript/scip-typescript/callers",
+      "typescript/scip-typescript/references",
     ]);
     // Warmup was invoked once with both the target + expected files.
     assert.equal(state.warmupCalls.length, 1);
@@ -334,8 +334,8 @@ test("runGym: multi-language run separates rollups per language", async () => {
     assert.equal(result.caseScores.length, 2);
     const rollupKeys = result.rollups.map((r) => r.key).sort();
     assert.deepEqual(rollupKeys, [
-      "python/pyright/references",
-      "typescript/typescript-language-server/references",
+      "python/scip-python/references",
+      "typescript/scip-typescript/references",
     ]);
     // Each rollup has exactly one case.
     for (const r of result.rollups) {

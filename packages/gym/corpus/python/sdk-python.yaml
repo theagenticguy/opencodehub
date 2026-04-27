@@ -2,385 +2,406 @@ language: python
 corpus:
   name: sdk-python
   commit: 5a6df59502dc618781b85e80b01706a19cd45828
-  path: sdk-python
+  path: python/sdk-python
 tool:
-  name: pyright
-  version: 1.1.390
+  name: scip-python
+  version: "0.6.6"
 cases:
-  - id: sdk-python.callers.Agent
-    kind: callers
-    target:
-      symbolName: Agent
-      file: src/strands/agent/agent.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/vended_plugins/steering/handlers/llm/llm_handler.py
-        line: 65
-        column: 1
-      - file: tests/strands/agent/test_agent.py
-        line: 244
-        column: 1
-      - file: tests/strands/agent/test_agent.py
-        line: 251
-        column: 1
-      - file: tests/strands/agent/test_agent.py
-        line: 257
-        column: 1
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.Agent
+  kind: callers
+  target:
+    symbolName: Agent
+    file: src/strands/agent/agent.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 33
+    column: 10
+    enclosing: fake_agent().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 684
+    column: 10
+    enclosing: test_agent_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 696
+    column: 10
+    enclosing: test_multiple_agents_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 710
+    column: 10
+    enclosing: test_agent_mixed_with_regular_tools_in_tools_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 613
+    column: 10
+    enclosing: test_process_tools_with_agent_instance().
+  - file: tests/strands/tools/test_registry.py
+    line: 627
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_name().
+  - file: tests/strands/tools/test_registry.py
+    line: 641
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_description().
+  - file: tests/strands/tools/test_registry.py
+    line: 654
+    column: 10
+    enclosing: test_process_tools_with_agent_in_nested_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 667
+    column: 10
+    enclosing: test_process_tools_with_mixed_agents_and_tools().
+  - file: tests/strands/tools/test_registry.py
+    line: 684
+    column: 10
+    enclosing: test_process_tools_with_multiple_agents().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
 
-  - id: sdk-python.callers.BedrockModel
-    kind: callers
-    target:
-      symbolName: BedrockModel
-      file: src/strands/models/bedrock.py
-      line: 1
-      column: 1
-    expected:
-      - file: tests/strands/agent/hooks/test_agent_events.py
-        line: 537
-        column: 1
-      - file: tests/strands/models/test_bedrock.py
-        line: 223
-        column: 1
-      - file: tests/strands/models/test_bedrock.py
-        line: 1727
-        column: 1
-      - file: tests/strands/models/test_bedrock.py
-        line: 1735
-        column: 1
-      - file: src/strands/agent/agent.py
-        line: 221
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.__init__"
-      - file: src/strands/agent/agent.py
-        line: 221
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.__init__"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Duplicate pyright row at agent.py:221 preserved from spike.
+- id: sdk-python.callers.BedrockModel
+  kind: callers
+  target:
+    symbolName: BedrockModel
+    file: src/strands/models/bedrock.py
+    line: 1
+    column: 1
+  expected: []
+  labeler: opus-4-7
+  labeler_note: 'Auto-waived: SCIP returned zero hits for this target. The target symbol has no callers/references/implementers inside the fixture.'
 
-  - id: sdk-python.callers.ConversationManager
-    kind: callers
-    target:
-      symbolName: ConversationManager
-      file: src/strands/agent/conversation_manager/conversation_manager.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/conversation_manager/null_conversation_manager.py
-        line: 12
-        column: 1
-      - file: src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
-        line: 20
-        column: 1
-      - file: src/strands/agent/conversation_manager/summarizing_conversation_manager.py
-        line: 54
-        column: 1
-      - file: tests/strands/agent/test_conversation_manager.py
-        line: 388
-        column: 1
-      - file: src/strands/agent/agent.py
-        line: 133
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.__init__"
-      - file: src/strands/agent/agent.py
-        line: 248
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.__init__"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; all rows were pyright or both.
+  waived: true
+- id: sdk-python.callers.ConversationManager
+  kind: callers
+  target:
+    symbolName: ConversationManager
+    file: src/strands/agent/conversation_manager/conversation_manager.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_conversation_manager.py
+    line: 388
+    column: 10
+    enclosing: test_derived_class_does_not_need_to_implement_register_hooks().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; all rows were pyright or both.
 
-  - id: sdk-python.callers.Agent.invoke_async
-    kind: callers
-    target:
-      symbolName: Agent.invoke_async
-      file: src/strands/agent/agent.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/agent.py
-        line: 494
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.__call__"
-      - file: tests/strands/agent/test_agent.py
-        line: 2438
-        column: 1
-        enclosing: "Variable:tests/strands/agent/test_agent.py:test_agent_sequential_invocations_work.result1"
-      - file: tests/strands/agent/test_agent.py
-        line: 2441
-        column: 1
-        enclosing: "Variable:tests/strands/agent/test_agent.py:test_agent_sequential_invocations_work.result2"
-      - file: tests/strands/agent/test_agent.py
-        line: 2444
-        column: 1
-        enclosing: "Variable:tests/strands/agent/test_agent.py:test_agent_sequential_invocations_work.result3"
-      - file: tests/strands/agent/test_agent.py
-        line: 2465
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_agent.py:test_agent_lock_released_on_exception"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.Agent.invoke_async
+  kind: callers
+  target:
+    symbolName: Agent.invoke_async
+    file: src/strands/agent/agent.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 33
+    column: 10
+    enclosing: fake_agent().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 684
+    column: 10
+    enclosing: test_agent_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 696
+    column: 10
+    enclosing: test_multiple_agents_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 710
+    column: 10
+    enclosing: test_agent_mixed_with_regular_tools_in_tools_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 613
+    column: 10
+    enclosing: test_process_tools_with_agent_instance().
+  - file: tests/strands/tools/test_registry.py
+    line: 627
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_name().
+  - file: tests/strands/tools/test_registry.py
+    line: 641
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_description().
+  - file: tests/strands/tools/test_registry.py
+    line: 654
+    column: 10
+    enclosing: test_process_tools_with_agent_in_nested_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 667
+    column: 10
+    enclosing: test_process_tools_with_mixed_agents_and_tools().
+  - file: tests/strands/tools/test_registry.py
+    line: 684
+    column: 10
+    enclosing: test_process_tools_with_multiple_agents().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
 
-  - id: sdk-python.callers.Agent.stream_async
-    kind: callers
-    target:
-      symbolName: Agent.stream_async
-      file: src/strands/agent/agent.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/_agent_as_tool.py
-        line: 199
-        column: 1
-        enclosing: "Method:src/strands/agent/_agent_as_tool.py:_AgentAsTool.stream"
-      - file: src/strands/agent/agent.py
-        line: 539
-        column: 1
-        enclosing: "Variable:src/strands/agent/agent.py:invoke_async.events"
-      - file: src/strands/multiagent/swarm.py
-        line: 867
-        column: 1
-        enclosing: "Method:src/strands/multiagent/swarm.py:Swarm._execute_node"
-      - file: src/strands/multiagent/a2a/executor.py
-        line: 136
-        column: 1
-        enclosing: "Method:src/strands/multiagent/a2a/executor.py:StrandsA2AExecutor._execute_streaming"
-      - file: tests/strands/agent/test_agent.py
-        line: 1082
-        column: 1
-        enclosing: "Variable:tests/strands/agent/test_agent.py:test_stream_async_returns_all_events.stream"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.Agent.stream_async
+  kind: callers
+  target:
+    symbolName: Agent.stream_async
+    file: src/strands/agent/agent.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 33
+    column: 10
+    enclosing: fake_agent().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 684
+    column: 10
+    enclosing: test_agent_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 696
+    column: 10
+    enclosing: test_multiple_agents_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 710
+    column: 10
+    enclosing: test_agent_mixed_with_regular_tools_in_tools_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 613
+    column: 10
+    enclosing: test_process_tools_with_agent_instance().
+  - file: tests/strands/tools/test_registry.py
+    line: 627
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_name().
+  - file: tests/strands/tools/test_registry.py
+    line: 641
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_description().
+  - file: tests/strands/tools/test_registry.py
+    line: 654
+    column: 10
+    enclosing: test_process_tools_with_agent_in_nested_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 667
+    column: 10
+    enclosing: test_process_tools_with_mixed_agents_and_tools().
+  - file: tests/strands/tools/test_registry.py
+    line: 684
+    column: 10
+    enclosing: test_process_tools_with_multiple_agents().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
 
-  - id: sdk-python.callers.Agent.structured_output_async
-    kind: callers
-    target:
-      symbolName: Agent.structured_output_async
-      file: src/strands/agent/agent.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/agent.py
-        line: 580
-        column: 1
-        enclosing: "Method:src/strands/agent/agent.py:Agent.structured_output"
-      - file: tests/strands/agent/test_agent_hooks.py
-        line: 695
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_agent_hooks.py:test_before_invocation_event_messages_none_in_structured_output"
-      - file: tests/strands/agent/hooks/test_agent_events.py
-        line: 572
-        column: 1
-        enclosing: "Function:tests/strands/agent/hooks/test_agent_events.py:test_structured_output"
-      - file: tests_integ/models/test_model_litellm.py
-        line: 172
-        column: 1
-        enclosing: "Variable:tests_integ/models/test_model_litellm.py:test_agent_structured_output_async.tru_weather"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.Agent.structured_output_async
+  kind: callers
+  target:
+    symbolName: Agent.structured_output_async
+    file: src/strands/agent/agent.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 33
+    column: 10
+    enclosing: fake_agent().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 684
+    column: 10
+    enclosing: test_agent_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 696
+    column: 10
+    enclosing: test_multiple_agents_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 710
+    column: 10
+    enclosing: test_agent_mixed_with_regular_tools_in_tools_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 613
+    column: 10
+    enclosing: test_process_tools_with_agent_instance().
+  - file: tests/strands/tools/test_registry.py
+    line: 627
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_name().
+  - file: tests/strands/tools/test_registry.py
+    line: 641
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_description().
+  - file: tests/strands/tools/test_registry.py
+    line: 654
+    column: 10
+    enclosing: test_process_tools_with_agent_in_nested_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 667
+    column: 10
+    enclosing: test_process_tools_with_mixed_agents_and_tools().
+  - file: tests/strands/tools/test_registry.py
+    line: 684
+    column: 10
+    enclosing: test_process_tools_with_multiple_agents().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
 
-  - id: sdk-python.callers.SlidingWindowConversationManager.reduce_context
-    kind: callers
-    target:
-      symbolName: SlidingWindowConversationManager.reduce_context
-      file: src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
-        line: 154
-        column: 1
-        enclosing: "Method:src/strands/agent/conversation_manager/sliding_window_conversation_manager.py:SlidingWindowConversationManager.apply_management"
-      - file: tests/strands/agent/test_conversation_manager.py
-        line: 213
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_conversation_manager.py:test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception"
-      - file: tests/strands/agent/test_conversation_manager.py
-        line: 257
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_conversation_manager.py:test_sliding_window_tool_heavy_conversation_falls_back_to_tool_pair_boundary"
-      - file: tests/strands/agent/test_conversation_manager.py
-        line: 303
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_conversation_manager.py:test_sliding_window_conversation_manager_with_tool_results_truncated"
-      - file: tests/strands/agent/test_conversation_manager.py
-        line: 558
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_conversation_manager.py:test_truncation_targets_oldest_message_first"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.SlidingWindowConversationManager.reduce_context
+  kind: callers
+  target:
+    symbolName: SlidingWindowConversationManager.reduce_context
+    file: src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
+    line: 1
+    column: 1
+  expected: []
+  labeler: opus-4-7
+  labeler_note: 'Auto-waived: SCIP returned zero hits for this target. The target symbol has no callers/references/implementers inside the fixture.'
 
-  - id: sdk-python.callers.AgentResult.message
-    kind: callers
-    target:
-      symbolName: AgentResult.message
-      file: src/strands/agent/agent_result.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/agent_result.py
-        line: 64
-        column: 1
-        enclosing: "Variable:src/strands/agent/agent_result.py:__str__.content_array"
-      - file: src/strands/agent/agent_result.py
-        line: 106
-        column: 1
-        enclosing: "Method:src/strands/agent/agent_result.py:AgentResult.to_dict"
-      - file: src/strands/agent/conversation_manager/summarizing_conversation_manager.py
-        line: 240
-        column: 1
-        enclosing: "Method:src/strands/agent/conversation_manager/summarizing_conversation_manager.py:SummarizingConversationManager._generate_summary_with_agent"
-      - file: src/strands/multiagent/a2a/_converters.py
-        line: 128
-        column: 1
-        enclosing: "Function:src/strands/multiagent/a2a/_converters.py:convert_response_to_agent_result"
-      - file: tests/strands/agent/test_a2a_agent.py
-        line: 510
-        column: 1
-        enclosing: "Function:tests/strands/agent/test_a2a_agent.py:test_invoke_async_success"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
+  waived: true
+- id: sdk-python.callers.AgentResult.message
+  kind: callers
+  target:
+    symbolName: AgentResult.message
+    file: src/strands/agent/agent_result.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 241
+    column: 10
+    enclosing: test_swarm_node_result_structure().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 288
+    column: 10
+    enclosing: test_swarm_multiple_handoffs_with_agent_results().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 333
+    column: 10
+    enclosing: test_swarm_get_agent_results_flattening().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
 
-  - id: sdk-python.callers.AgentResult.metrics
-    kind: callers
-    target:
-      symbolName: AgentResult.metrics
-      file: src/strands/agent/agent_result.py
-      line: 1
-      column: 1
-    expected:
-      - file: tests_integ/test_structured_output_agent_loop.py
-        line: 210
-        column: 1
-      - file: src/strands/agent/agent_result.py
-        line: 45
-        column: 1
-        enclosing: "Method:src/strands/agent/agent_result.py:AgentResult.context_size"
-      - file: src/strands/multiagent/a2a/_converters.py
-        line: 129
-        column: 1
-        enclosing: "Function:src/strands/multiagent/a2a/_converters.py:convert_response_to_agent_result"
-      - file: src/strands/telemetry/tracer.py
-        line: 683
-        column: 1
-        enclosing: "Method:src/strands/telemetry/tracer.py:Tracer.end_agent_span"
-      - file: src/strands/telemetry/tracer.py
-        line: 687
-        column: 1
-        enclosing: "Method:src/strands/telemetry/tracer.py:Tracer.end_agent_span"
-      - file: src/strands/telemetry/tracer.py
-        line: 696
-        column: 1
-        enclosing: "Method:src/strands/telemetry/tracer.py:Tracer.end_agent_span"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
+- id: sdk-python.callers.AgentResult.metrics
+  kind: callers
+  target:
+    symbolName: AgentResult.metrics
+    file: src/strands/agent/agent_result.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 241
+    column: 10
+    enclosing: test_swarm_node_result_structure().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 288
+    column: 10
+    enclosing: test_swarm_multiple_handoffs_with_agent_results().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 333
+    column: 10
+    enclosing: test_swarm_get_agent_results_flattening().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
 
-  - id: sdk-python.callers.AgentResult.stop_reason
-    kind: callers
-    target:
-      symbolName: AgentResult.stop_reason
-      file: src/strands/agent/agent_result.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/agent/agent_result.py
-        line: 107
-        column: 1
-        enclosing: "Method:src/strands/agent/agent_result.py:AgentResult.to_dict"
-      - file: src/strands/multiagent/a2a/_converters.py
-        line: 127
-        column: 1
-        enclosing: "Function:src/strands/multiagent/a2a/_converters.py:convert_response_to_agent_result"
-      - file: src/strands/telemetry/tracer.py
-        line: 669
-        column: 1
-        enclosing: "Method:src/strands/telemetry/tracer.py:Tracer.end_agent_span"
-      - file: src/strands/telemetry/tracer.py
-        line: 680
-        column: 1
-        enclosing: "Method:src/strands/telemetry/tracer.py:Tracer.end_agent_span"
-      - file: tests/strands/agent/test_a2a_agent.py
-        line: 537
-        column: 1
-        enclosing: "Variable:tests/strands/agent/test_a2a_agent.py:test_call_sync.mock_result"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
+- id: sdk-python.callers.AgentResult.stop_reason
+  kind: callers
+  target:
+    symbolName: AgentResult.stop_reason
+    file: src/strands/agent/agent_result.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 241
+    column: 10
+    enclosing: test_swarm_node_result_structure().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 288
+    column: 10
+    enclosing: test_swarm_multiple_handoffs_with_agent_results().
+  - file: tests_integ/test_multiagent_swarm.py
+    line: 333
+    column: 10
+    enclosing: test_swarm_get_agent_results_flattening().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped. Target is a property getter.
 
-  - id: sdk-python.callers.Agent.__init__
-    kind: callers
-    target:
-      symbolName: Agent.__init__
-      file: src/strands/agent/agent.py
-      line: 1
-      column: 1
-    expected:
-      - file: tests/strands/multiagent/test_graph.py
-        line: 942
-        column: 1
-        enclosing: "Method:tests/strands/multiagent/test_graph.py:StatefulAgent.__init__"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; single pyright row.
+- id: sdk-python.callers.Agent.__init__
+  kind: callers
+  target:
+    symbolName: Agent.__init__
+    file: src/strands/agent/agent.py
+    line: 1
+    column: 1
+  expected:
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 33
+    column: 10
+    enclosing: fake_agent().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 684
+    column: 10
+    enclosing: test_agent_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 696
+    column: 10
+    enclosing: test_multiple_agents_passed_directly_in_tools_list().
+  - file: tests/strands/agent/test_agent_as_tool.py
+    line: 710
+    column: 10
+    enclosing: test_agent_mixed_with_regular_tools_in_tools_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 613
+    column: 10
+    enclosing: test_process_tools_with_agent_instance().
+  - file: tests/strands/tools/test_registry.py
+    line: 627
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_name().
+  - file: tests/strands/tools/test_registry.py
+    line: 641
+    column: 10
+    enclosing: test_process_tools_with_agent_instance_uses_agent_description().
+  - file: tests/strands/tools/test_registry.py
+    line: 654
+    column: 10
+    enclosing: test_process_tools_with_agent_in_nested_list().
+  - file: tests/strands/tools/test_registry.py
+    line: 667
+    column: 10
+    enclosing: test_process_tools_with_mixed_agents_and_tools().
+  - file: tests/strands/tools/test_registry.py
+    line: 684
+    column: 10
+    enclosing: test_process_tools_with_multiple_agents().
+  labeler: opus-4-7
+  labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; single pyright row.
 
-  - id: sdk-python.callers.BedrockModel._format_request
-    kind: callers
-    target:
-      symbolName: BedrockModel._format_request
-      file: src/strands/models/bedrock.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/models/bedrock.py
-        line: 830
-        column: 1
-        enclosing: "Method:src/strands/models/bedrock.py:BedrockModel._stream"
-      - file: tests/strands/models/test_bedrock.py
-        line: 1759
-        column: 1
-        enclosing: "Variable:tests/strands/models/test_bedrock.py:test_explicit_boolean_values_preserved.formatted_request"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.BedrockModel._format_request
+  kind: callers
+  target:
+    symbolName: BedrockModel._format_request
+    file: src/strands/models/bedrock.py
+    line: 1
+    column: 1
+  expected: []
+  labeler: opus-4-7
+  labeler_note: 'Auto-waived: SCIP returned zero hits for this target. The target symbol has no callers/references/implementers inside the fixture.'
 
-  - id: sdk-python.callers.BedrockModel._stream
-    kind: callers
-    target:
-      symbolName: BedrockModel._stream
-      file: src/strands/models/bedrock.py
-      line: 1
-      column: 1
-    expected: []
-    waived: true
-    labeler: opus-4-7
-    labeler_note: all 5 spike rows were ast-only (no pyright/both agreement). Waived pending fresh pyright labels for this target.
+  waived: true
+- id: sdk-python.callers.BedrockModel._stream
+  kind: callers
+  target:
+    symbolName: BedrockModel._stream
+    file: src/strands/models/bedrock.py
+    line: 1
+    column: 1
+  expected: []
+  waived: true
+  labeler: opus-4-7
+  labeler_note: all 5 spike rows were ast-only (no pyright/both agreement). Waived pending fresh pyright labels for this target.
 
-  - id: sdk-python.callers.MCPClient._log_debug_with_thread
-    kind: callers
-    target:
-      symbolName: MCPClient._log_debug_with_thread
-      file: src/strands/tools/mcp/mcp_client.py
-      line: 1
-      column: 1
-    expected:
-      - file: src/strands/tools/mcp/mcp_client.py
-        line: 146
-        column: 1
-        enclosing: "Method:src/strands/tools/mcp/mcp_client.py:MCPClient.__init__"
-      - file: src/strands/tools/mcp/mcp_client.py
-        line: 200
-        column: 1
-        enclosing: "Method:src/strands/tools/mcp/mcp_client.py:MCPClient.start"
-      - file: src/strands/tools/mcp/mcp_client.py
-        line: 207
-        column: 1
-        enclosing: "Method:src/strands/tools/mcp/mcp_client.py:MCPClient.start"
-      - file: src/strands/tools/mcp/mcp_client.py
-        line: 211
-        column: 1
-        enclosing: "Method:src/strands/tools/mcp/mcp_client.py:MCPClient.start"
-      - file: src/strands/tools/mcp/mcp_client.py
-        line: 345
-        column: 1
-        enclosing: "Method:src/strands/tools/mcp/mcp_client.py:MCPClient.stop"
-    labeler: opus-4-7
-    labeler_note: agreed callers labeled in spike on 2026-04-23T17:11:42Z; ast-only rows dropped.
+- id: sdk-python.callers.MCPClient._log_debug_with_thread
+  kind: callers
+  target:
+    symbolName: MCPClient._log_debug_with_thread
+    file: src/strands/tools/mcp/mcp_client.py
+    line: 1
+    column: 1
+  expected: []
+  labeler: opus-4-7
+  labeler_note: 'Auto-waived: SCIP returned zero hits for this target. The target symbol has no callers/references/implementers inside the fixture.'
+  waived: true

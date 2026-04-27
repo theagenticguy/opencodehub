@@ -46,6 +46,7 @@ import { registerListFindingsTool } from "./tools/list-findings.js";
 import { registerListFindingsDeltaTool } from "./tools/list-findings-delta.js";
 import { registerListReposTool } from "./tools/list-repos.js";
 import { registerOwnersTool } from "./tools/owners.js";
+import { registerPackCodebaseTool } from "./tools/pack-codebase.js";
 import { registerProjectProfileTool } from "./tools/project-profile.js";
 import { registerQueryTool } from "./tools/query.js";
 import { registerRemoveDeadCodeTool } from "./tools/remove-dead-code.js";
@@ -153,6 +154,7 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
   );
 
   registerListReposTool(server, ctx);
+  registerPackCodebaseTool(server, ctx);
   registerQueryTool(server, ctx);
   registerContextTool(server, ctx);
   registerImpactTool(server, ctx);

@@ -10,12 +10,12 @@ Agents use it to answer "what breaks if I change this, what depends on it,
 where does this data flow" *before* they produce a diff.
 
 At ingestion time the system parses 14 languages via native `tree-sitter`
-bindings (WASM fallback available), layers per-language LSP oracles for
-Python, TypeScript/JavaScript, Go, and Rust to upgrade tree-sitter heuristic
-edges to compiler-grade edges, clusters the graph into Communities and
-Processes, and optionally populates embeddings from a pinned gte-modernbert-base
-ONNX model (fp32 ~596 MB or int8 ~150 MB) or an OpenAI-compatible HTTP
-endpoint.
+bindings (WASM fallback available), runs native SCIP indexers for
+TypeScript/JavaScript, Python, Go, Rust, and Java to upgrade tree-sitter
+heuristic edges to compiler-grade edges, clusters the graph into
+Communities and Processes, and optionally populates embeddings from a
+pinned gte-modernbert-base ONNX model (fp32 ~596 MB or int8 ~150 MB) or
+an OpenAI-compatible HTTP endpoint.
 
 At query time it exposes an MCP server with roughly 27 tools (`query`,
 `context`, `impact`, `detect_changes`, `rename`, `sql`, scanner /
@@ -26,8 +26,8 @@ built-in MCP prompts.
 
 ## What this system is not
 
-- Not a language server. It consumes LSP servers as oracles but does not
-  speak LSP to editors directly.
+- Not a language server. It runs SCIP indexers as one-shot artifact
+  producers and does not speak LSP to editors directly.
 - Not a SaaS. There is no server to operate; the graph is a single DuckDB
   file under `~/.codehub/` (or `${CODEHUB_HOME}`).
 - Not a hosted vector DB. Embeddings are optional and local; there is no
@@ -42,10 +42,10 @@ built-in MCP prompts.
 1.1 The ingestion pipeline shall execute the default phase DAG
 (`scan → profile → structure → markdown → parse → incremental-scope →
 complexity → routes → openapi → tools → orm → cross-file → accesses →
-lsp-python → lsp-typescript → lsp-go → lsp-rust → confidence-demote →
-mro → communities → dead-code → processes → fetches → temporal →
-cochange → ownership → dependencies → sbom → annotate → risk-snapshot →
-summarize → embeddings`) in topological order.
+mro → communities → dead-code → ownership → processes → fetches →
+temporal → cochange → dependencies → sbom → annotate → risk-snapshot →
+scip-index → confidence-demote → summarize → embeddings`) in
+topological order.
 
 1.2 When two analyze runs execute against identical input, the system shall
 produce a byte-identical `graphHash` across runs.
@@ -68,14 +68,14 @@ output validated by `SymbolSummary.safeParse`.
 1.7 If `--offline` is set, then the summarize and embedder-HTTP phases
 shall be hard no-ops regardless of other flags.
 
-1.8 When the LSP oracle for a language fails to start, the system shall
-continue ingestion with tree-sitter-only edges and attach provenance
-indicating the oracle was unavailable.
+1.8 When the SCIP indexer for a language is not on PATH or fails, the
+system shall continue ingestion with tree-sitter-only edges and attach
+provenance indicating the oracle was unavailable.
 
 1.9 While the `confidence-demote` phase runs, the system shall demote
 confidence-0.5 heuristic CALLS/REFERENCES/EXTENDS edges whose
-`(from, type, to)` triple is also present as a confidence-1.0 LSP edge to
-confidence 0.2 with a `+lsp-unconfirmed` reason suffix.
+`(from, type, to)` triple is also present as a confidence-1.0 SCIP edge
+to confidence 0.2 with a `+scip-unconfirmed` reason suffix.
 
 1.10 Where `--skills` is included, the system shall emit one
 `SKILL.md` per `Community` with `symbolCount >= 5` under
@@ -101,18 +101,23 @@ implementing the `LanguageProvider` interface, and registering the
 provider in `packages/ingestion/src/providers/registry.ts`; a missing
 registration shall fail the TypeScript build.
 
-2.4 Where Python is detected in the repo, the system shall run the
-`lsp-python` phase via pyright and upgrade heuristic edges with
-pyright-resolved callers / references / implementations.
+2.4 Where TypeScript, JavaScript, Python, Go, Rust, or Java is
+detected, the system shall run the `scip-index` phase which invokes
+the matching SCIP indexer (scip-typescript, scip-python, scip-go,
+`rust-analyzer scip`, or scip-java), parses the resulting `.scip`
+protobuf, and emits `CodeRelation` edges with confidence 1.0 and
+`reason = "scip:<indexer>@<version>"`.
 
-2.5 Where TypeScript/JavaScript is detected, the system shall run the
-`lsp-typescript` phase via `typescript-language-server` driving tsserver.
+2.5 When a SCIP indexer that runs workspace build scripts
+(`rust-analyzer scip`, `scip-java`) is invoked, the system shall
+require the operator to opt in via
+`CODEHUB_ALLOW_BUILD_SCRIPTS=1` unless already enabled in
+`codehub.config`.
 
-2.6 Where Go is detected, the system shall run the `lsp-go` phase via
-gopls.
-
-2.7 Where Rust is detected, the system shall run the `lsp-rust` phase via
-rust-analyzer with `procMacro.enable=false`.
+2.6 Cross-language references (e.g. JNI, wasm-bindgen) are
+out of scope for `scip-index`; each language's `.scip` file is loaded
+independently and joined on shared symbol strings only when the
+indexers agree on `package{manager,name,version}`.
 
 ---
 
@@ -322,13 +327,16 @@ fan-out on a single-repo failure.
 cases (7 MVP languages × 7 MCP tools) against the real `codehub mcp`
 stdio server; the acceptance gate requires ≥ 40 passes.
 
-10.2 The gym harness (`packages/gym`) shall replay LSP oracle golden
-manifests for Python, TypeScript, Go, and Rust and gate on three layers:
-absolute F1 floor, relative F1 delta, and per-case non-regression.
+10.2 The gym harness (`packages/gym`) shall replay SCIP indexer golden
+manifests for TypeScript, Python, Go, Rust, and (optionally) Java, and
+gate on three layers: absolute F1 floor, relative F1 delta, and
+per-case non-regression.
 
 10.3 Every gym run shall emit a JSONL freeze/replay manifest pinning
 `{manifest_version, corpus_commit, tool{name,version,sha256}, request,
-result_set, captured_at}` for bit-exact replay without LSP spawn.
+result_set, captured_at}` for bit-exact replay — the `tool.name` is the
+SCIP indexer identifier (e.g. `scip-python`, `rust-analyzer`) and the
+indexer is re-invoked per replay rather than a long-running server.
 
 10.4 `scripts/acceptance.sh` shall execute 15 named gates and exit
 non-zero if any mandatory gate fails; soft gates (incremental p95,

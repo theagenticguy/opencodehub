@@ -75,7 +75,7 @@ function addConfirmedEdge(
     to,
     type,
     confidence: 1.0,
-    reason: "pyright@1.1.390",
+    reason: "scip:scip-python@0.6.6",
   });
 }
 

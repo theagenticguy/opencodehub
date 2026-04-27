@@ -885,7 +885,7 @@ test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted
           to_id: "F:foo",
           type: "CALLS",
           confidence: 1.0,
-          reason: "pyright@1.1.390",
+          reason: "scip:scip-python@0.6.6",
         },
         {
           id: "E:heur",
@@ -901,7 +901,7 @@ test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted
           to_id: "F:foo",
           type: "CALLS",
           confidence: 0.2,
-          reason: "heuristic/tier-2+lsp-unconfirmed",
+          reason: "heuristic/tier-2+scip-unconfirmed",
         },
       ],
     },
@@ -943,7 +943,7 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
           to_id: "F:foo",
           type: "CALLS",
           confidence: 1.0,
-          reason: "typescript-language-server@4.3.3",
+          reason: "scip:scip-typescript@0.4.0",
         },
         {
           id: "E:heur",
@@ -966,7 +966,7 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
           // lower bound. The fake `traverse()` doesn't filter by
           // minConfidence, so all three edges reach the aggregator.
           confidence: 0.2,
-          reason: "heuristic/tier-2+lsp-unconfirmed",
+          reason: "heuristic/tier-2+scip-unconfirmed",
         },
       ],
     },

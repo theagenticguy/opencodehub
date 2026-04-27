@@ -1,6 +1,12 @@
 # ADR 0003 — CI toolchain pins (gopls ↔ Go, pnpm build-script allowlist)
 
-Status: **Accepted** — 2026-04-24
+Status: **Superseded** — 2026-04-27, by ADR 0006 (SCIP indexer pins)
+
+> The gopls pin matrix below is historical. OpenCodeHub no longer runs
+> any long-running language server — code-graph oracle edges are
+> sourced from SCIP indexers. See ADR 0005 for the migration and
+> ADR 0006 for the current pin table. The pnpm lifecycle-script
+> guidance remains in force; ADR 0006 reiterates it.
 
 ## Context
 

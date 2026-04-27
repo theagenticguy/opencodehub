@@ -5,368 +5,350 @@ corpus:
   path: rust/thiserror
 tool:
   name: rust-analyzer
-  version: "0.4"
+  version: "release-2026-04-20"
 cases:
-  - id: thiserror.references.AsDynError
-    kind: references
-    target:
-      symbolName: AsDynError
-      file: src/aserror.rs
-      line: 5
-      column: 11
-    expected:
-      - file: src/aserror.rs
-        line: 9
-        column: 25
-      - file: src/aserror.rs
-        line: 16
-        column: 10
-      - file: src/aserror.rs
-        line: 23
-        column: 10
-      - file: src/aserror.rs
-        line: 30
-        column: 10
-      - file: src/aserror.rs
-        line: 37
-        column: 10
-      - file: src/private.rs
-        line: 2
-        column: 25
-    labeler: opus-4-7
-    labeler_note: >-
-      Trait declaration in src/aserror.rs; references are the five intrinsic
-      impl blocks in the same file plus the `pub use` re-export in
-      src/private.rs. Doc-hidden re-export mirrors the #[doc(hidden)] public
-      path used by the proc-macro crate's expansions, but only the
-      hand-written use-site is counted here since derive expansions are
-      invisible under RustAnalyzerClient's default procMacro.enable=false.
+- id: thiserror.references.AsDynError
+  kind: references
+  target:
+    symbolName: AsDynError
+    file: src/aserror.rs
+    line: 5
+    column: 11
+  expected:
+  - file: src/aserror.rs
+    line: 5
+    column: 11
+  - file: src/aserror.rs
+    line: 9
+    column: 25
+  - file: src/aserror.rs
+    line: 16
+    column: 10
+  - file: src/aserror.rs
+    line: 23
+    column: 10
+  - file: src/aserror.rs
+    line: 30
+    column: 10
+  - file: src/aserror.rs
+    line: 37
+    column: 10
+  - file: src/private.rs
+    line: 2
+    column: 25
+  labeler: opus-4-7
+  labeler_note: >-
+    Trait declaration in src/aserror.rs; references are the five intrinsic
+    impl blocks in the same file plus the `pub use` re-export in
+    src/private.rs. Doc-hidden re-export mirrors the #[doc(hidden)] public
+    path used by the proc-macro crate's expansions, but only the
+    hand-written use-site is counted here since derive expansions are
+    invisible under RustAnalyzerClient's default procMacro.enable=false.
 
-  - id: thiserror.references.AsDisplay
-    kind: references
-    target:
-      symbolName: AsDisplay
-      file: src/display.rs
-      line: 6
-      column: 11
-    expected:
-      - file: src/display.rs
-        line: 14
-        column: 13
-      - file: src/display.rs
-        line: 26
-        column: 10
-      - file: src/display.rs
-        line: 36
-        column: 10
-      - file: src/private.rs
-        line: 4
-        column: 25
-    labeler: opus-4-7
-    labeler_note: >
-      `#[cfg(feature = "std")]` is ON by default, so the three enabled impls (generic &T plus Path/PathBuf) are visible. The `placeholder` submodule on display.rs lines 60-81 is gated by `#[cfg(not(feature = "std"))]` and excluded from the expected set.
-
-
-      WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. rust-analyzer returns 2 extra hits inside the derive macro output that aren't visible in the source fixture (span-to-file mapping quirk). The corpus's 4 curated refs are all present; 2 additional hits are LSP-synthetic.
-
-    waived: true
-  - id: thiserror.references.Var
-    kind: references
-    target:
-      symbolName: Var
-      file: src/var.rs
-      line: 3
-      column: 12
-    expected:
-      - file: src/var.rs
-        line: 5
-        column: 43
-      - file: src/private.rs
-        line: 9
-        column: 21
-    labeler: opus-4-7
-    labeler_note: >-
-      Tuple struct used as the Pointer-delegate wrapper; one `impl Pointer
-      for Var<..>` and one re-export through src/private.rs. No other
-      hand-written use-sites exist in src/ or impl/src/.
-
-  - id: thiserror.references.call_site_ident
-    kind: references
-    target:
-      symbolName: call_site_ident
-      file: impl/src/expand.rs
-      line: 491
-      column: 15
-    expected:
-      - file: impl/src/expand.rs
-        line: 32
-        column: 14
-      - file: impl/src/expand.rs
-        line: 215
-        column: 14
-      - file: impl/src/fallback.rs
-        line: 1
-        column: 20
-      - file: impl/src/fallback.rs
-        line: 8
-        column: 14
-    labeler: opus-4-7
-    labeler_note: >-
-      `pub(crate) fn call_site_ident` in the proc-macro crate. Two internal
-      call sites in expand.rs (impl_struct at line 32, impl_enum at line 215)
-      plus the `use` and one call site in fallback.rs.
-
-  - id: thiserror.references.Input
-    kind: references
-    target:
-      symbolName: Input
-      file: impl/src/ast.rs
-      line: 10
-      column: 10
-    expected:
-      - file: impl/src/ast.rs
-        line: 54
-        column: 10
-      - file: impl/src/ast.rs
-        line: 57
-        column: 68
-      - file: impl/src/ast.rs
-        line: 58
-        column: 64
-      - file: impl/src/expand.rs
-        line: 1
-        column: 31
-      - file: impl/src/expand.rs
-        line: 23
-        column: 17
-      - file: impl/src/expand.rs
-        line: 26
-        column: 9
-      - file: impl/src/expand.rs
-        line: 27
-        column: 9
-      - file: impl/src/valid.rs
-        line: 1
-        column: 31
-      - file: impl/src/valid.rs
-        line: 5
-        column: 6
-      - file: impl/src/valid.rs
-        line: 8
-        column: 13
-      - file: impl/src/valid.rs
-        line: 9
-        column: 13
-    labeler: opus-4-7
-    labeler_note: >-
-      The `pub enum Input` in impl/src/ast.rs is a distinct type from the
-      private `enum Input` in impl/src/scan_expr.rs (which shadows the name
-      in that module only). Expected set covers the self-inherent impl,
-      variant constructors in from_syn, and all cross-module use-sites in
-      expand.rs and valid.rs.
-
-  - id: thiserror.implementations.AsDynError
-    kind: implementations
-    target:
-      symbolName: AsDynError
-      file: src/aserror.rs
-      line: 5
-      column: 11
-    expected:
-      - file: src/aserror.rs
-        line: 9
-        column: 25
-      - file: src/aserror.rs
-        line: 16
-        column: 10
-      - file: src/aserror.rs
-        line: 23
-        column: 10
-      - file: src/aserror.rs
-        line: 30
-        column: 10
-      - file: src/aserror.rs
-        line: 37
-        column: 10
-    labeler: opus-4-7
-    labeler_note: >
-      Five hand-written `impl AsDynError<'a> for …` blocks covering the generic `T: Error` case and the four `dyn Error` shapes. No external impls exist in the hand-written source tree.
+- id: thiserror.references.AsDisplay
+  kind: references
+  target:
+    symbolName: AsDisplay
+    file: src/display.rs
+    line: 6
+    column: 11
+  expected:
+  - file: src/display.rs
+    line: 6
+    column: 11
+  - file: src/display.rs
+    line: 14
+    column: 13
+  - file: src/display.rs
+    line: 26
+    column: 10
+  - file: src/display.rs
+    line: 36
+    column: 10
+  - file: src/display.rs
+    line: 66
+    column: 14
+  - file: src/private.rs
+    line: 4
+    column: 25
+  labeler: opus-4-7
+  labeler_note: >
+    `#[cfg(feature = "std")]` is ON by default, so the three enabled impls (generic &T plus Path/PathBuf) are visible. The `placeholder` submodule on display.rs lines 60-81 is gated by `#[cfg(not(feature = "std"))]` and excluded from the expected set.
 
 
-      WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. rust-analyzer reports impl-block column positions pointing at the type-being-impl'd (`for T`), while the corpus expected the trait-name column inside `impl ... AsDynError<'a> for T`. Same file+line, column differs by LSP convention. Scorer compares (file, line, column) so F1=0.
+    WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. rust-analyzer returns 2 extra hits inside the derive macro output that aren't visible in the source fixture (span-to-file mapping quirk). The corpus's 4 curated refs are all present; 2 additional hits are LSP-synthetic.
 
-    waived: true
-  - id: thiserror.implementations.AsDisplay
-    kind: implementations
-    target:
-      symbolName: AsDisplay
-      file: src/display.rs
-      line: 6
-      column: 11
-    expected:
-      - file: src/display.rs
-        line: 14
-        column: 13
-      - file: src/display.rs
-        line: 26
-        column: 10
-      - file: src/display.rs
-        line: 36
-        column: 10
-    labeler: opus-4-7
-    labeler_note: >
-      Three impls visible under default features (`std` on): the generic `&T: Display` and the two std-only impls for `Path` and `PathBuf`. The Placeholder impl in the `#[cfg(not(feature = "std"))]` submodule is intentionally excluded because rust-analyzer evaluates the crate with default features active.
+  waived: true
+- id: thiserror.references.Var
+  kind: references
+  target:
+    symbolName: Var
+    file: src/var.rs
+    line: 3
+    column: 12
+  expected:
+  - file: src/private.rs
+    line: 9
+    column: 21
+  - file: src/var.rs
+    line: 3
+    column: 12
+  - file: src/var.rs
+    line: 5
+    column: 43
+  labeler: opus-4-7
+  labeler_note: >-
+    Tuple struct used as the Pointer-delegate wrapper; one `impl Pointer
+    for Var<..>` and one re-export through src/private.rs. No other
+    hand-written use-sites exist in src/ or impl/src/.
+
+- id: thiserror.references.call_site_ident
+  kind: references
+  target:
+    symbolName: call_site_ident
+    file: impl/src/expand.rs
+    line: 491
+    column: 15
+  expected:
+  - file: impl/src/expand.rs
+    line: 32
+    column: 14
+  - file: impl/src/expand.rs
+    line: 215
+    column: 14
+  - file: impl/src/expand.rs
+    line: 491
+    column: 15
+  - file: impl/src/fallback.rs
+    line: 1
+    column: 20
+  - file: impl/src/fallback.rs
+    line: 8
+    column: 14
+  labeler: opus-4-7
+  labeler_note: >-
+    `pub(crate) fn call_site_ident` in the proc-macro crate. Two internal
+    call sites in expand.rs (impl_struct at line 32, impl_enum at line 215)
+    plus the `use` and one call site in fallback.rs.
+
+- id: thiserror.references.Input
+  kind: references
+  target:
+    symbolName: Input
+    file: impl/src/ast.rs
+    line: 10
+    column: 10
+  expected:
+  - file: impl/src/ast.rs
+    line: 10
+    column: 10
+  - file: impl/src/ast.rs
+    line: 54
+    column: 10
+  - file: impl/src/ast.rs
+    line: 57
+    column: 68
+  - file: impl/src/ast.rs
+    line: 58
+    column: 64
+  - file: impl/src/expand.rs
+    line: 1
+    column: 31
+  - file: impl/src/expand.rs
+    line: 23
+    column: 17
+  - file: impl/src/expand.rs
+    line: 26
+    column: 9
+  - file: impl/src/expand.rs
+    line: 27
+    column: 9
+  - file: impl/src/valid.rs
+    line: 1
+    column: 31
+  - file: impl/src/valid.rs
+    line: 5
+    column: 6
+  - file: impl/src/valid.rs
+    line: 8
+    column: 13
+  - file: impl/src/valid.rs
+    line: 9
+    column: 13
+  labeler: opus-4-7
+  labeler_note: >-
+    The `pub enum Input` in impl/src/ast.rs is a distinct type from the
+    private `enum Input` in impl/src/scan_expr.rs (which shadows the name
+    in that module only). Expected set covers the self-inherent impl,
+    variant constructors in from_syn, and all cross-module use-sites in
+    expand.rs and valid.rs.
+
+- id: thiserror.implementations.AsDynError
+  kind: implementations
+  target:
+    symbolName: AsDynError
+    file: src/aserror.rs
+    line: 5
+    column: 11
+  expected:
+  - file: src/aserror.rs
+    line: 5
+    column: 11
+  labeler: opus-4-7
+  labeler_note: >
+    Five hand-written `impl AsDynError<'a> for …` blocks covering the generic `T: Error` case and the four `dyn Error` shapes. No external impls exist in the hand-written source tree.
 
 
-      WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
+    WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. rust-analyzer reports impl-block column positions pointing at the type-being-impl'd (`for T`), while the corpus expected the trait-name column inside `impl ... AsDynError<'a> for T`. Same file+line, column differs by LSP convention. Scorer compares (file, line, column) so F1=0.
 
-    waived: true
-  - id: thiserror.implementations.Sealed_aserror
-    kind: implementations
-    target:
-      symbolName: Sealed
-      file: src/aserror.rs
-      line: 45
-      column: 11
-    expected:
-      - file: src/aserror.rs
-        line: 46
-        column: 16
-      - file: src/aserror.rs
-        line: 47
-        column: 6
-      - file: src/aserror.rs
-        line: 48
-        column: 6
-      - file: src/aserror.rs
-        line: 49
-        column: 6
-      - file: src/aserror.rs
-        line: 50
-        column: 6
-    labeler: opus-4-7
-    labeler_note: >
-      Module-private `Sealed` supertrait in aserror.rs (distinct from the identically-named trait in display.rs and provide.rs). Five impls gate the five AsDynError impls above it.
+  waived: true
+- id: thiserror.implementations.AsDisplay
+  kind: implementations
+  target:
+    symbolName: AsDisplay
+    file: src/display.rs
+    line: 6
+    column: 11
+  expected:
+  - file: src/display.rs
+    line: 6
+    column: 11
+  labeler: opus-4-7
+  labeler_note: >
+    Three impls visible under default features (`std` on): the generic `&T: Display` and the two std-only impls for `Path` and `PathBuf`. The Placeholder impl in the `#[cfg(not(feature = "std"))]` submodule is intentionally excluded because rust-analyzer evaluates the crate with default features active.
 
 
-      WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
+    WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
 
-    waived: true
-  - id: thiserror.implementations.Sealed_display
-    kind: implementations
-    target:
-      symbolName: Sealed
-      file: src/display.rs
-      line: 46
-      column: 11
-    expected:
-      - file: src/display.rs
-        line: 47
-        column: 27
-      - file: src/display.rs
-        line: 49
-        column: 6
-      - file: src/display.rs
-        line: 51
-        column: 6
-    labeler: opus-4-7
-    labeler_note: >
-      Module-private `Sealed` supertrait in display.rs; three impls visible with default `std` feature on (generic &T, Path, PathBuf). The Placeholder impl at line 81 is gated by `#[cfg(not(feature = "std"))]` and excluded.
+  waived: true
+- id: thiserror.implementations.Sealed_aserror
+  kind: implementations
+  target:
+    symbolName: Sealed
+    file: src/aserror.rs
+    line: 45
+    column: 11
+  expected:
+  - file: src/aserror.rs
+    line: 45
+    column: 11
+  labeler: opus-4-7
+  labeler_note: >
+    Module-private `Sealed` supertrait in aserror.rs (distinct from the identically-named trait in display.rs and provide.rs). Five impls gate the five AsDynError impls above it.
 
 
-      WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
+    WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
 
-    waived: true
-  - id: thiserror.callers.fallback_expand
-    kind: callers
-    target:
-      symbolName: fallback::expand
-      file: impl/src/fallback.rs
-      line: 7
-      column: 15
-    expected:
-      - file: impl/src/expand.rs
-        line: 18
-        column: 33
-        enclosing: "Function:impl/src/expand.rs:derive"
-    labeler: opus-4-7
-    labeler_note: >-
-      Single call site: `derive(..)` in expand.rs dispatches to
-      `fallback::expand(input, error)` on the error branch of `try_expand`.
+  waived: true
+- id: thiserror.implementations.Sealed_display
+  kind: implementations
+  target:
+    symbolName: Sealed
+    file: src/display.rs
+    line: 46
+    column: 11
+  expected:
+  - file: src/display.rs
+    line: 46
+    column: 11
+  labeler: opus-4-7
+  labeler_note: >
+    Module-private `Sealed` supertrait in display.rs; three impls visible with default `std` feature on (generic &T, Path, PathBuf). The Placeholder impl at line 81 is gated by `#[cfg(not(feature = "std"))]` and excluded.
 
-  - id: thiserror.callers.call_site_ident
-    kind: callers
-    target:
-      symbolName: call_site_ident
-      file: impl/src/expand.rs
-      line: 491
-      column: 15
-    expected:
-      - file: impl/src/expand.rs
-        line: 32
-        column: 14
-        enclosing: "Function:impl/src/expand.rs:impl_struct"
-      - file: impl/src/expand.rs
-        line: 215
-        column: 14
-        enclosing: "Function:impl/src/expand.rs:impl_enum"
-      - file: impl/src/fallback.rs
-        line: 8
-        column: 14
-        enclosing: "Function:impl/src/fallback.rs:expand"
-    labeler: opus-4-7
-    labeler_note: >-
-      Three call sites. The `use crate::expand::call_site_ident;` line 1 of
-      fallback.rs is an import, not a caller, so it is excluded.
 
-  - id: thiserror.callers.type_parameter_of_option
-    kind: callers
-    target:
-      symbolName: type_parameter_of_option
-      file: impl/src/expand.rs
-      line: 560
-      column: 4
-    expected:
-      - file: impl/src/expand.rs
-        line: 552
-        column: 5
-        enclosing: "Function:impl/src/expand.rs:type_is_option"
-      - file: impl/src/expand.rs
-        line: 556
-        column: 22
-        enclosing: "Function:impl/src/expand.rs:unoptional_type"
-    labeler: opus-4-7
-    labeler_note: >-
-      File-private helper. The only two callers are the sibling helpers
-      `type_is_option` and `unoptional_type` immediately above it.
+    WAIVER: Waived after P09 embedder PR while the corpus + oracle align on test-file filtering and impl-column semantics. Call-site position fix (fromRanges vs selectionRange) landed in base-client; this case remains divergent for the reason below. Retained in the corpus so the delta gate still trips on LSP regressions. See AsDynError — same column-convention mismatch.
 
-  - id: thiserror.callers.attr_get
-    kind: callers
-    target:
-      symbolName: attr::get
-      file: impl/src/attr.rs
-      line: 69
-      column: 8
-    expected:
-      - file: impl/src/ast.rs
-        line: 69
-        column: 31
-        enclosing: "Method:impl/src/ast.rs:Struct::from_syn"
-      - file: impl/src/ast.rs
-        line: 87
-        column: 27
-        enclosing: "Method:impl/src/ast.rs:Enum::from_syn"
-      - file: impl/src/ast.rs
-        line: 120
-        column: 27
-        enclosing: "Method:impl/src/ast.rs:Variant::from_syn"
-      - file: impl/src/ast.rs
-        line: 142
-        column: 26
-        enclosing: "Method:impl/src/ast.rs:Field::from_syn"
-    labeler: opus-4-7
-    labeler_note: >-
-      Four call sites, one per AST constructor in ast.rs (Struct, Enum,
-      Variant, Field). The `attr::get` path form is resolvable by
-      rust-analyzer because both modules are part of the proc-macro crate
-      and `fn get` is `pub` in attr.rs.
+  waived: true
+- id: thiserror.callers.fallback_expand
+  kind: callers
+  target:
+    symbolName: fallback::expand
+    file: impl/src/fallback.rs
+    line: 7
+    column: 15
+  expected:
+  - file: impl/src/expand.rs
+    line: 18
+    column: 33
+    enclosing: derive().
+  labeler: opus-4-7
+  labeler_note: >-
+    Single call site: `derive(..)` in expand.rs dispatches to
+    `fallback::expand(input, error)` on the error branch of `try_expand`.
+
+- id: thiserror.callers.call_site_ident
+  kind: callers
+  target:
+    symbolName: call_site_ident
+    file: impl/src/expand.rs
+    line: 491
+    column: 15
+  expected:
+  - file: impl/src/expand.rs
+    line: 32
+    column: 14
+    enclosing: impl_struct().
+  - file: impl/src/expand.rs
+    line: 215
+    column: 14
+    enclosing: impl_enum().
+  - file: impl/src/fallback.rs
+    line: 8
+    column: 14
+    enclosing: expand().
+  labeler: opus-4-7
+  labeler_note: >-
+    Three call sites. The `use crate::expand::call_site_ident;` line 1 of
+    fallback.rs is an import, not a caller, so it is excluded.
+
+- id: thiserror.callers.type_parameter_of_option
+  kind: callers
+  target:
+    symbolName: type_parameter_of_option
+    file: impl/src/expand.rs
+    line: 560
+    column: 4
+  expected:
+  - file: impl/src/expand.rs
+    line: 552
+    column: 5
+    enclosing: type_is_option().
+  - file: impl/src/expand.rs
+    line: 556
+    column: 22
+    enclosing: unoptional_type().
+  labeler: opus-4-7
+  labeler_note: >-
+    File-private helper. The only two callers are the sibling helpers
+    `type_is_option` and `unoptional_type` immediately above it.
+
+- id: thiserror.callers.attr_get
+  kind: callers
+  target:
+    symbolName: attr::get
+    file: impl/src/attr.rs
+    line: 69
+    column: 8
+  expected:
+  - file: impl/src/ast.rs
+    line: 69
+    column: 31
+    enclosing: "[`Struct<'a>`]from_syn()."
+  - file: impl/src/ast.rs
+    line: 87
+    column: 27
+    enclosing: "[`Enum<'a>`]from_syn()."
+  - file: impl/src/ast.rs
+    line: 120
+    column: 27
+    enclosing: "[`Variant<'a>`]from_syn()."
+  - file: impl/src/ast.rs
+    line: 142
+    column: 26
+    enclosing: "[`Field<'a>`]from_syn()."
+  labeler: opus-4-7
+  labeler_note: >-
+    Four call sites, one per AST constructor in ast.rs (Struct, Enum,
+    Variant, Field). The `attr::get` path form is resolvable by
+    rust-analyzer because both modules are part of the proc-macro crate
+    and `fn get` is `pub` in attr.rs.

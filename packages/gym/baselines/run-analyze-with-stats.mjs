@@ -84,7 +84,7 @@ try {
 
 // Confidence-breakdown queries against the relations table.
 let edgeCountTotal = 0;
-let lspPhaseEdges = 0;
+let scipPhaseEdges = 0;
 let heuristicEdges = 0;
 let demotedEdges = 0;
 try {
@@ -92,10 +92,10 @@ try {
     "SELECT COUNT(*)::INTEGER AS c FROM relations",
   );
   edgeCountTotal = Number(rows[0]?.c ?? 0);
-  const lspRows = await store.query(
-    "SELECT COUNT(*)::INTEGER AS c FROM relations WHERE reason LIKE '%@%' AND confidence = 1.0",
+  const scipRows = await store.query(
+    "SELECT COUNT(*)::INTEGER AS c FROM relations WHERE reason LIKE 'scip:%' AND confidence = 1.0",
   );
-  lspPhaseEdges = Number(lspRows[0]?.c ?? 0);
+  scipPhaseEdges = Number(scipRows[0]?.c ?? 0);
   const heurRows = await store.query(
     "SELECT COUNT(*)::INTEGER AS c FROM relations WHERE confidence = 0.5",
   );
@@ -115,7 +115,7 @@ const stats = {
   repoPath,
   nodeCount: result.graph.nodeCount(),
   edgeCount: edgeCountTotal || result.graph.edgeCount(),
-  lspPhaseEdges,
+  scipPhaseEdges,
   heuristicEdges,
   demotedEdges,
   graphHash: result.graphHash,

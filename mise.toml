@@ -107,11 +107,6 @@ description = "Run all package tests"
 depends = ["build"]
 run = "pnpm -r test"
 
-[tasks."test:integration"]
-description = "Run LSP oracle integration tests"
-depends = ["build"]
-run = "pnpm --filter @opencodehub/lsp-oracle run test:integration"
-
 [tasks."test:eval"]
 description = "Run the Python parity/regression eval harness (pytest)"
 depends = ["install:eval", "build"]
@@ -173,11 +168,6 @@ description = "Smoke test the MCP server over stdio"
 depends = ["build"]
 run = "bash scripts/smoke-mcp.sh"
 
-[tasks."validate:lsp-oracle"]
-description = "Run the standalone LSP oracle validator script"
-depends = ["build"]
-run = "pnpm exec tsx scripts/validate-lsp-oracle.ts"
-
 [tasks.commit]
 description = "Commitizen-guided conventional commit"
 run = "pnpm exec cz"
@@ -187,11 +177,11 @@ description = "Print tooling versions (for bug reports)"
 run = "pnpm exec envinfo --system --binaries --npmPackages --markdown"
 
 # ---------------------------------------------------------------------------
-# Gym (differential LSP oracle)
+# Gym (differential SCIP indexer)
 # ---------------------------------------------------------------------------
 
 [tasks.gym]
-description = "Run differential LSP oracle gym against current baseline"
+description = "Run the SCIP-indexer gym against the current baseline"
 depends = ["build"]
 run = "node packages/gym/dist/cli.js run"
 
@@ -201,9 +191,13 @@ depends = ["build"]
 run = "node packages/gym/dist/cli.js baseline"
 
 [tasks."gym:replay"]
-description = "Bit-exact replay of a frozen manifest (no LSP spawn)"
+description = "Bit-exact replay of a frozen manifest by re-invoking the pinned SCIP indexer"
 depends = ["build"]
 run = "node packages/gym/dist/cli.js replay"
+
+[tasks."gym:refresh-expected"]
+description = "Refresh corpus `expected:` lists from the current manifest.jsonl"
+run = "uv run packages/gym/baselines/scripts/refresh-expected.py packages/gym/baselines/manifest.jsonl"
 
 # ---------------------------------------------------------------------------
 # Codehub CLI convenience passthroughs

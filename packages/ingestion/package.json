@@ -29,7 +29,7 @@
     "@opencodehub/analysis": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/embedder": "workspace:*",
-    "@opencodehub/lsp-oracle": "workspace:*",
+    "@opencodehub/scip-ingest": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",
     "fast-xml-parser": "5.7.1",

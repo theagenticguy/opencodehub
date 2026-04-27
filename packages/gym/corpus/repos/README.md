@@ -13,7 +13,7 @@ Fixture repos live here as **git submodules** pinned to specific commits. Pin di
 
 | Language   | Repo                                                        | License         | Approx LOC | Why |
 |------------|-------------------------------------------------------------|-----------------|------------|-----|
-| Python     | `strands-agents/sdk-python`                                 | Apache-2.0      | ~500 files | Existing baseline from the pyright oracle spike |
+| Python     | `strands-agents/sdk-python`                                 | Apache-2.0      | ~500 files | Baseline regenerated against scip-python (2026-04-27) |
 | TypeScript | `gvergnaud/ts-pattern` @ v5.5.0                             | MIT             | ~2k        | Single-package, tsconfig, no bundler plugins |
 | Go         | `spf13/cobra`                                               | Apache-2.0      | ~7k        | Interface-rich, cross-file implementation lookup |
 | Rust       | `dtolnay/thiserror` @ v2.0.0                                | MIT/Apache-2.0  | ~4k        | Trait-heavy, minimal proc-macro noise |
