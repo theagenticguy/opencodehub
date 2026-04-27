@@ -1,0 +1,11 @@
+/* OpenCodeHub Starlight overrides — kept minimal so defaults carry. */
+
+:root {
+  --sl-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Tighten code block line-height for denser tool tables. */
+.expressive-code pre {
+  line-height: 1.5;
+}
