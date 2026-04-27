@@ -28,7 +28,10 @@ coverage/
 examples/fixtures/**/.codehub/
 
 # Local agent / planning scratch space
-.erpaval/
+# .erpaval/sessions/ is per-session ephemeral state (intake, explore,
+# research, lessons YAML); .erpaval/solutions/ + specs/ + INDEX.md are
+# durable and stay committed.
+.erpaval/sessions/
 .claude/settings.local.json
 .claude/worktrees/
 .handoff/

@@ -5,7 +5,8 @@
     "outDir": "dist",
     "composite": true
   },
-  "references": [{ "path": "../scip-ingest" }],
-  "include": ["src/**/*"],
-  "exclude": ["dist", "reference", "corpus", "node_modules"]
+  "references": [
+    { "path": "../core-types" }
+  ],
+  "include": ["src/**/*"]
 }

@@ -22,9 +22,9 @@ import path from "node:path";
 import { Command } from "commander";
 import { loadCorpus } from "./corpus.js";
 import { evaluateGates, loadThresholds } from "./gates.js";
-import { defaultLspFactory, type LspFactory } from "./lsp-factory.js";
 import { readManifest } from "./manifest.js";
 import { type RunResult, replayManifest, runGym } from "./runner.js";
+import { defaultLspFactory, type LspFactory } from "./scip-factory.js";
 
 const DEFAULT_CORPUS_GLOB = "packages/gym/corpus/**/*.yaml";
 const DEFAULT_THRESHOLDS = "packages/gym/baselines/thresholds.json";

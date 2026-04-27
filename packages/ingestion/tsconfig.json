@@ -18,7 +18,7 @@
     { "path": "../analysis" },
     { "path": "../core-types" },
     { "path": "../embedder" },
-    { "path": "../lsp-oracle" },
+    { "path": "../scip-ingest" },
     { "path": "../storage" },
     { "path": "../summarizer" }
   ]

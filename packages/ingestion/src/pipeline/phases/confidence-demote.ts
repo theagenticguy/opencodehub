@@ -1,38 +1,29 @@
 /**
  * Confidence-demotion phase — mark heuristic (confidence=0.5) edges as
- * "LSP-unconfirmed" when a compiler-grade LSP edge covers the same triple.
+ * "SCIP-unconfirmed" when a compiler-grade SCIP edge covers the same
+ * triple.
  *
- * Invariant: the LSP layer CONFIRMS, never REJECTS. Heuristic edges are not
- * deleted; instead any heuristic CALLS / REFERENCES / EXTENDS edge whose
- * `(from, type, to)` triple ALSO appears as a confidence=1.0 LSP-sourced
- * edge is demoted to confidence=0.2 with `+lsp-unconfirmed` appended to its
- * reason. Consumers can filter heuristic-only noise via
- * `confidence >= 0.5`; the LSP-sourced edge remains at 1.0 and unchanged.
+ * Invariant: the oracle layer (SCIP) CONFIRMS, never REJECTS. Heuristic
+ * edges are not deleted; instead any heuristic CALLS / REFERENCES /
+ * EXTENDS edge whose `(from, type, to)` triple ALSO appears as a
+ * confidence=1.0 SCIP-sourced edge is demoted to confidence=0.2 with
+ * `+scip-unconfirmed` appended to its reason.
  *
- * The `KnowledgeGraph.addEdge` dedupe retains the higher-confidence edge
- * per `(from, type, to, step)`. Heuristic and LSP edges coexist at the
- * same triple only when they differ in `step` (or when tests bypass the
- * dedupe by design); the phase handles both cases uniformly.
- *
- * Runs AFTER every LSP phase and BEFORE downstream structural analysis
- * (mro, communities, dead-code) so those phases observe demoted
- * confidence when they compute weights.
+ * Runs AFTER `scip-index` and BEFORE downstream structural analysis
+ * (mro, communities, dead-code).
  */
 
 import type { CodeRelation } from "@opencodehub/core-types";
-import { LSP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
+import { SCIP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
 import type { PipelineContext, PipelinePhase } from "../types.js";
-import { LSP_GO_PHASE_NAME } from "./lsp-go.js";
-import { LSP_PYTHON_PHASE_NAME } from "./lsp-python.js";
-import { LSP_RUST_PHASE_NAME } from "./lsp-rust.js";
-import { LSP_TYPESCRIPT_PHASE_NAME } from "./lsp-typescript.js";
+import { SCIP_INDEX_PHASE_NAME } from "./scip-index.js";
 
 export const CONFIDENCE_DEMOTE_PHASE_NAME = "confidence-demote";
 
 const HEURISTIC_CONFIDENCE = 0.5;
 const DEMOTED_CONFIDENCE = 0.2;
-const LSP_CONFIDENCE = 1.0;
-const UNCONFIRMED_SUFFIX = "+lsp-unconfirmed";
+const ORACLE_CONFIDENCE = 1.0;
+const UNCONFIRMED_SUFFIX = "+scip-unconfirmed";
 
 const DEMOTABLE_EDGE_TYPES: ReadonlySet<string> = new Set(["CALLS", "REFERENCES", "EXTENDS"]);
 
@@ -44,7 +35,7 @@ export interface ConfidenceDemoteOutput {
 
 export const confidenceDemotePhase: PipelinePhase<ConfidenceDemoteOutput> = {
   name: CONFIDENCE_DEMOTE_PHASE_NAME,
-  deps: [LSP_PYTHON_PHASE_NAME, LSP_TYPESCRIPT_PHASE_NAME, LSP_GO_PHASE_NAME, LSP_RUST_PHASE_NAME],
+  deps: [SCIP_INDEX_PHASE_NAME],
   async run(ctx) {
     return runConfidenceDemote(ctx);
   },
@@ -53,11 +44,11 @@ export const confidenceDemotePhase: PipelinePhase<ConfidenceDemoteOutput> = {
 function runConfidenceDemote(ctx: PipelineContext): ConfidenceDemoteOutput {
   const start = Date.now();
 
-  const lspConfirmedTriples = new Set<string>();
+  const oracleConfirmedTriples = new Set<string>();
   for (const edge of ctx.graph.edges()) {
-    if (edge.confidence !== LSP_CONFIDENCE) continue;
-    if (!isLspReason(edge.reason)) continue;
-    lspConfirmedTriples.add(tripleKey(edge.from as string, edge.type, edge.to as string));
+    if (edge.confidence !== ORACLE_CONFIDENCE) continue;
+    if (!isScipReason(edge.reason)) continue;
+    oracleConfirmedTriples.add(tripleKey(edge.from as string, edge.type, edge.to as string));
   }
 
   const perLanguage: Record<string, number> = {};
@@ -67,7 +58,7 @@ function runConfidenceDemote(ctx: PipelineContext): ConfidenceDemoteOutput {
     if (edge.confidence !== HEURISTIC_CONFIDENCE) continue;
     if (!DEMOTABLE_EDGE_TYPES.has(edge.type)) continue;
     const key = tripleKey(edge.from as string, edge.type, edge.to as string);
-    if (!lspConfirmedTriples.has(key)) continue;
+    if (!oracleConfirmedTriples.has(key)) continue;
 
     const currentReason = edge.reason ?? "";
     if (currentReason.endsWith(UNCONFIRMED_SUFFIX)) continue;
@@ -101,9 +92,9 @@ function runConfidenceDemote(ctx: PipelineContext): ConfidenceDemoteOutput {
   };
 }
 
-function isLspReason(reason: string | undefined): boolean {
+function isScipReason(reason: string | undefined): boolean {
   if (reason === undefined) return false;
-  for (const prefix of LSP_PROVENANCE_PREFIXES) {
+  for (const prefix of SCIP_PROVENANCE_PREFIXES) {
     if (reason.startsWith(prefix)) return true;
   }
   return false;

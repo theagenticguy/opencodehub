@@ -77,7 +77,7 @@ export interface AnalyzeOptions {
   /**
    * Upper bound on Bedrock calls per run. Accepts either a non-negative
    * integer or the literal string `"auto"`. Default `"auto"` resolves to
-   * `min(floor(lspConfirmedCallableCount × 0.1), 500)` at run time, using
+   * `min(floor(scipConfirmedCallableCount × 0.1), 500)` at run time, using
    * a prior-run heuristic seeded from `store_meta.stats["embeddingsCount"]`
    * when available and falling back to 50 on first run. Any positive
    * integer caps the batch size at that value; `0` runs the phase in
@@ -180,7 +180,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     : undefined;
 
   // Resolve `--max-summaries auto` against the prior run's callable count,
-  // if any. `auto` bounds the cap at 10% of the LSP-confirmed callable
+  // if any. `auto` bounds the cap at 10% of the SCIP-confirmed callable
   // symbols (capped at 500); on a cold first run the prior meta is absent
   // and we fall back to a conservative 50. `0` and positive integers pass
   // through unchanged. Unknown inputs (string without the "auto" literal)
@@ -466,13 +466,13 @@ export function resolveSummariesEnabled(
  * numeric budget the pipeline can consume.
  *
  * Pre-run heuristic (P04): `auto` bounds the cap at
- * `min(floor(lspConfirmedCallableCount × 0.1), 500)`. We cannot cheaply
+ * `min(floor(scipConfirmedCallableCount × 0.1), 500)`. We cannot cheaply
  * compute that before the pipeline runs (LSP phases haven't yielded
  * yet), so we use the prior run's stored counts when available:
  *
  *   - If a DuckDB store is readable at the expected path, count nodes
  *     whose kind is Function/Method/Class. That count is the best proxy
- *     for "LSP-confirmed callables" we can get before the parse phase.
+ *     for "SCIP-confirmed callables" we can get before the parse phase.
  *   - If no prior store exists (fresh clone, first analyze), fall back
  *     to a conservative first-run cap of 50. The next invocation has
  *     the prior counts and can resolve `auto` accurately.

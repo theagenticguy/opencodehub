@@ -17,9 +17,9 @@ import { computeConfidenceBreakdown, type EdgeConfidenceSource } from "./confide
 
 test("computeConfidenceBreakdown: all-confirmed LSP edges", () => {
   const edges: EdgeConfidenceSource[] = [
-    { confidence: 1.0, reason: "pyright@1.1.390" },
-    { confidence: 1.0, reason: "typescript-language-server@4.3.3" },
-    { confidence: 1.0, reason: "gopls@0.16.2" },
+    { confidence: 1.0, reason: "scip:scip-python@0.6.6" },
+    { confidence: 1.0, reason: "scip:scip-typescript@0.4.0" },
+    { confidence: 1.0, reason: "scip:scip-go@0.2.3" },
   ];
   const out = computeConfidenceBreakdown(edges);
   assert.deepEqual(out, { confirmed: 3, heuristic: 0, unknown: 0 });
@@ -37,8 +37,8 @@ test("computeConfidenceBreakdown: all-heuristic edges", () => {
 
 test("computeConfidenceBreakdown: all-demoted edges at the 0.2 floor", () => {
   const edges: EdgeConfidenceSource[] = [
-    { confidence: 0.2, reason: "heuristic/tier-2+lsp-unconfirmed" },
-    { confidence: 0.2, reason: "heuristic/tier-1+lsp-unconfirmed" },
+    { confidence: 0.2, reason: "heuristic/tier-2+scip-unconfirmed" },
+    { confidence: 0.2, reason: "heuristic/tier-1+scip-unconfirmed" },
     { confidence: 0.2 },
   ];
   const out = computeConfidenceBreakdown(edges);
@@ -47,9 +47,9 @@ test("computeConfidenceBreakdown: all-demoted edges at the 0.2 floor", () => {
 
 test("computeConfidenceBreakdown: mixed bag yields one of each", () => {
   const edges: EdgeConfidenceSource[] = [
-    { confidence: 1.0, reason: "rust-analyzer@2024-12-16" },
+    { confidence: 1.0, reason: "scip:rust-analyzer@release-2026-04-20" },
     { confidence: 0.5, reason: "heuristic/tier-2" },
-    { confidence: 0.2, reason: "heuristic/tier-2+lsp-unconfirmed" },
+    { confidence: 0.2, reason: "heuristic/tier-2+scip-unconfirmed" },
   ];
   const out = computeConfidenceBreakdown(edges);
   assert.deepEqual(out, { confirmed: 1, heuristic: 1, unknown: 1 });
@@ -86,8 +86,8 @@ test("computeConfidenceBreakdown: empty input → all zero", () => {
 test("computeConfidenceBreakdown: LSP reason with trailing version info matches by prefix", () => {
   const edges: EdgeConfidenceSource[] = [
     // Extra suffix after the LSP prefix should still match.
-    { confidence: 1.0, reason: "pyright@1.1.390/extra-tag" },
-    { confidence: 0.95, reason: "gopls@v0.16.2" },
+    { confidence: 1.0, reason: "scip:scip-python@0.6.6/extra-tag" },
+    { confidence: 0.95, reason: "scip:scip-go@v0.2.3" },
   ];
   const out = computeConfidenceBreakdown(edges);
   assert.deepEqual(out, { confirmed: 2, heuristic: 0, unknown: 0 });

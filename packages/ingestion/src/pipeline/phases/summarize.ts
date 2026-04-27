@@ -16,8 +16,8 @@
  *      The flag defaults off so re-index runs stay free until the operator
  *      explicitly opts in.
  *   3. Trust filter — a symbol is summarized only when at least one edge
- *      incident on it is LSP-confirmed (confidence 1.0 and
- *      `reason` starts with an {@link LSP_PROVENANCE_PREFIXES} entry). This
+ *      incident on it is SCIP-confirmed (confidence 1.0 and
+ *      `reason` starts with an {@link SCIP_PROVENANCE_PREFIXES} entry). This
  *      cuts noise from tree-sitter-only resolution where the symbol's
  *      existence is uncertain.
  *   4. Cost cap — `maxSummariesPerRun` bounds how many Bedrock calls we
@@ -28,8 +28,8 @@
  *      anything on Session B.
  *
  * The LSP phases run upstream, so by the time we get here every high-
- * confidence edge carries its `pyright@…` / `typescript-language-server@…`
- * / `gopls@…` / `rust-analyzer@…` provenance. The trust filter reads that
+ * confidence edge carries its `scip:scip-python@…` / `scip:scip-typescript@…`
+ * / `scip:scip-go@…` / `scip:rust-analyzer@…` provenance. The trust filter reads that
  * directly off `ctx.graph`.
  *
  * Cache semantics:
@@ -52,7 +52,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { LSP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
+import { SCIP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
 import type { SymbolSummaryRow } from "@opencodehub/storage";
 import {
   DEFAULT_MODEL_ID,
@@ -398,7 +398,7 @@ function emptyOutput(
 
 function isLspReason(reason: string | undefined): boolean {
   if (reason === undefined) return false;
-  for (const prefix of LSP_PROVENANCE_PREFIXES) {
+  for (const prefix of SCIP_PROVENANCE_PREFIXES) {
     if (reason.startsWith(prefix)) return true;
   }
   return false;

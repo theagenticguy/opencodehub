@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runCommand } from "./cli.js";
+import type { ManifestLanguage } from "./manifest.js";
+import { replayManifest, runGym } from "./runner.js";
 import type {
   CallerSite,
   ImplementationSite,
@@ -13,9 +15,7 @@ import type {
   QueryImplementationsInput,
   QueryReferencesInput,
   ReferenceSite,
-} from "./lsp-factory.js";
-import type { ManifestLanguage } from "./manifest.js";
-import { replayManifest, runGym } from "./runner.js";
+} from "./scip-factory.js";
 
 /**
  * Scripted response for a single case. Keys are `${kind}:${symbolName}`

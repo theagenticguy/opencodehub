@@ -7,17 +7,6 @@ export { baselineCommand, replayCommand, runCommand } from "./cli.js";
 export type { CorpusCase, CorpusFile } from "./corpus.js";
 export { corpusCaseSchema, corpusFileSchema, loadCorpus } from "./corpus.js";
 export type {
-  CallerSite,
-  ImplementationSite,
-  LspClientLike,
-  LspFactory,
-  QueryCallersInput,
-  QueryImplementationsInput,
-  QueryReferencesInput,
-  ReferenceSite,
-} from "./lsp-factory.js";
-export { defaultLspFactory } from "./lsp-factory.js";
-export type {
   ManifestCorpus,
   ManifestLanguage,
   ManifestRecord,
@@ -57,5 +46,16 @@ export {
 } from "./metrics.js";
 export type { RunnerConfig, RunResult, RunSummary } from "./runner.js";
 export { replayManifest, runGym } from "./runner.js";
+export type {
+  CallerSite,
+  ImplementationSite,
+  LspClientLike,
+  LspFactory,
+  QueryCallersInput,
+  QueryImplementationsInput,
+  QueryReferencesInput,
+  ReferenceSite,
+} from "./scip-factory.js";
+export { defaultLspFactory } from "./scip-factory.js";
 
 export const GYM_PACKAGE_VERSION = "0.1.0";
