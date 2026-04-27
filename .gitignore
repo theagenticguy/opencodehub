@@ -35,3 +35,6 @@ examples/fixtures/**/.codehub/
 .claude/settings.local.json
 .claude/worktrees/
 .handoff/
+
+# Astro build cache
+packages/docs/.astro/

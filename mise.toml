@@ -217,3 +217,24 @@ run = "node packages/cli/dist/index.js status"
 description = "Start the codehub MCP server (stdio)"
 depends = ["build:cli"]
 run = "node packages/cli/dist/index.js mcp"
+
+# ---------------------------------------------------------------------------
+# Docs site (Astro + Starlight)
+# ---------------------------------------------------------------------------
+
+[tasks."docs:dev"]
+description = "Run the Starlight docs site in dev mode (http://localhost:4321/opencodehub)"
+depends = ["install"]
+run = "pnpm -F @opencodehub/docs dev"
+
+[tasks."docs:build"]
+description = "Build the Starlight docs site (writes to packages/docs/dist)"
+depends = ["install"]
+run = "pnpm -F @opencodehub/docs build"
+sources = ["packages/docs/src/**", "packages/docs/astro.config.mjs", "packages/docs/package.json"]
+outputs = ["packages/docs/dist/**"]
+
+[tasks."docs:preview"]
+description = "Preview the built docs locally"
+depends = ["docs:build"]
+run = "pnpm -F @opencodehub/docs preview"
