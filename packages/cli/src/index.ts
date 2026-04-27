@@ -141,6 +141,33 @@ program
   });
 
 program
+  .command("init [path]")
+  .description(
+    "Bootstrap a repo for OpenCodeHub — copies the Claude Code plugin assets into .claude/ (project-scope), writes .mcp.json, appends .codehub/ to .gitignore, seeds opencodehub.policy.yaml",
+  )
+  .option("--force", "Overwrite conflicting files under .claude/")
+  .option("--skip-mcp", "Skip writing .mcp.json")
+  .option("--skip-policy", "Skip seeding opencodehub.policy.yaml")
+  .action(async (path: string | undefined, opts: Record<string, boolean | undefined>) => {
+    const mod = await import("./commands/init.js");
+    const result = await mod.runInit({
+      ...(path !== undefined ? { repo: path } : {}),
+      force: opts["force"] === true,
+      skipMcp: opts["skipMcp"] === true,
+      skipPolicy: opts["skipPolicy"] === true,
+    });
+    // One-line recap so the user knows what changed.
+    const bits: string[] = [
+      `${result.filesCopied} file(s) into .claude/`,
+    ];
+    if (result.mcpResult) bits.push(`.mcp.json (${result.mcpResult.action})`);
+    if (result.gitignoreUpdated) bits.push(".gitignore updated");
+    if (result.policySeeded) bits.push("opencodehub.policy.yaml seeded");
+    console.warn(`codehub init: ${bits.join(" · ")}`);
+    console.warn("Next: run 'codehub analyze' to build the graph, then restart Claude Code.");
+  });
+
+program
   .command("setup")
   .description("Write MCP config entries for supported editors, or download embedder weights")
   .option(

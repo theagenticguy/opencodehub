@@ -72,6 +72,20 @@ Nine components, tracked in `.erpaval/specs/001-claude-code-artifact-surface/spe
 2. **Orchestrator model**: Sonnet default; Opus only when `--refresh --group` is passed (refresh logic that prunes by mtime + fans out partial subagent set needs judgment; first-run single-repo does not).
 3. **Output default**: `.codehub/docs/` gitignored; `--committed` opt-in to `docs/codehub/`. See ADR 0009 for the full output contract.
 
+### Install model — project scope via `codehub init`
+
+The default install path for a repo that wants OpenCodeHub is now `codehub init`, which does the full project-scope bootstrap in one command:
+
+1. Copies the plugin (`skills/`, `agents/`, `commands/`, `hooks/`) from the CLI's bundled assets into `<repo>/.claude/`.
+2. Rewrites `hooks.json`'s `${CLAUDE_PLUGIN_ROOT}` token to `${CLAUDE_PROJECT_DIR}/.claude` and writes the result to `<repo>/.claude/settings.json` (the project-scope equivalent).
+3. Writes `<repo>/.mcp.json` with the `mcpServers.codehub` entry via the existing `runSetup` pipeline.
+4. Appends `.codehub/` to `.gitignore` (idempotent).
+5. Seeds `opencodehub.policy.yaml` (every rule commented out) for the CI verdict actions in spec 002 P1.
+
+**Project scope over user scope.** Once `.claude/` is in git, every teammate who clones the repo gets the plugin automatically. The legacy user-scope install (`codehub setup --plugin` → `~/.claude/plugins/opencodehub/`) remains supported for users who want a single global install across every repo.
+
+**Idempotent.** Re-running `codehub init` against an existing `.claude/` refuses with a conflict list unless `--force` is passed. With `--force`, outputs are byte-identical on unchanged inputs. The policy starter is never overwritten once it exists, even under `--force`.
+
 ## Consequences
 
 ### Positive
