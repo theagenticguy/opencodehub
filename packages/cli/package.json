@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "OpenCodeHub — codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
   "license": "Apache-2.0",
   "type": "module",
@@ -9,7 +9,9 @@
   "bin": {
     "codehub": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b && node scripts/copy-ci-templates.mjs",
     "test": "node --test './dist/**/*.test.js'",
