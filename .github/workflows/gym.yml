@@ -81,7 +81,10 @@ jobs:
         if: matrix.language == 'go'
         uses: actions/setup-go@v6
         with:
-          go-version: "1.23"
+          # scip-go @ v0.2.3 requires Go >= 1.25 (module declares it
+          # in its go.mod). Go 1.26 is the latest stable when this
+          # line last ran locally; 1.25 is the floor. See ADR 0006.
+          go-version: "1.26"
           cache: true
 
       - name: Cache scip-go binary
@@ -105,11 +108,16 @@ jobs:
         if: matrix.language == 'go'
         run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Rust toolchain (stable + rust-analyzer)
+      - name: Set up Rust toolchain (stable + rust-analyzer + rust-src)
         if: matrix.language == 'rust'
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rust-analyzer
+          # rust-analyzer's `scip` subcommand reads from stdlib for
+          # cross-crate resolution, so it requires the `rust-src`
+          # component alongside `rust-analyzer`. Without it the
+          # indexer exits with
+          # `error: component download failed for rust-src`.
+          components: rust-analyzer, rust-src
 
       - name: Cache cargo registry
         if: matrix.language == 'rust'
