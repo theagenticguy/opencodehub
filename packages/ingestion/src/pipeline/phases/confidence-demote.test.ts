@@ -55,7 +55,7 @@ describe(CONFIDENCE_DEMOTE_PHASE_NAME, () => {
       to,
       type: "CALLS",
       confidence: 1.0,
-      reason: "pyright@1.1.390",
+      reason: "scip:scip-python@0.6.6",
     });
 
     const out = await confidenceDemotePhase.run(ctx, new Map());
@@ -65,12 +65,12 @@ describe(CONFIDENCE_DEMOTE_PHASE_NAME, () => {
     const demoted = findEdge(ctx, (reason) => reason?.startsWith("heuristic/tier-2") === true);
     assert.ok(demoted, "heuristic edge should still exist");
     assert.equal(demoted.confidence, 0.2);
-    assert.equal(demoted.reason, "heuristic/tier-2+lsp-unconfirmed");
+    assert.equal(demoted.reason, "heuristic/tier-2+scip-unconfirmed");
 
-    const lsp = findEdge(ctx, (reason) => reason === "pyright@1.1.390");
-    assert.ok(lsp, "pyright edge should still exist");
-    assert.equal(lsp.confidence, 1.0);
-    assert.equal(lsp.reason, "pyright@1.1.390");
+    const oracleEdge = findEdge(ctx, (reason) => reason === "scip:scip-python@0.6.6");
+    assert.ok(oracleEdge, "SCIP edge should still exist");
+    assert.equal(oracleEdge.confidence, 1.0);
+    assert.equal(oracleEdge.reason, "scip:scip-python@0.6.6");
 
     const noteEvents = events.filter((e) => e.phase === CONFIDENCE_DEMOTE_PHASE_NAME);
     assert.ok(noteEvents.some((e) => e.message?.includes("python=1")));
@@ -118,7 +118,7 @@ describe(CONFIDENCE_DEMOTE_PHASE_NAME, () => {
       to: pyTo,
       type: "CALLS",
       confidence: 1.0,
-      reason: "pyright@1.1.390",
+      reason: "scip:scip-python@0.6.6",
     });
     ctx.graph.addEdge({
       from: tsFrom,
@@ -135,7 +135,7 @@ describe(CONFIDENCE_DEMOTE_PHASE_NAME, () => {
 
     const pyHeuristic = findEdge(
       ctx,
-      (reason) => reason?.startsWith("heuristic/tier-2") === true && reason.includes("+lsp"),
+      (reason) => reason?.startsWith("heuristic/tier-2") === true && reason.includes("+scip"),
     );
     assert.ok(pyHeuristic, "python heuristic edge should be demoted");
     assert.equal(pyHeuristic.confidence, 0.2);

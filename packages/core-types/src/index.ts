@@ -6,7 +6,11 @@ export { canonicalJson, hash6, hashCanonicalJson, sha256Hex, writeCanonicalJson 
 export type { EdgeId, MakeNodeIdOptions, NodeId, ParsedNodeId } from "./id.js";
 export { makeEdgeId, makeNodeId, parseNodeId } from "./id.js";
 export type { LanguageId } from "./language-id.js";
-export { LSP_PROVENANCE_PREFIXES } from "./lsp-provenance.js";
+export {
+  LSP_PROVENANCE_PREFIXES,
+  PROVENANCE_PREFIXES,
+  SCIP_PROVENANCE_PREFIXES,
+} from "./lsp-provenance.js";
 export type {
   AnnotationNode,
   ClassNode,

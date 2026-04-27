@@ -7,7 +7,7 @@ labeler `opus-4-7`) into the gym corpus schema.
 The fixture is
 [`strands-agents/sdk-python`](https://github.com/strands-agents/sdk-python)
 pinned at commit `5a6df59502dc618781b85e80b01706a19cd45828`. The oracle tool
-is `pyright@1.1.390` driven over LSP.
+is `scip-python@0.6.6` invoked as a one-shot indexer.
 
 ## Schema
 

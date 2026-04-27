@@ -43,7 +43,7 @@ program
   )
   .option(
     "--max-summaries <n|auto>",
-    'Cap on Bedrock summarize calls per run. "auto" (default) scales the cap to 10% of the LSP-confirmed callable count (max 500).',
+    'Cap on Bedrock summarize calls per run. "auto" (default) scales the cap to 10% of the SCIP-confirmed callable count (max 500).',
     "auto",
   )
   .option(
@@ -194,6 +194,27 @@ program
   .action(async (path: string | undefined, opts: Record<string, boolean>) => {
     const mod = await import("./commands/clean.js");
     await mod.runClean(path ?? process.cwd(), { all: opts["all"] === true });
+  });
+
+program
+  .command("pack [path]")
+  .description("Produce a single-file LLM-ready snapshot of the repo via repomix (AST-compressed).")
+  .option("--style <style>", "Output style: xml|markdown|json|plain", "xml")
+  .option("--no-compress", "Disable tree-sitter AST compression (keeps full source)")
+  .option("--remove-comments", "Strip comments from the packed output")
+  .option("--out <path>", "Custom output path (default: <repo>/.codehub/pack/repo.<ext>)")
+  .action(async (path: string | undefined, opts: Record<string, unknown>) => {
+    const mod = await import("./commands/pack.js");
+    const style = opts["style"] as "xml" | "markdown" | "json" | "plain" | undefined;
+    const result = await mod.runPack(path ?? process.cwd(), {
+      ...(style !== undefined ? { style } : {}),
+      compress: opts["compress"] !== false,
+      removeComments: opts["removeComments"] === true,
+      ...(typeof opts["out"] === "string" ? { outputPath: opts["out"] as string } : {}),
+    });
+    console.warn(
+      `codehub pack: wrote ${result.bytes} bytes to ${result.outputPath} in ${result.durationMs}ms`,
+    );
   });
 
 program

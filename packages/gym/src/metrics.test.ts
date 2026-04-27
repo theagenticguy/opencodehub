@@ -95,7 +95,7 @@ test("kendallTau: items missing from actual are treated as tied-last", () => {
 test("aggregate: single case preserves per-case f1; multiple cases micro-average; sorted by key", () => {
   const single: CaseScore = {
     language: "python",
-    tool: "pyright@1.1.390",
+    tool: "scip-python@0.6.6",
     caseKind: "references",
     caseId: "case-1",
     scores: { tp: 2, fp: 1, fn: 1, precision: 2 / 3, recall: 2 / 3, f1: 2 / 3 },
@@ -104,7 +104,7 @@ test("aggregate: single case preserves per-case f1; multiple cases micro-average
   };
   const singleRollup = aggregate([single]);
   assert.equal(singleRollup.length, 1);
-  assert.equal(singleRollup[0]?.key, "python/pyright@1.1.390/references");
+  assert.equal(singleRollup[0]?.key, "python/scip-python@0.6.6/references");
   assert.equal(singleRollup[0]?.caseCount, 1);
   assert.ok(Math.abs((singleRollup[0]?.f1 ?? 0) - 2 / 3) < 1e-12);
   assert.equal(singleRollup[0]?.meanJaccard, 0.5);
@@ -132,7 +132,7 @@ test("aggregate: single case preserves per-case f1; multiple cases micro-average
   // Different keys → separate rollups, sorted ascending by key.
   const other: CaseScore = {
     language: "typescript",
-    tool: "tsserver@5.7",
+    tool: "scip-typescript@0.4.0",
     caseKind: "references",
     caseId: "ts-1",
     scores: { tp: 1, fp: 0, fn: 0, precision: 1, recall: 1, f1: 1 },
@@ -140,8 +140,8 @@ test("aggregate: single case preserves per-case f1; multiple cases micro-average
   };
   const multi = aggregate([other, single]);
   assert.equal(multi.length, 2);
-  assert.equal(multi[0]?.key, "python/pyright@1.1.390/references");
-  assert.equal(multi[1]?.key, "typescript/tsserver@5.7/references");
+  assert.equal(multi[0]?.key, "python/scip-python@0.6.6/references");
+  assert.equal(multi[1]?.key, "typescript/scip-typescript@0.4.0/references");
   // Case without kendallTau contributes nothing to mean; undefined when none present.
   assert.equal(multi[1]?.meanKendallTau, undefined);
 });

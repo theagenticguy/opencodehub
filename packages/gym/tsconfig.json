@@ -5,7 +5,7 @@
     "outDir": "dist",
     "composite": true
   },
-  "references": [{ "path": "../lsp-oracle" }],
+  "references": [{ "path": "../scip-ingest" }],
   "include": ["src/**/*"],
   "exclude": ["dist", "reference", "corpus", "node_modules"]
 }

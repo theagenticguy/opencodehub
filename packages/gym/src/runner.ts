@@ -25,7 +25,6 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CorpusCase, CorpusFile } from "./corpus.js";
 import { loadCorpus } from "./corpus.js";
-import type { LspClientLike, LspFactory } from "./lsp-factory.js";
 import {
   canonicalize,
   type ManifestRecord,
@@ -41,6 +40,7 @@ import {
   kendallTau,
   type Rollup,
 } from "./metrics.js";
+import type { LspClientLike, LspFactory } from "./scip-factory.js";
 
 export interface RunnerConfig {
   readonly corpusPaths: readonly string[];

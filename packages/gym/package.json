@@ -1,7 +1,7 @@
 {
   "name": "@opencodehub/gym",
   "version": "0.1.0",
-  "description": "OpenCodeHub — differential LSP oracle evaluation harness (freeze/replay manifests, P/R/F1 metrics, three-layer regression gates)",
+  "description": "OpenCodeHub — SCIP-indexer evaluation harness (freeze/replay manifests, P/R/F1 metrics, three-layer regression gates)",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,7 @@
     "codehub-gym": "node ./dist/cli.js"
   },
   "dependencies": {
-    "@opencodehub/lsp-oracle": "workspace:*",
+    "@opencodehub/scip-ingest": "workspace:*",
     "commander": "14.0.3",
     "yaml": "2.8.3",
     "zod": "4.3.6"

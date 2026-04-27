@@ -22,8 +22,8 @@ function baseRecord(overrides: Partial<ManifestRecord> = {}): ManifestRecord {
       path: "sdk-python",
     },
     tool: {
-      name: "pyright",
-      version: "1.1.390",
+      name: "scip-python",
+      version: "0.6.6",
     },
     request: {
       kind: "references",
@@ -100,7 +100,7 @@ test("writeManifest + readManifest: round-trips a 3-record list losslessly", asy
         },
       }),
       baseRecord({
-        tool: { name: "pyright", version: "1.1.390", sha256: "f".repeat(64) },
+        tool: { name: "scip-python", version: "0.6.6", sha256: "f".repeat(64) },
         labeler: "opus-4-7",
         labeler_note: "auto-labeled from differential run",
         waived: true,

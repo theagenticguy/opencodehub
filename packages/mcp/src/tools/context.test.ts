@@ -501,7 +501,7 @@ test("context: HAS_METHOD edges from a parent class surface under incoming.has_m
           to_id: "M:handle",
           type: "HAS_METHOD",
           confidence: 1.0,
-          reason: "tsserver@4.3.3",
+          reason: "scip:scip-typescript@4.3.3",
         },
       ],
     },

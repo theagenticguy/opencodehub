@@ -1,0 +1,32 @@
+{
+  "name": "@opencodehub/scip-ingest",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — SCIP (.scip) loader + per-language indexer runners (replaces @opencodehub/lsp-oracle)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "proto"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test './dist/**/*.test.js'",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.11.0",
+    "@opencodehub/core-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "typescript": "6.0.3"
+  }
+}

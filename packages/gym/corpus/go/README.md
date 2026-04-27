@@ -1,10 +1,10 @@
 # go corpus
 
-Golden goldens for the `gopls` differential LSP oracle. The single corpus here
+Golden goldens for the `gopls` differential SCIP indexer. The single corpus here
 targets `spf13/cobra` v1.9.1 (commit
 `40b5bc1437a564fc795d388b23835e84f54cd1d1`), vendored as a read-only submodule
 under `packages/gym/corpus/repos/go/cobra`. All 13 cases in `cobra.yaml` were
-labeled by reading the cobra source directly — no live gopls runs were used to
+labeled by reading the cobra source directly — no live scip-go runs were used to
 produce the expected sets, so the file is a pure source-of-truth that a running
 gopls must agree with. Distribution: 2 `implementations`, 5 `references`, 6
 `callers`. One `implementations` case (`SliceValue`) is waived because the only

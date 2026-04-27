@@ -1,6 +1,6 @@
 # @opencodehub/gym
 
-Differential LSP oracle evaluation harness. Verifies that each language's LSP oracle (pyright, typescript-language-server, gopls, rust-analyzer) produces reference graphs consistent with pinned goldens, and gates on regressions.
+Differential SCIP indexer evaluation harness. Verifies that each language's SCIP indexer (scip-typescript, scip-python, scip-go, rust-analyzer, scip-java) produces reference graphs consistent with pinned goldens, and gates on regressions.
 
 ## Layout
 
@@ -13,6 +13,7 @@ packages/gym/
     typescript/
     go/
     rust/
+    monorepo/         # cross-language fixtures
     repos/            # fixture git submodules pinned to specific SHAs
   manifests/          # freeze/replay JSONL — current run output
   baselines/          # last-green manifest + performance baselines
@@ -25,7 +26,7 @@ packages/gym/
 - **Jaccard** on result sets — secondary.
 - **Kendall tau** on ranked outputs — for rank-sensitive cases only.
 
-Deterministic oracles (LSP servers) do not use judge-panel / Fleiss kappa — see `reference/metric-choice.md`.
+Deterministic oracles (SCIP indexers) do not use judge-panel / Fleiss kappa — see `reference/metric-choice.md`.
 
 ## Three-layer regression gate
 
@@ -35,7 +36,7 @@ Deterministic oracles (LSP servers) do not use judge-panel / Fleiss kappa — se
 
 ## Freeze/replay manifest
 
-Every run emits a JSONL manifest pinning `{manifest_version, corpus_commit, tool: {name, version, sha256}, request, result_set, captured_at}`. Enables bit-exact replay without respawning the LSP server.
+Every run emits a JSONL manifest pinning `{manifest_version, corpus_commit, tool: {name, version, sha256}, request, result_set, captured_at}`. Enables bit-exact replay by re-invoking the SCIP indexer at the pinned version — no language-server daemon is spawned.
 
 ## Submodule pin protocol
 
@@ -43,4 +44,5 @@ Fixture repos live under `corpus/repos/<lang>/<name>/` as git submodules. Pinned
 
 1. `git submodule update --remote corpus/repos/<lang>/<name>`
 2. Re-run `mise run gym:baseline` to regenerate goldens against the new SHA.
-3. Review the diff in the next PR.
+3. Run `uv run packages/gym/baselines/scripts/refresh-expected.py packages/gym/baselines/manifest.jsonl` to refresh the corpus `expected:` sets.
+4. Review the diff in the next PR.

@@ -34,7 +34,7 @@ interface RollupOverrides {
 
 function rollup(overrides: RollupOverrides = {}): Rollup {
   const language = overrides.language ?? "python";
-  const tool = overrides.tool ?? "pyright";
+  const tool = overrides.tool ?? "scip-python";
   const caseKind = overrides.caseKind ?? "references";
   const r: Rollup = {
     key: `${language}/${tool}/${caseKind}`,
@@ -68,7 +68,7 @@ function caseScore(overrides: CaseScoreOverrides = {}): CaseScore {
     caseId: overrides.caseId ?? "case-1",
     caseKind: overrides.caseKind ?? "references",
     language: overrides.language ?? "python",
-    tool: overrides.tool ?? "pyright",
+    tool: overrides.tool ?? "scip-python",
     scores: {
       precision: overrides.precision ?? 1,
       recall: overrides.recall ?? 1,
@@ -191,7 +191,7 @@ test("Gate 2: coverage dropped (key in baseline, absent in current) -> finding",
   assert.ok(finding !== undefined);
   assert.equal(finding.gate, "f1-delta");
   if (finding.gate !== "f1-delta") throw new Error("unreachable");
-  assert.equal(finding.key, "python/pyright/implementations");
+  assert.equal(finding.key, "python/scip-python/implementations");
   assert.equal(finding.observed, 0);
   assert.equal(finding.baseline, 0.97);
 });
@@ -220,7 +220,7 @@ test("Gate 2: outside tolerance -> finding", () => {
   assert.ok(finding !== undefined);
   assert.equal(finding.gate, "f1-delta");
   if (finding.gate !== "f1-delta") throw new Error("unreachable");
-  assert.equal(finding.key, "python/pyright/references");
+  assert.equal(finding.key, "python/scip-python/references");
   assert.equal(finding.tolerance, 0.005);
 });
 
@@ -291,7 +291,7 @@ test("Finding ordering: multi-gate findings sorted deterministically", () => {
       currentRollups: [
         rollup({ language: "python", f1: 0.8 }),
         rollup({ language: "typescript", tool: "tsserver", f1: 0.5 }),
-        rollup({ language: "go", tool: "gopls", f1: 0.5 }),
+        rollup({ language: "go", tool: "scip-go", f1: 0.5 }),
       ],
       baselineRollups: [
         rollup({ language: "python", f1: 0.97 }),

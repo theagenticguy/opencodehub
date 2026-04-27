@@ -26,11 +26,13 @@ scope.
    commit, and `scripts/acceptance.sh` gate 6 gates on exactly that
    invariant.*
 
-4. **Cover the 14 GA languages with tree-sitter and upgrade four of
-   them (Python, TS/JS, Go, Rust) with real LSP oracles.** *Because
-   heuristic call-graph edges miss cross-module resolution, the
-   `confidence-demote` phase already exists to reconcile heuristic and
-   compiler-grade edges, and the gym harness gates per-language F1.*
+4. **Cover the 14 GA languages with tree-sitter and upgrade five of
+   them (TypeScript, Python, Go, Rust, Java) with SCIP indexers.**
+   *Because heuristic call-graph edges miss cross-module resolution,
+   the `scip-index` phase runs each language's native SCIP indexer
+   once, the `confidence-demote` phase reconciles heuristic and
+   compiler-grade edges, and the gym harness gates per-language F1
+   with SCIP-derived baselines.*
 
 ## Quality bar
 

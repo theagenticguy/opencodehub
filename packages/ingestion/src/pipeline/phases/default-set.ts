@@ -33,10 +33,6 @@ import { dependenciesPhase } from "./dependencies.js";
 import { embeddingsPhase } from "./embeddings.js";
 import { fetchesPhase } from "./fetches.js";
 import { incrementalScopePhase } from "./incremental-scope.js";
-import { lspGoPhase } from "./lsp-go.js";
-import { lspPythonPhase } from "./lsp-python.js";
-import { lspRustPhase } from "./lsp-rust.js";
-import { lspTypescriptPhase } from "./lsp-typescript.js";
 import { markdownPhase } from "./markdown.js";
 import { mroPhase } from "./mro.js";
 import { openapiPhase } from "./openapi.js";
@@ -49,6 +45,7 @@ import { riskSnapshotPhase } from "./risk-snapshot.js";
 import { routesPhase } from "./routes.js";
 import { sbomPhase } from "./sbom.js";
 import { scanPhase } from "./scan.js";
+import { scipIndexPhase } from "./scip-index.js";
 import { structurePhase } from "./structure.js";
 import { summarizePhase } from "./summarize.js";
 import { temporalPhase } from "./temporal.js";
@@ -76,33 +73,19 @@ export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   // communities so ACCESSES can participate in Leiden weights if we later
   // decide to surface receiver ↔ field coupling.
   accessesPhase,
-  // `lsp-python` runs after the tree-sitter heuristic passes (parse,
-  // crossFile, accesses) so its compiler-grade edges UPGRADE existing
-  // low-confidence heuristic edges instead of racing them. It runs before
-  // `mro` (so MRO sees upgraded EXTENDS edges), `communities` (so
-  // clustering sees the richer edge set), and `dead-code` (so reachability
-  // sees real callers). The phase is a no-op on non-Python repos.
-  lspPythonPhase,
-  // `lsp-typescript` mirrors `lsp-python` for TS / TSX / JS / JSX, driving
-  // tsserver via `typescript-language-server`. Runs immediately after
-  // `lsp-python` so all LSP phases sit contiguously before
-  // `confidence-demote`. No-op on non-TS/JS repos.
-  lspTypescriptPhase,
-  // `lsp-go` upgrades Go CALLS / REFERENCES / EXTENDS edges with
-  // compiler-grade resolution from gopls. No-op on non-Go repos.
-  lspGoPhase,
-  // `lsp-rust` upgrades Rust CALLS / REFERENCES / EXTENDS edges with
-  // compiler-grade resolution from rust-analyzer. No-op on non-Rust repos.
-  // rust-analyzer defaults to `procMacro.enable=false`, so derive- and
-  // attribute-macro-synthesized references (serde, tokio) are intentionally
-  // missing — see the header comment of `lsp-rust.ts` for the tradeoff.
-  lspRustPhase,
-  // `confidence-demote` runs immediately after every LSP phase and before
-  // `mro`. It walks the graph once and demotes any confidence-0.5 heuristic
-  // CALLS / REFERENCES / EXTENDS edge whose `(from, type, to)` triple is
-  // also covered by a confidence-1.0 LSP-sourced edge — the heuristic is
-  // kept at 0.2 with a `+lsp-unconfirmed` reason suffix so downstream
-  // consumers can filter without losing provenance.
+  // `scip-index` replaces the four per-language LSP upgrade phases.
+  // It runs the appropriate SCIP indexer (scip-typescript / scip-python
+  // / scip-go / rust-analyzer --scip / scip-java), parses the resulting
+  // index, and emits CodeRelation edges with confidence=1.0 and
+  // reason=`scip:<indexer>@<version>`. No long-running language servers,
+  // no stdio JSON-RPC, no per-symbol roundtrips. Runs after the
+  // tree-sitter heuristic tier so its oracle edges can upgrade the
+  // heuristic graph in-place.
+  scipIndexPhase,
+  // `confidence-demote` runs immediately after `scip-index` and before
+  // `mro`. It demotes any confidence-0.5 heuristic edge whose triple is
+  // also covered by a confidence-1.0 SCIP-sourced edge to 0.2 with a
+  // `+scip-unconfirmed` reason suffix.
   confidenceDemotePhase,
   mroPhase,
   communitiesPhase,
