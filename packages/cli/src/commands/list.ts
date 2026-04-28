@@ -75,9 +75,7 @@ function printTable(entries: readonly RepoEntry[]): void {
     cols.map((c, i) => c.padEnd(widths[i] ?? 0)).join("  ");
   console.log(line(headers));
   for (const r of rows) {
-    console.log(
-      line([r.name, r.path, r.lastCommit, r.indexedAt, r.nodes, r.health]),
-    );
+    console.log(line([r.name, r.path, r.lastCommit, r.indexedAt, r.nodes, r.health]));
   }
   const unhealthy = rows.filter((r) => r.health !== "ok");
   if (unhealthy.length > 0) {

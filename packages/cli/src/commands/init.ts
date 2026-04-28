@@ -41,13 +41,8 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  type FsApi,
-  runSetup,
-  type SetupOptions,
-  type SetupResult,
-} from "./setup.js";
 import { writeFileAtomic as defaultWriteFileAtomic } from "../fs-atomic.js";
+import { type FsApi, runSetup, type SetupOptions, type SetupResult } from "./setup.js";
 
 const DEFAULT_FS: FsApi = {
   async readFile(path) {
@@ -265,10 +260,7 @@ async function collectCopySteps(
   }
 }
 
-async function detectConflicts(
-  fs: FsApi,
-  plan: readonly PlanStep[],
-): Promise<readonly string[]> {
+async function detectConflicts(fs: FsApi, plan: readonly PlanStep[]): Promise<readonly string[]> {
   const conflicts: string[] = [];
   for (const step of plan) {
     if (await fs.exists(step.targetPath)) conflicts.push(step.targetPath);
@@ -290,7 +282,9 @@ async function writeProjectScopeHooks(
 ): Promise<boolean> {
   const pluginHooksPath = join(sourceDir, "hooks.json");
   if (!(await fs.exists(pluginHooksPath))) {
-    warn(`codehub init: plugin hooks.json missing at ${pluginHooksPath}; skipping project-scope hook wire-up.`);
+    warn(
+      `codehub init: plugin hooks.json missing at ${pluginHooksPath}; skipping project-scope hook wire-up.`,
+    );
     return false;
   }
   const raw = await fs.readFile(pluginHooksPath);
@@ -303,9 +297,7 @@ async function writeProjectScopeHooks(
   // key is upserted; every sibling key is preserved.
   const existing = (await fs.exists(targetPath)) ? await fs.readFile(targetPath) : undefined;
   const doc: Record<string, unknown> =
-    existing && existing.trim().length > 0
-      ? (JSON.parse(existing) as Record<string, unknown>)
-      : {};
+    existing && existing.trim().length > 0 ? (JSON.parse(existing) as Record<string, unknown>) : {};
   doc["hooks"] = parsed["hooks"];
   const merged = `${JSON.stringify(doc, null, 2)}\n`;
 

@@ -165,9 +165,7 @@ program
       skipPolicy: opts["skipPolicy"] === true,
     });
     // One-line recap so the user knows what changed.
-    const bits: string[] = [
-      `${result.filesCopied} file(s) into .claude/`,
-    ];
+    const bits: string[] = [`${result.filesCopied} file(s) into .claude/`];
     if (result.mcpResult) bits.push(`.mcp.json (${result.mcpResult.action})`);
     if (result.gitignoreUpdated) bits.push(".gitignore updated");
     if (result.policySeeded) bits.push("opencodehub.policy.yaml seeded");

@@ -85,8 +85,11 @@ test("runInit: fresh repo wires up .claude/, .mcp.json, .gitignore, policy", asy
   assert.ok(parsedSettings["hooks"] !== undefined, "settings.json must have hooks key");
   // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting literal absence
   assert.ok(!settings.includes("${CLAUDE_PLUGIN_ROOT}"), "CLAUDE_PLUGIN_ROOT must be rewritten");
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting literal presence
-  assert.ok(settings.includes("${CLAUDE_PROJECT_DIR}/.claude"), "must reference project-scope path");
+  assert.ok(
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting literal presence
+    settings.includes("${CLAUDE_PROJECT_DIR}/.claude"),
+    "must reference project-scope path",
+  );
 
   // .mcp.json has a codehub entry.
   const mcp = JSON.parse(await readFile(join(repo, ".mcp.json"), "utf8")) as {
