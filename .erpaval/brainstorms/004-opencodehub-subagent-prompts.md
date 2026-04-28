@@ -1,6 +1,6 @@
 # 004 — `codehub-document` Subagent Prompt Templates
 
-Drop-in prompt templates for the six `doc-*` subagents dispatched by the `codehub-document` skill. Each prompt follows the codeprobe 8-section scaffold. Every agent reads `.codehub/.context.md` and `.codehub/.prefetch.md` first — Phase 0 is responsible for writing them.
+Drop-in prompt templates for the six `doc-*` subagents dispatched by the `codehub-document` skill. Each prompt follows the pattern's 8-section scaffold. Every agent reads `.codehub/.context.md` and `.codehub/.prefetch.md` first — Phase 0 is responsible for writing them.
 
 *Placement: `plugins/opencodehub/agents/doc-*.md`. The skill invokes them via the `Task` tool with `subagent_type: "doc-architecture"` (etc.).*
 

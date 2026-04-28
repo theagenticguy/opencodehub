@@ -5,8 +5,8 @@ description: "Primary artifact generator. Single-repo and group mode, 4-phase or
 
 import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
 
-Primary artifact generator. Ports codeprobe's proven `/document` pattern to
-OpenCodeHub's graph and extends it with first-class **group mode**.
+Primary artifact generator. Applies the proven four-phase `/document` pattern
+to OpenCodeHub's graph and extends it with first-class **group mode**.
 
 Writes a tree of cross-linked Markdown under `.codehub/docs/` (single-repo)
 or `.codehub/groups/<name>/docs/` (group mode) plus a `.docmeta.json`
@@ -115,7 +115,7 @@ See [ADR 0009](/opencodehub/architecture/adr-0009/) for the full contract.
 ## Related
 
 - [ADR 0007 — Artifact factory](/opencodehub/architecture/adr-0007/)
-- [ADR 0008 — codeprobe pattern port](/opencodehub/architecture/adr-0008/)
+- [ADR 0008 — Document pattern port](/opencodehub/architecture/adr-0008/)
 - [ADR 0009 — Output conventions](/opencodehub/architecture/adr-0009/)
 - [`.docmeta.json` schema](/opencodehub/reference/docmeta-schema/)
 - [Skills index](/opencodehub/skills/)

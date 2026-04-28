@@ -69,9 +69,9 @@ window.RoadmapData = {
       track: "laptop-skills",
       week: { start: 3, end: 7 },
       critical: true,
-      tags: ["skill", "plugin", "codeprobe-pattern"],
+      tags: ["skill", "plugin", "document-pattern"],
       blurb: "Primary artifact generator. Single-repo and group mode, 4-phase orchestration (Phase 0 precompute → AB parallel → CD parallel → E assembler).",
-      why: "The flagship of the laptop surface. Ports codeprobe's proven /document pattern to OpenCodeHub's graph, extended with group mode as the multi-repo wedge. If this skill does not ship, the laptop surface remains analytical-only.",
+      why: "The flagship of the laptop surface. Applies the proven four-phase /document pattern to OpenCodeHub's graph, extended with group mode as the multi-repo wedge. If this skill does not ship, the laptop surface remains analytical-only.",
       scope: [
         "plugins/opencodehub/skills/codehub-document/SKILL.md",
         "references/ directory for progressive disclosure",
@@ -90,7 +90,7 @@ window.RoadmapData = {
       week: { start: 3, end: 6 },
       critical: true,
       tags: ["agents", "sonnet", "plugin"],
-      blurb: "doc-architecture, doc-reference, doc-behavior, doc-analysis, doc-diagrams, doc-cross-repo (group-only). Eight-section scaffold per codeprobe.",
+      blurb: "doc-architecture, doc-reference, doc-behavior, doc-analysis, doc-diagrams, doc-cross-repo (group-only). Eight-section scaffold from the document pattern.",
       why: "Parallel subagents are the cost-efficient way to produce 30+ documents — each runs Sonnet, reads the Phase 0 precompute from disk, writes its own files in isolation.",
       scope: [
         "plugins/opencodehub/agents/doc-architecture.md",
@@ -113,7 +113,7 @@ window.RoadmapData = {
       critical: true,
       tags: ["precompute", "substrate"],
       blurb: "Writes .codehub/.context.md (200-line cap) and .codehub/.prefetch.md (JSON tool-call ledger). Prompt-dedup via filesystem.",
-      why: "The single design choice that makes parallel subagents affordable — every doc-* reads the same precomputed context instead of re-calling tools. Copied from codeprobe and extended for group mode.",
+      why: "The single design choice that makes parallel subagents affordable — every doc-* reads the same precomputed context instead of re-calling tools. From the base document pattern, extended for group mode.",
       scope: [
         "packages/analysis/src/prefetch.ts (or equivalent)",
         "200-line cap with per-section truncation flags",

@@ -6,7 +6,7 @@ This memo is the single-source recommendation. All three cycles agree on the wed
 
 ## The thesis (refined)
 
-**OpenCodeHub becomes the artifact factory for Claude Code at the group level.** We port codeprobe's `/document` choreography — Phase 0 precompute → parallel `doc-*` subagents → deterministic cross-reference assembler → `.docmeta.json` sidecar — into a plugin skill family that treats a *group of repos* as a first-class scope. Every other code-graph tool is single-repo. We are the only retrieval surface with cross-repo graph primitives (`group_contracts`, `group_query`, `group_status`, `group_sync`), and we have a latent wiki/summarizer engine in the CLI already. The wedge writes itself.
+**OpenCodeHub becomes the artifact factory for Claude Code at the group level.** We port the four-phase `/document` choreography — Phase 0 precompute → parallel `doc-*` subagents → deterministic cross-reference assembler → `.docmeta.json` sidecar — into a plugin skill family that treats a *group of repos* as a first-class scope. Every other code-graph tool is single-repo. We are the only retrieval surface with cross-repo graph primitives (`group_contracts`, `group_query`, `group_status`, `group_sync`), and we have a latent wiki/summarizer engine in the CLI already. The wedge writes itself.
 
 Two reinforcing moats:
 
@@ -29,7 +29,7 @@ Remove the crux by shipping the skill. Everything else is downstream.
 | PRD (002) | `/codehub-map` |
 | Design (003) | `/codehub-document` |
 
-**Resolution: `/codehub-document`.** Reasons: (a) users who already know codeprobe expect "document" verbs; (b) prefix `codehub-` sidesteps the literal collision codeprobe owns at `/document`; (c) "map" foregrounds graph-origin but misframes the output — the artifact is a *document set*, not a map; (d) this also aligns with the agent naming convention in 004 (`doc-architecture`, `doc-reference`, `doc-cross-repo`). Group mode is a flag, not a separate skill. The full family becomes `codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-adr`, `codehub-contract-map`.
+**Resolution: `/codehub-document`.** Reasons: (a) users who already know the base pattern expect "document" verbs; (b) prefix `codehub-` sidesteps the literal collision the base pattern owns at `/document`; (c) "map" foregrounds graph-origin but misframes the output — the artifact is a *document set*, not a map; (d) this also aligns with the agent naming convention in 004 (`doc-architecture`, `doc-reference`, `doc-cross-repo`). Group mode is a flag, not a separate skill. The full family becomes `codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-adr`, `codehub-contract-map`.
 
 ### Tension 2 — P0 scope
 
@@ -59,7 +59,7 @@ Ordered by critical path.
 
 ### 1. `codehub-document` skill — `plugins/opencodehub/skills/codehub-document/`
 
-Single- and group-mode from v1. 4-phase orchestration per codeprobe: Phase 0 precompute → Phase AB four subagents parallel → Phase CD two subagents parallel → Phase E inline assembler. `references/` for progressive disclosure: `document-templates.md`, `data-source-map.md`, `cross-reference-spec.md`, `mermaid-patterns.md`. Frontmatter per 003. Precondition: `list_repos` contains the target and `codehub status` is fresh. Argument-hint: `[output-dir] [--group <name>] [--committed] [--refresh] [--section <name>]`.
+Single- and group-mode from v1. 4-phase orchestration per the base pattern: Phase 0 precompute → Phase AB four subagents parallel → Phase CD two subagents parallel → Phase E inline assembler. `references/` for progressive disclosure: `document-templates.md`, `data-source-map.md`, `cross-reference-spec.md`, `mermaid-patterns.md`. Frontmatter per 003. Precondition: `list_repos` contains the target and `codehub status` is fresh. Argument-hint: `[output-dir] [--group <name>] [--committed] [--refresh] [--section <name>]`.
 
 ### 2. Six `doc-*` subagents — `plugins/opencodehub/agents/doc-*.md`
 
@@ -130,7 +130,7 @@ Copy forward from 001 verbatim so they are reviewable:
 
 These are the places where I made a call but could be wrong:
 
-- **Is "codehub-document" the right name?** Short enough, no collision, keeps the verb from codeprobe. Alternatives I rejected: `codehub-map`, `codehub-wiki`, `codehub-book`. If you hate the verb, flag it before we ship the frontmatter.
+- **Is "codehub-document" the right name?** Short enough, no collision, keeps the verb from the base pattern. Alternatives I rejected: `codehub-map`, `codehub-wiki`, `codehub-book`. If you hate the verb, flag it before we ship the frontmatter.
 - **Gitignored default vs committed default.** I kept the PRD's call: `.codehub/docs/` gitignored by default, `--committed` writes to `docs/codehub/`. The one exception is `codehub-adr` — ADRs default to committed because an ADR that isn't in git isn't an ADR.
 - **Does `codehub-onboarding` warrant its own skill or should it be a `--section onboarding` flag on `codehub-document`?** I kept it as its own skill to get the invocation phrase "write onboarding" directly. If you'd rather ship only one skill in v1 and fold onboarding + pr-description into flags, that's smaller but erodes the "artifact family" framing. My bet is the family signals the wedge better.
 

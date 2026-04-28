@@ -22,11 +22,11 @@ group primitives (`group_contracts`, `group_query`, `group_status`,
 `group_sync`) are the single feature no other code-graph tool has and
 they have no artifact-producing skill on top.
 
-codeprobe (sibling OSS project at `../codeprobe/`) has validated the
+Prior art in another OSS project has validated the four-phase document
 pattern at single-repo scope: one `/document` skill with Phase 0–E
-orchestration produces ~33 Markdown files in `.codeprobe/docs/` via 8
-parallel subagents with a shared-context precompute on disk. That
-pattern is portable and compositional.
+orchestration produces a cross-linked Markdown tree via parallel
+subagents and a shared-context precompute on disk. That pattern is
+portable and compositional.
 
 The broader "grounding plane for runner-resident agents" design (an
 MCP-over-HTTP server + `@opencodehub/agent-sdk` + `@opencodehub/claude-hooks`)
@@ -36,8 +36,8 @@ favor of the simpler shape below.
 ## Decision
 
 Ship an **artifact factory** inside the existing `plugins/opencodehub/`
-Claude Code plugin that ports codeprobe's pattern to OpenCodeHub's graph
-and extends it with first-class **group mode**.
+Claude Code plugin that ports the four-phase document pattern to
+OpenCodeHub's graph and extends it with first-class **group mode**.
 
 ### What ships in v1
 
@@ -119,6 +119,5 @@ laptop surface still reaches every Claude Code user directly.
 - `.erpaval/specs/001-claude-code-artifact-surface/spec.md` — the EARS spec driving this work
 - `.erpaval/brainstorms/006-synthesis-whats-next.md` — earlier synthesis (artifact factory only)
 - `.erpaval/brainstorms/013-synthesis-v2-two-surface-product.md` — current unified recommendation
-- `docs/adr/0008-codeprobe-pattern-port.md` — records the pattern we are porting
+- `docs/adr/0008-document-pattern-port.md` — records the pattern we are porting
 - `docs/adr/0009-artifact-output-conventions.md` — output contract for every generated artifact
-- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern source

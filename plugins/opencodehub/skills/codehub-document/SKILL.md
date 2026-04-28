@@ -9,7 +9,7 @@ model: sonnet
 
 # codehub-document
 
-Primary artifact generator. Produces a tree of cross-linked Markdown under `.codehub/docs/` (single-repo) or `.codehub/groups/<name>/docs/` (group mode) using the codeprobe-pattern four-phase orchestration.
+Primary artifact generator. Produces a tree of cross-linked Markdown under `.codehub/docs/` (single-repo) or `.codehub/groups/<name>/docs/` (group mode) using the four-phase document-pattern orchestration (Phase 0 precompute → AB parallel subagents → CD parallel diagrams + specialty → E deterministic assembler).
 
 **Model policy.** This skill runs on Sonnet by default. Switch to Opus only when `--refresh --group` is combined — the refresh pruning + partial subagent fan-out needs the extra judgment. Full-scan single-repo generation does not.
 

@@ -118,15 +118,15 @@ IDE plugin/LSP, no model fine-tuning.
 
 [Read ADR 0007](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0007-artifact-factory.md)
 
-### ADR 0008 — codeprobe pattern port
+### ADR 0008 — Document pattern port
 
 **Status:** Accepted (2026-04-27).
 
-**Decision:** Port codeprobe's four-phase `/document` pattern (Phase 0
+**Decision:** Adopt the four-phase document pattern (Phase 0
 precompute → Phase AB parallel content → Phase CD parallel diagrams +
-specialty → Phase E deterministic assembler) to OpenCodeHub, with
-three adaptations: six subagents instead of eight (supply-chain tools
-pre-digest), group mode as a first-class topology, and an extended
+specialty → Phase E deterministic assembler), adapted for OpenCodeHub
+in three ways: six subagents (our supply-chain tools pre-digest a lot
+of output), group mode as a first-class topology, and an extended
 assembler contract that handles both `path:LOC` and `repo:path:LOC`
 citation forms.
 
@@ -135,7 +135,7 @@ disk (not in-prompt copy-paste), eight-section agent scaffold,
 deterministic Phase E (no LLM call), `.docmeta.json` as source of
 truth for `--refresh`, no YAML frontmatter on outputs.
 
-[Read ADR 0008](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0008-codeprobe-pattern-port.md)
+[Read ADR 0008](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0008-document-pattern-port.md)
 
 ### ADR 0009 — Artifact output conventions
 

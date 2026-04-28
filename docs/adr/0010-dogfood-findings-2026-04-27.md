@@ -133,7 +133,7 @@ dependency.
 ## References
 
 - `docs/adr/0007-artifact-factory.md` — parent decision
-- `docs/adr/0008-codeprobe-pattern-port.md` — orchestration the preflight extends
+- `docs/adr/0008-document-pattern-port.md` — orchestration the preflight extends
 - `docs/adr/0009-artifact-output-conventions.md` — Phase 0 contract
 - `packages/cli/src/index.ts` — worker default flip
 - `packages/cli/src/commands/list.ts` — registry health check

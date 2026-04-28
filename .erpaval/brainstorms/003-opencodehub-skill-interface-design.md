@@ -6,7 +6,7 @@ VP-of-Design pass on the five artifact-generation skills shipping in the `openco
 
 ## Skill 1 — `codehub-document`
 
-Primary artifact generator. Ports the codeprobe `/document` choreography to OpenCodeHub's graph.
+Primary artifact generator. Ports the the four-phase `/document` choreography to OpenCodeHub's graph.
 
 ```yaml
 ---

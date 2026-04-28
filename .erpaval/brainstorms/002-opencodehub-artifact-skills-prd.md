@@ -13,9 +13,9 @@ OpenCodeHub ships 28 MCP tools and a Claude Code plugin that covers five *analyt
 Two concrete gaps for Claude-Code-as-artifact-producer:
 
 1. **Artifacts are invisible.** `codehub wiki --llm` already exists inside the CLI (Bedrock + `@opencodehub/summarizer`) and emits Markdown, but it is not wrapped as an MCP tool, not reachable from Claude Code, and not composed with the graph queries an agent has just run. The committed-file workflow lives only in the terminal, behind a flag nobody invokes.
-2. **The multi-repo lever is idle.** The `group_list` / `group_query` / `group_status` / `group_contracts` / `group_sync` tools are the single feature no other code-graph tool has (codeprobe is single-repo, GitNexus is single-repo, SCIP graphs are per-package). Yet there is zero plugin surface that synthesizes a cross-repo artifact. Platform architects still hand-draw the same contract-drift diagrams every quarter.
+2. **The multi-repo lever is idle.** The `group_list` / `group_query` / `group_status` / `group_contracts` / `group_sync` tools are the single feature no other code-graph tool has (the base pattern is single-repo, GitNexus is single-repo, SCIP graphs are per-package). Yet there is zero plugin surface that synthesizes a cross-repo artifact. Platform architects still hand-draw the same contract-drift diagrams every quarter.
 
-The codeprobe `/document` skill proved the pattern works: single skill, 8 parallel subagents, 33 cross-linked Markdown files, `.docmeta.json` sidecar, source citations with LOC, Mermaid instead of PNG. We port it, adapt it to OpenCodeHub's graph + supply-chain tools, and extend it with group mode.
+The the four-phase `/document` skill proved the pattern works: single skill, 8 parallel subagents, 33 cross-linked Markdown files, `.docmeta.json` sidecar, source citations with LOC, Mermaid instead of PNG. We port it, adapt it to OpenCodeHub's graph + supply-chain tools, and extend it with group mode.
 
 ---
 
@@ -34,7 +34,7 @@ The codeprobe `/document` skill proved the pattern works: single skill, 8 parall
 
 ## Solution shape
 
-One primary skill — **`/codehub-map`** — plus a cluster of four specialized skills. I chose `map` over `document` for three reasons: (1) `/document` collides with codeprobe verbatim, which will confuse users running both plugins; (2) "map" foregrounds the graph-origin of the artifacts (this is a *map of the code graph*, not prose description); (3) it scales cleanly to group mode ("map this group").
+One primary skill — **`/codehub-map`** — plus a cluster of four specialized skills. I chose `map` over `document` for three reasons: (1) `/document` collides with verbatim, which risks confusion across tools; (2) "map" foregrounds the graph-origin of the artifacts (this is a *map of the code graph*, not prose description); (3) it scales cleanly to group mode ("map this group").
 
 | Skill | Invocation | Argument hint | Precondition | Output path(s) | Primary MCP tools | Shared-context phases reused |
 |---|---|---|---|---|---|---|
@@ -44,13 +44,13 @@ One primary skill — **`/codehub-map`** — plus a cluster of four specialized 
 | **`/codehub-contract-map`** (P1) | `/codehub-contract-map <group>` | `<group> [--out <path>]` | `group_status` reports all repos fresh | `.codehub/groups/<name>/contracts.md` | `group_list`, `group_contracts`, `group_query`, `route_map`, `shape_check` | Phase 0 + Phase CD specialty (Mermaid) |
 | **`/codehub-adr`** (P1) | `/codehub-adr "<problem>"` | `"<problem-statement>" [--target <symbol>]` | Repo index fresh | `docs/adr/NNNN-<slug>.md` (committed by default — ADRs are durable) | `impact`, `context`, `risk_trends`, `owners` | Phase 0 lightweight precompute |
 
-**P0 = `/codehub-map`, `/codehub-pr-description`, `/codehub-onboarding`.** Justification: `/codehub-map` is the flagship analogue of codeprobe `/document` and unlocks the entire 4-phase pattern; `/codehub-pr-description` has the highest frequency of use (every PR) and the shortest agent path; `/codehub-onboarding` is the lowest-effort v1 output that immediately showcases the graph. `/codehub-contract-map` is P1 because it depends on having two or more indexed repos in a group — the install base on day one is small. `/codehub-adr` is P1 because the template market is crowded; we ship once the core pattern is landed.
+**P0 = `/codehub-map`, `/codehub-pr-description`, `/codehub-onboarding`.** Justification: `/codehub-map` is the flagship analogue of the four-phase `/document` and unlocks the entire 4-phase pattern; `/codehub-pr-description` has the highest frequency of use (every PR) and the shortest agent path; `/codehub-onboarding` is the lowest-effort v1 output that immediately showcases the graph. `/codehub-contract-map` is P1 because it depends on having two or more indexed repos in a group — the install base on day one is small. `/codehub-adr` is P1 because the template market is crowded; we ship once the core pattern is landed.
 
 ---
 
-## Architecture — codeprobe 4-phase pattern, adapted
+## Architecture — the four-phase pattern, adapted
 
-**Phase 0 — precompute shared context to disk.** Replace codeprobe's `.codeprobe/heuristic_summary.json` requirement with `codehub status` + a Phase-0 writer. The skill writes two files:
+**Phase 0 — precompute shared context to disk.** Replace the base pattern's `<sibling>/summary.json` requirement with `codehub status` + a Phase-0 writer. The skill writes two files:
 
 - `.codehub/.context.md` — project name, `project_profile` output, top-level dirs, stack detection, and (in group mode) the member-repo list from `group_list`. Under 200 lines.
 - `.codehub/.prefetch.md` — graph pre-fetch, three strategic blocks:
@@ -61,7 +61,7 @@ One primary skill — **`/codehub-map`** — plus a cluster of four specialized 
   5. `tool_map` full MCP-tool surface if any Tool nodes exist.
   6. Group mode only: `group_contracts` consumer-producer matrix + `group_status` staleness table.
 
-**Phase AB — content generation, 4 subagents in parallel** (codeprobe runs 6; OpenCodeHub's surface is narrower because supply-chain tools already pre-digest). Dispatched in a single message with 4 `Agent` tool calls:
+**Phase AB — content generation, 4 subagents in parallel** (the base pattern runs 6; OpenCodeHub's surface is narrower because supply-chain tools already pre-digest). Dispatched in a single message with 4 `Agent` tool calls:
 
 | Subagent | Output files |
 |---|---|
@@ -81,13 +81,13 @@ Each subagent reads `.context.md` + `.prefetch.md` first. Tool access: `Read`, `
 
 Mermaid is sourced from `sql` queries over `relations` (CONTAINS, CALLS, HANDLES_ROUTE, FETCHES). Never rendered to PNG/SVG.
 
-**Phase E — cross-reference assembler (inline, no subagent).** Preserve the codeprobe algorithm: extract H1 + backtick `<path>[:<LOC>]` references, build co-occurrence (≥2 shared refs), append `See also` footers (3-5 links, bidirectional override), write `README.md` + `.docmeta.json`. **Novel element:** when two or more repos are mapped together, Phase E builds a **cross-repo link graph** — for every `docs/` tree it finds under `.codehub/groups/<name>/<repo>/`, it links per-repo documents to the sibling repo's equivalent section (e.g., `repo-a/behavior/routes.md` ↔ `repo-b/behavior/routes.md` when `group_contracts` shows `repo-a` FETCHES a route produced by `repo-b`). This is the payoff: navigating one repo's docs jumps you to the consumer/producer on the other side, something no single-repo generator can do.
+**Phase E — cross-reference assembler (inline, no subagent).** Preserve the base pattern's Phase E algorithm: extract H1 + backtick `<path>[:<LOC>]` references, build co-occurrence (≥2 shared refs), append `See also` footers (3-5 links, bidirectional override), write `README.md` + `.docmeta.json`. **Novel element:** when two or more repos are mapped together, Phase E builds a **cross-repo link graph** — for every `docs/` tree it finds under `.codehub/groups/<name>/<repo>/`, it links per-repo documents to the sibling repo's equivalent section (e.g., `repo-a/behavior/routes.md` ↔ `repo-b/behavior/routes.md` when `group_contracts` shows `repo-a` FETCHES a route produced by `repo-b`). This is the payoff: navigating one repo's docs jumps you to the consumer/producer on the other side, something no single-repo generator can do.
 
 ---
 
 ## Multi-repo strategy — the wedge
 
-**Single-repo mode** (default, no `--group`). Phase 0 reads one repo; Phases AB/CD/E behave exactly like the codeprobe analogue. Output at `.codehub/docs/`.
+**Single-repo mode** (default, no `--group`). Phase 0 reads one repo; Phases AB/CD/E behave exactly like the single-repo analogue. Output at `.codehub/docs/`.
 
 **Group mode** (`--group <name>` OR the cwd matches a registered group root — autodetected via `group_list`). Phase 0 calls `group_contracts`, `group_query`, `group_status`; Phase AB fans out 4 × N subagents (4 per repo). Claude Code's parallel-agent ceiling is ~10 concurrent tool calls per message, so for groups of 3+ repos we batch: all `doc-architecture` agents in message 1, all `doc-behavior` in message 2, etc. Phase CD's `doc-cross-repo` synthesizes the portfolio-level artifacts. Output at `.codehub/groups/<name>/docs/` with per-repo subtrees + one `cross-repo/` root.
 
@@ -108,7 +108,7 @@ Extend `plugins/opencodehub/hooks.json`:
 ## Output contracts
 
 - **Default location:** `.codehub/docs/` (gitignored, colocated with every other codehub artifact). Flag `--committed` writes to `docs/codehub/` instead and omits the `.gitignore` entry. ADRs are the single exception — they default to committed, because an ADR that isn't in git isn't an ADR.
-- **Citations:** backtick `<path>:<LOC>` inline, exactly like codeprobe. Phase E's regex extends to accept the `:LOC` suffix.
+- **Citations:** backtick `<path>:<LOC>` inline, exactly like the base pattern. Phase E's regex extends to accept the `:LOC` suffix.
 - **No YAML frontmatter** on output docs. H1 is the identifier.
 - **`.docmeta.json` schema** (extended):
   ```json
@@ -142,7 +142,7 @@ Extend `plugins/opencodehub/hooks.json`:
 
 - **Precompute size vs Bedrock cost.** Phase 0 `.prefetch.md` can balloon on large repos. Cap each section at ~500 lines and emit a truncation notice. Decide: does Phase 0 call the summarizer MCP tool (wrap `codehub wiki --llm` at last) or keep it as raw graph output? Leaning raw + let Phase AB agents summarize inline.
 - **Parallel subagent ceiling.** Claude Code's practical ceiling is around 10 concurrent Agent tool calls per message. Groups larger than 2 repos must batch by subagent role, not by repo. Need to verify against current Claude Code release.
-- **Naming collision.** `/document` is taken by codeprobe. `/codehub-map` avoids it. Consider prefixing all five skills with `codehub-` consistently for namespace hygiene.
+- **Naming collision.** `/document` is taken by the base pattern. `/codehub-map` avoids it. Consider prefixing all five skills with `codehub-` consistently for namespace hygiene.
 - **Starlight site duplication.** The repo already has an Astro Starlight docs site with `llms.txt`. Generated artifacts should stay per-repo (under `.codehub/` or `docs/codehub/`) — the site stays meta and curated. We do not auto-publish generated docs into Starlight; that would couple generation to the site build and invalidate `--committed` semantics.
 - **Bedrock credentials for the summarizer.** Any skill that invokes the summarizer needs AWS credentials on the host. Document the failure mode: if Bedrock is unreachable, skills degrade to raw graph output, never block.
 

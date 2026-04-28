@@ -4,7 +4,7 @@
 
 ## Scope
 
-Ship an artifact-generation skill family inside `plugins/opencodehub/` that ports codeprobe's `/document` choreography to OpenCodeHub's graph + supply-chain surface, with first-class group (multi-repo) support. v1 covers `codehub-document` (single + group), `codehub-pr-description`, `codehub-onboarding`, **`codehub-contract-map`** (standalone group-only skill, promoted from P1 on 2026-04-27), plus the shared-context precompute, `.docmeta.json` sidecar, cross-reference assembler, and PostToolUse staleness hook.
+Ship an artifact-generation skill family inside `plugins/opencodehub/` that applies the four-phase `/document` choreography to OpenCodeHub's graph + supply-chain surface, with first-class group (multi-repo) support. v1 covers `codehub-document` (single + group), `codehub-pr-description`, `codehub-onboarding`, **`codehub-contract-map`** (standalone group-only skill, promoted from P1 on 2026-04-27), plus the shared-context precompute, `.docmeta.json` sidecar, cross-reference assembler, and PostToolUse staleness hook.
 
 ## Out of scope for v1
 
@@ -88,4 +88,3 @@ Ship an artifact-generation skill family inside `plugins/opencodehub/` that port
 - `/.erpaval/brainstorms/004-opencodehub-subagent-prompts.md` — doc-* agent prompts
 - `/.erpaval/brainstorms/005-opencodehub-output-conventions.md` — output contract
 - `/.erpaval/brainstorms/006-synthesis-whats-next.md` — synthesis + tension resolutions
-- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern reference
