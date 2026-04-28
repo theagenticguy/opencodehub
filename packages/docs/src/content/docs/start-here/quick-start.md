@@ -24,16 +24,42 @@ pnpm -r build
 
 See [Install](/opencodehub/start-here/install/) for the non-mise path.
 
-## 3. Wire the MCP server into your editor
+## 3. Bootstrap a repo in one command
 
-```bash title="wire Claude Code's .mcp.json to the codehub MCP server"
-node packages/cli/dist/index.js setup --editors claude-code
+The simplest on-ramp is `codehub init`. Run it inside any repository
+you want to index:
+
+```bash title="one-command bootstrap — project-scope plugin + .mcp.json + .gitignore + policy starter"
+node packages/cli/dist/index.js init
 ```
 
-`setup` writes an `mcpServers.codehub` entry into `<project>/.mcp.json`
-for Claude Code. Pass a comma-separated list to `--editors` for
-multiple editors at once (`claude-code,cursor,codex,windsurf,opencode`).
-The default is all supported editors.
+`init` does four things atomically:
+
+1. Copies the OpenCodeHub plugin assets into `<repo>/.claude/` —
+   `skills/`, `agents/`, `commands/`, `hooks/`, and a project-scope
+   `settings.json` with the hook tokens rewritten from
+   `${CLAUDE_PLUGIN_ROOT}` to `${CLAUDE_PROJECT_DIR}/.claude`.
+2. Writes `<repo>/.mcp.json` with an `mcpServers.codehub` entry
+   (reuses the same logic as `codehub setup --editors claude-code`).
+3. Appends `.codehub/` to `.gitignore` if not already present.
+4. Seeds `opencodehub.policy.yaml` (a starter file with every rule
+   commented out — uncomment when spec 002 ships the CI verdict
+   actions).
+
+Re-running `init` against a repo with conflicts refuses and names each
+file; pass `--force` to overwrite. `--skip-mcp` and `--skip-policy`
+disable those steps for teams that manage those surfaces elsewhere.
+
+**Team benefit:** once `init` has run and `.claude/` is checked into
+git, every teammate who clones the repo gets the plugin automatically.
+No per-machine install step.
+
+If you prefer the manual path — just the MCP config, no project-scope
+plugin — use the legacy `setup` flow:
+
+```bash title="manual: MCP config only"
+node packages/cli/dist/index.js setup --editors claude-code
+```
 
 ## 4. Analyze the current repo
 

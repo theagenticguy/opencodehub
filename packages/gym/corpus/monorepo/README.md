@@ -28,7 +28,7 @@ independent manifests that happen to point at the same fixture tree.
 The confirmed cases (7 total across the two files) are refs/callers
 that scip-typescript / scip-python **should** return correctly:
 
-- Multi-tsconfig cross-project refs (`WsMessage`, `QuickworkBridge`)
+- Multi-tsconfig cross-project refs (`WsMessage`, `DesktopBridge`)
   where the renderer and main-process tsconfigs both include
   `app/shared` via `references`.
 - Intra-package callers (`sendMessage`, `registerScreenshotHandler`,
@@ -38,11 +38,11 @@ that scip-typescript / scip-python **should** return correctly:
 The waived cases (2 total) mark patterns that static reference tooling
 **cannot** resolve in v1 and shouldn't pretend to:
 
-- `mono-ts.references.window.quickwork.takeScreenshot` — the Electron
-  `contextBridge.exposeInMainWorld("quickwork", ...)` boundary. The
+- `mono-ts.references.window.desktop.takeScreenshot` — the Electron
+  `contextBridge.exposeInMainWorld("desktop", ...)` boundary. The
   only static link between `preload.ts` and the renderer's
-  `window.quickwork.takeScreenshot()` call is the string literal
-  `"quickwork"`.
+  `window.desktop.takeScreenshot()` call is the string literal
+  `"desktop"`.
 - `mono-py.callers.handle_user_message_cross_language` — the
   WebSocket message-type dispatch boundary. The only static link
   between the renderer-side

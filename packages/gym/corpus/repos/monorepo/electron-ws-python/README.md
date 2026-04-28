@@ -40,10 +40,10 @@ CI gate. Biome's check excludes this path (`packages/**/corpus/repos`).
    reference tooling sees no CALLS edge across this boundary — only
    the string `"user_message"` in two files.
 2. **Electron contextBridge.** `app/main/preload.ts` calls
-   `contextBridge.exposeInMainWorld("quickwork", { takeScreenshot, saveFile })`.
-   `app/renderer/App.tsx` calls `window.quickwork.takeScreenshot()`.
-   The only static evidence is the string `"quickwork"` on both sides.
+   `contextBridge.exposeInMainWorld("desktop", { takeScreenshot, saveFile })`.
+   `app/renderer/App.tsx` calls `window.desktop.takeScreenshot()`.
+   The only static evidence is the string `"desktop"` on both sides.
 
 Agents answering "what calls `handle_user_message`?" or "what implements
-`window.quickwork.takeScreenshot`?" will return LOW risk / no callers
+`window.desktop.takeScreenshot`?" will return LOW risk / no callers
 unless the analyzer has runtime or string-level bridging.

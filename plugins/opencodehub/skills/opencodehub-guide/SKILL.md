@@ -17,7 +17,7 @@ For any task that touches code understanding, debugging, impact analysis, refact
 
 > If the context envelope reports the index is stale, run `codehub analyze` in the terminal first. If it says weights are missing, run `codehub setup --embeddings` to fetch the 768d gte-modernbert-base ONNX weights.
 
-## Skills
+## Skills · analysis
 
 | Task                                          | Skill to read                 |
 | --------------------------------------------- | ----------------------------- |
@@ -27,6 +27,23 @@ For any task that touches code understanding, debugging, impact analysis, refact
 | Rename / extract / split / restructure        | `opencodehub-refactoring`     |
 | Review a PR / "Is this safe to merge?"        | `opencodehub-pr-review`       |
 | Tools, resources, schema reference            | `opencodehub-guide` (here)    |
+
+## Skills · artifact factory (spec 001)
+
+These skills produce committed Markdown artifacts — the durable output
+Principal engineers ship. See [ADR 0007](../../../docs/adr/0007-artifact-factory.md)
+for the scope rationale.
+
+| Task                                          | Skill to invoke               | Trigger phrase                                  |
+| --------------------------------------------- | ----------------------------- | ----------------------------------------------- |
+| Generate the full doc tree (single or group)  | `codehub-document`            | "document this repo", "regenerate architecture docs" |
+| Draft a PR description from the current diff  | `codehub-pr-description`      | "write the PR description", "summarize this branch" |
+| Write an onboarding guide with reading order  | `codehub-onboarding`          | "write ONBOARDING.md", "what should a new hire read first" |
+| Map inter-repo contracts for a group          | `codehub-contract-map`        | "map the contracts", "show the contract matrix for <group>" |
+| Draft an ADR (P1 — not yet shipped)           | `codehub-adr` *(P1 backlog)*  | —                                               |
+
+Fire these directly; do not nest them inside analysis skills. Each is a
+standalone artifact producer with its own preconditions and output path.
 
 ## Tool Inventory (27 MCP tools)
 

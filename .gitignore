@@ -30,8 +30,10 @@ examples/fixtures/**/.codehub/
 # Local agent / planning scratch space
 # .erpaval/sessions/ is per-session ephemeral state (intake, explore,
 # research, lessons YAML); .erpaval/solutions/ + specs/ + INDEX.md are
-# durable and stay committed.
+# durable and stay committed. Roadmap SPAs and any other ad-hoc HTML
+# dashboards under .erpaval/ stay local.
 .erpaval/sessions/
+.erpaval/roadmap/
 .claude/settings.local.json
 .claude/worktrees/
 .handoff/

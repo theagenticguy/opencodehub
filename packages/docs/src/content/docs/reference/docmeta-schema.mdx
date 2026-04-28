@@ -1,0 +1,98 @@
+---
+title: ".docmeta.json schema"
+description: "Manifest written by Phase E of codehub-document. Drives --refresh and cross-reference assembly."
+---
+
+import { Aside, Code } from "@astrojs/starlight/components";
+
+`codehub-document` writes a `.docmeta.json` sidecar alongside the generated
+Markdown tree at the end of every Phase E run. The file is the source of truth
+for `--refresh` and for `codehub status` staleness reporting.
+
+<Aside type="note" title="Written by Phase E, not by subagents">
+Individual `doc-*` subagents never touch `.docmeta.json`. The orchestrator's
+inline Phase E assembler is the only writer. This keeps the schema
+deterministic and audit-friendly.
+</Aside>
+
+## Schema (v1)
+
+<Code lang="json" code={`{
+  "$schema": "https://opencodehub.dev/schemas/docmeta-v1.json",
+  "generated_at": "2026-04-27T18:12:04Z",
+  "codehub_graph_hash": "sha256:a1b2c3…",
+  "mode": "single-repo",
+  "repo": "opencodehub",
+  "group": null,
+  "staleness_at": "2026-04-27T18:12:04Z",
+  "sections": [
+    {
+      "path": "architecture/system-overview.md",
+      "agent": "doc-architecture",
+      "sources": [
+        "packages/mcp/src/server.ts",
+        "packages/mcp/src/index.ts"
+      ],
+      "mtime": "2026-04-27T18:11:58Z",
+      "citation_count": 18,
+      "mermaid_count": 1
+    }
+  ],
+  "cross_repo_refs": [],
+  "frontmatter_removed": []
+}`} />
+
+### Top-level fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `$schema` | string | JSON Schema URL for v1. Locked. |
+| `generated_at` | ISO-8601 | When Phase E completed. |
+| `codehub_graph_hash` | `sha256:<hex>` | Taken from `list_repos` at orchestration start. The hash that anchors this doc tree. |
+| `mode` | `"single-repo" \| "group"` | Whether the tree was produced by single-repo or group invocation. |
+| `repo` | string \| null | The target repo (single mode) or the group root's registered repo reference (group mode). |
+| `group` | string \| null | The group name (group mode only). |
+| `staleness_at` | ISO-8601 | Lifted from the last MCP response's `_meta.codehub/staleness` envelope observed during assembly. |
+| `sections[]` | array | One entry per generated Markdown file. |
+| `cross_repo_refs[]` | array | Cross-repo links computed by Phase E. Only populated in group mode. |
+| `frontmatter_removed[]` | string[] | Paths where Phase E stripped stray YAML frontmatter. Normally empty. |
+
+### `sections[]` entries
+
+| Field | Type | Meaning |
+|---|---|---|
+| `path` | string | Relative path from the docs root. |
+| `agent` | string | The subagent that wrote this section (`doc-architecture`, `doc-reference`, etc.). Identifies ownership for `--refresh` dispatch. |
+| `sources[]` | string[] | Source-file paths this section cites. Used by `--refresh` to decide staleness via mtime comparison. |
+| `mtime` | ISO-8601 | When this section file was last written. |
+| `citation_count` | number | Total backtick citations extracted by Phase E. |
+| `mermaid_count` | number | Fenced ```` ```mermaid ```` blocks detected. |
+
+### `cross_repo_refs[]` entries (group mode only)
+
+| Field | Type | Meaning |
+|---|---|---|
+| `repo` | string | The sibling repo being linked. |
+| `from_doc` | string | Relative path (from the group docs root) of the source doc. |
+| `to_doc` | string | Relative path into the sibling repo's generated docs. |
+| `contract_count` | number | Number of contracts sharing source citations across this cross-repo pair. Computed from `group_contracts`. |
+
+## How `--refresh` uses the schema
+
+1. Load `.docmeta.json`.
+2. Compare the manifest's `codehub_graph_hash` against `list_repos`. If they match exactly, skip to step 5.
+3. For each section, `stat` every `sources[i]`. If `max(source_mtime) > section.mtime`, mark it stale.
+4. Collect stale sections + owners (`section.agent`); dispatch only the owning subagents with a `sections_to_refresh` list.
+5. Always re-run Phase E (cross-reference assembly is cheap and idempotent).
+
+See [`references/cross-reference-spec.md`](https://github.com/theagenticguy/opencodehub/blob/main/plugins/opencodehub/skills/codehub-document/references/cross-reference-spec.md) inside the plugin for the Phase E algorithm.
+
+## Validation
+
+The JSON Schema is locked at v1. Breaking changes bump to v2 and keep v1 readers working for one release cycle. Run-time validation lives in `packages/analysis/src/docmeta.ts` (written as part of spec 001 Act phase).
+
+## See also
+
+- [ADR 0009 — Artifact output conventions](/opencodehub/architecture/adrs/#adr-0009--artifact-output-conventions)
+- [Skills index](/opencodehub/skills/)
+- [`codehub-document` skill](/opencodehub/skills/codehub-document/)

@@ -48,14 +48,14 @@ cases:
     settingsStore.ts (import, satisfies, and the `as WsMessage` cast on the
     incoming event payload). Import statements are included because tsserver
     reports them as reference results. preload.ts is NOT expected here — it
-    imports QuickworkBridge, not WsMessage. Exercises tsconfig-aware
+    imports DesktopBridge, not WsMessage. Exercises tsconfig-aware
     cross-project reference resolution enabled by the TypeScriptClient
     warmup shipped in commit 92d563c.
 
-- id: mono-ts.references.QuickworkBridge
+- id: mono-ts.references.DesktopBridge
   kind: references
   target:
-    symbolName: QuickworkBridge
+    symbolName: DesktopBridge
     file: app/shared/types.ts
     line: 34
     column: 18
@@ -74,13 +74,13 @@ cases:
     column: 16
   labeler: opus-4-7
   labeler_note: >-
-    QuickworkBridge is the contextBridge surface interface. The main-process
+    DesktopBridge is the contextBridge surface interface. The main-process
     tsconfig includes app/shared via references, so the import and typed
     const in preload.ts are reachable refs. The `declare global { interface
-    Window { quickwork: QuickworkBridge } }` block lives in types.ts itself
-    (NOT in App.tsx) — the renderer references window.quickwork at runtime
+    Window { desktop: DesktopBridge } }` block lives in types.ts itself
+    (NOT in App.tsx) — the renderer references window.desktop at runtime
     through that ambient global, which is a separate v1 gap tracked by the
-    waived mono-ts.references.window.quickwork.takeScreenshot case below.
+    waived mono-ts.references.window.desktop.takeScreenshot case below.
 
 - id: mono-ts.callers.sendMessage
   kind: callers
@@ -122,16 +122,16 @@ cases:
   # ---------------------------------------------------------------------------
   # Waived (1) — documented v1 gap: Electron contextBridge IPC boundary.
   # Static reference tooling cannot bridge the `contextBridge.exposeInMainWorld`
-  # call in preload.ts to the `window.quickwork.takeScreenshot()` runtime
+  # call in preload.ts to the `window.desktop.takeScreenshot()` runtime
   # reference in App.tsx. The only static evidence is the string literal
-  # "quickwork" on both sides.
+  # "desktop" on both sides.
   # ---------------------------------------------------------------------------
 
   waived: true
-- id: mono-ts.references.window.quickwork.takeScreenshot
+- id: mono-ts.references.window.desktop.takeScreenshot
   kind: references
   target:
-    symbolName: QuickworkBridge.takeScreenshot
+    symbolName: DesktopBridge.takeScreenshot
     file: app/shared/types.ts
     line: 35
     column: 3
@@ -148,16 +148,16 @@ cases:
   waived: true
   labeler: opus-4-7
   labeler_note: >-
-    takeScreenshot is a method on the QuickworkBridge interface, which is
+    takeScreenshot is a method on the DesktopBridge interface, which is
     attached to the ambient `Window` type via `declare global { interface
-    Window { quickwork: QuickworkBridge } }`. App.tsx calls
-    `window.quickwork.takeScreenshot()` at runtime. tsserver's
+    Window { desktop: DesktopBridge } }`. App.tsx calls
+    `window.desktop.takeScreenshot()` at runtime. tsserver's
     findReferences WILL surface the App.tsx call site if the renderer
     tsconfig picks up the ambient declaration from app/shared/types.ts,
     but the CALLS edge from preload.ts's
-    `contextBridge.exposeInMainWorld("quickwork", bridge)` to that runtime
+    `contextBridge.exposeInMainWorld("desktop", bridge)` to that runtime
     reference is INVISIBLE to static analysis — the only link is the string
-    literal "quickwork" on both sides. This is a documented v1 gap for the
+    literal "desktop" on both sides. This is a documented v1 gap for the
     reference-graph oracle: runtime-only IPC bridging is not resolvable
     without string-tracking or dynamic instrumentation. Waived with empty
     expected so the gate-3 regression check skips this case rather than

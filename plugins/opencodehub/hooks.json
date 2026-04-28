@@ -1,5 +1,5 @@
 {
-  "description": "Augment searches with graph context and auto-reindex after git mutations",
+  "description": "Augment searches with graph context, auto-reindex after git mutations, and flag stale generated docs.",
   "hooks": {
     "PreToolUse": [
       {
@@ -21,6 +21,11 @@
           {
             "type": "command",
             "command": "if echo \"${CLAUDE_TOOL_INPUT:-}\" | grep -qE 'git (commit|merge|rebase|pull)'; then codehub analyze --incremental --quiet || true; fi"
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/docs-staleness.sh",
+            "timeout": 4
           }
         ]
       }

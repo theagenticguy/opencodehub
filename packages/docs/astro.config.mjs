@@ -118,6 +118,10 @@ export default defineConfig({
           autogenerate: { directory: "mcp" },
         },
         {
+          label: "Skills",
+          autogenerate: { directory: "skills" },
+        },
+        {
           label: "Reference",
           autogenerate: { directory: "reference" },
         },
