@@ -70,7 +70,7 @@ Ship an artifact-generation skill family inside `plugins/opencodehub/` that port
 
 - **Static layer**: `tsc --noEmit` over `packages/mcp`, `packages/cli`, `packages/analysis` must pass. Every new file typed.
 - **Plugin layer**: invoke `plugin-dev:plugin-validator` against `plugins/opencodehub/`. Must report zero errors on frontmatter, tool allowlists, and manifest.
-- **Behavioral layer**: self-test inside `/Users/lalsaado/Projects/open-code-hub` itself — run `/codehub-document` against this repo, assert `.codehub/docs/` contains ≥10 files, assert `.docmeta.json` validates, assert every `See also` link resolves. Spot-check three citations resolve to real files.
+- **Behavioral layer**: self-test inside the repo root — run `/codehub-document` against this repo, assert `.codehub/docs/` contains ≥10 files, assert `.docmeta.json` validates, assert every `See also` link resolves. Spot-check three citations resolve to real files.
 - **Regression layer**: existing `/probe`, `/verdict`, `/audit-deps`, `/rename`, `/owners` must still work. Run each once post-change.
 
 ## Risks (see synthesis §Risks)
@@ -82,10 +82,10 @@ Ship an artifact-generation skill family inside `plugins/opencodehub/` that port
 
 ## References
 
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/001-opencodehub-next-strategy.md` — Rumelt kernel
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/002-opencodehub-artifact-skills-prd.md` — PRD
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/003-opencodehub-skill-interface-design.md` — SKILL.md frontmatter
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/004-opencodehub-subagent-prompts.md` — doc-* agent prompts
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/005-opencodehub-output-conventions.md` — output contract
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/006-synthesis-whats-next.md` — synthesis + tension resolutions
-- `/Users/lalsaado/Projects/codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern reference
+- `/.erpaval/brainstorms/001-opencodehub-next-strategy.md` — Rumelt kernel
+- `/.erpaval/brainstorms/002-opencodehub-artifact-skills-prd.md` — PRD
+- `/.erpaval/brainstorms/003-opencodehub-skill-interface-design.md` — SKILL.md frontmatter
+- `/.erpaval/brainstorms/004-opencodehub-subagent-prompts.md` — doc-* agent prompts
+- `/.erpaval/brainstorms/005-opencodehub-output-conventions.md` — output contract
+- `/.erpaval/brainstorms/006-synthesis-whats-next.md` — synthesis + tension resolutions
+- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern reference

@@ -18,8 +18,8 @@ export default function App(): JSX.Element {
   };
 
   const onScreenshot = async () => {
-    const path = await window.quickwork.takeScreenshot();
-    await window.quickwork.saveFile(`screenshot: ${path}`);
+    const path = await window.desktop.takeScreenshot();
+    await window.desktop.saveFile(`screenshot: ${path}`);
   };
 
   return (

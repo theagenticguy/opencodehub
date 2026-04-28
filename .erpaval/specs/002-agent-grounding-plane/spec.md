@@ -116,9 +116,9 @@ None of this spec begins until spec 001 (laptop artifact factory) has landed and
 
 ## References
 
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/007-agents-at-scale-strategy.md` — diagnosis retained; Actions A/C/D/F rescinded (HTTP/SDK); Actions B/E/G/J reshaped to CLI-wrapping
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/011-ci-integration-playbook.md` — workflow YAML shapes retained; HTTP server steps removed
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/012-competitive-landscape.md` — deterministic-verdict wedge positioning
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/brainstorms/013-synthesis-v2-two-surface-product.md` — synthesis (revised 2026-04-27 to remove HTTP + SDK)
-- `/Users/lalsaado/Projects/open-code-hub/.erpaval/specs/001-claude-code-artifact-surface/spec.md` — companion spec, ships first
+- `/.erpaval/brainstorms/007-agents-at-scale-strategy.md` — diagnosis retained; Actions A/C/D/F rescinded (HTTP/SDK); Actions B/E/G/J reshaped to CLI-wrapping
+- `/.erpaval/brainstorms/011-ci-integration-playbook.md` — workflow YAML shapes retained; HTTP server steps removed
+- `/.erpaval/brainstorms/012-competitive-landscape.md` — deterministic-verdict wedge positioning
+- `/.erpaval/brainstorms/013-synthesis-v2-two-surface-product.md` — synthesis (revised 2026-04-27 to remove HTTP + SDK)
+- `/.erpaval/specs/001-claude-code-artifact-surface/spec.md` — companion spec, ships first
 - Project memory: `project_opencodehub_no_http_mcp_no_sdk.md`, `project_opencodehub_no_saas.md`

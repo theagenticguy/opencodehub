@@ -22,7 +22,7 @@ group primitives (`group_contracts`, `group_query`, `group_status`,
 `group_sync`) are the single feature no other code-graph tool has and
 they have no artifact-producing skill on top.
 
-codeprobe (`/Users/lalsaado/Projects/codeprobe`) has validated the
+codeprobe (sibling OSS project at `../codeprobe/`) has validated the
 pattern at single-repo scope: one `/document` skill with Phase 0–E
 orchestration produces ~33 Markdown files in `.codeprobe/docs/` via 8
 parallel subagents with a shared-context precompute on disk. That
@@ -121,4 +121,4 @@ laptop surface still reaches every Claude Code user directly.
 - `.erpaval/brainstorms/013-synthesis-v2-two-surface-product.md` — current unified recommendation
 - `docs/adr/0008-codeprobe-pattern-port.md` — records the pattern we are porting
 - `docs/adr/0009-artifact-output-conventions.md` — output contract for every generated artifact
-- `/Users/lalsaado/Projects/codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern source
+- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern source

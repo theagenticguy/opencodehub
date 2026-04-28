@@ -250,4 +250,4 @@ staleness when node IDs shift.
 - `docs/adr/0008-codeprobe-pattern-port.md` — orchestration pattern
 - `.erpaval/brainstorms/005-opencodehub-output-conventions.md` — original design memo
 - `.erpaval/specs/001-claude-code-artifact-surface/spec.md` — AC-4-3 (`.docmeta.json`), AC-3-4 (contract-map output), AC-7-2 (analyze-completion hint)
-- `/Users/lalsaado/Projects/codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/references/cross-reference-spec.md` — pattern source
+- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/references/cross-reference-spec.md` — pattern source

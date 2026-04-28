@@ -12,7 +12,7 @@ plugin. The orchestration pattern — how Claude drives the skill → precompute
 parallel subagents → assembler flow — is the hard part. It is also already
 solved.
 
-`codeprobe` (sibling project at `/Users/lalsaado/Projects/codeprobe`) ships a
+`codeprobe` (sibling OSS project at `../codeprobe/`) ships a
 `/document` skill that produces 33 cross-linked Markdown files in 45–90 s via
 8 parallel subagents, with a deterministic `.docmeta.json` sidecar that powers
 `--refresh`. The pattern is:
@@ -127,5 +127,5 @@ for the full output contract.
 - `docs/adr/0009-artifact-output-conventions.md` — output contract
 - `.erpaval/brainstorms/004-opencodehub-subagent-prompts.md` — per-agent 8-section scaffolds
 - `.erpaval/brainstorms/005-opencodehub-output-conventions.md` — citation grammar + `.docmeta.json` schema
-- `/Users/lalsaado/Projects/codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern source
-- `/Users/lalsaado/Projects/codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/agents/doc-*.md` — 8-section scaffold reference
+- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/skills/document/SKILL.md` — pattern source
+- `../codeprobe/src/codeprobe/bootstrap/templates/claude-plugin/agents/doc-*.md` — 8-section scaffold reference

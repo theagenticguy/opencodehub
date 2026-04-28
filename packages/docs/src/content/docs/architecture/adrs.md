@@ -157,7 +157,7 @@ generated `README.md`.
 **Status:** Accepted (2026-04-27).
 
 **Decision:** Three small fixes landed after dogfooding `codehub init`
-and the artifact factory against the QuickWork two-repo workspace.
+and the artifact factory against a private two-repo workspace.
 
 1. `--embeddings` now defaults `--embeddings-workers` to `"auto"` at
    the CLI layer. Single-worker ONNX inference on 98k nodes took 56
@@ -165,12 +165,12 @@ and the artifact factory against the QuickWork two-repo workspace.
 2. `codehub list` adds a `HEALTH` column that flags dangling registry
    entries (`⚠ missing path`) and cleaned indexes (`⚠ no graph.duckdb`),
    plus a trailing advisory when any row is unhealthy. Caught a real
-   `/Users/lalsaado/workspaces/...` typo in the registry.
+   registry typo where the `path` no longer existed on disk.
 3. Phase 0 of `codehub-document` now includes a schema preflight —
    subagents consult `information_schema.columns` once (cached in
    `.prefetch.md`) before composing SQL, preventing `Binder Error`
-   failures from columns that don't exist (e.g., the `path` vs
-   `file_path` mismatch observed on the QuickWork graph).
+   failures from columns that don't exist (e.g., `nodes.path` was
+   assumed; the real columns are `name`, `file_path`, `method`).
 
 Full observations, root-cause traces, and evidence pointers in the ADR.
 

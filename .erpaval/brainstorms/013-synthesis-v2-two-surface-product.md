@@ -155,6 +155,6 @@ Two specs live and consistent with the locked scope:
 
 Roadmap SPA live at `.erpaval/roadmap/index.html` — 31 items across both specs and the Never column, all views (Overview / Timeline / Board / Dependencies / Pillars) reflecting the locked scope.
 
-Project memory updated at `/Users/lalsaado/.claude/projects/-Users-lalsaado-Projects-open-code-hub/memory/` with the three scope decisions. Future sessions start with these constraints already in context.
+Project memory updated at `.erpaval/memory/` with the three scope decisions. Future sessions start with these constraints already in context.
 
 Say the word and `/erpaval` Act phase kicks off against spec 001.

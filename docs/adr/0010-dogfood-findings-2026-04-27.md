@@ -9,9 +9,11 @@
 
 After ADRs 0007 / 0008 / 0009 locked the artifact-factory scope and the
 `codehub init` command shipped, we dogfooded the flow against a real
-two-repo workspace — `AWSQuickWork` (98k nodes, 1.2 GB working tree) and
-`AWSQuickWorkStrandsAIFunctions` (97 nodes, nearly empty scaffold). Three
-issues surfaced that needed fixes on the same branch before the PR merges.
+two-repo private workspace — one large repo (98k nodes, 1.2 GB working
+tree, Electron + Python hypervisor) and one near-empty scaffold (97
+nodes). Repo names and absolute paths are redacted; they are private
+workspaces unrelated to OpenCodeHub itself. Three issues surfaced that
+needed fixes on the same branch before the PR merges.
 
 ## Finding 1 — `--embeddings` with `--embeddings-workers 1` is a silent foot-gun
 
@@ -41,11 +43,11 @@ option description and the parse path for the analyze command.
 
 ## Finding 2 — Dangling registry entries were invisible in `codehub list`
 
-**Observation.** `AWSQuickWorkStrandsAIFunctions` was registered at
-`/Users/lalsaado/workspaces/...` (note `workspaces` — a typo for the
-real path `/Users/lalsaado/workplace/...`). `codehub list` happily
-printed the row; any subsequent `group sync` / MCP lookup would silently
-half-work.
+**Observation.** One of the two dogfood repos was registered at a
+path that no longer existed on disk — the registry `path` was a near-miss
+typo (`…/workspaces/…` vs the real `…/workplace/…`). `codehub list`
+happily printed the row; any subsequent `group sync` / MCP lookup would
+silently half-work.
 
 **Decision.** `codehub list` now includes a `HEALTH` column per row,
 with two failure cases:
@@ -137,9 +139,18 @@ dependency.
 - `packages/cli/src/commands/list.ts` — registry health check
 - `plugins/opencodehub/skills/codehub-document/references/data-source-map.md` — schema preflight
 
-## Dogfood artifacts (for reviewers)
+## Dogfood artifacts
 
-- `/Users/lalsaado/workplace/QuickWork/src/AWSQuickWork/.codehub/.context.md` — Phase 0 precompute that surfaced finding 3.
-- `/Users/lalsaado/workplace/QuickWork/src/AWSQuickWork/.codehub/docs/architecture/system-overview.md` — simulated `doc-architecture` output.
-- `/Users/lalsaado/workplace/QuickWork/src/AWSQuickWork/.codehub/groups/quickwork/contracts.md` — empty-case `codehub-contract-map` artifact (AC-5-5 path exercised).
-- `~/.codehub/groups/quickwork/contracts.json` — 165 contracts from `codehub group sync`, all tagged `AWSQuickWork`.
+All dogfood outputs were written under the private workspace's own
+`.codehub/` and `~/.codehub/groups/` trees. Paths are intentionally
+omitted here; the artifacts themselves are gitignored and live outside
+this repo. Summary of what was produced:
+
+- A Phase 0 `.context.md` precompute that surfaced finding 3 (schema
+  preflight).
+- A simulated `doc-architecture` system-overview output (one Mermaid
+  flowchart, ~12 backtick citations, matching the 8-section template).
+- An empty-case `codehub-contract-map` artifact exercising AC-5-5 (the
+  group had 165 contracts but all originated in a single repo, so the
+  cross-repo matrix was all zeros and the banner fired as designed).
+- 165 contracts from `codehub group sync` in the group's `contracts.json`.
