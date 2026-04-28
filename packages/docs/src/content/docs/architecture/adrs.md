@@ -100,6 +100,82 @@ resolves to the `scip-code` fork rather than upstream `sourcegraph`.
 
 [Read ADR 0006](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0006-scip-indexer-pins.md)
 
+### ADR 0007 — Artifact factory
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Ship an artifact-generation skill family inside
+`plugins/opencodehub/` that turns the graph into committed Markdown.
+Four P0 skills (`codehub-document`, `codehub-pr-description`,
+`codehub-onboarding`, `codehub-contract-map`), six `doc-*` subagents,
+Phase 0 precompute, `.docmeta.json` + Phase E assembler, PostToolUse
+staleness hook, discoverability patches.
+
+Scope exclusions (durable, not timeline): no hosted/managed/SaaS tier,
+no remote/HTTP MCP server, no agent SDK, no `grounding_pack`
+compositor tool, no own coding agent, no LLM-based PR review, no
+IDE plugin/LSP, no model fine-tuning.
+
+[Read ADR 0007](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0007-artifact-factory.md)
+
+### ADR 0008 — Document pattern port
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Adopt the four-phase document pattern (Phase 0
+precompute → Phase AB parallel content → Phase CD parallel diagrams +
+specialty → Phase E deterministic assembler), adapted for OpenCodeHub
+in three ways: six subagents (our supply-chain tools pre-digest a lot
+of output), group mode as a first-class topology, and an extended
+assembler contract that handles both `path:LOC` and `repo:path:LOC`
+citation forms.
+
+Preserves the pattern invariants verbatim: shared-context files on
+disk (not in-prompt copy-paste), eight-section agent scaffold,
+deterministic Phase E (no LLM call), `.docmeta.json` as source of
+truth for `--refresh`, no YAML frontmatter on outputs.
+
+[Read ADR 0008](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0008-document-pattern-port.md)
+
+### ADR 0009 — Artifact output conventions
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Single authoritative output contract. `.codehub/docs/`
+gitignored default; `--committed` opts in to `docs/codehub/`. Backtick
+citation grammar with a single Phase E regex covering both single-repo
+and group-qualified forms. `.docmeta.json` schema v1 with
+`cross_repo_refs[]` for group mode. Mermaid-only diagrams (no
+SVG/PNG). 20-node diagram cap with a Legend table for overflow.
+Deterministic structure; non-deterministic prose; disclaimer on every
+generated `README.md`.
+
+[Read ADR 0009](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0009-artifact-output-conventions.md)
+
+### ADR 0010 — Three dogfood findings from 2026-04-27
+
+**Status:** Accepted (2026-04-27).
+
+**Decision:** Three small fixes landed after dogfooding `codehub init`
+and the artifact factory against a private two-repo workspace.
+
+1. `--embeddings` now defaults `--embeddings-workers` to `"auto"` at
+   the CLI layer. Single-worker ONNX inference on 98k nodes took 56
+   minutes; parallel workers cut that to single-digit minutes.
+2. `codehub list` adds a `HEALTH` column that flags dangling registry
+   entries (`⚠ missing path`) and cleaned indexes (`⚠ no graph.duckdb`),
+   plus a trailing advisory when any row is unhealthy. Caught a real
+   registry typo where the `path` no longer existed on disk.
+3. Phase 0 of `codehub-document` now includes a schema preflight —
+   subagents consult `information_schema.columns` once (cached in
+   `.prefetch.md`) before composing SQL, preventing `Binder Error`
+   failures from columns that don't exist (e.g., `nodes.path` was
+   assumed; the real columns are `name`, `file_path`, `method`).
+
+Full observations, root-cause traces, and evidence pointers in the ADR.
+
+[Read ADR 0010](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0010-dogfood-findings-2026-04-27.md)
+
 ## Superseded
 
 ### ADR 0003 — CI toolchain pins (gopls ↔ Go, pnpm build-script allowlist)

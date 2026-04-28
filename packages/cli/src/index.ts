@@ -28,7 +28,7 @@ program
   )
   .option(
     "--embeddings-workers <n|auto>",
-    'Parallel ONNX embedder workers (each ~300 MB RSS on fp32). "auto" = os.cpus().length - 1, min 1. Default 1 (legacy in-process path).',
+    'Parallel ONNX embedder workers (each ~300 MB RSS on fp32). "auto" = os.cpus().length - 1, min 1. Default: "auto" when --embeddings is on (was 1 until 2026-04-27; single-threaded ONNX inference on a 100k-node repo took ~45 min, so CLI now opts into parallel by default). Pass --embeddings-workers 1 for the legacy in-process path.',
   )
   .option(
     "--embeddings-batch-size <n>",
@@ -101,7 +101,15 @@ program
     }
 
     const granularity = parseGranularityCsv(opts["granularity"]);
-    const embeddingsWorkers = parseWorkerCount(opts["embeddingsWorkers"]);
+    // When --embeddings is on and the user didn't pick a worker count, default
+    // to "auto" — single-threaded ONNX inference on 100k+ nodes takes ~45 min
+    // vs ~6–8 min with all cores busy. Power users can still pass
+    // `--embeddings-workers 1` for the legacy path.
+    const workersRaw =
+      opts["embeddings"] === true && opts["embeddingsWorkers"] === undefined
+        ? "auto"
+        : opts["embeddingsWorkers"];
+    const embeddingsWorkers = parseWorkerCount(workersRaw);
     const embeddingsBatchSize = parsePositiveInt(opts["embeddingsBatchSize"]);
 
     await mod.runAnalyze(path ?? process.cwd(), {
@@ -138,6 +146,31 @@ program
       force: opts["force"] === true,
       allowNonGit: opts["allowNonGit"] === true,
     });
+  });
+
+program
+  .command("init [path]")
+  .description(
+    "Bootstrap a repo for OpenCodeHub — copies the Claude Code plugin assets into .claude/ (project-scope), writes .mcp.json, appends .codehub/ to .gitignore, seeds opencodehub.policy.yaml",
+  )
+  .option("--force", "Overwrite conflicting files under .claude/")
+  .option("--skip-mcp", "Skip writing .mcp.json")
+  .option("--skip-policy", "Skip seeding opencodehub.policy.yaml")
+  .action(async (path: string | undefined, opts: Record<string, boolean | undefined>) => {
+    const mod = await import("./commands/init.js");
+    const result = await mod.runInit({
+      ...(path !== undefined ? { repo: path } : {}),
+      force: opts["force"] === true,
+      skipMcp: opts["skipMcp"] === true,
+      skipPolicy: opts["skipPolicy"] === true,
+    });
+    // One-line recap so the user knows what changed.
+    const bits: string[] = [`${result.filesCopied} file(s) into .claude/`];
+    if (result.mcpResult) bits.push(`.mcp.json (${result.mcpResult.action})`);
+    if (result.gitignoreUpdated) bits.push(".gitignore updated");
+    if (result.policySeeded) bits.push("opencodehub.policy.yaml seeded");
+    console.warn(`codehub init: ${bits.join(" · ")}`);
+    console.warn("Next: run 'codehub analyze' to build the graph, then restart Claude Code.");
   });
 
 program

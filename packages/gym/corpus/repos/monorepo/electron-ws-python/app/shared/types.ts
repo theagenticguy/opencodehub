@@ -30,14 +30,14 @@ export type WsMessage =
 
 // Surface exposed by preload.ts via contextBridge.exposeInMainWorld.
 // Static tooling will not connect the two sides — the only evidence
-// is the string literal "quickwork".
-export interface QuickworkBridge {
+// is the string literal "desktop".
+export interface DesktopBridge {
   takeScreenshot: () => Promise<string>;
   saveFile: (content: string) => Promise<void>;
 }
 
 declare global {
   interface Window {
-    quickwork: QuickworkBridge;
+    desktop: DesktopBridge;
   }
 }

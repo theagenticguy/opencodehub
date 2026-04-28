@@ -11,7 +11,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -b && node scripts/copy-ci-templates.mjs",
+    "build": "tsc -b && node scripts/copy-ci-templates.mjs && node scripts/copy-plugin-assets.mjs",
     "test": "node --test './dist/**/*.test.js'",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
