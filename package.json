@@ -55,8 +55,12 @@
       "tmp@<0.2.4": "0.2.4"
     },
     "onlyBuiltDependencies": [
-      "@duckdb/node-api",
-      "onnxruntime-node",
+      "@duckdb/node-bindings-darwin-arm64",
+      "@duckdb/node-bindings-darwin-x64",
+      "@duckdb/node-bindings-linux-arm64",
+      "@duckdb/node-bindings-linux-x64",
+      "@duckdb/node-bindings-win32-x64",
+      "sharp",
       "tree-sitter",
       "tree-sitter-c",
       "tree-sitter-c-sharp",
