@@ -19,7 +19,12 @@
  */
 
 export type { DerivedEdge, DerivedIndex, DerivedRelation, DerivedSymbol } from "./derive.js";
-export { deriveEdges, deriveIndex, findOccurrencesBySymbol } from "./derive.js";
+export {
+  buildSymbolDefIndex,
+  deriveEdges,
+  deriveIndex,
+  findOccurrencesBySymbol,
+} from "./derive.js";
 export type {
   BlastMetrics,
   MaterializeOptions,

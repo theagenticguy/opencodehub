@@ -92,11 +92,13 @@ function rangeContains(outer: ScipRange, inner: ScipRange): boolean {
 function innermostEnclosing(
   defs: readonly { symbol: string; range: ScipRange }[],
   site: ScipRange,
+  skip: (symbol: string) => boolean = () => false,
 ): string | null {
   let best: string | null = null;
   let bestSpan: [number, number] = [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
   for (const d of defs) {
     if (!rangeContains(d.range, site)) continue;
+    if (skip(d.symbol)) continue;
     const span = spanOf(d.range);
     if (span[0] < bestSpan[0] || (span[0] === bestSpan[0] && span[1] < bestSpan[1])) {
       bestSpan = span;
@@ -132,7 +134,7 @@ export function deriveEdges(doc: ScipDocument): DerivedEdge[] {
     // from stdlib types. See POC `scip_graph_poc/ingest.py` for the
     // same contract.
     if (!isFunctionLike(occ.symbol)) continue;
-    const caller = innermostEnclosing(defs, occ.range);
+    const caller = innermostEnclosing(defs, occ.range, (s) => s.startsWith("local "));
     if (!caller || caller === occ.symbol) continue;
     if (!isFunctionLike(caller)) continue;
     edges.push({
@@ -232,4 +234,59 @@ export function findOccurrencesBySymbol(
   symbol: string,
 ): readonly ScipOccurrence[] {
   return doc.occurrences.filter((o) => o.symbol === symbol);
+}
+
+/**
+ * Build a SCIP-symbol -> definition-site map from an index.
+ *
+ * For every occurrence whose `symbolRoles` has the
+ * `SCIP_ROLE_DEFINITION` bit set, record the `{file, line}` of the first
+ * DEFINITION occurrence seen for that SCIP symbol. SCIP symbol strings
+ * are globally unique across documents, so the first definition is the
+ * definition; duplicate defs (rare — e.g. ambient redeclarations) are
+ * ignored to keep the result stable.
+ *
+ * Consumers use this to resolve a callee's definition site when mapping
+ * derived edges onto OpenCodeHub symbol nodes.
+ */
+/**
+ * Rewrite a source-shape path descriptor (` src/<p>.ts\``) inside a SCIP
+ * symbol string to the dist-shape one (` dist/<p>.d.ts\``), preserving any
+ * nested directory segments above the file. The leading space anchors the
+ * match to the descriptor field (the 5th space-separated field of a
+ * non-local SCIP symbol), so substrings like `src/` that might appear
+ * elsewhere are not rewritten.
+ *
+ * A TypeScript monorepo declaring `"types": "./dist/<name>.d.ts"` emits
+ * DEFINITION occurrences carrying `src/<p>.ts` while cross-package REF
+ * occurrences carry `dist/<p>.d.ts`, because importers resolve through
+ * the published types root. The def index registers the def under both
+ * shapes so lookups from either side hit the same `{file, line}`.
+ */
+const SRC_TO_DIST_DESCRIPTOR = / src\/((?:[^`\s]+\/)*)`([^`]+)\.ts`/;
+
+function toDistAlias(symbol: string): string | null {
+  const rewritten = symbol.replace(SRC_TO_DIST_DESCRIPTOR, " dist/$1`$2.d.ts`");
+  return rewritten === symbol ? null : rewritten;
+}
+
+export function buildSymbolDefIndex(
+  index: ScipIndex,
+): ReadonlyMap<string, { file: string; line: number }> {
+  const defs = new Map<string, { file: string; line: number }>();
+  for (const doc of index.documents) {
+    for (const occ of doc.occurrences) {
+      if (!(occ.symbolRoles & SCIP_ROLE_DEFINITION)) continue;
+      if (!occ.symbol) continue;
+      const site = { file: doc.relativePath, line: occ.range.startLine };
+      if (!defs.has(occ.symbol)) {
+        defs.set(occ.symbol, site);
+      }
+      const alias = toDistAlias(occ.symbol);
+      if (alias && !defs.has(alias)) {
+        defs.set(alias, site);
+      }
+    }
+  }
+  return defs;
 }

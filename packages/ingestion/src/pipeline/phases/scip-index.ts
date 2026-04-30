@@ -5,7 +5,7 @@
  *
  * For every language detected in the profile we:
  *   1. Run the appropriate SCIP indexer into
- *      `.opencodehub/scip/<lang>.scip`, unless the artifact is fresh
+ *      `.codehub/scip/<lang>.scip`, unless the artifact is fresh
  *      (mtime newer than every source file for that language).
  *   2. Parse the index with `@opencodehub/scip-ingest`, derive caller
  *      -> callee edges via innermost-enclosing-range attribution.
@@ -34,12 +34,14 @@ import { join } from "node:path";
 import type { GraphNode, NodeId } from "@opencodehub/core-types";
 import type { DerivedEdge, IndexerKind, IndexerResult } from "@opencodehub/scip-ingest";
 import {
+  buildSymbolDefIndex,
   deriveIndex,
   detectLanguages,
   parseScipIndex,
   runIndexer,
   scipProvenanceReason,
 } from "@opencodehub/scip-ingest";
+import { META_DIR_NAME } from "@opencodehub/storage";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { ACCESSES_PHASE_NAME } from "./accesses.js";
 import { CROSS_FILE_PHASE_NAME } from "./cross-file.js";
@@ -131,7 +133,7 @@ async function runScipIndex(
     };
   }
 
-  const outputDir = join(ctx.repoPath, ".opencodehub", "scip");
+  const outputDir = join(ctx.repoPath, META_DIR_NAME, "scip");
   const offline = Boolean(ctx.options.offline);
   const allowBuildScripts = process.env["CODEHUB_ALLOW_BUILD_SCRIPTS"] === "1";
 
@@ -229,6 +231,7 @@ async function runScipIndex(
     const buf = await readFile(result.scipPath);
     const index = parseScipIndex(new Uint8Array(buf));
     const derived = deriveIndex(index);
+    const symbolDef = buildSymbolDefIndex(index);
     const reason = scipProvenanceReason(
       kindToProvenance(result.kind),
       result.version || index.tool.version || "unknown",
@@ -238,6 +241,7 @@ async function runScipIndex(
       ctx,
       nodesByFile,
       derived.edges,
+      symbolDef,
       reason,
       existingEdgeKeys,
     );
@@ -433,46 +437,27 @@ function emitEdges(
   ctx: PipelineContext,
   nodesByFile: NodesByFile,
   edges: readonly DerivedEdge[],
+  symbolDef: ReadonlyMap<string, { file: string; line: number }>,
   reason: string,
   existingKeys: Set<string>,
 ): { added: number; upgraded: number } {
   let added = 0;
   let upgraded = 0;
-  // SCIP symbol ids are not OpenCodeHub node ids. We resolve each edge by
-  // looking up the enclosing OCH node for (document, callLine) for the
-  // caller and by locating the callee's definition site via the SCIP
-  // symbol -> definition-line mapping we built below.
-  //
-  // Since `derive.ts` already filtered to function-like symbols, the
-  // caller-side attribution is robust. For the callee we find its
-  // definition occurrence in the same document by searching for the
-  // scip symbol; if no in-repo definition exists the edge is external
-  // (stdlib / vendored dep) and we drop it.
-
-  const defByScipSymbol = new Map<string, { file: string; line: number }>();
+  // SCIP symbol strings are not OpenCodeHub node ids. Every derived edge
+  // needs two lookups: the caller's enclosing OCH node at the call site
+  // `(e.document, e.callLine)`, and the callee's enclosing OCH node at
+  // the callee's actual definition site. `symbolDef` carries the
+  // definition `(file, line)` for every SCIP symbol that has a
+  // DEFINITION occurrence anywhere in the index, so callee resolution is
+  // disambiguated even when multiple in-repo symbols share a display
+  // name. Symbols without a DEFINITION occurrence are external
+  // (stdlib / vendored / absent typings) and their edges are dropped.
   for (const e of edges) {
-    // Populate once per symbol — edges supply (callee, document) pairs
-    // where the callee has a def somewhere. First sighting wins for the
-    // purpose of locating the enclosing OCH node.
-    if (!defByScipSymbol.has(e.callee)) {
-      defByScipSymbol.set(e.callee, { file: e.document, line: e.callLine });
-    }
-  }
-
-  for (const e of edges) {
-    const fromId = findEnclosingNodeId(nodesByFile, e.document, e.callLine);
+    const fromId = findEnclosingNodeId(nodesByFile, e.document, e.callLine + 1);
     if (!fromId) continue;
-    // Resolve callee: it's defined somewhere in the repo. We reuse the
-    // callee's first sighting for the enclosing lookup, but we do a
-    // second pass: find the SCIP callee's DEFINITION via the index
-    // (document + definitionLine). That means we re-walk the index,
-    // which is costly — instead we do a best-effort by looking through
-    // the edges for the first derived edge whose caller == callee
-    // (i.e. the callee itself is a caller somewhere) and use its
-    // callLine as the def line. Fallback: skip.
-    const calleeDef = defByScipSymbol.get(e.callee);
+    const calleeDef = symbolDef.get(e.callee);
     if (!calleeDef) continue;
-    const toId = findEnclosingNodeId(nodesByFile, calleeDef.file, calleeDef.line);
+    const toId = findEnclosingNodeId(nodesByFile, calleeDef.file, calleeDef.line + 1);
     if (!toId) continue;
     if (fromId === toId) continue;
 
