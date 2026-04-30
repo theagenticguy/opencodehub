@@ -41,7 +41,11 @@ interface ResolvedNode {
 }
 
 type Resolution =
-  | { readonly kind: "resolved"; readonly target: ResolvedNode; readonly alternates: readonly ResolvedNode[] }
+  | {
+      readonly kind: "resolved";
+      readonly target: ResolvedNode;
+      readonly alternates: readonly ResolvedNode[];
+    }
   | { readonly kind: "ambiguous"; readonly candidates: readonly ResolvedNode[] }
   | { readonly kind: "not_found" };
 

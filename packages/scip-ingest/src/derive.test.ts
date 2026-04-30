@@ -33,12 +33,7 @@ test("deriveIndex: produces function-level edges for the calcpkg fixture", () =>
   assert.ok(addCalls.length > 0, "add() should have incoming edges");
 });
 
-function range(
-  startLine: number,
-  startChar: number,
-  endLine: number,
-  endChar: number,
-): ScipRange {
+function range(startLine: number, startChar: number, endLine: number, endChar: number): ScipRange {
   return { startLine, startChar, endLine, endChar };
 }
 
@@ -102,7 +97,8 @@ test("buildSymbolDefIndex: records each symbol's first DEFINITION site across do
 });
 
 test("buildSymbolDefIndex: aliases a src-shape def under its dist-shape cross-package descriptor", () => {
-  const srcSymbol = "scip-typescript npm @opencodehub/analysis 0.1.0 src/`verdict.ts`/computeVerdict().";
+  const srcSymbol =
+    "scip-typescript npm @opencodehub/analysis 0.1.0 src/`verdict.ts`/computeVerdict().";
   const distSymbol =
     "scip-typescript npm @opencodehub/analysis 0.1.0 dist/`verdict.d.ts`/computeVerdict().";
 
@@ -158,11 +154,7 @@ test("deriveEdges: attributes calls inside a nested local def to the enclosing n
   const inner = "local 42";
   const callee = "scip-typescript npm pkg 1.0 src/b.ts/externalCallee().";
 
-  const d = doc("src/a.ts", [
-    defOcc(outer, 10, 30),
-    defOcc(inner, 15, 25),
-    refOcc(callee, 20, 4),
-  ]);
+  const d = doc("src/a.ts", [defOcc(outer, 10, 30), defOcc(inner, 15, 25), refOcc(callee, 20, 4)]);
 
   const edges = deriveEdges(d);
   assert.equal(edges.length, 1, "expected exactly one derived edge");
