@@ -2,7 +2,7 @@
  * Per-language SCIP indexer orchestration.
  *
  * Each runner shells out to the language's native SCIP indexer and
- * writes `.opencodehub/scip/<lang>.scip`. The factory `runIndexer` is
+ * writes `.codehub/scip/<lang>.scip`. The factory `runIndexer` is
  * fan-out friendly — callers invoke it once per detected language in
  * parallel via `Promise.all`.
  *
@@ -19,7 +19,7 @@ export type IndexerKind = "typescript" | "python" | "go" | "rust" | "java";
 
 export interface RunIndexerOptions {
   readonly projectRoot: string;
-  readonly outputDir: string; // e.g. <repo>/.opencodehub/scip
+  readonly outputDir: string; // e.g. <repo>/.codehub/scip
   readonly projectName?: string;
   readonly envOverlay?: NodeJS.ProcessEnv;
   readonly allowBuildScripts?: boolean; // required for rust + java

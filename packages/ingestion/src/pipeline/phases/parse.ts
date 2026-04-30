@@ -33,6 +33,7 @@ import { availableParallelism } from "node:os";
 import path from "node:path";
 import type { GraphNode, NodeKind, RelationType } from "@opencodehub/core-types";
 import { makeNodeId, type NodeId, SCHEMA_VERSION } from "@opencodehub/core-types";
+import { META_DIR_NAME } from "@opencodehub/storage";
 import type { LanguageId, ParseTask } from "../../parse/types.js";
 import { ParsePool } from "../../parse/worker-pool.js";
 import { idForDefinition } from "../../providers/definition-ids.js";
@@ -63,7 +64,7 @@ import { SCAN_PHASE_NAME, type ScannedFile, type ScanOutput } from "./scan.js";
 import { STRUCTURE_PHASE_NAME, type StructureOutput } from "./structure.js";
 
 /** On-disk location of the parse-cache sidecar, relative to the repo root. */
-const PARSE_CACHE_DIRNAME = path.join(".codehub", "parse-cache");
+const PARSE_CACHE_DIRNAME = path.join(META_DIR_NAME, "parse-cache");
 
 export interface ParseOutput {
   readonly definitionsByFile: ReadonlyMap<string, readonly ExtractedDefinition[]>;

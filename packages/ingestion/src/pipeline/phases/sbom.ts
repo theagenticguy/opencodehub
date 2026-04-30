@@ -40,6 +40,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { Enums, Models, Serialize, Spec } from "@cyclonedx/cyclonedx-library";
 import type { DependencyNode } from "@opencodehub/core-types";
+import { META_DIR_NAME } from "@opencodehub/storage";
 import wfa from "write-file-atomic";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { DEPENDENCIES_PHASE_NAME } from "./dependencies.js";
@@ -48,7 +49,6 @@ export const SBOM_PHASE_NAME = "sbom" as const;
 
 const CYCLONEDX_FILE = "sbom.cyclonedx.json" as const;
 const SPDX_FILE = "sbom.spdx.json" as const;
-const CODEHUB_DIR = ".codehub" as const;
 const TOOL_NAME = "opencodehub";
 const TOOL_VERSION = "1.1.0";
 // Stable epoch = 0 (1970-01-01T00:00:00Z) for reproducible builds.
@@ -84,7 +84,7 @@ async function runSbom(ctx: PipelineContext): Promise<SbomOutput> {
   }
   deps.sort(compareDeps);
 
-  const repoMeta = path.join(ctx.repoPath, CODEHUB_DIR);
+  const repoMeta = path.join(ctx.repoPath, META_DIR_NAME);
   await mkdir(repoMeta, { recursive: true });
 
   const cyclonedxPath = path.join(repoMeta, CYCLONEDX_FILE);
