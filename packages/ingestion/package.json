@@ -32,7 +32,7 @@
     "@opencodehub/scip-ingest": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",
-    "fast-xml-parser": "5.7.1",
+    "fast-xml-parser": "5.7.2",
     "graphology": "0.26.0",
     "graphology-dag": "0.4.1",
     "piscina": "5.1.4",
