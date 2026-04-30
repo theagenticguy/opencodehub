@@ -245,7 +245,7 @@ test("electron-ws-python typescript corpus has 5 cases", async () => {
   assert.equal(waived.length, 2);
   assert.deepEqual(waived.map((c) => c.id).sort(), [
     "mono-ts.callers.registerScreenshotHandler",
-    "mono-ts.references.window.quickwork.takeScreenshot",
+    "mono-ts.references.window.desktop.takeScreenshot",
   ]);
 });
 
