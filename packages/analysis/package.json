@@ -19,7 +19,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "3.1035.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1040.0",
     "@iarna/toml": "2.2.5",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/sarif": "workspace:*",
@@ -28,7 +28,7 @@
     "write-file-atomic": "7.0.1"
   },
   "devDependencies": {
-    "@types/node": "24.12.2",
+    "@types/node": "25.6.0",
     "@types/write-file-atomic": "4.0.3",
     "typescript": "6.0.3"
   }
