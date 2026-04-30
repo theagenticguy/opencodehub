@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
-    "@aws-sdk/client-bedrock-runtime": "3.1035.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1040.0",
     "@cyclonedx/cyclonedx-library": "10.0.0",
     "@graphty/algorithms": "1.7.1",
     "@iarna/toml": "2.2.5",
