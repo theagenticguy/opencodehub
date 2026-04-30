@@ -15,3 +15,4 @@ tiers.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
 with the working tree. `codehub status` reports staleness.
+

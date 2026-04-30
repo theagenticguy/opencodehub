@@ -11,6 +11,10 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Hand-roll a minimal protobuf reader for fixed schemas](solutions/conventions/scip-protobuf-hand-rolled-reader.md) — ~130 LOC beats pulling in buf+codegen when the schema is small and stable.
 - [Seed docs-authoring subagents with a single ground-truth YAML](solutions/conventions/docs-site-ground-truth-yaml.md) — parallel writers agree when you tell them where truth lives.
 - [Adding a new Embedder backend that calls an AWS service](solutions/api-patterns/sagemaker-embedder-backend.md) — dynamic-import + credential soft-fail, structural runtime typing, modelId stamping, mixed sync/async tryOpenHttpEmbedder return.
+- [SCIP ingest must resolve callees from DEFINITION occurrences, not first call sites](solutions/architecture-patterns/scip-callee-definition-site.md) — first-seen call site routes same-named symbols to the wrong local node; pre-scan for SCIP_ROLE_DEFINITION.
+- [BM25 over a node-id FTS index plus ORDER BY id ASC systematically favors synthetic stubs](solutions/conventions/bm25-over-node-id-favors-stubs.md) — external re-export stubs out-score real Function nodes; fix with exact-name SQL + stub filter + disambiguation flags.
+- [SCIP symbol-def index must alias `src/*.ts` defs under `dist/*.d.ts` in a TS monorepo](solutions/architecture-patterns/scip-monorepo-dist-src-alias.md) — cross-package refs carry `dist/` shape, defs carry `src/` shape; same-package refs work by accident. Alias closes the gap. Also documents the SCIP 0-indexed / graph 1-indexed line off-by-one.
+- [SCIP range lines are 0-indexed; OCH graph node startLine is 1-indexed](solutions/conventions/scip-0-indexed-vs-graph-1-indexed.md) — asymmetric failure mode where caller-side lookups work by accident while callee-side lookups silently drop. `+1` at the scip-ingest→OCH boundary.
 
 ## Specs
 
