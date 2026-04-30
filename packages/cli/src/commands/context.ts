@@ -1,23 +1,29 @@
 /**
  * `codehub context <symbol>` — 360-degree view of a single symbol.
  *
- * MVP implementation: finds node(s) matching `symbol` by name via the store's
- * BM25 index, then runs a `traverse` in both directions at depth 1 to list
- * immediate callers and callees.
- *
- * In addition we surface PROCESS_STEP participation — the Process nodes
- * that include this symbol as a step — by querying the relations table
- * directly. This mirrors the MCP `context` tool's `processes` field;
- * without it Process-kind targets return empty inbound/outbound even
- * though the graph carries the step edges.
+ * Resolves the target by exact name against the `nodes` table, filtering out
+ * synthetic import-tracking stubs (`file_path = '<external>'` and
+ * `kind = 'CodeElement'`) that carry no caller/callee edges. Optional
+ * `targetUid`, `filePath`, and `kind` narrow same-named candidates.
+ * When exact-name yields zero rows we fall back to the BM25 index so
+ * concept-phrase queries still work; when it yields more than one row
+ * and no disambiguator narrows the set, we surface the candidate list.
  */
 
-import { openStoreForCommand } from "./open-store.js";
+import type { IGraphStore, SearchResult, SqlParam } from "@opencodehub/storage";
+import { type OpenStoreResult, openStoreForCommand } from "./open-store.js";
 
 export interface ContextOptions {
   readonly repo?: string;
   readonly home?: string;
   readonly json?: boolean;
+  readonly targetUid?: string;
+  readonly filePath?: string;
+  readonly kind?: string;
+}
+
+export interface ContextRuntimeHooks {
+  readonly openStore?: (opts: ContextOptions) => Promise<OpenStoreResult>;
 }
 
 interface ProcessParticipation {
@@ -26,8 +32,21 @@ interface ProcessParticipation {
   readonly step: number | null;
 }
 
+interface ResolvedNode {
+  readonly nodeId: string;
+  readonly name: string;
+  readonly kind: string;
+  readonly filePath: string;
+  readonly score: number;
+}
+
+type Resolution =
+  | { readonly kind: "resolved"; readonly target: ResolvedNode; readonly alternates: readonly ResolvedNode[] }
+  | { readonly kind: "ambiguous"; readonly candidates: readonly ResolvedNode[] }
+  | { readonly kind: "not_found" };
+
 async function fetchProcessParticipation(
-  store: Awaited<ReturnType<typeof openStoreForCommand>>["store"],
+  store: IGraphStore,
   targetId: string,
 ): Promise<readonly ProcessParticipation[]> {
   const rows = (await store.query(
@@ -49,21 +68,142 @@ async function fetchProcessParticipation(
   });
 }
 
-export async function runContext(symbol: string, opts: ContextOptions = {}): Promise<void> {
-  const { store, repoPath } = await openStoreForCommand(opts);
+function rowToResolvedNode(r: Record<string, unknown>): ResolvedNode {
+  return {
+    nodeId: String(r["id"]),
+    name: String(r["name"] ?? ""),
+    kind: String(r["kind"] ?? ""),
+    filePath: String(r["file_path"] ?? ""),
+    score: 0,
+  };
+}
+
+function searchResultToResolvedNode(r: SearchResult): ResolvedNode {
+  return {
+    nodeId: r.nodeId,
+    name: r.name,
+    kind: r.kind,
+    filePath: r.filePath,
+    score: r.score,
+  };
+}
+
+async function resolveTarget(
+  store: IGraphStore,
+  symbol: string,
+  opts: ContextOptions,
+): Promise<Resolution> {
+  if (opts.targetUid !== undefined && opts.targetUid.length > 0) {
+    const rows = (await store.query(
+      "SELECT id, name, kind, file_path FROM nodes WHERE id = ? LIMIT 1",
+      [opts.targetUid],
+    )) as ReadonlyArray<Record<string, unknown>>;
+    const row = rows[0];
+    if (!row) return { kind: "not_found" };
+    return { kind: "resolved", target: rowToResolvedNode(row), alternates: [] };
+  }
+
+  const params: SqlParam[] = [symbol];
+  let sql =
+    "SELECT id, name, kind, file_path FROM nodes WHERE name = ? AND file_path != '<external>' AND kind != 'CodeElement'";
+  if (opts.kind !== undefined && opts.kind.length > 0) {
+    sql += " AND kind = ?";
+    params.push(opts.kind);
+  }
+  if (opts.filePath !== undefined && opts.filePath.length > 0) {
+    sql += " AND file_path LIKE ?";
+    params.push(`%${opts.filePath}%`);
+  }
+  sql += " ORDER BY file_path LIMIT 25";
+
+  const exactRows = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
+
+  if (exactRows.length === 1) {
+    const row = exactRows[0];
+    if (!row) return { kind: "not_found" };
+    return { kind: "resolved", target: rowToResolvedNode(row), alternates: [] };
+  }
+  if (exactRows.length > 1) {
+    return { kind: "ambiguous", candidates: exactRows.map(rowToResolvedNode) };
+  }
+
+  const fallback = await store.search({ text: symbol, limit: 5 });
+  if (fallback.length === 0) return { kind: "not_found" };
+  const [head, ...rest] = fallback;
+  if (head === undefined) return { kind: "not_found" };
+  return {
+    kind: "resolved",
+    target: searchResultToResolvedNode(head),
+    alternates: rest.map(searchResultToResolvedNode),
+  };
+}
+
+export async function runContext(
+  symbol: string,
+  opts: ContextOptions = {},
+  hooks: ContextRuntimeHooks = {},
+): Promise<void> {
+  const openStore = hooks.openStore ?? openStoreForCommand;
+  const { store, repoPath } = await openStore(opts);
   try {
-    const candidates = await store.search({ text: symbol, limit: 5 });
-    if (candidates.length === 0) {
+    const resolution = await resolveTarget(store, symbol, opts);
+
+    if (resolution.kind === "not_found") {
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            {
+              repoPath,
+              target: null,
+              callers: [],
+              callees: [],
+              processes: [],
+              alternateCandidates: [],
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
       console.warn(`context: no symbol matching "${symbol}" in ${repoPath}`);
       return;
     }
-    const target = candidates[0];
-    if (target === undefined) return;
 
-    // Restrict to CALLS so callers/callees match the MCP `context` tool
-    // (which queries `r.type = 'CALLS'` directly). Without this filter the
-    // store defaults to ALL_RELATION_TYPES and folds in CONTAINS/DEFINES/
-    // HAS_METHOD/etc., over-inclusive by ~2.3× on real codebases.
+    if (resolution.kind === "ambiguous") {
+      const candidates = resolution.candidates.slice(0, 10);
+      if (opts.json) {
+        console.log(
+          JSON.stringify(
+            {
+              repoPath,
+              ambiguous: true,
+              candidates: resolution.candidates,
+            },
+            null,
+            2,
+          ),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      console.warn(
+        `context: "${symbol}" matched ${resolution.candidates.length} symbols in ${repoPath}. Re-call with --target-uid, --file-path, or --kind.`,
+      );
+      for (let i = 0; i < candidates.length; i += 1) {
+        const c = candidates[i];
+        if (!c) continue;
+        console.warn(`  ${i + 1}. [${c.kind}] ${c.name} — ${c.filePath}  (${c.nodeId})`);
+      }
+      if (resolution.candidates.length > candidates.length) {
+        console.warn(`  … ${resolution.candidates.length - candidates.length} more`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    const target = resolution.target;
+
     const [up, down, processes] = await Promise.all([
       store.traverse({
         startId: target.nodeId,
@@ -89,7 +229,7 @@ export async function runContext(symbol: string, opts: ContextOptions = {}): Pro
             callers: up,
             callees: down,
             processes,
-            alternateCandidates: candidates.slice(1),
+            alternateCandidates: resolution.alternates,
           },
           null,
           2,
@@ -113,10 +253,10 @@ export async function runContext(symbol: string, opts: ContextOptions = {}): Pro
         console.log(`  ⊿ ${p.label} — ${stepLabel}  (${p.id})`);
       }
     }
-    if (candidates.length > 1) {
+    if (resolution.alternates.length > 0) {
       console.log("");
       console.log(`Other candidates for "${symbol}":`);
-      for (const c of candidates.slice(1)) {
+      for (const c of resolution.alternates) {
         console.log(`  - ${c.name} (${c.kind}) — ${c.filePath}`);
       }
     }

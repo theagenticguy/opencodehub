@@ -317,11 +317,20 @@ program
   .description("360° view of a symbol (callers, callees, flows)")
   .option("--repo <name>", "Registered repo name (default: current directory)")
   .option("--json", "Emit JSON on stdout")
+  .option(
+    "--target-uid <id>",
+    "Exact node id from a prior result; bypasses name-based disambiguation",
+  )
+  .option("--file-path <hint>", "File path (or suffix) to disambiguate same-named symbols")
+  .option("--kind <kind>", "Kind filter (Function, Method, Class, Interface, …)")
   .action(async (symbol: string, opts: Record<string, unknown>) => {
     const mod = await import("./commands/context.js");
     await mod.runContext(symbol, {
       ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
       json: opts["json"] === true,
+      ...(typeof opts["targetUid"] === "string" ? { targetUid: opts["targetUid"] } : {}),
+      ...(typeof opts["filePath"] === "string" ? { filePath: opts["filePath"] } : {}),
+      ...(typeof opts["kind"] === "string" ? { kind: opts["kind"] } : {}),
     });
   });
 
