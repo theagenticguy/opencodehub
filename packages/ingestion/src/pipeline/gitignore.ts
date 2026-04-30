@@ -19,6 +19,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { META_DIR_NAME } from "@opencodehub/storage";
 import type { GitignoreChain } from "./gitignore-stack.js";
 import { shouldIgnoreLayered } from "./gitignore-stack.js";
 
@@ -230,7 +231,7 @@ export const HARDCODED_IGNORES: readonly string[] = [
   "dist",
   "build",
   "target",
-  ".codehub",
+  META_DIR_NAME,
   ".venv",
   "__pycache__",
   ".next",

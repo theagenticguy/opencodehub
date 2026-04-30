@@ -15,10 +15,10 @@
 import { mkdir, readdir, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { CommunityNode, KnowledgeGraph } from "@opencodehub/core-types";
-import type { IGraphStore } from "@opencodehub/storage";
+import { type IGraphStore, META_DIR_NAME } from "@opencodehub/storage";
 import wfa from "write-file-atomic";
 
-export const HISTORY_DIR = ".codehub/history";
+export const HISTORY_DIR = path.posix.join(META_DIR_NAME, "history");
 const SNAPSHOT_PREFIX = "risk_";
 const SNAPSHOT_SUFFIX = ".json";
 export const SNAPSHOT_RETENTION = 100;

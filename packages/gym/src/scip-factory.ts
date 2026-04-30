@@ -25,6 +25,7 @@ import {
   runIndexer,
   SCIP_ROLE_DEFINITION,
 } from "@opencodehub/scip-ingest";
+import { META_DIR_NAME } from "@opencodehub/storage";
 import type { ManifestLanguage } from "./manifest.js";
 
 export interface FilePosition {
@@ -122,7 +123,7 @@ class ScipClient implements LspClientLike {
 
   async start(): Promise<void> {
     const kind = languageToIndexerKind(this.language);
-    const outputDir = resolve(this.fixtureRoot, ".codehub", "gym-scip");
+    const outputDir = resolve(this.fixtureRoot, META_DIR_NAME, "gym-scip");
     await mkdir(outputDir, { recursive: true });
     const scipPath = resolve(outputDir, `${kind}.scip`);
 
