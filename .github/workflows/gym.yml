@@ -60,7 +60,7 @@ jobs:
         run: npm install -g node-gyp@11
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/pnpm/store
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -90,7 +90,7 @@ jobs:
       - name: Cache scip-go binary
         if: matrix.language == 'go'
         id: cache-scip-go
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/go/bin
           key: scip-go-${{ runner.os }}-${{ env.SCIP_GO_VERSION }}
@@ -121,7 +121,7 @@ jobs:
 
       - name: Cache cargo registry
         if: matrix.language == 'rust'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
@@ -133,7 +133,7 @@ jobs:
 
       - name: Cache pip wheels
         if: matrix.language == 'python'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-${{ hashFiles('packages/gym/corpus/repos/python/**/pyproject.toml', 'packages/gym/corpus/repos/python/**/requirements*.txt') }}
@@ -189,7 +189,7 @@ jobs:
 
       - name: Comment gate summary on PR regression
         if: github.event_name == 'pull_request' && failure() && steps.gym-run.outcome == 'failure'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('node:fs');
@@ -264,7 +264,7 @@ jobs:
         run: npm install -g node-gyp@11
 
       - name: Cache pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/pnpm/store
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

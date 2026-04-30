@@ -40,4 +40,3 @@ examples/fixtures/**/.codehub/
 
 # Astro build cache
 packages/docs/.astro/
-.gitnexus
