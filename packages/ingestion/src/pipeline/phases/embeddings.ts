@@ -451,7 +451,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
 
   let embedder: Embedder;
   try {
-    const httpEmbedder = tryOpenHttpEmbedder({ offline: ctx.options.offline === true });
+    const httpEmbedder = await tryOpenHttpEmbedder({ offline: ctx.options.offline === true });
     if (httpEmbedder !== null) {
       embedder = httpEmbedder;
     } else {

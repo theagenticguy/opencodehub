@@ -21,6 +21,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@aws-sdk/client-sagemaker-runtime": "3.1035.0",
     "@huggingface/tokenizers": "0.1.3",
     "@opencodehub/core-types": "workspace:*",
     "onnxruntime-node": "1.24.3"
