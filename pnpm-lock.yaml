@@ -353,8 +353,8 @@ importers:
         version: 6.0.3
     optionalDependencies:
       ts-morph:
-        specifier: ^25.0.1
-        version: 25.0.1
+        specifier: ^28.0.0
+        version: 28.0.0
 
   packages/mcp:
     dependencies:
@@ -2061,8 +2061,8 @@ packages:
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
 
-  '@ts-morph/common@0.26.1':
-    resolution: {integrity: sha512-Sn28TGl/4cFpcM+jwsH1wLncYq3FtN/BIpem+HOygfBWPT5pAeS5dB4VFVzV8FbnOKHpDLZmvAl4AjPEev5idA==}
+  '@ts-morph/common@0.29.0':
+    resolution: {integrity: sha512-35oUmphHbJvQ/+UTwFNme/t2p3FoKiGJ5auTjjpNTop2dyREspirjMy82PLSC1pnDJ8ah1GU98hwpVt64YXQsg==}
 
   '@types/braces@3.0.5':
     resolution: {integrity: sha512-SQFof9H+LXeWNz8wDe7oN5zu7ket0qwMu5vZubW4GCJ8Kkeh6nBWUz87+KTz/G3Kqsrp0j/W253XJb3KMEeg3w==}
@@ -5169,8 +5169,8 @@ packages:
   trough@2.2.0:
     resolution: {integrity: sha512-tmMpK00BjZiUyVyvrBK7knerNgmgvcV/KLVyuma/SC+TQN167GrMRciANTz09+k3zW8L8t60jWO1GpfkZdjTaw==}
 
-  ts-morph@25.0.1:
-    resolution: {integrity: sha512-QJEiTdnz1YjrB3JFhd626gX4rKHDLSjSVMvGGG4v7ONc3RBwa0Eei98G9AT9uNFDMtV54JyuXsFeC+OH0n6bXQ==}
+  ts-morph@28.0.0:
+    resolution: {integrity: sha512-Wp3tnZ2bzwxyTZMtgWVzXDfm7lB1Drz+y9DmmYH/L702PQhPyVrp3pkou3yIz4qjS14GY9kcpmLiOOMvl8oG1g==}
 
   tsconfck@3.1.6:
     resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
@@ -7483,11 +7483,11 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@ts-morph/common@0.26.1':
+  '@ts-morph/common@0.29.0':
     dependencies:
-      fast-glob: 3.3.3
-      minimatch: 9.0.7
+      minimatch: 10.2.5
       path-browserify: 1.0.1
+      tinyglobby: 0.2.16
     optional: true
 
   '@types/braces@3.0.5': {}
@@ -11362,9 +11362,9 @@ snapshots:
 
   trough@2.2.0: {}
 
-  ts-morph@25.0.1:
+  ts-morph@28.0.0:
     dependencies:
-      '@ts-morph/common': 0.26.1
+      '@ts-morph/common': 0.29.0
       code-block-writer: 13.0.3
     optional: true
 
