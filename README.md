@@ -116,6 +116,36 @@ codehub analyze
 
 Full docs in `docs/`.
 
+## Embedding backends
+
+OpenCodeHub ships with three embedding backends — all serve the same
+`gte-modernbert-base` 768-dim space, all use CLS pooling + L2 norm — and
+picks one at runtime based on environment variables:
+
+| Precedence | Env | Backend |
+|---|---|---|
+| 1 | `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | **SageMaker** — invokes an AWS SageMaker Runtime endpoint (e.g. a TEI-served `gte-modernbert-embed`). Auth via the default AWS credential chain (profile, env vars, IMDS). No local weights needed. |
+| 2 | `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` | **HTTP (OpenAI-compatible)** — POSTs to a `/v1/embeddings` server (Infinity, vLLM, TEI, Ollama, LM Studio, OpenAI). Bearer auth optional via `CODEHUB_EMBEDDING_API_KEY`. |
+| 3 | *(nothing set)* | **Local ONNX** — deterministic, offline-safe. Requires `codehub setup --embeddings` to download the weights. |
+
+**SageMaker-specific vars**:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | *(required to select)* | Endpoint name (e.g. `gte-modernbert-embed`). |
+| `CODEHUB_EMBEDDING_SAGEMAKER_REGION` | `us-east-1` | AWS region. |
+| `CODEHUB_EMBEDDING_DIMS` | `768` | Expected vector dimension — asserted on every response to catch model-swap drift. |
+| `CODEHUB_EMBEDDING_MODEL` | `gte-modernbert-base/sagemaker:<endpoint-name>` | Stable modelId stamp recorded in index metadata. Override only when bridging a non-gte endpoint. |
+
+IAM: the caller needs `sagemaker:InvokeEndpoint` on the endpoint ARN —
+e.g. `arn:aws:sagemaker:us-east-1:<account>:endpoint/gte-modernbert-embed`.
+
+**Do not mix backends against the same index.** Backends are pinned to a
+single model identity via the `modelId` stamp in the `embeddings` table;
+switching mid-project requires `codehub analyze --rebuild-embeddings`.
+`--offline` refuses SageMaker and HTTP backends, so offline mode is
+compatible only with the local ONNX path.
+
 ## Status
 
 **v0.1.0 — initial public release.** The codebase is feature-complete

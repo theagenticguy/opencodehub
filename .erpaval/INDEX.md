@@ -10,6 +10,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Starlight in a pnpm monorepo — minimal scaffold + GH Pages](solutions/architecture-patterns/starlight-in-pnpm-monorepo.md) — 9 files + 1 workflow give you a buildable docs site; gotchas captured.
 - [Hand-roll a minimal protobuf reader for fixed schemas](solutions/conventions/scip-protobuf-hand-rolled-reader.md) — ~130 LOC beats pulling in buf+codegen when the schema is small and stable.
 - [Seed docs-authoring subagents with a single ground-truth YAML](solutions/conventions/docs-site-ground-truth-yaml.md) — parallel writers agree when you tell them where truth lives.
+- [Adding a new Embedder backend that calls an AWS service](solutions/api-patterns/sagemaker-embedder-backend.md) — dynamic-import + credential soft-fail, structural runtime typing, modelId stamping, mixed sync/async tryOpenHttpEmbedder return.
 
 ## Specs
 

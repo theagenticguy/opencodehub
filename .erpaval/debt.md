@@ -214,3 +214,54 @@ bash scripts/check-banned-strings.sh
 The guardrail (`scripts/check-banned-strings.sh`) blocks wave codes
 and a rotating set of literals from re-entering the tree — so any
 future appearance is a regression, not drift.
+
+## SageMaker embedder backend — deferred follow-ups (2026-04-30, erpaval session-8564bf)
+
+V1 of the SageMaker remote-embeddings backend shipped intentionally minimal
+(new backend file + router tweak, 4 files touched). The following items were
+surveyed by the ultraplan critic and deferred as scope-creep for v1.
+
+1. **Index-metadata rebuild-on-switch refusal.** Today the `modelId` stamp
+   (`gte-modernbert-base/sagemaker:<endpoint>`) is distinct from the local
+   stamp (`gte-modernbert-base/fp32`), so a switched index is visible, but
+   nothing refuses to query mismatched vectors. Add a check in
+   `codehub analyze` + `codehub query` that reads the stored `modelId` from
+   the graph store's `embedder_metadata` (new row) and hard-refuses with a
+   clear message, plus a `--force-backend-mismatch` escape hatch.
+
+2. **`defaultOpenEmbedder` consolidation.** The same seven-line
+   tryOpenHttpEmbedder → openOnnxEmbedder dance is duplicated in three
+   files: `packages/mcp/src/tools/query.ts:455`,
+   `packages/cli/src/commands/query.ts:122`,
+   `packages/ingestion/src/pipeline/phases/embeddings.ts:454`. Collapse
+   into `packages/embedder/src/factory.ts` exporting
+   `openDefaultEmbedder(options?)`.
+
+3. **Piscina bypass for the remote backend.** `openOnnxEmbedderPool` wraps
+   embeddings in Piscina worker threads to parallelize CPU-bound ONNX
+   inference. For the SageMaker (I/O-bound) path, Piscina is pure overhead
+   — structured-clone Float32Array copies across the worker boundary. Add
+   a branch so remote backends skip the pool and use an in-process
+   semaphore (see ultraplan Plan B § 2 for the speed-first design — AIMD
+   breaker, 32-concurrency default, `p-limit`).
+
+4. **Metrics + benchmark harness.** `embed.remote.{requests,retries,throttles,latency_ms,batch_size}`
+   counters emitted via the existing structured logger, plus a benchmark
+   script `packages/embedder/bench/remote-vs-local.ts` that runs 2,048
+   repo-realistic chunks across both backends and reports p50/p95/p99
+   latency, throughput, and CPU util. Pass criteria: ≥3× throughput on a
+   4-core devbox with main-process CPU <20%.
+
+5. **`codehub setup` / `codehub doctor` integration.** Setup could
+   optionally validate AWS creds + endpoint reachability when
+   `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` is set. Doctor could probe the
+   endpoint with a 1-text canary and surface IAM / throttle / dim
+   drift as a failed check.
+
+6. **Client-side token budgeting.** v1 relies on the SDK-surfaced
+   `ValidationException` path with a single split-retry. A proper
+   packer that respects `MAX_BATCH_TOKENS=16384` — via a char-length
+   heuristic (`ceil(chars/3.2)`) or a bundled tokenizer — would avoid
+   the round-trip on oversized batches entirely.
+
+Reference plans (all three): `.erpaval/sessions/session-8564bf/plans/synthesis.md`.

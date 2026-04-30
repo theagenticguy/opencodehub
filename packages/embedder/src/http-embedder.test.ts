@@ -508,7 +508,7 @@ describe("tryOpenHttpEmbedder", () => {
     process.env["CODEHUB_EMBEDDING_URL"] = "https://embed.example/v1";
     process.env["CODEHUB_EMBEDDING_MODEL"] = "m";
     const fetchImpl = makeFetchMockOk(new Array<number>(768).fill(0));
-    const embedder = tryOpenHttpEmbedder({ fetchImpl });
+    const embedder = await tryOpenHttpEmbedder({ fetchImpl });
     ok(embedder !== null);
     const out = await embedder.embed("x");
     equal(out.length, 768);
