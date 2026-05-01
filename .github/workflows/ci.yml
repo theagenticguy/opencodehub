@@ -29,8 +29,11 @@ jobs:
       - uses: jdx/mise-action@v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build workspace .d.ts so cross-package types resolve
-        run: pnpm -r build
-      - run: pnpm -r exec tsc --noEmit
+        # Exclude @opencodehub/docs — the site's build invokes rehype-mermaid
+        # which needs Playwright chromium; that's installed only in pages.yml.
+        # No other package imports from @opencodehub/docs, so skipping it is safe.
+        run: pnpm -r --filter='!@opencodehub/docs' build
+      - run: pnpm -r --filter='!@opencodehub/docs' exec tsc --noEmit
 
   test:
     # Node 24 temporarily dropped from matrix: tree-sitter@0.25.0 fails to

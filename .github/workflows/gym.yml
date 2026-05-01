@@ -163,7 +163,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build all workspace packages
-        run: pnpm -r build
+        # Exclude @opencodehub/docs — the site's build needs Playwright
+        # chromium (for rehype-mermaid), which only pages.yml provisions.
+        run: pnpm -r --filter='!@opencodehub/docs' build
 
       - name: Run gym (${{ matrix.language }})
         id: gym-run
@@ -280,7 +282,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build all workspace packages
-        run: pnpm -r build
+        # See note in gym-matrix job — docs build requires Playwright.
+        run: pnpm -r --filter='!@opencodehub/docs' build
 
       - name: Run gym (monorepo corpus)
         id: gym-run
