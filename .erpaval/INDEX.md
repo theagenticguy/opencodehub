@@ -17,6 +17,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [SCIP range lines are 0-indexed; OCH graph node startLine is 1-indexed](solutions/conventions/scip-0-indexed-vs-graph-1-indexed.md) — asymmetric failure mode where caller-side lookups work by accident while callee-side lookups silently drop. `+1` at the scip-ingest→OCH boundary.
 - [llms-txt config strings quietly anchor doc accuracy](solutions/conventions/llms-txt-as-ground-truth.md) — in a Starlight site with `starlight-llms-txt`, `astro.config.mjs` is more load-bearing than prose READMEs; audit it first in doc-sync sweeps.
 - [tsconfig project references go stale on package removal](solutions/conventions/tsconfig-project-references-stale-on-package-removal.md) — root tsconfig `references` drift is invisible until a root-scoped tsc invocation hits; clean up in the same commit as the package delete.
+- [Astro NODE_ENV in CI — set it at script scope, not step scope](solutions/conventions/astro-node-env-in-ci-script-scope.md) — mise-action + pnpm + astro chain loses CI-level NODE_ENV overrides; hard-code in package.json `build` script.
 
 ## Specs
 
