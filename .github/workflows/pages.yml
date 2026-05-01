@@ -36,9 +36,12 @@ jobs:
       # (step env beats $GITHUB_ENV) to force Astro into production mode
       # so Starlight wires Pagefind instead of shipping the dev stub
       # ("Search is only available in production builds").
-      - run: pnpm -F @opencodehub/docs build
-        env:
-          NODE_ENV: production
+      # Belt-and-suspenders: set NODE_ENV inline on the command (beats any
+      # step-env vs $GITHUB_ENV precedence quirks), and echo it to the log
+      # before astro build so we can verify what astro actually saw.
+      - run: |
+          echo "NODE_ENV at build time: $NODE_ENV"
+          env NODE_ENV=production pnpm -F @opencodehub/docs build
       - uses: actions/upload-pages-artifact@v5
         with:
           path: packages/docs/dist
