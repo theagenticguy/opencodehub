@@ -9,3 +9,23 @@
 .expressive-code pre {
   line-height: 1.5;
 }
+
+/* Widen content column on large displays. Starlight's default 45rem caps
+   prose at ~65 chars for readability, but on ≥1920px monitors it leaves
+   a large empty right gutter and starves mermaid diagrams, wide tables,
+   and code blocks. Scale the variable at Starlight's own breakpoints. */
+@media (min-width: 72rem) {
+  :root {
+    --sl-content-width: 52rem;
+  }
+}
+@media (min-width: 100rem) {
+  :root {
+    --sl-content-width: 60rem;
+  }
+}
+@media (min-width: 120rem) {
+  :root {
+    --sl-content-width: 68rem;
+  }
+}
