@@ -3,11 +3,19 @@ import starlight from "@astrojs/starlight";
 import starlightLinksValidator from "starlight-links-validator";
 import starlightLlmsTxt from "starlight-llms-txt";
 import starlightPageActions from "starlight-page-actions";
+import rehypeMermaid from "rehype-mermaid";
 
 // https://astro.build/config
 export default defineConfig({
   site: "https://theagenticguy.github.io",
   base: "/opencodehub",
+  // Mermaid: render ```mermaid ``` fences to inline SVG at build time.
+  // excludeLangs is critical — without it, Shiki grabs the mermaid fence
+  // first and rehype-mermaid never sees it.
+  markdown: {
+    syntaxHighlight: { type: "shiki", excludeLangs: ["mermaid"] },
+    rehypePlugins: [[rehypeMermaid, { strategy: "img-svg", dark: true }]],
+  },
   integrations: [
     starlight({
       title: "OpenCodeHub",

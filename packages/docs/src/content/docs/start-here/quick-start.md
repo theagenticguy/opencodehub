@@ -14,15 +14,25 @@ git clone https://github.com/theagenticguy/opencodehub
 cd opencodehub
 ```
 
-## 2. Install toolchain and build
+## 2. Install toolchain, build, and link the CLI
 
-```bash title="install toolchain, deps, and build"
+```bash title="install toolchain, deps, build, and link `codehub`"
 mise install
 pnpm install --frozen-lockfile
 pnpm -r build
+mise run cli:link          # puts `codehub` on your PATH
 ```
 
-See [Install](/opencodehub/start-here/install/) for the non-mise path.
+See [Install](/opencodehub/start-here/install/) for the non-mise path
+and for the `cli:install-global` tarball alternative.
+
+:::note[Haven't linked the CLI?]
+Every `codehub <subcommand>` example below assumes `mise run cli:link`
+has run (or the packed tarball is installed via `mise run cli:install-global`).
+If you prefer not to link, replace `codehub` with
+`node packages/cli/dist/index.js` in every command — same arguments,
+same behaviour.
+:::
 
 ## 3. Bootstrap a repo in one command
 
@@ -30,7 +40,7 @@ The simplest on-ramp is `codehub init`. Run it inside any repository
 you want to index:
 
 ```bash title="one-command bootstrap — project-scope plugin + .mcp.json + .gitignore + policy starter"
-node packages/cli/dist/index.js init
+codehub init
 ```
 
 `init` does four things atomically:
@@ -58,13 +68,13 @@ If you prefer the manual path — just the MCP config, no project-scope
 plugin — use the legacy `setup` flow:
 
 ```bash title="manual: MCP config only"
-node packages/cli/dist/index.js setup --editors claude-code
+codehub setup --editors claude-code
 ```
 
 ## 4. Analyze the current repo
 
 ```bash title="run the full indexing pipeline"
-node packages/cli/dist/index.js analyze
+codehub analyze
 ```
 
 `analyze` writes the graph to `.codehub/` under the repo root and
@@ -97,7 +107,7 @@ The MCP `impact` tool returns a structured response shaped like:
 You can also invoke the same analysis directly from the CLI:
 
 ```bash title="CLI equivalent"
-node packages/cli/dist/index.js impact validateUser --depth 2
+codehub impact validateUser --depth 2
 ```
 
 ## Where to next

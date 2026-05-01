@@ -15,10 +15,35 @@ discriminator. `codehub setup` writes the correct shape for you.
 codehub setup --editors opencode
 ```
 
-The writer merges a `codehub` entry into the existing `mcp` object. The
-entry looks like:
+The writer merges a `codehub` entry into the existing `mcp` object.
+
+**Prerequisite:** `codehub` must be on your `PATH` — run
+`mise run cli:link` from a checkout, or `mise run cli:install-global`
+to install the packed tarball. See
+[Install](/opencodehub/start-here/install/).
+
+The entry looks like:
 
 ```json title="opencode.json"
+{
+  "mcp": {
+    "codehub": {
+      "type": "local",
+      "command": ["codehub", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Reload OpenCode after the first write. The server runs over stdio for
+the session.
+
+:::note[Fallback for unlinked checkouts]
+If you cannot put `codehub` on `PATH`, point OpenCode at the CLI's
+`dist/` entrypoint instead — same behaviour, longer path:
+
+```json title="opencode.json (fallback)"
 {
   "mcp": {
     "codehub": {
@@ -29,9 +54,7 @@ entry looks like:
   }
 }
 ```
-
-Reload OpenCode after the first write. The server runs over stdio for
-the session.
+:::
 
 ## Multi-editor setup
 

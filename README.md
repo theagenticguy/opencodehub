@@ -61,7 +61,7 @@ flowchart LR
   C -->|detect communities + flows| E[Processes / clusters]
   D --> F[MCP server]
   E --> F
-  F -->|27 tools| G[AI coding agent]
+  F -->|28 tools| G[AI coding agent]
 ```
 
 ## Design choices worth knowing
@@ -88,19 +88,26 @@ pnpm install --frozen-lockfile
 pnpm run check          # lint + typecheck + test + banned-strings
 ```
 
-Point your AI coding agent at the MCP server. With Claude Code:
+Then wire up the `codehub` CLI and bootstrap a repo:
 
 ```bash
-# configure the MCP server (once)
-claude mcp add opencodehub -- node /path/to/opencodehub/packages/mcp/dist/index.js
+# put `codehub` on your PATH (pnpm link --global under the hood)
+mise run cli:link
 
-# index your repo
+# bootstrap any repo you want to index:
+#   writes .mcp.json so Claude Code launches codehub mcp,
+#   installs the project-scope plugin into .claude/,
+#   appends .codehub/ to .gitignore, seeds opencodehub.policy.yaml
+cd /path/to/your/repo
+codehub init
+
+# index the repo
 codehub analyze
 
 # your agent can now call impact, query, context, detect_changes, rename, ...
 ```
 
-## MCP tool surface (27 tools)
+## MCP tool surface (28 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -112,9 +119,33 @@ codehub analyze
 | `route_map` / `api_impact` / `shape_check` / `tool_map` | HTTP route & MCP tool intelligence |
 | `group_query` | BM25-fused search across a group of repos |
 | `list_repos` · `sql` | Registry & escape-hatch SQL (read-only, timeout-guarded) |
-| …and 16 more | Communities, processes, SBOM, SARIF, verdict, etc. |
+| …and 17 more | Communities, processes, SBOM, SARIF, verdict, etc. |
 
-Full docs in `docs/`.
+Full docs in `docs/`. A Claude Code plugin at `plugins/opencodehub/`
+wraps these tools into slash commands + skills — install via
+`codehub init`.
+
+## Repository layout
+
+The monorepo is organised as 15 workspace packages under `packages/`:
+
+| Package | Purpose |
+|---|---|
+| `analysis` | Heuristic + SCIP call-graph resolution, community + flow detection |
+| `cli` | `codehub` command — `init`, `analyze`, `status`, `setup`, scanners |
+| `core-types` | Shared TypeScript types, Zod schemas, error codes |
+| `docs` | Starlight site published to GitHub Pages |
+| `embedder` | Embedding backends — local ONNX, HTTP, SageMaker |
+| `eval` | Retrieval / graph-quality evaluation harness |
+| `gym` | Per-language F1 regression gym with SCIP baselines |
+| `ingestion` | Tree-sitter parsers, symbol extraction, import resolution |
+| `mcp` | Model Context Protocol server — 28 tools, prompts, resources |
+| `sarif` | SARIF schema validation and scanner output normalisation |
+| `scanners` | Subprocess wrappers for OSV, Semgrep, hadolint, tflint, etc. |
+| `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) |
+| `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
+| `storage` | DuckDB-backed graph store, deterministic `graphHash` |
+| `summarizer` | Process + cluster summaries for MCP responses |
 
 ## Embedding backends
 

@@ -1,5 +1,8 @@
 # TypeScript gym corpus
 
+Schema: `corpusFileSchema` in `packages/gym/src/corpus.ts`.
+See sibling corpora via `../repos/README.md` (fixture pins).
+
 ## ts-pattern.yaml
 
 Golden corpus of 13 SCIP-indexer cases (6 `references`, 4 `callers`, 3

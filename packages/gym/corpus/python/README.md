@@ -1,5 +1,8 @@
 # Python corpus — `sdk-python.yaml`
 
+Schema: `corpusFileSchema` in `packages/gym/src/corpus.ts`.
+See sibling corpora via `../repos/README.md` (fixture pins).
+
 These golden cases were ported from the pyright oracle spike at
 `/tmp/spike-pyright-oracle-goldens.yaml` (captured 2026-04-23T17:11:42Z,
 labeler `opus-4-7`) into the gym corpus schema.

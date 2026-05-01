@@ -16,16 +16,34 @@ codehub setup --editors codex
 ```
 
 The writer merges a `[mcp_servers.codehub]` table into the existing
-TOML without touching other tables. The resulting block looks like:
+TOML without touching other tables.
+
+**Prerequisite:** `codehub` must be on your `PATH` — run
+`mise run cli:link` from a checkout, or `mise run cli:install-global`
+to install the packed tarball. See
+[Install](/opencodehub/start-here/install/).
+
+The resulting block looks like:
 
 ```toml title="~/.codex/config.toml"
 [mcp_servers.codehub]
-command = "node"
-args = ["/abs/path/to/opencodehub/packages/cli/dist/index.js", "mcp"]
+command = "codehub"
+args = ["mcp"]
 ```
 
 Restart Codex after the first write so it picks up the new server.
 Codex spawns the server over stdio and keeps it alive for the session.
+
+:::note[Fallback for unlinked checkouts]
+If you cannot put `codehub` on `PATH`, point Codex at the CLI's
+`dist/` entrypoint instead — same behaviour, longer path:
+
+```toml title="~/.codex/config.toml (fallback)"
+[mcp_servers.codehub]
+command = "node"
+args = ["/abs/path/to/opencodehub/packages/cli/dist/index.js", "mcp"]
+```
+:::
 
 ## Multi-editor setup
 

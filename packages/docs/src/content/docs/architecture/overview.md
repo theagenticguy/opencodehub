@@ -1,90 +1,136 @@
 ---
 title: Architecture overview
-description: The top-down pipeline — parse, resolve, augment, index, cluster, serve.
+description: Six-phase pipeline from source tree to MCP — parse, resolve, augment, index, cluster, serve — with links to each phase's deep page.
 sidebar:
   order: 10
 ---
 
 OpenCodeHub turns a source tree into a typed graph that agents can
 query over MCP. The pipeline has six phases, and each phase has one
-job.
+job. This page is the index. Each section names a phase, states its
+one job, and links to the page that covers it in depth.
 
-## The pipeline
+## Pipeline at a glance
 
-### 1. Input — source tree to parse captures
+```mermaid
+flowchart LR
+  tree[Source tree] --> parse[Parse]
+  parse --> resolve[Resolve]
+  resolve --> augment[Augment<br/>SCIP]
+  augment --> index[Index<br/>BM25 + HNSW]
+  index --> cluster[Cluster<br/>communities + processes]
+  cluster --> serve[Serve<br/>MCP]
+```
 
-The CLI walks the repo, dispatches each file to its language's
-tree-sitter grammar via `@opencodehub/ingestion`, and emits a unified
-`ParseCapture` stream. Fifteen languages are registered today:
-TypeScript, TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby,
-Kotlin, Swift, PHP, Dart. The registry is compile-time exhaustive via
-a `satisfies Record<LanguageId, LanguageProvider>` clause — omitting a
-language becomes a build-time error.
+Fifteen tree-sitter grammars produce a unified `ParseCapture` stream.
+Per-language resolvers turn captures into typed relations. Five SCIP
+indexers upgrade heuristic edges to compiler-grade references where
+available. DuckDB persists the graph, BM25, and HNSW in one embedded
+file. Communities and processes are precomputed. An stdio MCP server
+answers agent queries.
+
+## Where the data lives
+
+```mermaid
+flowchart LR
+  subgraph duckdb[".codehub/graph.duckdb"]
+    nodes[(nodes)]
+    edges[(edges)]
+    embeddings[(embeddings)]
+    findings[(nodes WHERE<br/>kind='Finding')]
+  end
+  fts["fts_main_nodes_name<br/>(BM25)"] --- nodes
+  hnsw["idx_embeddings_vec<br/>(HNSW + ACORN)"] --- embeddings
+```
+
+Every tier — symbol, file, community — lives in one `embeddings`
+table keyed by a `granularity` discriminator, so one HNSW index serves
+all three. Findings reuse the `nodes` table with `kind='Finding'`.
+
+## The six phases
+
+### 1. Parse — source tree to captures
+
+One job: lex every file with its tree-sitter grammar and emit a
+`ParseCapture[]` stream in a unified schema (tag, text, start/end
+line+col, nodeType). Lines are 1-indexed, columns 0-indexed.
+
+Fifteen languages are registered via a compile-time exhaustive
+`satisfies Record<LanguageId, LanguageProvider>` table: TypeScript,
+TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin,
+Swift, PHP, Dart.
+
+See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
 
 ### 2. Resolve — captures to typed relations
 
-Each language provider emits definitions, calls, imports, heritage,
-and optional property-access records. A per-language resolver — C3
-linearization for Python, first-wins for TypeScript/JavaScript/Rust,
-single-inheritance for Java/C#/Kotlin, no-op for Go — turns call
-captures into typed `CALLS`, `EXTENDS`, `IMPLEMENTS`, `FETCHES`, and
-`ACCESSES` relations.
+One job: turn captures into typed edges (`DEFINES`, `HAS_METHOD`,
+`HAS_PROPERTY`, `IMPORTS`, `EXTENDS`, `IMPLEMENTS`, `CALLS`) by
+resolving names against a per-language symbol scope.
 
-Import semantics drive how the resolver chases cross-module names:
-`named` (most languages), `namespace` (Python), or `package-wildcard`
-(Go). See
-[Adding a language provider](/opencodehub/contributing/adding-a-language-provider/)
-for the full taxonomy.
+A three-tier resolver handles the common case (same-file 0.95,
+import-scoped 0.9, global 0.5). Python and the TS family opt into a
+stack-graphs backend for tighter cross-module resolution. Heritage
+linearization is per-language: C3, first-wins, single-inheritance, or
+no-op.
 
-### 3. Augment — SCIP indexers upgrade heuristic edges
+See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
 
-Five languages (TypeScript, Python, Go, Rust, Java) have a SCIP
-indexer pinned in `.github/workflows/gym.yml`. For those, the
-`scip-index` phase runs the indexer once per repo, reads the resulting
-`.scip` protobuf via `@opencodehub/scip-ingest`, and reconciles
-heuristic edges against compiler-grade references. The
-`confidence-demote` phase re-ranks any heuristic edge that SCIP
-contradicts so downstream phases see a single, coherent graph.
+### 3. Augment — SCIP indexers upgrade edges
 
-Provenance is explicit: oracle-derived edges carry a
-`scip:<indexer>@<version>` prefix and are visible to consumers.
+One job: run each repo's SCIP indexer, parse the resulting `.scip`
+protobuf, and emit `CALLS` edges with `confidence=1.0` and
+`reason=scip:<indexer>@<version>`. The `confidence-demote` phase then
+rescales any heuristic edge the SCIP oracle contradicts from 0.5 to
+0.2.
 
-### 4. Index — BM25 + HNSW in DuckDB
+Five indexers: scip-typescript 0.4.0, scip-python 0.6.6, scip-go
+v0.2.3, scip-java 0.12.3, rust-analyzer (stable channel). Pins live
+in `.github/workflows/gym.yml`.
 
-`@opencodehub/storage` persists the graph into an embedded DuckDB
-database with three extensions:
+See [SCIP reconciliation](/opencodehub/architecture/scip-reconciliation/).
 
-- **`fts`** — BM25 scoring over symbol names, docstrings, and file
-  paths.
-- **`hnsw_acorn`** — HNSW index with predicate-aware traversal, so
-  `WHERE language='python'` and `WHERE granularity='community'`
-  actually return results rather than collapsing to zero on selective
-  filters. Includes RaBitQ quantization for 21-30× memory reduction.
-- **Recursive CTEs with `USING KEY`** — memory-efficient multi-hop
-  graph traversal, used by `impact`, `context`, and `detect_changes`.
+### 4. Index — BM25, HNSW, and scanners
 
-Embeddings are optional. When enabled, one `embeddings` table stores
-vectors at three granularities — symbol, file, community — keyed by a
-`granularity` discriminator so one HNSW index serves every tier.
+One job: persist the graph into DuckDB with search indexes wired up.
+
+- **`fts`** — BM25 over symbol names, docstrings, file paths.
+- **`hnsw_acorn`** — filter-aware HNSW (ACORN-1 traversal, RaBitQ
+  quantization, 21-30× memory reduction). `vss` is the fallback.
+- **Recursive CTEs with `USING KEY`** — multi-hop graph traversal.
+
+Embeddings are optional, gated on `PipelineOptions.embeddings`. Three
+tiers (symbol, file, community) live in one table under one HNSW
+index. Three backend cascades select one: ONNX local, OpenAI-compat
+HTTP, or SageMaker.
+
+Scanners run separately through the `scan` MCP tool, merging SARIF
+onto disk and indexing findings back into the `nodes` table.
+
+See [Embeddings](/opencodehub/architecture/embeddings/) and
+[Scanners and SARIF](/opencodehub/architecture/scanners-and-sarif/).
 
 ### 5. Cluster — communities and processes
 
-Community detection groups related symbols into architectural units;
-execution-flow detection walks call chains to produce "processes" that
-represent end-to-end scenarios (request handler → service → data
-access). Both are precomputed at index time so MCP tools can return
-them without per-call compute.
+One job: group related symbols into communities (Louvain) and walk
+call chains to produce processes (handler → service → data access).
+Both are precomputed so MCP tools read them directly.
 
-### 6. Serve — MCP server over stdio
+Symbol-level LLM summaries are produced here when enabled. Summaries
+are fused into the symbol-tier embedding text at ingestion time (not
+query time) so retrieval runs against a pre-fused vector.
 
-`@opencodehub/mcp` exposes the graph through an stdio MCP server
-(`codehub mcp`). Every tool returns a structured envelope with
-`next_steps: string[]` and, when the index lags HEAD, a
-`_meta["codehub/staleness"]` block so agents can decide whether to
-re-analyze before acting.
+See [Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/).
 
-The server is a local subprocess. There is no daemon, no socket, no
-remote state.
+### 6. Serve — MCP over stdio
+
+One job: expose the graph through an stdio MCP server (`codehub
+mcp`). Every tool returns a structured envelope with `next_steps` and,
+when the index lags HEAD, a `_meta["codehub/staleness"]` block. No
+daemon, no socket, no remote state.
+
+See [MCP tool map](/opencodehub/mcp/tools/) for the full
+tool list.
 
 ## Why this shape
 

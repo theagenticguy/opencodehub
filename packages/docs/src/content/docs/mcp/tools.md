@@ -6,15 +6,12 @@ sidebar:
 ---
 
 The `opencodehub` MCP server registers **28 tools**, imported and
-invoked from `packages/mcp/src/server.ts`. Two stale counts exist in
-the repo and should be ignored:
+invoked from `packages/mcp/src/server.ts`. The canonical number is
+taken live from `buildServer()` at startup.
 
-- `README.md` claims 27 tools — drift from before the last addition.
-- `scripts/smoke-mcp.sh` expects 19 tools in its default
-  `EXPECTED_TOOLS` env var — a stale smoke baseline.
-
-The canonical number is **28**, taken live from `buildServer()` at
-startup.
+> `scripts/smoke-mcp.sh` currently expects 19 tools in its default
+> `EXPECTED_TOOLS` env var — that is a stale smoke baseline, not the
+> source of truth.
 
 Every per-repo tool accepts an optional `repo` argument; see
 [MCP overview](/opencodehub/mcp/overview/) for the resolution rules.

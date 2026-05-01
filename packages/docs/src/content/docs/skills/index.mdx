@@ -44,10 +44,10 @@ auto-discovered by Claude Code when the plugin is installed.
 flowchart LR
   doc[codehub-document<br/>full doc tree] --> docmeta[.docmeta.json]
   pr[codehub-pr-description<br/>PR body] --> verdict
-  onb[codehub-onboarding<br/>ONBOARDING.md] --> graph
+  onb[codehub-onboarding<br/>ONBOARDING.md] --> codegraph
   map[codehub-contract-map<br/>contracts.md] --> groupcontracts[group_contracts]
-  verdict[verdict + impact + owners] --> graph[(code graph)]
-  groupcontracts --> graph
+  verdict[verdict + impact + owners] --> codegraph[(code graph)]
+  groupcontracts --> codegraph
   docmeta --> refresh[--refresh<br/>staleness hook]
 ```
 
