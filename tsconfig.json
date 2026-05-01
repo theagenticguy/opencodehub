@@ -12,6 +12,6 @@
     { "path": "./packages/mcp" },
     { "path": "./packages/cli" },
     { "path": "./packages/summarizer" },
-    { "path": "./packages/lsp-oracle" }
+    { "path": "./packages/scip-ingest" }
   ]
 }
