@@ -42,6 +42,18 @@ console.log(result.summary.purpose);
 console.log(`attempts=${result.attempts} cacheRead=${result.usageByAttempt[0].cacheRead}`);
 ```
 
+## Integration
+
+- **Ingestion call site:** `packages/ingestion/src/pipeline/phases/summarize.ts`
+  invokes `summarizeSymbol` once per high-confidence callable (SCIP-backed
+  Function / Method / Class), gated by `--summaries` + budget + offline flags.
+  Results land in the `symbol_summaries` DuckDB table (see
+  `packages/storage/src/schema-ddl.ts`); they never mutate graph nodes or edges.
+- **Retrieval site:** `packages/ingestion/src/pipeline/phases/embeddings.ts`
+  fuses each summary into the symbol-tier embedding (`signature + summary +
+  body`), so natural-language queries match against described behavior at
+  vector-search time.
+
 ## Bedrock specifics
 
 - **Model:** `global.anthropic.claude-haiku-4-5-20251001-v1:0` (override via

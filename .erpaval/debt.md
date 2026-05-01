@@ -267,3 +267,46 @@ surveyed by the ultraplan critic and deferred as scope-creep for v1.
    the round-trip on oversized batches entirely.
 
 Reference plans (all three): `.erpaval/sessions/session-8564bf/plans/synthesis.md`.
+
+## Docs-refresh sweep — 2026-05-01 (session-72fd7f)
+
+Four follow-ups deferred from the deep-refresh sweep that fixed 27→28
+tool-count drift, 49→98 eval-case drift, the wrong plugin-hook/agent
+counts, the clunky `node dist/index.js` install flow, and landed 5 new
+architecture pages + mermaid rendering.
+
+1. **Missing READMEs — four high-traffic packages.** The monorepo has 15
+   workspace packages; 11 have no README. The four that most deserve one:
+   - `packages/cli` — user-facing `codehub` binary; the entry point every
+     quick-start references and has no in-tree doc.
+   - `packages/mcp` — the MCP server (primary external interface).
+   - `packages/ingestion` — 2.1 MB, largest package, pipeline orchestrator.
+   - `packages/scanners` — houses the Priority-1/Priority-2 tier split
+     that `architecture/scanners-and-sarif.md` now documents at the site
+     level; a package-local README would let contributors see tier
+     membership without leaving the source tree.
+
+   Lower priority: `analysis`, `storage`, `embedder`, `core-types`,
+   `sarif`, `scip-ingest`, `search` — all have code-level docs but no
+   README.
+
+2. **`.gitmodules` thiserror pin comment.** The sweep reconciled
+   `packages/gym/corpus/rust/README.md` and `corpus/repos/README.md` on
+   `thiserror@2.0.17`. `.gitmodules` line 19 still says
+   `pin: v2.0.0 tag`. One-line fix — the subagent's write was denied,
+   deferred to the user.
+
+3. **Dead eval-harness fallback.** `packages/eval/src/opencodehub_eval/
+   test_parametrized.py:167-175` has tool-still-unregistered fallback
+   logic for `risk_trends` and `verdict`. Both tools are now registered
+   (`packages/mcp/src/server.ts:178-179`), so the fallback branches are
+   dead code.
+
+4. **SCIP heritage + REFERENCES edges unwired.** Research for the new
+   `architecture/scip-reconciliation.md` page surfaced that SCIP
+   `SCIP_ROLE_REFERENCE` occurrences and heritage relationships are
+   parsed (the `DerivedRelation` type exists) but not yet emitted into
+   the graph. Flagged in the architecture page under "Known limitations"
+   as future work — should eventually become either a wired phase or a
+   removed type.
+

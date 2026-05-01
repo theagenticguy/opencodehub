@@ -1,5 +1,8 @@
 # monorepo/ — cross-language corpus split
 
+Schema: `corpusFileSchema` in `packages/gym/src/corpus.ts`.
+See sibling corpora via `../repos/README.md` (fixture pins).
+
 This directory holds goldens for the in-tree `electron-ws-python`
 monorepo fixture (`packages/gym/corpus/repos/monorepo/electron-ws-python/`).
 The fixture reproduces an Electron + Python monorepo: a React/TSX

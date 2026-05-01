@@ -9,6 +9,13 @@ All three commands below run locally against the index at `.codehub/`.
 None of them open sockets once the index is built (add `--offline` to
 `analyze` to also prove zero network during indexing).
 
+:::note[Examples assume `codehub` is on your PATH]
+Run `mise run cli:link` (or `mise run cli:install-global`) once from a
+checkout — see [Install](/opencodehub/start-here/install/). If you
+haven't linked the CLI, replace `codehub` with
+`node packages/cli/dist/index.js` in every command below.
+:::
+
 ## Hybrid search: `query`
 
 `codehub query` fuses BM25 lexical search with HNSW vector search (when
@@ -16,7 +23,7 @@ embeddings are present) to find symbols related to a natural-language
 concept.
 
 ```bash title="find symbols related to an auth flow"
-node packages/cli/dist/index.js query "auth token refresh"
+codehub query "auth token refresh"
 ```
 
 Expected shape (abridged):
@@ -42,7 +49,7 @@ detected during clustering), not a flat symbol list. Use `--limit`,
 the symbol participates in.
 
 ```bash title="context for a single symbol"
-node packages/cli/dist/index.js context PaymentProcessor
+codehub context PaymentProcessor
 ```
 
 Expected shape:
@@ -71,7 +78,7 @@ processes depend on the target, plus a **risk tier** (`LOW` / `MEDIUM`
 / `HIGH` / `CRITICAL`).
 
 ```bash title="depth-2 blast radius"
-node packages/cli/dist/index.js impact validateUser --depth 2
+codehub impact validateUser --depth 2
 ```
 
 Expected shape:

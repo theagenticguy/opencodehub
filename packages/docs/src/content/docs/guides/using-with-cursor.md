@@ -16,9 +16,35 @@ codehub setup --editors cursor
 
 The writer merges a `codehub` entry into the existing `mcpServers`
 object without touching any other servers you may already have wired.
+
+**Prerequisite:** `codehub` must be on your `PATH` — run
+`mise run cli:link` from a checkout, or `mise run cli:install-global`
+to install the packed tarball. See
+[Install](/opencodehub/start-here/install/).
+
 The entry has the same shape as Claude Code's:
 
 ```json title="~/.cursor/mcp.json"
+{
+  "mcpServers": {
+    "codehub": {
+      "command": "codehub",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+Restart Cursor (or reload the window) after the first write so it picks
+up the new server. Cursor spawns the server over stdio and keeps it
+alive for the session.
+
+:::note[Fallback for unlinked checkouts]
+If you cannot put `codehub` on `PATH`, point Cursor at the CLI's
+`dist/` entrypoint instead — same behaviour, longer path:
+
+```json title="~/.cursor/mcp.json (fallback)"
 {
   "mcpServers": {
     "codehub": {
@@ -29,10 +55,7 @@ The entry has the same shape as Claude Code's:
   }
 }
 ```
-
-Restart Cursor (or reload the window) after the first write so it picks
-up the new server. Cursor spawns the server over stdio and keeps it
-alive for the session.
+:::
 
 ## Using the tools
 

@@ -15,10 +15,35 @@ codehub setup --editors windsurf
 ```
 
 The writer merges a `codehub` entry into the existing `mcpServers`
-object without touching other servers. The entry uses the same shape
-as Claude Code and Cursor:
+object without touching other servers.
+
+**Prerequisite:** `codehub` must be on your `PATH` — run
+`mise run cli:link` from a checkout, or `mise run cli:install-global`
+to install the packed tarball. See
+[Install](/opencodehub/start-here/install/).
+
+The entry uses the same shape as Claude Code and Cursor:
 
 ```json title="~/.codeium/windsurf/mcp_config.json"
+{
+  "mcpServers": {
+    "codehub": {
+      "command": "codehub",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+Reload Windsurf after the first write so it picks up the new server.
+The server runs over stdio for the lifetime of the session.
+
+:::note[Fallback for unlinked checkouts]
+If you cannot put `codehub` on `PATH`, point Windsurf at the CLI's
+`dist/` entrypoint instead — same behaviour, longer path:
+
+```json title="~/.codeium/windsurf/mcp_config.json (fallback)"
 {
   "mcpServers": {
     "codehub": {
@@ -29,9 +54,7 @@ as Claude Code and Cursor:
   }
 }
 ```
-
-Reload Windsurf after the first write so it picks up the new server.
-The server runs over stdio for the lifetime of the session.
+:::
 
 ## Multi-editor setup
 

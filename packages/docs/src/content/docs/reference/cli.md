@@ -55,6 +55,24 @@ codehub index [paths...]
 | `--force` | off | Overwrite an existing registry entry. |
 | `--allow-non-git` | off | Permit registering a repo with no `.git`. |
 
+## `init`
+
+Bootstrap a repo for OpenCodeHub. Copies the Claude Code plugin assets
+into `.claude/` (project scope, with hook tokens rewritten from
+`${CLAUDE_PLUGIN_ROOT}` to `${CLAUDE_PROJECT_DIR}/.claude`), writes
+`.mcp.json`, appends `.codehub/` to `.gitignore`, and seeds
+`opencodehub.policy.yaml` with every rule commented out.
+
+```bash title="usage"
+codehub init [path]
+```
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--force` | off | Overwrite conflicting files under `.claude/`. |
+| `--skip-mcp` | off | Skip writing `.mcp.json`. |
+| `--skip-policy` | off | Skip seeding `opencodehub.policy.yaml`. |
+
 ## `setup`
 
 Wire MCP config into supported editors, install the Claude Code

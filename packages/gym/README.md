@@ -1,24 +1,25 @@
 # @opencodehub/gym
 
-Differential SCIP indexer evaluation harness. Verifies that each language's SCIP indexer (scip-typescript, scip-python, scip-go, rust-analyzer, scip-java) produces reference graphs consistent with pinned goldens, and gates on regressions.
+Differential SCIP indexer evaluation harness. Verifies that each language's SCIP indexer (scip-typescript, scip-python, scip-go, rust-analyzer) produces reference graphs consistent with pinned goldens, and gates on regressions. Java fixture is deferred — the indexer is wired in `packages/scip-ingest` but no gym corpus exists yet.
 
 ## Layout
 
 ```
 packages/gym/
-  src/                # harness, manifest, metrics, gates, CLI
-  test/               # unit tests (pair with src/*.test.ts convention)
+  src/                # harness, manifest, metrics, gates, CLI (*.test.ts pair
+                      #   with sources under this tree)
   corpus/
     python/           # .yaml goldens (commit-pinned)
     typescript/
     go/
     rust/
-    monorepo/         # cross-language fixtures
+    monorepo/         # Electron + WebSocket + Python cross-language fixture
     repos/            # fixture git submodules pinned to specific SHAs
-  manifests/          # freeze/replay JSONL — current run output
   baselines/          # last-green manifest + performance baselines
-  reference/          # motivating papers and spikes
+  scripts/            # baseline refresh + maintenance helpers
 ```
+
+See `corpus/monorepo/` for the cross-language fixture that exercises TypeScript ↔ Python edges through an Electron app with a WebSocket bridge.
 
 ## Metrics
 
@@ -26,7 +27,7 @@ packages/gym/
 - **Jaccard** on result sets — secondary.
 - **Kendall tau** on ranked outputs — for rank-sensitive cases only.
 
-Deterministic oracles (SCIP indexers) do not use judge-panel / Fleiss kappa — see `reference/metric-choice.md`.
+Deterministic oracles (SCIP indexers) do not use judge-panel / Fleiss kappa.
 
 ## Three-layer regression gate
 

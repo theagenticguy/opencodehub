@@ -23,7 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: jdx/mise-action@v4
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # NOTE: --ignore-scripts removed so sharp's native binary download
+      # and Playwright's chromium install (via rehype-mermaid) are allowed.
+      - run: pnpm install --frozen-lockfile
+      # rehype-mermaid renders ```mermaid fences to inline SVG at build
+      # time using Playwright chromium. --with-deps installs the apt
+      # libraries Playwright needs on ubuntu-latest. Do not use --with-deps
+      # on dev machines.
+      - run: pnpm --filter @opencodehub/docs exec playwright install chromium --with-deps
       - run: pnpm -F @opencodehub/docs build
       - uses: actions/upload-pages-artifact@v5
         with:

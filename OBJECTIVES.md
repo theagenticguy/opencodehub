@@ -10,7 +10,7 @@ scope.
    call.** *Because the README's problem statement is exactly this:
    grep is textual, language servers are per-file, embeddings are
    lossy; agents need callers, callees, processes, and blast radius
-   answered before they write a diff, and the 27-tool MCP surface is
+   answered before they write a diff, and the 28-tool MCP surface is
    the primary product.*
 
 2. **Stay Apache-2.0 end-to-end, with every transitive runtime
