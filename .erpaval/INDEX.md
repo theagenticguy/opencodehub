@@ -16,6 +16,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [SCIP symbol-def index must alias `src/*.ts` defs under `dist/*.d.ts` in a TS monorepo](solutions/architecture-patterns/scip-monorepo-dist-src-alias.md) — cross-package refs carry `dist/` shape, defs carry `src/` shape; same-package refs work by accident. Alias closes the gap. Also documents the SCIP 0-indexed / graph 1-indexed line off-by-one.
 - [SCIP range lines are 0-indexed; OCH graph node startLine is 1-indexed](solutions/conventions/scip-0-indexed-vs-graph-1-indexed.md) — asymmetric failure mode where caller-side lookups work by accident while callee-side lookups silently drop. `+1` at the scip-ingest→OCH boundary.
 - [llms-txt config strings quietly anchor doc accuracy](solutions/conventions/llms-txt-as-ground-truth.md) — in a Starlight site with `starlight-llms-txt`, `astro.config.mjs` is more load-bearing than prose READMEs; audit it first in doc-sync sweeps.
+- [tsconfig project references go stale on package removal](solutions/conventions/tsconfig-project-references-stale-on-package-removal.md) — root tsconfig `references` drift is invisible until a root-scoped tsc invocation hits; clean up in the same commit as the package delete.
 
 ## Specs
 
