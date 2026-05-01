@@ -65,16 +65,18 @@ Subagents use the ledger two ways:
 1. **Skip re-call.** If an agent would call a tool whose digest is here, it reads `.prefetch.md` + `.context.md` instead.
 2. **Know when data is truncated.** Sections with `truncated: true` signal that raw tool output is larger than what's in `.context.md`. The agent may re-call the tool for a targeted slice if needed.
 
-## Per-subagent input table
+## Per-role input table
 
-| Subagent            | Primary tools (Phase 0 cached)                              | Mid-run tools (not cached; agent may call)                |
-|---------------------|-------------------------------------------------------------|-----------------------------------------------------------|
-| `doc-architecture`  | `project_profile`, `sql` (communities, processes)           | `context`, `query`, `dependencies`, `sql` for deeper joins |
-| `doc-reference`     | `tool_map`, `route_map`, `project_profile`                  | `signature`, `context`, `sql` for export filtering        |
-| `doc-behavior`      | `sql` (processes), `route_map`, `tool_map`                  | `context` per process, `query` to disambiguate names      |
-| `doc-analysis`      | `owners`, `risk_trends`, `list_findings`, `list_dead_code`  | `verdict` (optional), `sql` for drill-down                |
-| `doc-diagrams`      | `sql` (relations), `dependencies`                           | `context` per process, `query` for actor labels           |
-| `doc-cross-repo`    | `group_list`, `group_status`, `group_contracts`             | `group_query`, `route_map` per member                     |
+File-level fan-out means one role may seed multiple packets (for example, `doc-architecture` seeds `system-overview`, `module-map`, `data-flow`; `doc-diagrams` seeds `components`, `sequences`, `dependency-graph`). This table is indexed by role — the `codehub-document` orchestrator reads it when deciding which cached digests to mention in each packet's Input specification.
+
+| Role               | Primary tools (Phase 0 cached)                              | Mid-run tools (not cached; agent may call)                |
+|--------------------|-------------------------------------------------------------|-----------------------------------------------------------|
+| `doc-architecture` | `project_profile`, `sql` (communities, processes)           | `context`, `query`, `dependencies`, `sql` for deeper joins |
+| `doc-reference`    | `tool_map`, `route_map`, `project_profile`                  | `signature`, `context`, `sql` for export filtering        |
+| `doc-behavior`     | `sql` (processes), `route_map`, `tool_map`                  | `context` per process, `query` to disambiguate names      |
+| `doc-analysis`     | `owners`, `risk_trends`, `list_findings`, `list_dead_code`  | `verdict` (optional), `sql` for drill-down                |
+| `doc-diagrams`     | `sql` (relations), `dependencies`                           | `context` per process, `query` for actor labels           |
+| `doc-cross-repo`   | `group_list`, `group_status`, `group_contracts`             | `group_query`, `route_map` per member                     |
 
 ## Schema preflight (non-optional)
 
@@ -103,25 +105,35 @@ graph. The preflight prevents this class of bug across every subagent.
 
 ## Phase 0 algorithm (pseudocode)
 
+Steps marked `# wave 0a` and `# wave 0b` each run as a single parallel tool-use batch — every line inside a wave issues concurrently in one message.
+
 ```
-1. profile = project_profile({repo})
-2. schema = sql("SELECT table_name, column_name FROM information_schema.columns …")
-3. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
-4. processes = sql("SELECT … FROM nodes WHERE kind='Process' …")
-5. routes = route_map({repo})
-6. tools = tool_map({repo})
-7. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
-8. owners_summary = [owners({path}) for path in top_folders]
-9. staleness = list_repos → entry for this repo → _meta.codehub/staleness
+# wave 0a — independent precompute (one parallel batch)
+1.  staleness = list_repos → entry for this repo → _meta.codehub/staleness
+2.  profile = project_profile({repo})
+3.  schema = sql("SELECT table_name, column_name FROM information_schema.columns …")
+4.  routes = route_map({repo})
+5.  tools = tool_map({repo})
+6.  deps = dependencies({repo})
+7.  risk = risk_trends({repo})
+8.  dead = list_dead_code({repo})
+9.  findings = list_findings({repo})
+10. if --group: group_manifest = group_list
+                group_freshness = group_status({group})
+                group_contracts_matrix = group_contracts({group})
+                // precondition check: every member fresh; abort otherwise
 
-10. if --group:
-     group_manifest = group_list
-     group_contracts_matrix = group_contracts({group})
-     group_freshness = group_status({group})
-     // precondition check: every member fresh; abort otherwise
+# wave 0b — depends on schema + profile (one parallel batch)
+11. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
+12. processes   = sql("SELECT … FROM nodes WHERE kind='Process' …")
+13. relations   = sql("SELECT … FROM relations …")   # for diagrams
+14. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
+15. owners_summary = [owners({path}) for path in top_folders]
+16. if --group: group_hits = group_query({group, canonical_terms})
 
-11. write .context.md (enforce 200-line cap; truncate per-section, mark flags)
-12. write .prefetch.md (one JSON line per tool call with sha256 of response)
+# wave 0c — inline deterministic post-processing (no MCP calls)
+17. write .context.md (enforce 200-line cap; truncate per-section, mark flags)
+18. write .prefetch.md (one JSON line per tool call with sha256 of response)
 ```
 
 The algorithm is **deterministic** given the same `graph_hash` — the file list and section structure are identical across runs; only the exact content varies.
