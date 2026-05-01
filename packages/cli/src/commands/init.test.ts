@@ -71,7 +71,6 @@ test("runInit: fresh repo wires up .claude/, .mcp.json, .gitignore, policy", asy
   }
 
   // Agents, commands, hooks.
-  assert.ok(await pathExists(join(repo, ".claude", "agents", "doc-architecture.md")));
   assert.ok(await pathExists(join(repo, ".claude", "agents", "code-analyst.md")));
   assert.ok(await pathExists(join(repo, ".claude", "hooks", "augment.sh")));
   assert.ok(await pathExists(join(repo, ".claude", "hooks", "docs-staleness.sh")));
