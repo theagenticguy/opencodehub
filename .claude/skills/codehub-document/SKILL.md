@@ -9,9 +9,12 @@ model: sonnet
 
 # codehub-document
 
-Primary artifact generator. Produces a tree of cross-linked Markdown under `.codehub/docs/` (single-repo) or `.codehub/groups/<name>/docs/` (group mode) using the four-phase document-pattern orchestration (Phase 0 precompute → AB parallel subagents → CD parallel diagrams + specialty → E deterministic assembler).
+Primary artifact generator. Produces a tree of cross-linked Markdown under `.codehub/docs/` (single-repo) or `.codehub/groups/<name>/docs/` (group mode) using a three-phase orchestration: **Phase 0 parallel precompute waves** → **Phase 1 file-level subagent fan-out** (one packet = one output file) → **Phase 2 deterministic cross-reference assembly**.
 
-**Model policy.** This skill runs on Sonnet by default. Switch to Opus only when `--refresh --group` is combined — the refresh pruning + partial subagent fan-out needs the extra judgment. Full-scan single-repo generation does not.
+**Model policy.** This skill runs on Sonnet by default. Bump to Opus in two cases:
+
+1. `--refresh --group` combined — the pruning + partial fan-out across members needs the extra judgment.
+2. Any individual packet may set `model: opus` in its frontmatter to opt into Opus for synthesis-heavy roles. The cross-repo skeletons (`doc-cross-repo-*`) and `doc-analysis-risk-hotspots` typically do this; full-scan single-repo packets stay on Sonnet.
 
 ## Preconditions (check before Phase 0)
 
@@ -24,67 +27,107 @@ Primary artifact generator. Produces a tree of cross-linked Markdown under `.cod
 - `[output-dir]` (optional positional) — where to write. Default is `.codehub/docs/` (gitignored). With `--committed`, default flips to `docs/codehub/` and the skill does not add a `.gitignore` entry.
 - `--group <name>` — enable group mode. Phase 0 calls `group_list` + `group_status` + `group_contracts` + `group_query`. Phase CD dispatches `doc-cross-repo`.
 - `--committed` — write under `docs/codehub/` (or user-supplied path) instead of `.codehub/docs/`. Does not touch `.gitignore`.
-- `--refresh` — consult `.docmeta.json`, regenerate only stale sections. Phase E always re-runs.
-- `--section <name>` — regenerate a single named section (e.g., `architecture/system-overview`) and re-run Phase E. Useful for targeted updates.
+- `--refresh` — consult `.docmeta.json`, identify stale sections by comparing `max(mtime(section.sources[]))` against `section.mtime`, and dispatch exactly one file-level subagent per stale section (re-seeding its packet from `templates/agents/<role>.md`). Phase 2 always re-runs.
+- `--section <name>` — regenerate one named section (e.g., `architecture/system-overview`). Dispatches exactly one subagent with one skeleton and re-runs Phase 2. Useful for targeted updates.
 
 ## Four-phase orchestration
 
-### Phase 0 — Precompute shared context (inline, no subagent)
+### Phase 0 — Precompute shared context (parallel waves, no subagent)
 
-Write two files. Subagents read them instead of re-calling tools.
+Phase 0 writes `<docs-root>/.context.md` and `<docs-root>/.prefetch.md` so Phase 1 subagents read cached data instead of re-calling tools. It runs as three waves — **two of them are single-message tool-call batches**, so the MCP fan-out parallelizes.
 
-**`<docs-root>/.context.md` (hard 200-line cap)** — see `references/data-source-map.md` for the full layout. Sections:
+**Wave 0a — independent precompute (one message, parallel)**. Issue all of these in a single tool-use batch:
 
-- Repo profile (from `project_profile`)
-- Top communities (from `sql` over `nodes WHERE kind='Community' ORDER BY cohesion DESC LIMIT 10`)
-- Top processes (from `sql` over `nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 10`)
-- Routes (from `route_map`, truncated to 25 rows)
-- MCP tools (from `tool_map`, truncated to 25 rows)
-- Owners summary (from `owners` on top 5 folders)
-- Staleness envelope (from `list_repos._meta.codehub/staleness`)
-- In group mode: group manifest + `group_contracts` consumer/producer matrix + `group_status` freshness table
+- `mcp__opencodehub__list_repos`
+- `mcp__opencodehub__project_profile`
+- `mcp__opencodehub__sql` — schema probe: `SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('nodes','relations') ORDER BY table_name, column_name`
+- `mcp__opencodehub__route_map`
+- `mcp__opencodehub__tool_map`
+- `mcp__opencodehub__dependencies`
+- `mcp__opencodehub__risk_trends`
+- `mcp__opencodehub__list_dead_code`
+- `mcp__opencodehub__list_findings`
+- Group mode only: `mcp__opencodehub__group_list`, `mcp__opencodehub__group_status`, `mcp__opencodehub__group_contracts`
 
-**`<docs-root>/.prefetch.md`** — newline-delimited JSON, one record per tool call with `{tool, args, sha256, keys, cached_at}`. Example line:
+**Wave 0b — depends on 0a (one message, parallel)**. Needs schema column names + profile entry points from 0a, so it is a second batch. Issue in one message:
 
-```json
-{"tool":"project_profile","args":{"repo":"opencodehub"},"sha256":"…","keys":["languages","stacks","entryPoints"],"cached_at":"2026-04-27T18:04:11Z"}
-```
+- `mcp__opencodehub__sql` — top communities (`SELECT … FROM nodes WHERE kind='Community' ORDER BY cohesion DESC LIMIT 10`)
+- `mcp__opencodehub__sql` — top processes (`SELECT … FROM nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 10`)
+- `mcp__opencodehub__sql` — relations slice for diagrams (filtered per the schema probe)
+- `mcp__opencodehub__owners` × top-5 folders (derived from `project_profile` entry points + file-count heuristic)
+- Group mode only: `mcp__opencodehub__group_query` for any canonical cross-repo search terms
 
-Per-subsection truncation records a `truncated: true` flag per section so subagents know they see a cap, not the firehose.
+**Wave 0c — inline Write (no tool batch)**. Deterministic post-processing; no MCP calls:
 
-### Phase AB — Content subagents in parallel
+1. Assemble `<docs-root>/.context.md` (hard 200-line cap; per-section `truncated: true` when the raw output exceeds the cap). Sections: repo profile, schema probe, top communities, top processes, routes, MCP tools, owners summary, dependencies summary, dead-code counts, findings summary, risk trends. Group mode appends: group manifest, contracts matrix, freshness table.
+2. Write `<docs-root>/.prefetch.md` — newline-delimited JSON, one record per tool call with `{tool, args, sha256, keys, cached_at, truncated}`. Example:
 
-Dispatch four subagents in a single message with four `Agent` tool calls:
+    ```json
+    {"tool":"project_profile","args":{"repo":"opencodehub"},"sha256":"…","keys":["languages","stacks","entryPoints"],"cached_at":"2026-04-27T18:04:11Z","truncated":false}
+    ```
 
-1. `doc-architecture`
-2. `doc-reference`
-3. `doc-behavior`
-4. `doc-analysis`
+The full layout of both files, plus the schema-preflight rationale and the Phase 0 pseudocode, live in `references/data-source-map.md`.
 
-Each reads `.context.md` + `.prefetch.md` first.
+### Phase 1 — File-level subagent fan-out
 
-In group mode, fan-out multiplies by the member count (4 × N subagents). Claude Code's concurrent-Agent ceiling is ~10 per message — for groups of 3+ repos, batch by role: all `doc-architecture` calls in message 1, all `doc-behavior` in message 2, etc.
+One packet = one output file. The orchestrator seeds packets by copying `templates/agents/<role>.md` to `<docs-root>/.packets/<role>.md`, substituting the placeholders listed in `templates/agents/README.md § Placeholders`, and spawning a `general-purpose` subagent per packet with the prompt from `templates/orchestrator-prompt.md`.
 
-### Phase CD — Diagrams + specialty in parallel
+**Skeletons (single-repo)**. Ten are always seeded; four are conditional on triggers observed in Phase 0:
 
-Dispatch two subagents:
+| Role | Always / Conditional | Trigger |
+|------|----------------------|---------|
+| `doc-architecture-system-overview` | always | — |
+| `doc-architecture-module-map` | always | — |
+| `doc-architecture-data-flow` | always | — |
+| `doc-reference-public-api` | always | — |
+| `doc-behavior-processes` | always | — |
+| `doc-analysis-risk-hotspots` | always | — |
+| `doc-analysis-ownership` | always | — |
+| `doc-analysis-dead-code` | always | — |
+| `doc-diagrams-components` | always | — |
+| `doc-diagrams-dependency-graph` | always | — |
+| `doc-reference-cli` | conditional | CLI detected in `project_profile` entry points |
+| `doc-reference-mcp-tools` | conditional | `tool_map` returns ≥ 1 row |
+| `doc-behavior-state-machines` | conditional | ≥ 2 `StateMachine` nodes in the graph |
+| `doc-diagrams-sequences` | conditional | ≥ 1 process with ≥ 3 steps |
 
-1. `doc-diagrams`
-2. `doc-cross-repo` — **group mode only**. Skipped silently in single-repo mode.
+**Group mode** adds three cross-repo skeletons seeded from `{{ group_docs_root }}/.packets/`:
 
-### Phase E — Cross-reference assembler (inline, deterministic)
+- `doc-cross-repo-portfolio-map`
+- `doc-cross-repo-contracts-matrix`
+- `doc-cross-repo-dependency-flow`
+
+**Dispatch priority (citation magnetism)**. Single-repo, up to ~10 packets per message, two messages back-to-back (no gate — this is purely how Claude Code's concurrent-Agent ceiling is managed):
+
+1. **Message 1 (high-magnetism first)**: `system-overview`, `public-api`, `processes`, `components`, `module-map`, `data-flow`, plus up to four of the remaining always/conditional skeletons.
+2. **Message 2 (immediately after)**: every remaining seeded skeleton.
+
+**Group mode dispatch**. Sort all seeded packets by `(priority_class, repo_index)` and greedily fill batches of ≤ 10. Example: 3 repos × ~12 per-repo skeletons + 3 cross-repo skeletons ≈ 39 packets → 4 messages of ≤ 10, dispatched back-to-back.
+
+**Spawn parameters** (per `templates/orchestrator-prompt.md § Usage at the orchestrator`):
+
+- `subagent_type`: `general-purpose`
+- `name`: the role (e.g. `doc-architecture-system-overview`)
+- `description`: 3–5 words
+- `model`: read from the packet's `model:` frontmatter (default `sonnet`, individual packets may request `opus`)
+- `run_in_background`: `true`
+- `prompt`: the canonical text from `templates/orchestrator-prompt.md`, with `{{ packet_path }}` substituted
+
+**Monitoring**. Orchestrator tails `.packets/*.md` with `wc -l` at 30 s, 2 m, 5 m, then every 5 m — identical to the erpaval Act monitoring rhythm. A packet whose line count stops growing but whose `status:` line is still `IN_PROGRESS` is the signal to `SendMessage` a nudge or mark it failed.
+
+### Phase 2 — Cross-reference assembler (inline, deterministic)
 
 No LLM call. Pure regex + join. See `references/cross-reference-spec.md` for the full algorithm. Summary:
 
 1. Extract every backtick `<path>:<LOC>` (or `<repo>:<path>:<LOC>`) citation from every generated Markdown file.
 2. Build a co-occurrence index: `source_file → [docs_citing_it]`.
 3. For any two docs sharing ≥ 2 common sources, append `## See also` (3–5 links) to both.
-4. In group mode, any `cross-repo/*.md` additionally gets `## See also (other repos in group)` linking into sibling repos' generated docs.
-5. Write `<docs-root>/README.md` (landing page with the structure-is-deterministic disclaimer) and `<docs-root>/.docmeta.json`.
+4. In group mode, any file produced by a `doc-cross-repo-*` packet additionally gets `## See also (other repos in group)` linking into sibling repos' generated docs.
+5. Write `<docs-root>/README.md` (landing page with the structure-is-deterministic disclaimer) and `<docs-root>/.docmeta.json`. `.docmeta.json.sections[i].agent` records the file-role (e.g. `doc-architecture-system-overview`) for `--refresh` traceability.
 
 ## `--refresh` algorithm
 
-See `references/cross-reference-spec.md § --refresh algorithm` for the full procedure. One-line summary: compare `max(mtime(section.sources[]))` against `section.mtime`, regenerate only stale sections, always re-run Phase E.
+See `references/cross-reference-spec.md § --refresh algorithm` for the full procedure. One-line summary: compare `max(mtime(section.sources[]))` against `section.mtime`, dispatch exactly one file-level subagent per stale section (re-seeding its packet from the skeleton), then always re-run Phase 2.
 
 ## Progressive disclosure — references/
 
@@ -97,11 +140,13 @@ See `references/cross-reference-spec.md § --refresh algorithm` for the full pro
 
 ## Quality checklist
 
-- [ ] Phase 0 wrote both files; `.context.md` is ≤ 200 lines.
-- [ ] Phase AB dispatched in a single message (or role-batched if > 10 agents in group mode).
-- [ ] Every generated file has H1 = identifier, no YAML frontmatter.
-- [ ] Every factual claim has a backtick citation (`path:LOC` or `repo:path:LOC`).
-- [ ] Phase E wrote `.docmeta.json` validating against the schema in `references/cross-reference-spec.md`.
+- [ ] Phase 0 ran waves 0a and 0b as single-message tool batches; `.context.md` is ≤ 200 lines; `.prefetch.md` has one JSON line per tool call including the schema probe.
+- [ ] Phase 1 seeded one packet per output file under `<docs-root>/.packets/`, with placeholders substituted and `status: IN_PROGRESS`.
+- [ ] Phase 1 dispatched packets in batches of ≤ 10 per message, priority-first (system-overview, public-api, processes, components, module-map, data-flow before the rest).
+- [ ] Every generated file has H1 = identifier, no YAML frontmatter (the frontmatter lives in the packet, not the output).
+- [ ] Every factual claim in every output has a backtick citation (`path:LOC` or `repo:path:LOC`).
+- [ ] Every packet has `status: COMPLETE` and a populated Work log / Validation / Summary section before Phase 2 starts.
+- [ ] Phase 2 wrote `.docmeta.json` validating against the schema in `references/cross-reference-spec.md`, with `sections[i].agent` set to the file-role.
 - [ ] `See also` footers appear on every doc with ≥ 2 shared citations.
-- [ ] Group mode: `cross-repo/*.md` files use `repo:path:LOC` citations exclusively.
+- [ ] Group mode: outputs from `doc-cross-repo-*` packets use `repo:path:LOC` citations exclusively.
 - [ ] `codehub status` is fresh before this skill starts; otherwise the preconditions caught the stale state.
