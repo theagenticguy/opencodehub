@@ -637,7 +637,7 @@ async function writeScanState(repoPath: string, files: readonly ScanStateFile[])
   await rename(tmp, target);
 }
 
-async function checkFastPath(
+export async function checkFastPath(
   repoName: string,
   repoPath: string,
   opts: AnalyzeOptions,
@@ -703,8 +703,11 @@ async function readGitHead(repoPath: string): Promise<string | undefined> {
  * error, non-zero exit, or git-unavailable case returns `false` so the
  * caller never blocks the fast-path on a git failure — mirroring
  * `readGitHead`'s "cannot determine" fallback.
+ *
+ * Exported so the CLI test suite can assert the fallback posture directly
+ * without spawning a whole `runAnalyze` pipeline.
  */
-async function isWorkingTreeDirty(repoPath: string): Promise<boolean> {
+export async function isWorkingTreeDirty(repoPath: string): Promise<boolean> {
   return new Promise((resolveP) => {
     let stdout = "";
     let settled = false;
