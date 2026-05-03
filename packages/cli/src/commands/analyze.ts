@@ -202,6 +202,16 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     ? await openSummaryCacheAdapter(repoPath)
     : undefined;
 
+  // Mirror the same pattern for the embeddings phase's content-hash skip
+  // (T-M1-3). Only open when `--embeddings` is on AND `--force` is off —
+  // force re-embeds everything, so the adapter would do no useful work.
+  // When the prior DB is absent the adapter returns undefined and the
+  // phase degrades to "every chunk is new".
+  const embeddingHashAdapter =
+    opts.embeddings === true && opts.force !== true
+      ? await openEmbeddingHashCacheAdapter(repoPath)
+      : undefined;
+
   // Resolve `--max-summaries auto` against the prior run's callable count,
   // if any. `auto` bounds the cap at 10% of the SCIP-confirmed callable
   // symbols (capped at 500); on a cold first run the prior meta is absent
@@ -239,6 +249,9 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     ...(summaryCacheAdapter !== undefined
       ? { summaryCacheAdapter: summaryCacheAdapter.adapter }
       : {}),
+    ...(embeddingHashAdapter !== undefined
+      ? { embeddingHashCacheAdapter: embeddingHashAdapter.adapter }
+      : {}),
     ...(incrementalFrom !== undefined ? { incrementalFrom } : {}),
   };
   let result: Awaited<ReturnType<typeof pipeline.runIngestion>>;
@@ -246,6 +259,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     result = await pipeline.runIngestion(repoPath, pipelineOptions);
   } finally {
     await summaryCacheAdapter?.close();
+    await embeddingHashAdapter?.close();
   }
 
   logWarnings(result.warnings, opts.verbose === true);
@@ -447,26 +461,6 @@ export async function loadPreviousGraph(
     return undefined;
   }
   try {
-    interface EdgeRow {
-      readonly from_id: string;
-      readonly to_id: string;
-      readonly type: string;
-    }
-    const edgeRows = (await store.query(
-      "SELECT from_id, to_id, type FROM relations WHERE type IN ('IMPORTS', 'EXTENDS', 'IMPLEMENTS')",
-    )) as unknown as readonly EdgeRow[];
-    const importEdges: { importer: string; target: string }[] = [];
-    const heritageEdges: { childFile: string; parentFile: string }[] = [];
-    for (const edge of edgeRows) {
-      const fromPath = fileFromNodeId(edge.from_id);
-      const toPath = fileFromNodeId(edge.to_id);
-      if (fromPath === undefined || toPath === undefined) continue;
-      if (edge.type === "IMPORTS") {
-        importEdges.push({ importer: fromPath, target: toPath });
-      } else if (edge.type === "EXTENDS" || edge.type === "IMPLEMENTS") {
-        heritageEdges.push({ childFile: fromPath, parentFile: toPath });
-      }
-    }
     // Full node + edge dumps. For a typical OCH repo this is 10K-50K nodes
     // and 20K-100K edges — fits in memory in one shot; chunking would only
     // help at OS-paging scale and adds seam complexity to a helper that
@@ -486,6 +480,26 @@ export async function loadPreviousGraph(
     for (const row of relationRows) {
       const edge = rowToCodeRelation(row);
       if (edge !== undefined) edges.push(edge);
+    }
+    // Derive the legacy file-granular projections from the full edge set so
+    // we issue one fewer round-trip to DuckDB. The incremental-scope phase
+    // still reads these as the closure-walk seed — the node/edge arrays
+    // above are the carry-forward snapshot that flips the four consumer
+    // phases into active mode.
+    const importEdges: { importer: string; target: string }[] = [];
+    const heritageEdges: { childFile: string; parentFile: string }[] = [];
+    for (const edge of edges) {
+      if (edge.type !== "IMPORTS" && edge.type !== "EXTENDS" && edge.type !== "IMPLEMENTS") {
+        continue;
+      }
+      const fromPath = fileFromNodeId(edge.from as string);
+      const toPath = fileFromNodeId(edge.to as string);
+      if (fromPath === undefined || toPath === undefined) continue;
+      if (edge.type === "IMPORTS") {
+        importEdges.push({ importer: fromPath, target: toPath });
+      } else {
+        heritageEdges.push({ childFile: fromPath, parentFile: toPath });
+      }
     }
     return { files: scanState.files, importEdges, heritageEdges, nodes, edges };
   } catch {
@@ -612,6 +626,37 @@ async function openSummaryCacheAdapter(
     adapter: {
       lookup: async (nodeId, contentHash, promptVersion) =>
         store.lookupSymbolSummary(nodeId, contentHash, promptVersion),
+    },
+    close: async () => {
+      await store.close();
+    },
+  };
+}
+
+/**
+ * Open a read-only DuckDB store scoped to the `embeddings` content-hash
+ * probe (T-M1-3). The returned adapter's `list()` loads every prior
+ * `(granularity, nodeId, chunkIndex) → content_hash` row in a single
+ * round-trip so the embeddings phase can skip chunks whose source text is
+ * unchanged across runs. Returns `undefined` when the store cannot be
+ * opened (e.g. the first analyze on a fresh repo) — the phase then
+ * degrades to "every chunk is new", which is correct just slower.
+ */
+async function openEmbeddingHashCacheAdapter(
+  repoPath: string,
+): Promise<
+  { adapter: pipeline.EmbeddingHashCacheAdapter; close: () => Promise<void> } | undefined
+> {
+  const dbPath = resolveDbPath(repoPath);
+  const store = new DuckDbStore(dbPath, { readOnly: true });
+  try {
+    await store.open();
+  } catch {
+    return undefined;
+  }
+  return {
+    adapter: {
+      list: async () => store.listEmbeddingHashes(),
     },
     close: async () => {
       await store.close();
