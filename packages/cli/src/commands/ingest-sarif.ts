@@ -5,11 +5,17 @@
  * Flow:
  *   1. Read + parse + validate the SARIF file via `@opencodehub/sarif`.
  *   2. Resolve the target repo (either `--repo <name>` or CWD).
- *   3. For every Result across every Run, build a Finding node keyed by
+ *   3. Open the DuckDB store and pull a per-file, line-sorted symbol
+ *      index over the SARIF's referenced URIs (used to resolve Finding
+ *      → Symbol edges).
+ *   4. For every Result across every Run, build a Finding node keyed by
  *      `Finding:<scannerId>:<ruleId>:<uri>:<startLine>`. Emit FOUND_IN
  *      edges to the target File node (matched by `artifactLocation.uri`
- *      against `file_path`).
- *   4. UPSERT into DuckDB via `store.bulkLoad({ mode: "upsert" })`.
+ *      against `file_path`) plus a second FOUND_IN edge to the tightest
+ *      enclosing symbol at `(uri, startLine)` when the graph contains
+ *      one. A scanner-provided `opencodehub.symbolId` hint wins over the
+ *      enclosing lookup when set.
+ *   5. UPSERT into DuckDB via `store.bulkLoad({ mode: "upsert" })`.
  *
  * The command is idempotent — re-running with the same SARIF produces
  * the same nodes and edges. Results without a parsable location (no
@@ -18,7 +24,13 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { type FindingNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
+import {
+  type FindingNode,
+  KnowledgeGraph,
+  makeNodeId,
+  type NodeId,
+  type NodeKind,
+} from "@opencodehub/core-types";
 import {
   applyBaselineState,
   enrichWithFingerprints,
@@ -29,6 +41,13 @@ import {
 } from "@opencodehub/sarif";
 import { DuckDbStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
+import {
+  ENCLOSING_SYMBOL_KINDS,
+  findEnclosingSymbolId,
+  indexNodesByFile,
+  type NodeRow,
+  type NodesByFile,
+} from "./find-enclosing-symbol.js";
 
 export interface IngestSarifOptions {
   /** `--repo <name>`: look up a registered repo instead of using CWD. */
@@ -78,13 +97,19 @@ export async function runIngestSarif(
     log = applyBaselineState(log, baselineLog);
   }
 
-  const { graph, summary } = buildFindingsGraph(log.runs);
-
   const dbPath = resolveDbPath(repoPath);
   const store = new DuckDbStore(dbPath);
+  let graph: KnowledgeGraph;
+  let summary: BuildSummary;
   try {
     await store.open();
     await store.createSchema();
+    // Pull the per-file symbol index out of the store once so every
+    // SARIF result can resolve its enclosing symbol without a round
+    // trip. Restricts to URIs that actually appear in the SARIF log
+    // and to the code-kind allow set shared with `buildFindingsGraph`.
+    const nodesByFile = await loadNodesByFileForSarif(store, log.runs);
+    ({ graph, summary } = buildFindingsGraph(log.runs, nodesByFile));
     await store.bulkLoad(graph, { mode: "upsert" });
   } finally {
     await store.close();
@@ -117,8 +142,18 @@ interface BuildSummary {
 /**
  * Pure builder over SARIF runs. Exposed for unit tests so we can exercise
  * the node/edge emission logic without touching DuckDB.
+ *
+ * `nodesByFile` is the per-file, line-sorted symbol index (produced by
+ * {@link indexNodesByFile}) used to resolve each SARIF result back to the
+ * tightest-enclosing code symbol when the scanner did not populate
+ * `result.properties["opencodehub.symbolId"]` itself. Callers that only
+ * want the File-level edge (e.g. unit tests) can omit it — an empty map
+ * means every symbol lookup misses and only the File edge is emitted.
  */
-export function buildFindingsGraph(runs: readonly SarifRun[]): {
+export function buildFindingsGraph(
+  runs: readonly SarifRun[],
+  nodesByFile: NodesByFile = new Map(),
+): {
   graph: KnowledgeGraph;
   summary: BuildSummary;
 } {
@@ -154,15 +189,23 @@ export function buildFindingsGraph(runs: readonly SarifRun[]): {
       });
       edgesEmitted += 1;
 
-      // If the scanner annotated the result with opencodehub.symbolId,
-      // emit an extra FOUND_IN edge to the symbol node. This is how
-      // scanners hand us per-symbol findings (e.g. semgrep results that
-      // resolve inside a function body).
-      const symbolId = extractSymbolId(result);
+      // Resolve the Finding → Symbol edge. Priority order:
+      //   1. `opencodehub.symbolId` in the result properties bag — the
+      //      explicit scanner-provided hint wins (e.g. semgrep rules that
+      //      resolve to a specific function already).
+      //   2. Tightest-enclosing symbol at (uri, startLine) from the graph
+      //      index. This is the common path for third-party SARIF tools
+      //      that emit raw file+line locations.
+      // If neither resolves we keep the File-only edge.
+      const hintedSymbolId = extractSymbolId(result);
+      const symbolId =
+        hintedSymbolId !== undefined
+          ? (hintedSymbolId as NodeId)
+          : findEnclosingSymbolId(nodesByFile, finding.uri, finding.node.startLine ?? 1);
       if (symbolId !== undefined) {
         graph.addEdge({
           from: finding.node.id,
-          to: symbolId as NodeId,
+          to: symbolId,
           type: "FOUND_IN",
           confidence: 1,
           reason: finding.reason,
@@ -340,6 +383,71 @@ async function loadRepoBaseline(repoPath: string): Promise<SarifLog | undefined>
     );
   }
   return result.data;
+}
+
+/**
+ * Collect every distinct `artifactLocation.uri` across every Result in
+ * every Run. Results without a parsable URI (or with an empty one) are
+ * silently skipped — downstream emission logic already discards them.
+ */
+function collectSarifUris(runs: readonly SarifRun[]): readonly string[] {
+  const seen = new Set<string>();
+  for (const run of runs) {
+    for (const result of run.results ?? []) {
+      const uri = result.locations?.[0]?.physicalLocation?.artifactLocation?.uri;
+      if (typeof uri === "string" && uri.length > 0) seen.add(uri);
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Query the graph store for every code-kind node whose `file_path`
+ * matches a URI that appears in the SARIF log, then build the per-file,
+ * line-sorted symbol index used by {@link findEnclosingSymbolId}.
+ *
+ * Scoping by the SARIF URIs keeps the query bounded even on large
+ * repos: a SARIF log typically references a few hundred files, not the
+ * whole codebase. Empty URI list short-circuits to an empty index — the
+ * caller will emit only File-level edges, which matches the v0 behavior
+ * before symbol-level linkage existed.
+ */
+async function loadNodesByFileForSarif(
+  store: DuckDbStore,
+  runs: readonly SarifRun[],
+): Promise<NodesByFile> {
+  const uris = collectSarifUris(runs);
+  if (uris.length === 0) return new Map();
+  const kinds = [...ENCLOSING_SYMBOL_KINDS];
+  const uriPlaceholders = uris.map(() => "?").join(",");
+  const kindPlaceholders = kinds.map(() => "?").join(",");
+  const sql =
+    `SELECT id, file_path, start_line, end_line, kind FROM nodes ` +
+    `WHERE file_path IN (${uriPlaceholders}) AND kind IN (${kindPlaceholders})`;
+  const params = [...uris, ...kinds];
+  const rows = await store.query(sql, params);
+  const projected: NodeRow[] = [];
+  for (const r of rows) {
+    const id = r["id"];
+    const filePath = r["file_path"];
+    const startLine = r["start_line"];
+    const endLine = r["end_line"];
+    const kind = r["kind"];
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (typeof filePath !== "string" || filePath.length === 0) continue;
+    if (typeof kind !== "string" || kind.length === 0) continue;
+    const start = Number(startLine);
+    const end = Number(endLine);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    projected.push({
+      id: id as NodeId,
+      filePath,
+      startLine: start,
+      endLine: end,
+      kind: kind as NodeKind,
+    });
+  }
+  return indexNodesByFile(projected);
 }
 
 async function resolveRepoPath(opts: IngestSarifOptions): Promise<string> {
