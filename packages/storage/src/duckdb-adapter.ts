@@ -433,6 +433,45 @@ export class DuckDbStore implements IGraphStore {
     }
   }
 
+  /**
+   * Load every prior `content_hash` from the `embeddings` table keyed by the
+   * composite `(granularity, node_id, chunk_index)` tuple. Used by the
+   * ingestion embeddings phase to skip re-embedding chunks whose source
+   * text is unchanged across runs (T-M1-3).
+   *
+   * A single `SELECT` round-trip is cheaper than per-chunk lookups and
+   * keeps the API surface narrow: the caller gets a `Map` it owns.
+   *
+   * Key format: `${granularity}\0${node_id}\0${chunk_index}` — binary-safe
+   * vs `:` which appears inside NodeIds. Matches the key encoding the
+   * embeddings phase uses when probing for hits.
+   */
+  async listEmbeddingHashes(): Promise<Map<string, string>> {
+    const c = this.requireConn();
+    const reader = await c.runAndReadAll(
+      "SELECT node_id, granularity, chunk_index, content_hash FROM embeddings",
+    );
+    const rows = reader.getRowObjects();
+    const out = new Map<string, string>();
+    for (const row of rows) {
+      const nodeId = row["node_id"];
+      const granularity = row["granularity"];
+      const chunkIndex = row["chunk_index"];
+      const contentHash = row["content_hash"];
+      if (
+        typeof nodeId !== "string" ||
+        typeof granularity !== "string" ||
+        typeof contentHash !== "string" ||
+        (typeof chunkIndex !== "number" && typeof chunkIndex !== "bigint")
+      ) {
+        continue;
+      }
+      const ci = typeof chunkIndex === "bigint" ? Number(chunkIndex) : chunkIndex;
+      out.set(`${granularity}\0${nodeId}\0${ci}`, contentHash);
+    }
+    return out;
+  }
+
   // --------------------------------------------------------------------------
   // Cochanges
   // --------------------------------------------------------------------------
