@@ -131,24 +131,16 @@ const RELATED = {
   "/mcp/overview": [
     ["MCP tools", `${BASE}/mcp/tools/`],
     ["Resources", `${BASE}/mcp/resources/`],
-    ["Prompts", `${BASE}/mcp/prompts/`],
     ["Using with Claude Code", `${BASE}/guides/using-with-claude-code/`],
   ],
   "/mcp/tools": [
     ["MCP overview", `${BASE}/mcp/overview/`],
     ["Resources", `${BASE}/mcp/resources/`],
-    ["Prompts", `${BASE}/mcp/prompts/`],
     ["CLI reference", `${BASE}/reference/cli/`],
   ],
   "/mcp/resources": [
     ["MCP overview", `${BASE}/mcp/overview/`],
     ["MCP tools", `${BASE}/mcp/tools/`],
-    ["Prompts", `${BASE}/mcp/prompts/`],
-  ],
-  "/mcp/prompts": [
-    ["MCP overview", `${BASE}/mcp/overview/`],
-    ["MCP tools", `${BASE}/mcp/tools/`],
-    ["Resources", `${BASE}/mcp/resources/`],
   ],
 
   // Contributing

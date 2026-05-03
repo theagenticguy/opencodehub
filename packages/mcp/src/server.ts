@@ -18,11 +18,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { getDefaultModelRoot, modelFileName, resolveModelDir } from "@opencodehub/embedder";
 import { ConnectionPool } from "./connection-pool.js";
-import { registerAuditDependenciesPrompt } from "./prompts/audit-dependencies.js";
-import { registerDetectImpactPrompt } from "./prompts/detect-impact.js";
-import { registerExploreAreaPrompt } from "./prompts/explore-area.js";
-import { registerGenerateMapPrompt } from "./prompts/generate-map.js";
-import { registerReviewPrPrompt } from "./prompts/review-pr.js";
 import { registerRepoClusterResource } from "./resources/repo-cluster.js";
 import { registerRepoClustersResource } from "./resources/repo-clusters.js";
 import { registerRepoContextResource } from "./resources/repo-context.js";
@@ -147,7 +142,6 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
       capabilities: {
         tools: { listChanged: false },
         resources: { listChanged: false },
-        prompts: { listChanged: false },
       },
       instructions: INSTRUCTIONS,
     },
@@ -191,15 +185,6 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
   registerRepoClusterResource(server, resCtx);
   registerRepoProcessesResource(server, resCtx);
   registerRepoProcessResource(server, resCtx);
-
-  // Prompts — static templates that chain the tools above. They take no
-  // ToolContext because they do not invoke tools themselves; the agent is
-  // responsible for carrying out the steps described in each template.
-  registerDetectImpactPrompt(server);
-  registerReviewPrPrompt(server);
-  registerExploreAreaPrompt(server);
-  registerAuditDependenciesPrompt(server);
-  registerGenerateMapPrompt(server);
 
   return {
     server,

@@ -139,7 +139,7 @@ The monorepo is organised as 15 workspace packages under `packages/`:
 | `eval` | Retrieval / graph-quality evaluation harness |
 | `gym` | Per-language F1 regression gym with SCIP baselines |
 | `ingestion` | Tree-sitter parsers, symbol extraction, import resolution |
-| `mcp` | Model Context Protocol server — 28 tools, prompts, resources |
+| `mcp` | Model Context Protocol server — 28 tools, resources |
 | `sarif` | SARIF schema validation and scanner output normalisation |
 | `scanners` | Subprocess wrappers for OSV, Semgrep, hadolint, tflint, etc. |
 | `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) |

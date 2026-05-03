@@ -82,4 +82,3 @@ Every per-repo tool accepts an optional `repo` argument; see
   envelope under `structuredContent.error`.
 - [Resources](/opencodehub/mcp/resources/) — structured views
   alongside the tools.
-- [Prompts](/opencodehub/mcp/prompts/) — pre-baked agent playbooks.

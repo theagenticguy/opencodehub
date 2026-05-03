@@ -21,8 +21,7 @@ At query time it exposes an MCP server with roughly 27 tools (`query`,
 `context`, `impact`, `detect_changes`, `rename`, `sql`, scanner /
 finding / dependency / verdict / route tools, and cross-repo `group_*`
 tools), along with a CLI that mirrors the main tools plus administrative
-commands (`analyze`, `setup`, `doctor`, `ci-init`, `wiki`, etc.) and five
-built-in MCP prompts.
+commands (`analyze`, `setup`, `doctor`, `ci-init`, `wiki`, etc.).
 
 ## What this system is not
 
@@ -228,13 +227,10 @@ two or more are registered and `repo` is omitted, the tool shall return
 `codehub://repo-clusters`, `codehub://repo-cluster`,
 `codehub://repo-processes`, and `codehub://repo-process`.
 
-6.7 The server shall register five MCP prompts: `detect-impact`,
-`review-pr`, `explore-area`, `audit-dependencies`, and `generate-map`.
-
-6.8 On SIGINT, SIGTERM, or stdin close, the server shall drain the
+6.7 On SIGINT, SIGTERM, or stdin close, the server shall drain the
 connection pool before exiting.
 
-6.9 If the `sql` tool receives a write-class statement, then the server
+6.8 If the `sql` tool receives a write-class statement, then the server
 shall reject it with `SqlGuardError`.
 
 ---

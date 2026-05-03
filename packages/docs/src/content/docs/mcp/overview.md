@@ -13,7 +13,7 @@ can connect to over stdio.
 - **Server name:** `opencodehub`
 - **Transport:** stdio (JSON-RPC over stdin/stdout)
 - **Launch command:** `codehub mcp`
-- **Capabilities:** `tools`, `resources`, `prompts`
+- **Capabilities:** `tools`, `resources`
 - **Tool count:** 28 (registered in `packages/mcp/src/server.ts`)
 
 Clients spawn the `codehub mcp` process and exchange JSON-RPC frames
@@ -72,5 +72,3 @@ Error responses instead carry `isError: true`,
   [tools](/opencodehub/mcp/tools/).
 - **7 resources** — structured views over repos, clusters, and
   processes. See [resources](/opencodehub/mcp/resources/).
-- **5 prompts** — pre-baked agent playbooks. See
-  [prompts](/opencodehub/mcp/prompts/).
