@@ -19,7 +19,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { upsertRegistry } from "../registry.js";
-import { checkFastPath, resolveMaxSummariesCap, resolveSummariesEnabled } from "./analyze.js";
+import {
+  checkFastPath,
+  isWorkingTreeDirty,
+  resolveMaxSummariesCap,
+  resolveSummariesEnabled,
+} from "./analyze.js";
 
 /**
  * Run a subprocess and resolve once it exits. Returns the exit code so
@@ -215,4 +220,28 @@ test("checkFastPath: dirty working tree bypasses the fast-path even when HEAD ma
     undefined,
     "dirty working tree must bypass the fast-path so analyze re-runs against edits",
   );
+});
+
+test("isWorkingTreeDirty: returns false on a non-git directory (no .git)", async () => {
+  // The helper contract treats "cannot determine dirtiness" as "not dirty"
+  // so the fast-path never blocks on a git failure. A fresh temp dir with
+  // no `.git/` triggers `git status` to exit non-zero — we expect false.
+  const notARepo = await mkdtemp(join(tmpdir(), "och-analyze-nongit-"));
+  assert.equal(await isWorkingTreeDirty(notARepo), false);
+});
+
+test("isWorkingTreeDirty: returns false when the git binary is unavailable", async () => {
+  // Point PATH at an empty dir so `spawn("git", ...)` fails with ENOENT.
+  // The helper must swallow the error and return false — callers depend
+  // on this for non-git hosts and locked-down CI environments.
+  const emptyBinDir = await mkdtemp(join(tmpdir(), "och-analyze-nopath-"));
+  const originalPath = process.env["PATH"];
+  try {
+    process.env["PATH"] = emptyBinDir;
+    const cwd = await mkdtemp(join(tmpdir(), "och-analyze-nogit-"));
+    assert.equal(await isWorkingTreeDirty(cwd), false);
+  } finally {
+    if (originalPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = originalPath;
+  }
 });
