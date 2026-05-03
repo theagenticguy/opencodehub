@@ -649,6 +649,14 @@ async function checkFastPath(
   if (resolve(hit.path) !== repoPath) return undefined;
   // Without a recorded commit we cannot know whether the index is fresh.
   if (hit.lastCommit === undefined) return undefined;
+  // Uncommitted changes in the working tree mean the recorded `lastCommit`
+  // no longer reflects what's on disk — bypass the fast-path so analyze
+  // re-runs against the edited files. If git can't answer (non-git dir,
+  // git unavailable) `isWorkingTreeDirty` returns false and we fall
+  // through to the HEAD-based check below, matching `readGitHead`'s
+  // fallback posture.
+  const dirty = await isWorkingTreeDirty(repoPath);
+  if (dirty) return undefined;
   // Compare against the working tree's current HEAD so a `git pull`
   // invalidates the fast-path. If git isn't available (non-git dir,
   // shallow checkout without HEAD, etc.) fall back to treating the
@@ -684,6 +692,43 @@ async function readGitHead(repoPath: string): Promise<string | undefined> {
         resolveP(trimmed.length > 0 ? trimmed : undefined);
       } else {
         resolveP(undefined);
+      }
+    });
+  });
+}
+
+/**
+ * Probe whether the working tree has uncommitted changes. Returns `true`
+ * iff `git status --porcelain` exits 0 with non-empty stdout. Any spawn
+ * error, non-zero exit, or git-unavailable case returns `false` so the
+ * caller never blocks the fast-path on a git failure — mirroring
+ * `readGitHead`'s "cannot determine" fallback.
+ */
+async function isWorkingTreeDirty(repoPath: string): Promise<boolean> {
+  return new Promise((resolveP) => {
+    let stdout = "";
+    let settled = false;
+    const child = spawn("git", ["status", "--porcelain"], {
+      cwd: repoPath,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => {
+      if (!settled) {
+        settled = true;
+        resolveP(false);
+      }
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0) {
+        resolveP(stdout.length > 0);
+      } else {
+        resolveP(false);
       }
     });
   });
