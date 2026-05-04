@@ -10,7 +10,6 @@
     { "path": "../core-types" },
     { "path": "../sarif" },
     { "path": "../storage" },
-    { "path": "../summarizer" },
     { "path": "../wiki" }
   ]
 }

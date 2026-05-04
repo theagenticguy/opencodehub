@@ -19,12 +19,10 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "3.1040.0",
     "@iarna/toml": "2.2.5",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "@opencodehub/summarizer": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
     "write-file-atomic": "7.0.1"
   },
