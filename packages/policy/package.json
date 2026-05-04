@@ -21,7 +21,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "yaml": "2.8.3",
+    "yaml": "2.8.4",
     "zod": "4.3.6"
   },
   "devDependencies": {
