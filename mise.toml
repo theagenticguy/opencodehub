@@ -170,27 +170,11 @@ description = "Print tooling versions (for bug reports)"
 run = "pnpm exec envinfo --system --binaries --npmPackages --markdown"
 
 # ---------------------------------------------------------------------------
-# Gym (differential SCIP indexer)
+# Gym (differential SCIP indexer) — moved to opencodehub-testbed
 # ---------------------------------------------------------------------------
-
-[tasks.gym]
-description = "Run the SCIP-indexer gym against the current baseline"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js run"
-
-[tasks."gym:baseline"]
-description = "Lock a new baseline manifest from the current gym run"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js baseline"
-
-[tasks."gym:replay"]
-description = "Bit-exact replay of a frozen manifest by re-invoking the pinned SCIP indexer"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js replay"
-
-[tasks."gym:refresh-expected"]
-description = "Refresh corpus `expected:` lists from the current manifest.jsonl"
-run = "uv run packages/gym/baselines/scripts/refresh-expected.py packages/gym/baselines/manifest.jsonl"
+# The gym + corpus + baselines live in
+# github.com/theagenticguy/opencodehub-testbed and run nightly against
+# @opencodehub/cli@latest. No mise tasks live here any more.
 
 # ---------------------------------------------------------------------------
 # Codehub CLI convenience passthroughs
