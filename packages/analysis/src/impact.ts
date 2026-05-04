@@ -226,8 +226,7 @@ async function relationsByEdge(
 
 /**
  * Risk banding keyed on `impactedCount` + `processCount`. The thresholds are
- * fixed here so downstream consumers (e.g. the SWE-bench eval-server
- * formatter) see stable tier assignments across tools.
+ * fixed here so downstream consumers see stable tier assignments across tools.
  */
 export function riskFromImpactedCount(impactedCount: number, processCount: number): RiskLevel {
   if (impactedCount >= 1000 || processCount >= 5) return "CRITICAL";

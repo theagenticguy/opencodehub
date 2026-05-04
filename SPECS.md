@@ -241,7 +241,7 @@ shall reject it with `SqlGuardError`.
 `setup`, `mcp`, `list`, `status`, `clean`, `query`, `context`, `impact`,
 `verdict`, `group (create|list|delete|status|query|sync)`,
 `ingest-sarif`, `scan`, `doctor`, `bench`, `wiki`, `ci-init`, `augment`,
-`eval-server`, and `sql`.
+and `sql`.
 
 7.2 The CLI shall lazy-load every subcommand via `await import(...)` so
 `codehub --help` does not transitively load DuckDB or tree-sitter.
@@ -265,10 +265,6 @@ status` shall report staleness rather than error.
 
 7.8 The `augment` command shall return a compact BM25 enrichment block on
 stderr for editor PreToolUse hook integration.
-
-7.9 The `eval-server` command shall start a persistent loopback HTTP
-daemon on `127.0.0.1` wrapping MCP tool handlers, with idle-timeout
-shutdown.
 
 ---
 

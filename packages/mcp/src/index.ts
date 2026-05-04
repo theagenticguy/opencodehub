@@ -56,9 +56,9 @@ export { runRiskTrends } from "./tools/risk-trends.js";
 export { runRouteMap } from "./tools/route-map.js";
 export { runScan } from "./tools/scan.js";
 export { runShapeCheck } from "./tools/shape-check.js";
-// Pure tool handlers for non-SDK callers (e.g. the CLI `eval-server`
-// subcommand). Every run function takes a `ToolContext` and returns a
-// transport-agnostic `ToolResult` with both `text` and `structuredContent`.
+// Pure tool handlers for non-SDK callers. Every run function takes a
+// `ToolContext` and returns a transport-agnostic `ToolResult` with both
+// `text` and `structuredContent`.
 export {
   fromToolResult,
   type ToolContext,

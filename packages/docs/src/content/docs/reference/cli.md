@@ -356,20 +356,6 @@ codehub augment <pattern>
 |---|---|---|
 | `--limit <n>` | 5 | Max hits. |
 
-## `eval-server`
-
-Launch the persistent loopback HTTP daemon that wraps MCP handlers
-(used by SWE-bench loops).
-
-```bash title="usage"
-codehub eval-server
-```
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--port <n>` | 4848 | Listen port. |
-| `--idle-timeout <s>` | 900 | Idle timeout. |
-
 ## `sql`
 
 Read-only SQL against the graph store.
