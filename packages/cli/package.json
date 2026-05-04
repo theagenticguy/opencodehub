@@ -27,6 +27,7 @@
     "@opencodehub/scanners": "workspace:*",
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
+    "@opencodehub/wiki": "workspace:*",
     "cli-table3": "0.6.5",
     "commander": "14.0.3",
     "envinfo": "7.21.0",

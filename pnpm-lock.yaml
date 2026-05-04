@@ -119,6 +119,9 @@ importers:
       '@opencodehub/storage':
         specifier: workspace:*
         version: link:../storage
+      '@opencodehub/wiki':
+        specifier: workspace:*
+        version: link:../wiki
       cli-table3:
         specifier: 0.6.5
         version: 0.6.5
