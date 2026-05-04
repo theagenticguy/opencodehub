@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/sarif",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCodeHub — SARIF v2.1.0 helpers (merge + enrich)",
   "license": "Apache-2.0",
   "type": "module",
