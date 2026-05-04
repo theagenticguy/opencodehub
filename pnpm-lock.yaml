@@ -107,6 +107,9 @@ importers:
       '@opencodehub/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@opencodehub/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@opencodehub/sarif':
         specifier: workspace:*
         version: link:../sarif

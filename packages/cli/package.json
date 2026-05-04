@@ -22,6 +22,7 @@
     "@opencodehub/embedder": "workspace:*",
     "@opencodehub/ingestion": "workspace:*",
     "@opencodehub/mcp": "workspace:*",
+    "@opencodehub/policy": "workspace:*",
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/scanners": "workspace:*",
     "@opencodehub/search": "workspace:*",

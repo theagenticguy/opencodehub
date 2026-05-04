@@ -13,6 +13,7 @@
     { "path": "../storage" },
     { "path": "../search" },
     { "path": "../ingestion" },
+    { "path": "../policy" },
     { "path": "../sarif" },
     { "path": "../scanners" }
   ]
