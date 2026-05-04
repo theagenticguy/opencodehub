@@ -39,6 +39,7 @@ export default {
         "ingestion",
         "lsp-oracle",
         "mcp",
+        "policy",
         "sarif",
         "scanners",
         "search",
