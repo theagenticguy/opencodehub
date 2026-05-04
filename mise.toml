@@ -6,7 +6,11 @@ uv = "latest"
 "npm:node-gyp" = "latest"  # required to build tree-sitter native bindings during `pnpm install`
 
 [env]
-_.python.venv = { path = "packages/eval/.venv", create = true }
+# Python venv used to be anchored at packages/eval/.venv while the eval
+# harness lived in this repo. Post-split the harness lives in
+# github.com/theagenticguy/opencodehub-testbed, so core keeps a lightweight
+# .venv at the repo root only for ad-hoc `uv run` tasks.
+_.python.venv = { path = ".venv", create = true }
 NODE_ENV = "development"
 FORCE_COLOR = "1"
 
@@ -24,15 +28,9 @@ outputs = ["node_modules/.pnpm/lock.yaml"]
 description = "Update lockfile (allow pnpm-lock.yaml to change)"
 run = "pnpm install"
 
-[tasks."install:eval"]
-description = "Sync Python eval harness env via uv"
-dir = "packages/eval"
-run = "uv sync"
-sources = ["packages/eval/pyproject.toml", "packages/eval/uv.lock"]
-
 [tasks.bootstrap]
-description = "Full first-time setup: tools + JS deps + Python eval env"
-depends = ["install", "install:eval"]
+description = "Full first-time setup: tools + JS deps"
+depends = ["install"]
 
 # ---------------------------------------------------------------------------
 # Build
@@ -107,12 +105,6 @@ run = "pnpm remove -g @opencodehub/cli"
 description = "Run all package tests"
 depends = ["build"]
 run = "pnpm -r test"
-
-[tasks."test:eval"]
-description = "Run the Python parity/regression eval harness (pytest)"
-depends = ["install:eval", "build"]
-dir = "packages/eval"
-run = "uv run pytest"
 
 [tasks.lint]
 description = "Biome check"

@@ -16,7 +16,5 @@ updates:
     schedule:
       interval: weekly
 
-  - package-ecosystem: pip
-    directory: "/packages/eval"
-    schedule:
-      interval: weekly
+  # pip ecosystem for packages/eval moved to
+  # github.com/theagenticguy/opencodehub-testbed as part of the M2 split.
