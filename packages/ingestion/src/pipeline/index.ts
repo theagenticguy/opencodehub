@@ -34,8 +34,12 @@ export {
   writeCacheEntry,
 } from "./phases/content-cache.js";
 export { DEFAULT_PHASES } from "./phases/default-set.js";
-export type { EmbedderPhaseOutput } from "./phases/embeddings.js";
-export { EMBEDDER_PHASE_NAME, embeddingsPhase } from "./phases/embeddings.js";
+export type { EmbedderPhaseOutput, EmbeddingHashCacheAdapter } from "./phases/embeddings.js";
+export {
+  EMBEDDER_PHASE_NAME,
+  EMBEDDING_HASH_CACHE_OPTIONS_KEY,
+  embeddingsPhase,
+} from "./phases/embeddings.js";
 export type { FetchesOutput } from "./phases/fetches.js";
 export {
   FETCHES_PHASE_NAME,

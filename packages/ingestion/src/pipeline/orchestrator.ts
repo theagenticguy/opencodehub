@@ -12,7 +12,12 @@ import { graphHash, KnowledgeGraph } from "@opencodehub/core-types";
 import { ANNOTATE_PHASE_NAME, type AnnotateOutput } from "./phases/annotate.js";
 import { COCHANGE_PHASE_NAME, type CochangeOutput } from "./phases/cochange.js";
 import { DEFAULT_PHASES } from "./phases/default-set.js";
-import { EMBEDDER_PHASE_NAME, type EmbedderPhaseOutput } from "./phases/embeddings.js";
+import {
+  EMBEDDER_PHASE_NAME,
+  EMBEDDING_HASH_CACHE_OPTIONS_KEY,
+  type EmbedderPhaseOutput,
+  type EmbeddingHashCacheAdapter,
+} from "./phases/embeddings.js";
 import {
   INCREMENTAL_SCOPE_PHASE_NAME,
   type IncrementalScopeOutput,
@@ -106,6 +111,15 @@ export interface RunIngestionOptions extends PipelineOptions {
    * expensive.
    */
   readonly summaryCacheAdapter?: SummaryCacheAdapter;
+  /**
+   * Optional adapter the embeddings phase probes before issuing embedder
+   * calls. Production wires this to the DuckDB store's
+   * `listEmbeddingHashes` implementation so re-analyze runs skip chunks
+   * whose `content_hash` matches a prior row (T-M1-3). Absent by default —
+   * the phase degrades to "every chunk is new" which is still correct,
+   * just more expensive. Ignored when `options.force === true`.
+   */
+  readonly embeddingHashCacheAdapter?: EmbeddingHashCacheAdapter;
 }
 
 /**
@@ -125,6 +139,14 @@ export async function runIngestion(
   if (options.summaryCacheAdapter !== undefined) {
     (normalizedOptions as unknown as Record<string, unknown>)[SUMMARY_CACHE_OPTIONS_KEY] =
       options.summaryCacheAdapter;
+  }
+  // Same trick for the embeddings phase's content-hash cache (T-M1-3).
+  // Attached here (not in stripPhaseKeys) so the typed option shape stays
+  // minimal — this is a well-known extension point, not a first-class
+  // `PipelineOptions` field.
+  if (options.embeddingHashCacheAdapter !== undefined) {
+    (normalizedOptions as unknown as Record<string, unknown>)[EMBEDDING_HASH_CACHE_OPTIONS_KEY] =
+      options.embeddingHashCacheAdapter;
   }
   const graph = new KnowledgeGraph();
   const warnings: string[] = [];

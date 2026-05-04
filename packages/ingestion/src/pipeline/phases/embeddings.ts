@@ -62,6 +62,59 @@ const DEFAULT_EMBEDDING_BATCH_SIZE = 32;
 
 export const EMBEDDER_PHASE_NAME = "embeddings" as const;
 
+/**
+ * Options-bag extension point used by {@link runEmbeddings} to read prior
+ * `content_hash` values for the `embeddings` table. Plugged onto
+ * `ctx.options` by the orchestrator under this well-known key so the phase
+ * stays pure (no direct {@link IGraphStore} handle).
+ *
+ * When absent (or when `options.force === true`), the phase behaves as it
+ * did pre-M1-3: every eligible chunk is embedded and emitted. When present
+ * and `force !== true`, the adapter is invoked once per run; its returned
+ * map is probed per chunk so unchanged chunks skip both `embedder.embed()`
+ * and the upsert batch.
+ */
+export interface EmbeddingHashCacheAdapter {
+  /**
+   * Return every prior `content_hash` keyed by
+   * `${granularity}\0${nodeId}\0${chunkIndex}`. Empty map on a fresh
+   * database or any error the adapter wants to degrade gracefully.
+   */
+  list(): Promise<Map<string, string>>;
+}
+
+/**
+ * Well-known options key the orchestrator uses to attach an
+ * {@link EmbeddingHashCacheAdapter}. Kept as a `const` so callers can't
+ * typo the probe site. Matches the pattern used by `SUMMARY_CACHE_OPTIONS_KEY`
+ * in the summarize phase.
+ */
+export const EMBEDDING_HASH_CACHE_OPTIONS_KEY = "__embeddingHashCache" as const;
+
+function resolveEmbeddingHashCacheAdapter(
+  ctx: PipelineContext,
+): EmbeddingHashCacheAdapter | undefined {
+  const opts = ctx.options as unknown as Record<string, unknown>;
+  const cache = opts[EMBEDDING_HASH_CACHE_OPTIONS_KEY];
+  if (cache === undefined || cache === null || typeof cache !== "object") return undefined;
+  const adapter = cache as EmbeddingHashCacheAdapter;
+  if (typeof adapter.list !== "function") return undefined;
+  return adapter;
+}
+
+/**
+ * Compose the composite key used to probe {@link EmbeddingHashCacheAdapter}.
+ * `\0` is binary-safe vs `:` which appears inside NodeIds; the same key
+ * encoding is used by the storage adapter's `listEmbeddingHashes`.
+ */
+function priorHashKey(
+  granularity: EmbeddingGranularity,
+  nodeId: string,
+  chunkIndex: number,
+): string {
+  return `${granularity}\0${nodeId}\0${chunkIndex}`;
+}
+
 /** Node kinds we currently embed at the symbol tier. */
 const EMBEDDABLE_KINDS: ReadonlySet<string> = new Set([
   "Function",
@@ -162,6 +215,14 @@ export interface EmbedderPhaseOutput {
    * actually kicked in.
    */
   readonly summaryFused: boolean;
+  /**
+   * Chunks short-circuited by the content-hash skip (T-M1-3). Counts
+   * chunks whose `(granularity, node_id, chunk_index)` had a prior row
+   * with identical `content_hash` in the store — so the phase neither
+   * embedded them nor emitted a row. `0` when `options.force === true`,
+   * when the hash-cache adapter is absent, or on a fresh database.
+   */
+  readonly chunksSkipped: number;
 }
 
 function emptyOutput(): EmbedderPhaseOutput {
@@ -175,6 +236,7 @@ function emptyOutput(): EmbedderPhaseOutput {
     ranEmbedder: false,
     byGranularity: { symbol: 0, file: 0, community: 0 },
     summaryFused: false,
+    chunksSkipped: 0,
   };
 }
 
@@ -492,12 +554,26 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
     const rows: EmbeddingRow[] = [];
     let skipped = 0;
     let chunksTotal = 0;
+    let chunksSkipped = 0;
     let summaryFused = false;
     const byGranularity: Record<EmbeddingGranularity, number> = {
       symbol: 0,
       file: 0,
       community: 0,
     };
+
+    // Prior-hash cache (T-M1-3). When the CLI plugs an adapter AND the caller
+    // did not pass `force: true`, we load every prior `content_hash` from the
+    // `embeddings` table in a single round-trip. Chunks whose
+    // `(granularity, nodeId, chunkIndex)` key maps to an identical freshly-
+    // computed hash skip both `embedder.embed()` and the upsert batch —
+    // unchanged source reduces a full re-analyze to a no-op for the
+    // embeddings phase. Under `force`, or with no adapter installed, the map
+    // is empty and the phase behaves exactly as it did pre-M1-3.
+    const forceFlag = ctx.options.force === true;
+    const hashCache = resolveEmbeddingHashCacheAdapter(ctx);
+    const priorHashes: Map<string, string> =
+      forceFlag || hashCache === undefined ? new Map() : await hashCache.list();
 
     // Max tokens includes [CLS]/[SEP]; the embedder caps input at 510 user
     // tokens by default. Keep the chunker slightly conservative.
@@ -571,8 +647,27 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += chunks.length;
+        // Content-hash skip (T-M1-3). A symbol can emit multiple chunks
+        // (long signature+summary+body). We only skip when *every* fresh
+        // chunk hash matches its prior row — otherwise one mismatched chunk
+        // would leave the tier partially updated with stale neighbours.
+        // The anti-goal is explicit: don't try to diff indices; re-embed
+        // the whole node at this granularity.
+        const freshHashes = chunks.map((ch) => hashText("symbol", ch));
+        const allMatch =
+          priorHashes.size > 0 &&
+          chunks.every((_chunk, i) => {
+            const fresh = freshHashes[i];
+            if (fresh === undefined) return false;
+            return priorHashes.get(priorHashKey("symbol", node.id, i)) === fresh;
+          });
+        if (allMatch) {
+          chunksSkipped += chunks.length;
+          continue;
+        }
         for (let i = 0; i < chunks.length; i++) {
           const chunkText = chunks[i] ?? "";
+          const contentHash = freshHashes[i] ?? hashText("symbol", chunkText);
           const chunkIndex = i;
           jobs.push({
             granularity: "symbol",
@@ -584,7 +679,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
               ...(node.startLine !== undefined ? { startLine: node.startLine } : {}),
               ...(node.endLine !== undefined ? { endLine: node.endLine } : {}),
               vector,
-              contentHash: hashText("symbol", chunkText),
+              contentHash,
             }),
           });
         }
@@ -619,6 +714,17 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
+        // Content-hash skip (T-M1-3). Single-chunk tier — the compare is
+        // straightforward: if the prior row's hash equals the fresh hash,
+        // bail before queuing work.
+        const contentHash = hashText("file", firstChunk);
+        if (
+          priorHashes.size > 0 &&
+          priorHashes.get(priorHashKey("file", fileNode.id, 0)) === contentHash
+        ) {
+          chunksSkipped += 1;
+          continue;
+        }
         jobs.push({
           granularity: "file",
           text: firstChunk,
@@ -627,7 +733,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
             granularity: "file",
             chunkIndex: 0,
             vector,
-            contentHash: hashText("file", firstChunk),
+            contentHash,
           }),
         });
       }
@@ -681,6 +787,15 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
+        // Content-hash skip (T-M1-3). Community tier is also single-chunk.
+        const contentHash = hashText("community", firstChunk);
+        if (
+          priorHashes.size > 0 &&
+          priorHashes.get(priorHashKey("community", c.id, 0)) === contentHash
+        ) {
+          chunksSkipped += 1;
+          continue;
+        }
         jobs.push({
           granularity: "community",
           text: firstChunk,
@@ -689,7 +804,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
             granularity: "community",
             chunkIndex: 0,
             vector,
-            contentHash: hashText("community", firstChunk),
+            contentHash,
           }),
         });
       }
@@ -737,6 +852,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       ranEmbedder: true,
       byGranularity,
       summaryFused,
+      chunksSkipped,
     };
   } finally {
     await embedder.close();

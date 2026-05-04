@@ -83,6 +83,9 @@ export class FakeStore implements IGraphStore {
   upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {
     return Promise.resolve();
   }
+  listEmbeddingHashes(): Promise<Map<string, string>> {
+    return Promise.resolve(new Map());
+  }
   search(_q: SearchQuery): Promise<readonly SearchResult[]> {
     return Promise.resolve([]);
   }

@@ -1,7 +1,7 @@
 {
-  "name": "@opencodehub/analysis",
+  "name": "@opencodehub/wiki",
   "version": "0.1.0",
-  "description": "OpenCodeHub — impact, rename, detect_changes, staleness",
+  "description": "OpenCodeHub — Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph store",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,11 +19,10 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@iarna/toml": "2.2.5",
+    "@aws-sdk/client-bedrock-runtime": "3.1040.0",
     "@opencodehub/core-types": "workspace:*",
-    "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "@opencodehub/wiki": "workspace:*",
+    "@opencodehub/summarizer": "workspace:*",
     "write-file-atomic": "7.0.1"
   },
   "devDependencies": {

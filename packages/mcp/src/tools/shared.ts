@@ -48,9 +48,8 @@ export type RegisteredServer = McpServer;
 
 /**
  * Transport-agnostic tool result shape. The MCP-registered handler
- * adapts this into the SDK's `CallToolResult`; the `eval-server` HTTP
- * adapter uses the raw `text` directly. Keep this minimal — `text` is
- * the rendered agent-readable body; `structuredContent` carries the
+ * adapts this into the SDK's `CallToolResult`. Keep this minimal — `text`
+ * is the rendered agent-readable body; `structuredContent` carries the
  * machine-readable payload (with `next_steps`, `error`, `_meta.*` as
  * usual); `isError` mirrors the MCP semantics.
  */

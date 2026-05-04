@@ -470,3 +470,221 @@ describe("embeddingsPhase — hierarchical tiers (P03)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// T-M1-3 content-hash skip: integration-style tests that run the phase twice
+// against the same graph and verify the second run short-circuits on every
+// chunk whose prior hash matches. Uses the same HTTP-embedder stub as the P03
+// tier tests above (fetch stub installed there would already be torn down, so
+// we install a fresh one scoped to this describe block).
+// ---------------------------------------------------------------------------
+
+describe("embeddingsPhase — content-hash skip (T-M1-3)", () => {
+  const originalUrl = process.env["CODEHUB_EMBEDDING_URL"];
+  const originalModel = process.env["CODEHUB_EMBEDDING_MODEL"];
+  const originalDims = process.env["CODEHUB_EMBEDDING_DIMS"];
+  let restoreFetch: () => void = () => {};
+
+  before(() => {
+    process.env["CODEHUB_EMBEDDING_URL"] = "https://stub.example/v1";
+    process.env["CODEHUB_EMBEDDING_MODEL"] = "stub-model";
+    process.env["CODEHUB_EMBEDDING_DIMS"] = String(HTTP_DIM);
+    restoreFetch = installFetchStub();
+  });
+
+  after(() => {
+    restoreFetch();
+    if (originalUrl === undefined) delete process.env["CODEHUB_EMBEDDING_URL"];
+    else process.env["CODEHUB_EMBEDDING_URL"] = originalUrl;
+    if (originalModel === undefined) delete process.env["CODEHUB_EMBEDDING_MODEL"];
+    else process.env["CODEHUB_EMBEDDING_MODEL"] = originalModel;
+    if (originalDims === undefined) delete process.env["CODEHUB_EMBEDDING_DIMS"];
+    else process.env["CODEHUB_EMBEDDING_DIMS"] = originalDims;
+  });
+
+  function makeRepo(): { repoPath: string; relPath: string } {
+    const repoPath = mkdtempSync(join(tmpdir(), "emb-skip-"));
+    const relPath = "src/a.ts";
+    mkdirSync(join(repoPath, "src"), { recursive: true });
+    writeFileSync(
+      join(repoPath, relPath),
+      `export function hello(): number {\n  return 42;\n}\n`,
+      "utf8",
+    );
+    return { repoPath, relPath };
+  }
+
+  function buildGraph(relPath: string): KnowledgeGraph {
+    const g = new KnowledgeGraph();
+    const fileId = makeNodeId("File", relPath, relPath);
+    g.addNode({
+      id: fileId,
+      kind: "File",
+      name: "a.ts",
+      filePath: relPath,
+    } as unknown as GraphNode);
+    const fids: string[] = [];
+    for (const name of ["hello", "world", "kthxbye"]) {
+      const id = makeNodeId("Function", relPath, name);
+      fids.push(id);
+      g.addNode({
+        id,
+        kind: "Function",
+        name,
+        filePath: relPath,
+        startLine: 1,
+        endLine: 3,
+        signature: `function ${name}(): number`,
+      } as unknown as GraphNode);
+    }
+    const cid = makeNodeId("Community", "<global>", "community-0");
+    g.addNode({
+      id: cid,
+      kind: "Community",
+      name: "community-0",
+      filePath: "<global>",
+      symbolCount: fids.length,
+      cohesion: 1,
+      inferredLabel: "ingestion-pipeline",
+      keywords: ["ingestion", "pipeline"],
+    } as unknown as GraphNode);
+    for (const fid of fids) {
+      g.addEdge({
+        from: fid as ReturnType<typeof makeNodeId>,
+        to: cid,
+        type: "MEMBER_OF",
+        confidence: 1,
+        reason: "leiden",
+      });
+    }
+    return g;
+  }
+
+  function ctxWithAdapter(
+    repoPath: string,
+    relPath: string,
+    priorHashes: Map<string, string>,
+    force: boolean,
+  ): PipelineContext {
+    const adapter = { list: async () => priorHashes };
+    return {
+      repoPath,
+      options: {
+        embeddings: true,
+        embeddingsGranularity: ["symbol", "file", "community"],
+        force,
+        // Well-known key identical to EMBEDDING_HASH_CACHE_OPTIONS_KEY in
+        // embeddings.ts. Asserting on the string keeps the test honest about
+        // the contract without pulling the const into public exports.
+        __embeddingHashCache: adapter,
+      } as unknown as PipelineOptions,
+      graph: buildGraph(relPath),
+      phaseOutputs: new Map<string, unknown>([
+        [
+          SCAN_PHASE_NAME,
+          { files: [{ absPath: "", relPath, byteSize: 1, sha256: "h", grammarSha: null }] },
+        ],
+      ]),
+    };
+  }
+
+  it("re-running with the prior hash map halts re-embedding on unchanged symbols", async () => {
+    const { repoPath, relPath } = makeRepo();
+
+    // Run 1: no adapter installed — phase embeds everything and we capture the
+    // emitted rows' content hashes to synthesise the "prior" map.
+    const ctx1: PipelineContext = {
+      repoPath,
+      options: {
+        embeddings: true,
+        embeddingsGranularity: ["symbol", "file", "community"],
+      } as unknown as PipelineOptions,
+      graph: buildGraph(relPath),
+      phaseOutputs: new Map<string, unknown>([
+        [
+          SCAN_PHASE_NAME,
+          { files: [{ absPath: "", relPath, byteSize: 1, sha256: "h", grammarSha: null }] },
+        ],
+      ]),
+    };
+    const run1 = await embeddingsPhase.run(ctx1, new Map());
+    assert.ok(run1.embeddingsInserted > 0, "run 1 emits rows as baseline");
+    assert.equal(run1.chunksSkipped, 0, "no prior hashes ⇒ nothing to skip on run 1");
+
+    // Build the prior-hashes map the way the storage adapter would: the
+    // composite key is `${granularity}\0${nodeId}\0${chunkIndex}`.
+    const priorHashes = new Map<string, string>();
+    for (const row of run1.rows) {
+      const tier = row.granularity ?? "symbol";
+      priorHashes.set(`${tier}\0${row.nodeId}\0${row.chunkIndex}`, row.contentHash);
+    }
+
+    // Run 2: same source graph + prior hash map. Every chunk should match, so
+    // the phase emits zero rows and counts every chunk as skipped.
+    const ctx2 = ctxWithAdapter(repoPath, relPath, priorHashes, false);
+    const run2 = await embeddingsPhase.run(ctx2, new Map());
+    assert.equal(run2.embeddingsInserted, 0, "2nd run emits no embeddings when all hashes match");
+    assert.equal(
+      run2.chunksSkipped,
+      run1.embeddingsInserted,
+      "every chunk in the 2nd run is accounted for as skipped",
+    );
+    assert.equal(run2.byGranularity["symbol"], 0, "symbol tier is fully skipped");
+    assert.equal(run2.byGranularity["file"], 0, "file tier is fully skipped");
+    assert.equal(run2.byGranularity["community"], 0, "community tier is fully skipped");
+    assert.ok(run2.ranEmbedder, "embedder still opened and closed cleanly");
+  });
+
+  it("force: true re-embeds everything even when the prior hash map matches", async () => {
+    const { repoPath, relPath } = makeRepo();
+    // Seed priorHashes with whatever the first un-forced run would emit, then
+    // flip force on. Force must dominate — the phase reads an empty map.
+    const ctx1 = ctxWithAdapter(repoPath, relPath, new Map(), false);
+    const run1 = await embeddingsPhase.run(ctx1, new Map());
+    const priorHashes = new Map<string, string>();
+    for (const row of run1.rows) {
+      const tier = row.granularity ?? "symbol";
+      priorHashes.set(`${tier}\0${row.nodeId}\0${row.chunkIndex}`, row.contentHash);
+    }
+
+    const ctx2 = ctxWithAdapter(repoPath, relPath, priorHashes, /*force*/ true);
+    const run2 = await embeddingsPhase.run(ctx2, new Map());
+    assert.equal(
+      run2.chunksSkipped,
+      0,
+      "force re-embeds everything regardless of prior-hash matches",
+    );
+    assert.equal(
+      run2.embeddingsInserted,
+      run1.embeddingsInserted,
+      "force produces identical row count to the baseline run",
+    );
+  });
+
+  it("hash drift on one chunk triggers a re-embed for THAT chunk; unchanged siblings still skip", async () => {
+    const { repoPath, relPath } = makeRepo();
+    const ctx1 = ctxWithAdapter(repoPath, relPath, new Map(), false);
+    const run1 = await embeddingsPhase.run(ctx1, new Map());
+    assert.ok(run1.embeddingsInserted >= 3, "baseline covers all three tiers");
+
+    const priorHashes = new Map<string, string>();
+    for (const row of run1.rows) {
+      const tier = row.granularity ?? "symbol";
+      priorHashes.set(`${tier}\0${row.nodeId}\0${row.chunkIndex}`, row.contentHash);
+    }
+    // Poison exactly one community-tier hash so the phase must re-embed it.
+    const commRow = run1.rows.find((r) => (r.granularity ?? "symbol") === "community");
+    assert.ok(commRow !== undefined, "community row exists in baseline");
+    priorHashes.set(
+      `community\0${commRow.nodeId}\0${commRow.chunkIndex}`,
+      "DRIFTED_HASH_NOT_IN_ACTUAL_INDEX",
+    );
+
+    const ctx2 = ctxWithAdapter(repoPath, relPath, priorHashes, false);
+    const run2 = await embeddingsPhase.run(ctx2, new Map());
+    assert.equal(run2.byGranularity["community"], 1, "the drifted community chunk re-embeds");
+    assert.equal(run2.byGranularity["symbol"], 0, "unchanged symbol tier still skips");
+    assert.equal(run2.byGranularity["file"], 0, "unchanged file tier still skips");
+    assert.equal(run2.embeddingsInserted, 1, "only the drifted chunk flows into rows[]");
+  });
+});

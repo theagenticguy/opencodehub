@@ -8,8 +8,7 @@
  *
  * The goal is not behaviour parity — the existing `tool-handlers.test.ts`
  * already covers that via the registered MCP handlers. This file simply
- * proves the extraction didn't break the pure-function contract so the
- * upcoming eval-server HTTP adapter can rely on it.
+ * proves the extraction didn't break the pure-function contract.
  */
 
 import { strict as assert } from "node:assert";

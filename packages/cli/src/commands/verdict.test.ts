@@ -22,8 +22,10 @@ import type {
   VerdictResponse,
   VerdictTier,
 } from "@opencodehub/analysis";
+import type { Policy } from "@opencodehub/policy";
+import { PolicyValidationError } from "@opencodehub/policy";
 import type { IGraphStore } from "@opencodehub/storage";
-import { resolveVerdictMode, runVerdict } from "./verdict.js";
+import { POLICY_TIER_FOR_VERDICT, resolveVerdictMode, runVerdict } from "./verdict.js";
 import { cliExitCodeForTier } from "./verdict-render.js";
 
 // --- fixtures --------------------------------------------------------------
@@ -98,7 +100,17 @@ function captureStdout(): StdoutCapture {
     encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
     cb?: (err?: Error | null) => void,
   ) => {
-    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    // Only capture string writes from the code under test. Buffer writes
+    // during an await point come from Node's test-runner TAP reporter
+    // (binary v8-serialized frames) and must not pollute the captured
+    // chunks — otherwise `JSON.parse(output)` below chokes on 0x0F bytes.
+    if (typeof chunk === "string") {
+      chunks.push(chunk);
+    } else {
+      // Pass through non-string writes (TAP binary frames etc.).
+      orig(chunk, encodingOrCb as BufferEncoding, cb);
+      return true;
+    }
     if (typeof encodingOrCb === "function") encodingOrCb();
     else if (typeof cb === "function") cb();
     return true;
@@ -276,6 +288,173 @@ test("runVerdict --exit-code on single_review → exit 1 (ladder distinguishes f
     }
   });
   assert.equal(exitCode, 1);
+});
+
+// --- policy integration ---------------------------------------------------
+
+test("POLICY_TIER_FOR_VERDICT maps every tier in strictly increasing order", () => {
+  assert.equal(POLICY_TIER_FOR_VERDICT.auto_merge, 1);
+  assert.equal(POLICY_TIER_FOR_VERDICT.single_review, 2);
+  assert.equal(POLICY_TIER_FOR_VERDICT.dual_review, 3);
+  assert.equal(POLICY_TIER_FOR_VERDICT.expert_review, 4);
+  assert.equal(POLICY_TIER_FOR_VERDICT.block, 5);
+});
+
+test("runVerdict: no policy file → verdict output unchanged, exit from tier only", async () => {
+  const cap = captureStdout();
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "json",
+        exitCode: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => undefined,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  assert.ok(!("policy" in parsed), "policy key must be absent when no file is loaded");
+  assert.equal(exitCode, 0);
+});
+
+test("runVerdict: policy with no matching rules returns status=pass in JSON", async () => {
+  const cap = captureStdout();
+  const pol: Policy = { version: 1, rules: [] };
+  await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "json",
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const policy = parsed["policy"] as { status: string; violations: unknown[] };
+  assert.equal(policy.status, "pass");
+  assert.deepEqual(policy.violations, []);
+});
+
+test("runVerdict: blast_radius_max rule blocks when verdict tier maps above max", async () => {
+  const cap = captureStdout();
+  // expert_review maps to policy tier 4; max_tier=2 means block.
+  const pol: Policy = {
+    version: 1,
+    rules: [{ type: "blast_radius_max", id: "radius-cap", max_tier: 2 }],
+  };
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "summary",
+        exitCode: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("expert_review"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  assert.match(output, /Policy: block/);
+  assert.match(output, /radius-cap: blast radius tier 4 exceeds max 2/);
+  // expert_review alone would exit 2; policy block escalates to 3.
+  assert.equal(exitCode, 3);
+});
+
+test("runVerdict --pr-comment with policy violation renders Policy markdown section", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [{ type: "blast_radius_max", id: "radius-cap", max_tier: 2 }],
+  };
+  await withExitCode(async () => {
+    try {
+      await runVerdict({
+        prComment: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("expert_review", {
+          reviewCommentMarkdown: "## OpenCodeHub Verdict: `expert_review`\n\n**Blast radius:** 42",
+        }),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  assert.match(output, /^## OpenCodeHub Verdict: `expert_review`/m);
+  assert.match(output, /### Policy\n\nPolicy: `block`/);
+  assert.match(output, /- `radius-cap`:/);
+});
+
+test("runVerdict: malformed policy surfaces PolicyValidationError (non-zero exit, not silent pass)", async () => {
+  const cap = captureStdout();
+  await assert.rejects(
+    async () => {
+      try {
+        await runVerdict({
+          outputFormat: "json",
+          storeFactory: stubStoreFactory(),
+          computeVerdictFn: stubCompute("auto_merge"),
+          loadPolicyFn: async () => {
+            throw new PolicyValidationError("invalid policy: version: expected 1");
+          },
+        });
+      } finally {
+        cap.restore();
+      }
+    },
+    (err: unknown) => {
+      assert.ok(err instanceof PolicyValidationError);
+      return true;
+    },
+  );
+});
+
+test("runVerdict: ownership_required rule passes when approvals are supplied", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "storage-owner",
+        paths: ["packages/storage/**"],
+        require_approval_from: ["@storage-team"],
+      },
+    ],
+  };
+  // touchedPaths comes from the verdict pipeline (not yet surfaced in v1),
+  // so this rule is a no-op until that lands. We still assert the pass
+  // to pin down the current behavior.
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "json",
+        exitCode: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+        approvals: ["@storage-team"],
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const policy = parsed["policy"] as { status: string };
+  assert.equal(policy.status, "pass");
+  assert.equal(exitCode, 0);
 });
 
 test("runVerdict propagates base/head/config to the compute fn", async () => {

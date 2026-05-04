@@ -1,3 +1,20 @@
+/**
+ * Compat shim — wiki rendering lives in `@opencodehub/wiki` in v1.0.
+ * These re-exports stay one release for migration; import directly from
+ * `@opencodehub/wiki` instead.
+ *
+ * @deprecated Use `@opencodehub/wiki`.
+ */
+export type {
+  LlmModuleInput,
+  LlmOverview,
+  LlmOverviewOptions,
+  WikiLlmOptions,
+  WikiOptions,
+  WikiResult,
+} from "@opencodehub/wiki";
+/** @deprecated Use `@opencodehub/wiki`. */
+export { generateWiki } from "@opencodehub/wiki";
 export type {
   DeadCodeResult,
   Deadness,
@@ -113,10 +130,3 @@ export type {
   VerdictTier,
 } from "./verdict-types.js";
 export { DEFAULT_VERDICT_CONFIG } from "./verdict-types.js";
-export type { WikiLlmOptions, WikiOptions, WikiResult } from "./wiki.js";
-export { generateWiki } from "./wiki.js";
-export type {
-  LlmModuleInput,
-  LlmOverview,
-  LlmOverviewOptions,
-} from "./wiki-render/llm-overview.js";

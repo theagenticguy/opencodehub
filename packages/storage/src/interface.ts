@@ -29,6 +29,20 @@ export interface IGraphStore extends CochangeStore, SymbolSummaryStore {
   bulkLoad(graph: KnowledgeGraph, opts?: BulkLoadOptions): Promise<BulkLoadStats>;
   /** Insert/replace embedding rows for the configured vector dimension. */
   upsertEmbeddings(rows: readonly EmbeddingRow[]): Promise<void>;
+  /**
+   * Return every prior `content_hash` from the `embeddings` table keyed by
+   * the composite PK. Used by the ingestion embeddings phase to skip
+   * re-embedding chunks whose source text is unchanged across runs.
+   *
+   * Key format: `${granularity}\0${node_id}\0${chunk_index}` — the `\0`
+   * separator is binary-safe vs `:` which appears inside NodeIds.
+   * Value: the `content_hash` column verbatim.
+   *
+   * Empty on a fresh database. Loaded in a single round-trip; the expected
+   * row count (O(200K) for a 50K-symbol repo with three tiers) fits
+   * comfortably in memory.
+   */
+  listEmbeddingHashes(): Promise<Map<string, string>>;
   /** Run a user-supplied read-only SQL statement with bound parameters. */
   query(
     sql: string,

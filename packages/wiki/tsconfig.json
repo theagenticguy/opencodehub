@@ -5,11 +5,10 @@
     "outDir": "dist",
     "composite": true
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*"],
   "references": [
     { "path": "../core-types" },
-    { "path": "../sarif" },
     { "path": "../storage" },
-    { "path": "../wiki" }
+    { "path": "../summarizer" }
   ]
 }

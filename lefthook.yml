@@ -17,8 +17,6 @@ pre-push:
   parallel: true
   jobs:
     - name: typecheck
-      # Exclude @opencodehub/docs — astro's virtual modules (astro:content,
-      # ?raw imports) aren't visible to plain tsc. Matches CI (.github/workflows/ci.yml).
-      run: pnpm -r --filter='!@opencodehub/docs' exec tsc --noEmit
+      run: pnpm -r exec tsc --noEmit
     - name: test
-      run: pnpm -r --filter='!@opencodehub/docs' test
+      run: pnpm -r test

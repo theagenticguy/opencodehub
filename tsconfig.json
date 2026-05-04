@@ -9,6 +9,7 @@
     { "path": "./packages/search" },
     { "path": "./packages/embedder" },
     { "path": "./packages/analysis" },
+    { "path": "./packages/policy" },
     { "path": "./packages/mcp" },
     { "path": "./packages/cli" },
     { "path": "./packages/summarizer" },

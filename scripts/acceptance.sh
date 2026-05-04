@@ -123,8 +123,8 @@ echo "6/${TOTAL_GATES}: determinism (double-run graphHash)"
 if [ ! -f "$CLI" ]; then
   fail "CLI not built — cannot test determinism"
 else
-  cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$tmpdir/ts-a"
-  cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$tmpdir/ts-b"
+  cp -r "$ROOT/scripts/fixtures/ts" "$tmpdir/ts-a"
+  cp -r "$ROOT/scripts/fixtures/ts" "$tmpdir/ts-b"
   HOME_A="$tmpdir/home-a"; HOME_B="$tmpdir/home-b"
   mkdir -p "$HOME_A/.codehub" "$HOME_B/.codehub"
   for r in ts-a ts-b; do
@@ -177,28 +177,13 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# 9. Python eval harness
+# 9. Python eval harness — moved to opencodehub-testbed
 # ---------------------------------------------------------------------------
-echo "9/${TOTAL_GATES}: Python eval harness (49 parametrized cases)"
-if command -v uv >/dev/null 2>&1; then
-  if (cd "$ROOT/packages/eval" && uv sync > /dev/null 2>&1 && \
-      uv run pytest src/opencodehub_eval/tests/test_parametrized.py -q > "$tmpdir/eval.log" 2>&1); then
-    PASSED=$(grep -oE '[0-9]+ passed' "$tmpdir/eval.log" | head -1 | awk '{print $1}')
-    pass "eval: ${PASSED:-?}/49 cases passed"
-  else
-    PASSED=$(grep -oE '[0-9]+ passed' "$tmpdir/eval.log" | head -1 | awk '{print $1}')
-    if [ "${PASSED:-0}" -ge "40" ]; then
-      note "eval: ${PASSED}/49 passed — non-zero exit but ≥40 threshold met"
-      pass "eval threshold met"
-    else
-      fail "eval: only ${PASSED:-0}/49 passed"
-      tail -20 "$tmpdir/eval.log"
-    fi
-  fi
-else
-  note "uv not installed — skipping Python eval harness"
-  pass "eval soft-skip (uv not available)"
-fi
+# The 49-case parametrized harness was extracted to
+# github.com/theagenticguy/opencodehub-testbed (see packages/eval/ there).
+# It runs nightly against `codehub@latest`, not against a local checkout.
+echo "9/${TOTAL_GATES}: Python eval harness (moved to opencodehub-testbed)"
+skip "eval harness lives in the testbed repo now; nightly CI covers it"
 echo
 
 # ---------------------------------------------------------------------------
@@ -216,8 +201,8 @@ if [ -f "$FP32_ONNX" ] || [ -f "$INT8_ONNX" ]; then
     skip "CLI not built — skipping embeddings determinism"
   else
     EMB_DIR_A="$tmpdir/emb-a"; EMB_DIR_B="$tmpdir/emb-b"
-    cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$EMB_DIR_A"
-    cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$EMB_DIR_B"
+    cp -r "$ROOT/scripts/fixtures/ts" "$EMB_DIR_A"
+    cp -r "$ROOT/scripts/fixtures/ts" "$EMB_DIR_B"
     for r in emb-a emb-b; do
       (cd "$tmpdir/$r" && git init -q --initial-branch=main && \
         git -c user.email=e@e -c user.name=e add . && \
@@ -313,7 +298,7 @@ elif [ ! -f "$CLI" ]; then
   skip "CLI not built — skipping scanner smoke"
 else
   SCAN_DIR="$tmpdir/scan-fixture"
-  cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$SCAN_DIR"
+  cp -r "$ROOT/scripts/fixtures/ts" "$SCAN_DIR"
   (cd "$SCAN_DIR" && git init -q --initial-branch=main && \
     git -c user.email=e@e -c user.name=e add . && \
     git -c user.email=e@e -c user.name=e commit -q -m init) > /dev/null 2>&1
@@ -387,7 +372,7 @@ if [ ! -f "$CLI" ]; then
   skip "CLI not built — skipping license-audit smoke"
 else
   LA_DIR="$tmpdir/la-fixture"
-  cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$LA_DIR"
+  cp -r "$ROOT/scripts/fixtures/ts" "$LA_DIR"
   (cd "$LA_DIR" && git init -q --initial-branch=main && \
     git -c user.email=e@e -c user.name=e add . && \
     git -c user.email=e@e -c user.name=e commit -q -m init) > /dev/null 2>&1
@@ -471,7 +456,7 @@ elif [ ! -f "$CLI" ]; then
   skip "CLI not built — skipping verdict smoke"
 else
   V_DIR="$tmpdir/verdict-fixture"
-  cp -r "$ROOT/packages/eval/src/opencodehub_eval/fixtures/ts" "$V_DIR"
+  cp -r "$ROOT/scripts/fixtures/ts" "$V_DIR"
   (cd "$V_DIR" && git init -q --initial-branch=main && \
     git -c user.email=e@e -c user.name=e add . && \
     git -c user.email=e@e -c user.name=e commit -q -m init >/dev/null 2>&1 && \
