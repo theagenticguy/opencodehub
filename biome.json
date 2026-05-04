@@ -6,10 +6,7 @@
       "packages/**/src/**",
       "packages/**/test/**",
       "scripts/**/*.{js,mjs,ts}",
-      "!packages/**/corpus/repos",
-      "!packages/docs/src/**/*.astro",
-      "!packages/docs/src/**/*.mdx",
-      "!packages/docs/src/content/docs"
+      "!packages/**/corpus/repos"
     ],
     "ignoreUnknown": true
   },

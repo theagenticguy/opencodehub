@@ -1,7 +1,6 @@
 # OpenCodeHub
 
 [![CI](https://github.com/theagenticguy/opencodehub/actions/workflows/ci.yml/badge.svg)](https://github.com/theagenticguy/opencodehub/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/Docs-Starlight-6ee7b7)](https://theagenticguy.github.io/opencodehub/)
 [![CodeQL](https://github.com/theagenticguy/opencodehub/actions/workflows/codeql.yml/badge.svg)](https://github.com/theagenticguy/opencodehub/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/theagenticguy/opencodehub/badge)](https://securityscorecards.dev/viewer/?uri=github.com/theagenticguy/opencodehub)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
@@ -121,20 +120,19 @@ codehub analyze
 | `list_repos` · `sql` | Registry & escape-hatch SQL (read-only, timeout-guarded) |
 | …and 17 more | Communities, processes, SBOM, SARIF, verdict, etc. |
 
-Full docs in `docs/`. A Claude Code plugin at `plugins/opencodehub/`
-wraps these tools into slash commands + skills — install via
-`codehub init`.
+Architecture decision records live in [`docs/adr/`](./docs/adr/). A
+Claude Code plugin at `plugins/opencodehub/` wraps the MCP tools into
+slash commands + skills — install via `codehub init`.
 
 ## Repository layout
 
-The monorepo is organised as 15 workspace packages under `packages/`:
+The monorepo is organised as 14 workspace packages under `packages/`:
 
 | Package | Purpose |
 |---|---|
 | `analysis` | Heuristic + SCIP call-graph resolution, community + flow detection |
 | `cli` | `codehub` command — `init`, `analyze`, `status`, `setup`, scanners |
 | `core-types` | Shared TypeScript types, Zod schemas, error codes |
-| `docs` | Starlight site published to GitHub Pages |
 | `embedder` | Embedding backends — local ONNX, HTTP, SageMaker |
 | `eval` | Retrieval / graph-quality evaluation harness |
 | `gym` | Per-language F1 regression gym with SCIP baselines |
@@ -199,15 +197,12 @@ commit log and summarised in each release's generated CHANGELOG.
 
 ## Documentation
 
-Full user guide, MCP tool reference, and contributor documentation
-are published at **https://theagenticguy.github.io/opencodehub/**.
+Architecture decision records live in [`docs/adr/`](./docs/adr/) — the
+durable record of design tradeoffs (storage backend, SCIP adoption,
+hierarchical embeddings, CI toolchain pins, etc.).
 
-Prefer to read locally:
-
-```bash
-mise run docs:dev
-# http://localhost:4321/opencodehub
-```
+A standalone user-guide + MCP reference site is being bootstrapped in a
+dedicated repo; this README will link it once published.
 
 ## Contributing
 
