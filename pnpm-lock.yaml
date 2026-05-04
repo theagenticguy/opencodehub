@@ -230,8 +230,8 @@ importers:
         specifier: 5.1.4
         version: 5.1.4
       snyk-nodejs-lockfile-parser:
-        specifier: 2.7.0
-        version: 2.7.0(typanion@3.14.0)
+        specifier: 2.7.1
+        version: 2.7.1(typanion@3.14.0)
       spdx-correct:
         specifier: ^3.2.0
         version: 3.2.0
@@ -1681,6 +1681,7 @@ packages:
   '@smithy/util-retry@4.3.6':
     resolution: {integrity: sha512-p6/FO1n2KxMeQyna067i0uJ6TSbb165ZhnRtCpWh4Foxqbfc6oW+XITaL8QkFJj3KFnDe2URt4gOhgU06EP9ew==}
     engines: {node: '>=18.0.0'}
+    deprecated: '@smithy/util-retry v4.3.6 contains a bug in Adaptive Retry, see https://github.com/smithy-lang/smithy-typescript/issues/1993. Upgrade to 4.3.7+'
 
   '@smithy/util-stream@4.5.24':
     resolution: {integrity: sha512-na5vv2mBSDzXewLEEoWGI7LQQkfpmFEomBsmOpzLFjqGctm0iMwXY5lAwesY9pIaErkccW0qzEOUcYP+WKneXg==}
@@ -1706,12 +1707,12 @@ packages:
     resolution: {integrity: sha512-O/IEdcCUKkubz60tFbGA7ceITTAJsty+lBjNoorP4Z6XRqaFb/OjQjZODophEcuq68nKm6/0r+6/lLQ+XVpk8g==}
     engines: {node: '>=18.0.0'}
 
-  '@snyk/dep-graph@2.16.7':
-    resolution: {integrity: sha512-YmoW89Fju+xqIEsiM7IZixcUVHCU8Lk28ssG4+tnNToOsQeYGh/5RWwE1QvEHaKeEyNpbbSFi0TKVV6yKp1/gQ==}
+  '@snyk/dep-graph@2.16.8':
+    resolution: {integrity: sha512-vlUCjaV8XE6bJEZ7ZfyMnOb+oUWNDzSMeeuO9ek32JR4tpnIgb1DT6EFJw3zeFDxk0e9cb/PznK/7JxyM1TL7Q==}
     engines: {node: '>=10'}
 
-  '@snyk/error-catalog-nodejs-public@5.80.0':
-    resolution: {integrity: sha512-58v15KH7ZcP/cd62bFe3/p734PuHnryeZemcZB0Bc5Lp1BXbRq6UfkbEzDA6chAkIXtjGwY8yw0NukxEzNe/SA==}
+  '@snyk/error-catalog-nodejs-public@5.80.1':
+    resolution: {integrity: sha512-tlLMVuydtmyFim1/L44yUcTT3Q9jAxb70UGibCjZCbGJuuuoFgkq3eka0FTM4l/mlITe26+HKUipgGwM8jKrTg==}
 
   '@snyk/graphlib@2.1.9-patch.3':
     resolution: {integrity: sha512-bBY9b9ulfLj0v2Eer0yFYa3syVeIxVKl2EpxSrsVeT4mjA0CltZyHsF0JjoaGXP27nItTdJS5uVsj1NA+3aE+Q==}
@@ -1765,8 +1766,8 @@ packages:
   '@types/write-file-atomic@4.0.3':
     resolution: {integrity: sha512-qdo+vZRchyJIHNeuI1nrpsLw+hnkgqP/8mlaN6Wle/NKhydHmUN9l4p3ZE8yP90AJNJW4uB8HQhedb4f1vNayQ==}
 
-  '@yarnpkg/core@4.6.0':
-    resolution: {integrity: sha512-yzJwS9dHKLY8y81BYEC0CEB+6ajWhjHkzBRzV39y7ANIdDiGC7sC32RSHWYGi/pxhbjPKeOhksj+gITUHUjS7A==}
+  '@yarnpkg/core@4.7.0':
+    resolution: {integrity: sha512-/zOgPAcDvwx8NDzLidDFaZDg+3Jgv824C4fudqZFlUuWv/BzOEtjfRTAyi+O0h15FyT7YvlsMnQpmnIQB+LgKw==}
     engines: {node: '>=18.12.0'}
 
   '@yarnpkg/fslib@3.1.5':
@@ -2296,9 +2297,6 @@ packages:
     resolution: {integrity: sha512-FGgH2h8zKNim9ljj7dankFPcICIK9Cp5bm+c2gQSYePhpaG5+esrLODihIorn+Pe6FGJzWhXQotPv73jTaldXA==}
     engines: {node: '>= 0.4'}
 
-  es-toolkit@1.45.1:
-    resolution: {integrity: sha512-/jhoOj/Fx+A+IIyDNOvO3TItGmlMKhtX8ISAHKE90c4b/k1tqaqEZ+uUqfpU8DMnW5cgNJv606zS55jGvza0Xw==}
-
   es-toolkit@1.46.1:
     resolution: {integrity: sha512-5eNtXOs3tbfxXOj04tjjseeWkRWaoCjdEI+96DgwzZoe6c9juL49pXlzAFTI72aWC9Y8p7168g6XIKjh7k6pyQ==}
 
@@ -2403,8 +2401,8 @@ packages:
     resolution: {integrity: sha512-P7oW7tLbYnhOLQk/Gv7cZgzgMPP/XN03K02/Jy6Y/NHzyIAIpxuZIM/YqAkfiXFPxA2CTm7NtCijK9EDu09u2w==}
     hasBin: true
 
-  fastq@1.19.0:
-    resolution: {integrity: sha512-7SFSRCNjBQIZH/xZR3iy5iQYR8aGBE0h3VG6/cwlbrpdciNYBMotQav8c1XI3HjHH+NikUpP53nPdlZSdWmFzA==}
+  fastq@1.20.1:
+    resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -3467,8 +3465,8 @@ packages:
     resolution: {integrity: sha512-TTlYpa+OL+vMMNG24xSlQGEJ3B/RzEfUlLct7b5G/ytav+wPrplCpVMFuwzXbkecJrb6IYo1iFb0S9v37754mg==}
     engines: {node: '>=0.12'}
 
-  reusify@1.0.4:
-    resolution: {integrity: sha512-U9nH88a3fc/ekCF1l0/UP1IosiuIjyTh7hBvXVMHYgVcfGvt897Xguj2UOLDeI5BG2m7/uwyaLVT6fbtCwTyzw==}
+  reusify@1.1.0:
+    resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
 
   rfc4648@1.5.4:
@@ -3596,8 +3594,8 @@ packages:
   snyk-config@5.3.0:
     resolution: {integrity: sha512-YPxhYZXBXgnYdvovwlKf5JYcOp+nxB7lel3tWLarYqZ4hwxN118FodIFb8nSqMrepsPdyOaQYKKnrTYqvQeaJA==}
 
-  snyk-nodejs-lockfile-parser@2.7.0:
-    resolution: {integrity: sha512-0M4paLnhKSDtj2akT6qztFC2MPfLO7vHxIeXYI1+rMv8fBC5RfzqHcfCraFbEDe961oPWOMXhSryLANtC5OcVw==}
+  snyk-nodejs-lockfile-parser@2.7.1:
+    resolution: {integrity: sha512-ViG434ZhiWXRtAEXVS2yjkHKz6Yk1lj9FxyMYWjRDZN/VplvrTGhkI/6BISgKotkR9h+QPsmVHiwWdoeVoqRog==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -5319,7 +5317,7 @@ snapshots:
   '@nodelib/fs.walk@1.2.8':
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
-      fastq: 1.19.0
+      fastq: 1.20.1
 
   '@npmcli/fs@3.1.1':
     dependencies:
@@ -5753,7 +5751,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@snyk/dep-graph@2.16.7':
+  '@snyk/dep-graph@2.16.8':
     dependencies:
       event-loop-spinner: 2.3.2
       lodash.clone: 4.5.0
@@ -5775,7 +5773,7 @@ snapshots:
       semver: 7.7.4
       tslib: 2.8.1
 
-  '@snyk/error-catalog-nodejs-public@5.80.0':
+  '@snyk/error-catalog-nodejs-public@5.80.1':
     dependencies:
       tslib: 2.8.1
       uuid: 14.0.0
@@ -5853,7 +5851,7 @@ snapshots:
     dependencies:
       '@types/node': 25.6.0
 
-  '@yarnpkg/core@4.6.0(typanion@3.14.0)':
+  '@yarnpkg/core@4.7.0(typanion@3.14.0)':
     dependencies:
       '@arcanis/slice-ansi': 1.1.1
       '@types/semver': 7.7.1
@@ -5869,7 +5867,7 @@ snapshots:
       cross-spawn: 7.0.6
       diff: 5.2.2
       dotenv: 16.6.1
-      es-toolkit: 1.45.1
+      es-toolkit: 1.46.1
       fast-glob: 3.3.3
       got: 11.8.6
       hpagent: 1.2.0
@@ -6399,8 +6397,6 @@ snapshots:
     dependencies:
       es-errors: 1.3.0
 
-  es-toolkit@1.45.1: {}
-
   es-toolkit@1.46.1: {}
 
   es6-error@4.1.1: {}
@@ -6556,9 +6552,9 @@ snapshots:
       path-expression-matcher: 1.5.0
       strnum: 2.2.3
 
-  fastq@1.19.0:
+  fastq@1.20.1:
     dependencies:
-      reusify: 1.0.4
+      reusify: 1.1.0
 
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
@@ -7610,7 +7606,7 @@ snapshots:
 
   ret@0.1.15: {}
 
-  reusify@1.0.4: {}
+  reusify@1.1.0: {}
 
   rfc4648@1.5.4: {}
 
@@ -7778,12 +7774,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  snyk-nodejs-lockfile-parser@2.7.0(typanion@3.14.0):
+  snyk-nodejs-lockfile-parser@2.7.1(typanion@3.14.0):
     dependencies:
-      '@snyk/dep-graph': 2.16.7
-      '@snyk/error-catalog-nodejs-public': 5.80.0
+      '@snyk/dep-graph': 2.16.8
+      '@snyk/error-catalog-nodejs-public': 5.80.1
       '@snyk/graphlib': 2.1.9-patch.3
-      '@yarnpkg/core': 4.6.0(typanion@3.14.0)
+      '@yarnpkg/core': 4.7.0(typanion@3.14.0)
       '@yarnpkg/lockfile': 1.1.0
       dependency-path: 9.2.8
       event-loop-spinner: 2.3.2
