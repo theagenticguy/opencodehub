@@ -28,7 +28,7 @@ import type {
   VectorQuery,
   VectorResult,
 } from "@opencodehub/storage";
-import { generateWiki } from "./wiki.js";
+import { generateWiki } from "./index.js";
 
 interface WikiNode {
   readonly id: string;

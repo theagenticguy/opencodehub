@@ -25,8 +25,16 @@ import { renderDependencyMapPages } from "./wiki-render/dependency-map.js";
 import type { LlmModuleInput, LlmOverviewOptions } from "./wiki-render/llm-overview.js";
 import { renderLlmOverviews } from "./wiki-render/llm-overview.js";
 import { renderOwnershipMapPages } from "./wiki-render/ownership-map.js";
-import { renderRiskAtlasPages } from "./wiki-render/risk-atlas.js";
+import { type RiskTrendsLike, renderRiskAtlasPages } from "./wiki-render/risk-atlas.js";
 import { loadCommunities, loadCommunityTopFiles, str } from "./wiki-render/shared.js";
+
+// Re-export wiki-render types so consumers can import them from the package root.
+export type {
+  LlmModuleInput,
+  LlmOverview,
+  LlmOverviewOptions,
+} from "./wiki-render/llm-overview.js";
+export type { RiskTrendsLike } from "./wiki-render/risk-atlas.js";
 
 export interface WikiLlmOptions {
   /**
@@ -53,10 +61,18 @@ export interface WikiOptions {
   /** Absolute (or relative-to-cwd) path where pages are written. */
   readonly outputDir: string;
   /**
-   * Optional repo root. When supplied, the risk-atlas page loads trend
-   * snapshots from `<repoPath>/.codehub/history/`.
+   * Optional repo root. When supplied alongside `loadTrends`, the risk-atlas
+   * page loads trend snapshots from `<repoPath>/.codehub/history/`.
    */
   readonly repoPath?: string;
+  /**
+   * Callback the risk-atlas renderer uses to load trend history. Injected
+   * by the caller (typically the CLI, which depends on
+   * `@opencodehub/analysis`) so `@opencodehub/wiki` stays free of analysis
+   * internals. When omitted the trends section renders an empty-history
+   * notice.
+   */
+  readonly loadTrends?: (repoPath: string) => Promise<RiskTrendsLike>;
   /**
    * Opt-in LLM mode. When `enabled` is true, `generateWiki` also writes
    * `architecture/llm-overview.md` with per-module narrative prose. The
@@ -72,7 +88,10 @@ export interface WikiResult {
 
 export async function generateWiki(store: IGraphStore, options: WikiOptions): Promise<WikiResult> {
   const outputDir = path.resolve(options.outputDir);
-  const riskOpts = options.repoPath !== undefined ? { repoPath: options.repoPath } : {};
+  const riskOpts = {
+    ...(options.repoPath !== undefined ? { repoPath: options.repoPath } : {}),
+    ...(options.loadTrends !== undefined ? { loadTrends: options.loadTrends } : {}),
+  };
   const [architecture, apiSurface, dependencyMap, ownership, riskAtlas] = await Promise.all([
     renderArchitecturePages(store),
     renderApiSurfacePages(store),

@@ -3,11 +3,13 @@
  *
  * Dead-code rows come from the `deadness` column. Orphan files come
  * from the File `orphan_grade` column. The risk-trends summary is
- * computed from the on-disk snapshot history when a repoPath is available.
+ * supplied by the caller via `options.loadTrends` — a callback that receives
+ * the repo path and returns a `RiskTrendsResult`-shaped object (typed
+ * structurally so this module can live in `@opencodehub/wiki` without a
+ * direct dependency on `@opencodehub/analysis`).
  */
 
 import type { IGraphStore } from "@opencodehub/storage";
-import { computeRiskTrends, loadSnapshots, type RiskTrendsResult } from "../risk-snapshot.js";
 import type { RenderedWikiPage } from "./architecture.js";
 import {
   type DeadFunctionRow,
@@ -17,12 +19,34 @@ import {
   type OrphanFileRow,
 } from "./shared.js";
 
+/**
+ * Structural shape of the trends payload. Mirrors
+ * `@opencodehub/analysis`'s `RiskTrendsResult` so callers can pass either
+ * the analysis type directly or any compatible structure.
+ */
+export interface RiskTrendsLike {
+  readonly communities: Readonly<
+    Record<
+      string,
+      { readonly trend: string; readonly currentRisk: number; readonly projectedRisk30d: number }
+    >
+  >;
+  readonly overallTrend: string;
+  readonly snapshotCount: number;
+}
+
 export interface RiskAtlasOptions {
   /**
    * Repo root used to locate `.codehub/history/`. If absent the trends section
    * is rendered with an empty-history notice instead of failing.
    */
   readonly repoPath?: string;
+  /**
+   * Callback injected by the caller (typically `generateWiki`) that loads
+   * the trends payload for `repoPath`. When omitted or when `repoPath` is
+   * absent, the trends section is rendered with a zero-snapshot notice.
+   */
+  readonly loadTrends?: (repoPath: string) => Promise<RiskTrendsLike>;
 }
 
 export async function renderRiskAtlasPages(
@@ -30,10 +54,10 @@ export async function renderRiskAtlasPages(
   options: RiskAtlasOptions = {},
 ): Promise<readonly RenderedWikiPage[]> {
   const [dead, orphans] = await Promise.all([loadDeadFunctions(store), loadOrphanFiles(store)]);
-  const trends =
-    options.repoPath !== undefined
-      ? await loadTrends(options.repoPath)
-      : { communities: {}, overallTrend: "stable" as const, snapshotCount: 0 };
+  const trends: RiskTrendsLike =
+    options.repoPath !== undefined && options.loadTrends !== undefined
+      ? await safeLoadTrends(options.loadTrends, options.repoPath)
+      : { communities: {}, overallTrend: "stable", snapshotCount: 0 };
 
   return [
     {
@@ -43,10 +67,12 @@ export async function renderRiskAtlasPages(
   ];
 }
 
-async function loadTrends(repoPath: string): Promise<RiskTrendsResult> {
+async function safeLoadTrends(
+  load: (repoPath: string) => Promise<RiskTrendsLike>,
+  repoPath: string,
+): Promise<RiskTrendsLike> {
   try {
-    const snapshots = await loadSnapshots(repoPath);
-    return computeRiskTrends(snapshots);
+    return await load(repoPath);
   } catch {
     return { communities: {}, overallTrend: "stable", snapshotCount: 0 };
   }
@@ -55,7 +81,7 @@ async function loadTrends(repoPath: string): Promise<RiskTrendsResult> {
 function renderPage(args: {
   readonly dead: readonly DeadFunctionRow[];
   readonly orphans: readonly OrphanFileRow[];
-  readonly trends: RiskTrendsResult;
+  readonly trends: RiskTrendsLike;
 }): string {
   const lines: string[] = [];
   lines.push("# Risk atlas");

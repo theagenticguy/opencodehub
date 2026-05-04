@@ -45,6 +45,7 @@ export default {
         "search",
         "storage",
         "summarizer",
+        "wiki",
         "eval",
         "plugin",
         "deps",
