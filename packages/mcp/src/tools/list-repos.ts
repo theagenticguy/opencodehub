@@ -24,8 +24,7 @@ interface RepoSummary {
 
 /**
  * Transport-agnostic implementation. The MCP-registered handler adapts
- * the return value into the SDK's `CallToolResult`; the upcoming
- * `eval-server` HTTP adapter consumes this function directly.
+ * the return value into the SDK's `CallToolResult`.
  */
 export async function runListRepos(ctx: ToolContext): Promise<ToolResult> {
   try {

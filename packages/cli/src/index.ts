@@ -633,28 +633,6 @@ program
   });
 
 program
-  .command("eval-server")
-  .description(
-    "Persistent loopback HTTP daemon (127.0.0.1) wrapping MCP tool handlers " +
-      "with text-formatted output plus next-step hints. Designed for SWE-bench-style " +
-      "agent loops that need a warm graph between tool calls.",
-  )
-  .option("--port <n>", "Port to listen on (default 4848)", (v) => Number.parseInt(v, 10), 4848)
-  .option(
-    "--idle-timeout <s>",
-    "Auto-shutdown after N seconds of inactivity (default 900)",
-    (v) => Number.parseInt(v, 10),
-    900,
-  )
-  .action(async (opts: Record<string, unknown>) => {
-    const mod = await import("./commands/eval-server.js");
-    await mod.runEvalServer({
-      port: typeof opts["port"] === "number" ? opts["port"] : 4848,
-      idleTimeoutSec: typeof opts["idleTimeout"] === "number" ? opts["idleTimeout"] : 900,
-    });
-  });
-
-program
   .command("sql <query>")
   .description("Run a read-only SQL query against the graph store")
   .option("--repo <name>", "Registered repo name (default: current directory)")

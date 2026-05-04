@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { NodeId } from "@opencodehub/core-types";
 import type { SarifRun } from "@opencodehub/sarif";
+import { indexNodesByFile, type NodeRow } from "./find-enclosing-symbol.js";
 import { buildFindingsGraph } from "./ingest-sarif.js";
 
 function run(scanner: string, results: unknown): SarifRun {
@@ -8,6 +10,16 @@ function run(scanner: string, results: unknown): SarifRun {
     tool: { driver: { name: scanner, version: "1.0.0" } },
     results: results as SarifRun["results"],
   };
+}
+
+function nodeRow(
+  id: string,
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  kind: NodeRow["kind"],
+): NodeRow {
+  return { id: id as NodeId, filePath, startLine, endLine, kind };
 }
 
 test("buildFindingsGraph emits one Finding + one FOUND_IN per result", () => {
@@ -176,4 +188,161 @@ test("buildFindingsGraph maps severity correctly", () => {
   assert.equal(r1.severity, "error");
   assert.ok(r2 && r2.kind === "Finding");
   assert.equal(r2.severity, "note");
+});
+
+test("buildFindingsGraph emits Finding → Symbol via enclosing lookup when line data present", () => {
+  // Graph contains a Class(1-100) wrapping a Method(15-25). A finding
+  // at line 20 should attach to the Method (tightest span).
+  const nodesByFile = indexNodesByFile([
+    nodeRow("Class:foo.py:Foo", "foo.py", 1, 100, "Class"),
+    nodeRow("Method:foo.py:Foo.bar", "foo.py", 15, 25, "Method"),
+  ]);
+  const runs: SarifRun[] = [
+    run("bandit", [
+      {
+        ruleId: "B301",
+        level: "warning",
+        message: { text: "pickle" },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "foo.py" },
+              region: { startLine: 20 },
+            },
+          },
+        ],
+      },
+    ]),
+  ];
+  const { graph, summary } = buildFindingsGraph(runs, nodesByFile);
+  assert.equal(summary.findingsEmitted, 1);
+  assert.equal(summary.edgesEmitted, 2);
+  const edges = [...graph.edges()];
+  const targets = edges.map((e) => e.to).sort();
+  assert.ok(targets.some((t) => t.startsWith("File:")));
+  assert.ok(
+    targets.some((t) => t === "Method:foo.py:Foo.bar"),
+    `expected Method target, got ${targets.join(",")}`,
+  );
+});
+
+test("buildFindingsGraph falls back to outer symbol when the tight one does not enclose the line", () => {
+  // Class(1-100) wraps Method(15-25). A finding at line 10 is outside
+  // the Method but inside the Class — the Class should win.
+  const nodesByFile = indexNodesByFile([
+    nodeRow("Class:foo.py:Foo", "foo.py", 1, 100, "Class"),
+    nodeRow("Method:foo.py:Foo.bar", "foo.py", 15, 25, "Method"),
+  ]);
+  const runs: SarifRun[] = [
+    run("bandit", [
+      {
+        ruleId: "B101",
+        level: "note",
+        message: { text: "assert" },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "foo.py" },
+              region: { startLine: 10 },
+            },
+          },
+        ],
+      },
+    ]),
+  ];
+  const { graph } = buildFindingsGraph(runs, nodesByFile);
+  const edges = [...graph.edges()];
+  const symbolEdge = edges.find((e) => e.to === "Class:foo.py:Foo");
+  assert.ok(symbolEdge, "expected FOUND_IN to the enclosing Class");
+});
+
+test("buildFindingsGraph honors opencodehub.symbolId over the enclosing lookup", () => {
+  // Even with a valid nodesByFile, the scanner-provided id must win.
+  const nodesByFile = indexNodesByFile([
+    nodeRow("Function:foo.py:enclosing", "foo.py", 1, 50, "Function"),
+  ]);
+  const runs: SarifRun[] = [
+    run("bandit", [
+      {
+        ruleId: "B101",
+        level: "warning",
+        message: { text: "assert" },
+        properties: { "opencodehub.symbolId": "Function:foo.py:authenticate" },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "foo.py" },
+              region: { startLine: 7 },
+            },
+          },
+        ],
+      },
+    ]),
+  ];
+  const { graph, summary } = buildFindingsGraph(runs, nodesByFile);
+  assert.equal(summary.edgesEmitted, 2);
+  const edges = [...graph.edges()];
+  const symbolTargets = edges.filter((e) => !e.to.startsWith("File:")).map((e) => e.to);
+  assert.deepEqual(symbolTargets, ["Function:foo.py:authenticate"]);
+  // And the enclosing-lookup target must NOT appear.
+  assert.ok(
+    !symbolTargets.includes("Function:foo.py:enclosing" as NodeId),
+    "enclosing-lookup must lose to scanner-provided hint",
+  );
+});
+
+test("buildFindingsGraph emits only the File edge when no symbol encloses the line", () => {
+  // Single Function(50-70) on the file; finding at line 5 has no
+  // enclosing symbol candidate.
+  const nodesByFile = indexNodesByFile([
+    nodeRow("Function:foo.py:late", "foo.py", 50, 70, "Function"),
+  ]);
+  const runs: SarifRun[] = [
+    run("bandit", [
+      {
+        ruleId: "B101",
+        level: "note",
+        message: { text: "top-level" },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "foo.py" },
+              region: { startLine: 5 },
+            },
+          },
+        ],
+      },
+    ]),
+  ];
+  const { graph, summary } = buildFindingsGraph(runs, nodesByFile);
+  assert.equal(summary.findingsEmitted, 1);
+  assert.equal(summary.edgesEmitted, 1);
+  const edges = [...graph.edges()];
+  assert.equal(edges.length, 1);
+  assert.ok(edges[0]?.to.startsWith("File:"));
+});
+
+test("buildFindingsGraph defaults to File-only edges when nodesByFile is omitted", () => {
+  // Backward-compat: the existing callers that don't pass nodesByFile
+  // must still produce exactly one edge per result (to File).
+  const runs: SarifRun[] = [
+    run("trivy", [
+      {
+        ruleId: "CVE-2024-1",
+        level: "error",
+        message: { text: "vuln" },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: "pkg.lock" },
+              region: { startLine: 3 },
+            },
+          },
+        ],
+      },
+    ]),
+  ];
+  const { summary } = buildFindingsGraph(runs);
+  assert.equal(summary.findingsEmitted, 1);
+  assert.equal(summary.edgesEmitted, 1);
 });

@@ -13,7 +13,8 @@
  *     substitute for that module without aborting the run.
  */
 
-import { generateWiki, type WikiLlmOptions } from "@opencodehub/analysis";
+import { computeRiskTrends, loadSnapshots } from "@opencodehub/analysis";
+import { generateWiki, type WikiLlmOptions } from "@opencodehub/wiki";
 import { openStoreForCommand } from "./open-store.js";
 
 export interface WikiCommandOptions {
@@ -54,6 +55,7 @@ export async function runWiki(opts: WikiCommandOptions): Promise<void> {
     const result = await generateWiki(store, {
       outputDir: opts.output,
       repoPath,
+      loadTrends: async (p) => computeRiskTrends(await loadSnapshots(p)),
       ...(llm !== undefined ? { llm } : {}),
     });
     if (opts.json === true) {

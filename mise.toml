@@ -6,7 +6,11 @@ uv = "latest"
 "npm:node-gyp" = "latest"  # required to build tree-sitter native bindings during `pnpm install`
 
 [env]
-_.python.venv = { path = "packages/eval/.venv", create = true }
+# Python venv used to be anchored at packages/eval/.venv while the eval
+# harness lived in this repo. Post-split the harness lives in
+# github.com/theagenticguy/opencodehub-testbed, so core keeps a lightweight
+# .venv at the repo root only for ad-hoc `uv run` tasks.
+_.python.venv = { path = ".venv", create = true }
 NODE_ENV = "development"
 FORCE_COLOR = "1"
 
@@ -24,15 +28,9 @@ outputs = ["node_modules/.pnpm/lock.yaml"]
 description = "Update lockfile (allow pnpm-lock.yaml to change)"
 run = "pnpm install"
 
-[tasks."install:eval"]
-description = "Sync Python eval harness env via uv"
-dir = "packages/eval"
-run = "uv sync"
-sources = ["packages/eval/pyproject.toml", "packages/eval/uv.lock"]
-
 [tasks.bootstrap]
-description = "Full first-time setup: tools + JS deps + Python eval env"
-depends = ["install", "install:eval"]
+description = "Full first-time setup: tools + JS deps"
+depends = ["install"]
 
 # ---------------------------------------------------------------------------
 # Build
@@ -108,12 +106,6 @@ description = "Run all package tests"
 depends = ["build"]
 run = "pnpm -r test"
 
-[tasks."test:eval"]
-description = "Run the Python parity/regression eval harness (pytest)"
-depends = ["install:eval", "build"]
-dir = "packages/eval"
-run = "uv run pytest"
-
 [tasks.lint]
 description = "Biome check"
 run = "pnpm exec biome check ."
@@ -178,27 +170,11 @@ description = "Print tooling versions (for bug reports)"
 run = "pnpm exec envinfo --system --binaries --npmPackages --markdown"
 
 # ---------------------------------------------------------------------------
-# Gym (differential SCIP indexer)
+# Gym (differential SCIP indexer) — moved to opencodehub-testbed
 # ---------------------------------------------------------------------------
-
-[tasks.gym]
-description = "Run the SCIP-indexer gym against the current baseline"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js run"
-
-[tasks."gym:baseline"]
-description = "Lock a new baseline manifest from the current gym run"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js baseline"
-
-[tasks."gym:replay"]
-description = "Bit-exact replay of a frozen manifest by re-invoking the pinned SCIP indexer"
-depends = ["build"]
-run = "node packages/gym/dist/cli.js replay"
-
-[tasks."gym:refresh-expected"]
-description = "Refresh corpus `expected:` lists from the current manifest.jsonl"
-run = "uv run packages/gym/baselines/scripts/refresh-expected.py packages/gym/baselines/manifest.jsonl"
+# The gym + corpus + baselines live in
+# github.com/theagenticguy/opencodehub-testbed and run nightly against
+# @opencodehub/cli@latest. No mise tasks live here any more.
 
 # ---------------------------------------------------------------------------
 # Codehub CLI convenience passthroughs
@@ -218,24 +194,3 @@ run = "node packages/cli/dist/index.js status"
 description = "Start the codehub MCP server (stdio)"
 depends = ["build:cli"]
 run = "node packages/cli/dist/index.js mcp"
-
-# ---------------------------------------------------------------------------
-# Docs site (Astro + Starlight)
-# ---------------------------------------------------------------------------
-
-[tasks."docs:dev"]
-description = "Run the Starlight docs site in dev mode (http://localhost:4321/opencodehub)"
-depends = ["install"]
-run = "pnpm -F @opencodehub/docs dev"
-
-[tasks."docs:build"]
-description = "Build the Starlight docs site (writes to packages/docs/dist)"
-depends = ["install"]
-run = "pnpm -F @opencodehub/docs build"
-sources = ["packages/docs/src/**", "packages/docs/astro.config.mjs", "packages/docs/package.json"]
-outputs = ["packages/docs/dist/**"]
-
-[tasks."docs:preview"]
-description = "Preview the built docs locally"
-depends = ["docs:build"]
-run = "pnpm -F @opencodehub/docs preview"

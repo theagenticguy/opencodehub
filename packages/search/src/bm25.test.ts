@@ -32,6 +32,9 @@ class StubStore implements IGraphStore {
     return { nodeCount: 0, edgeCount: 0, durationMs: 0 };
   }
   async upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {}
+  async listEmbeddingHashes(): Promise<Map<string, string>> {
+    return new Map();
+  }
   async query(
     _sql: string,
     _params?: readonly SqlParam[],

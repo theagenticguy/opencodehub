@@ -460,6 +460,128 @@ test("vectorSearch with granularity filter restricts to that tier", async () => 
 });
 
 // ---------------------------------------------------------------------------
+// listEmbeddingHashes (T-M1-3 content-hash skip helper)
+// ---------------------------------------------------------------------------
+
+test("listEmbeddingHashes returns an empty Map on a fresh database", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath, { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const hashes = await store.listEmbeddingHashes();
+    assert.ok(hashes instanceof Map, "returns a Map instance");
+    assert.equal(hashes.size, 0, "empty database yields empty map");
+  } finally {
+    await store.close();
+  }
+});
+
+test("listEmbeddingHashes returns one entry per (granularity, node_id, chunk_index)", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath, { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const fnId = makeNodeId("Function", "src/a.ts", "a");
+    const fileId = makeNodeId("File", "src/a.ts", "src/a.ts");
+    const commId = makeNodeId("Community", "<global>", "community-0");
+    g.addNode({ id: fnId, kind: "Function", name: "a", filePath: "src/a.ts" });
+    g.addNode({ id: fileId, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+    g.addNode({
+      id: commId,
+      kind: "Community",
+      name: "community-0",
+      filePath: "<global>",
+      symbolCount: 1,
+      cohesion: 1,
+    });
+    await store.bulkLoad(g);
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h-sym-0",
+      },
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 1,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h-sym-1",
+      },
+      {
+        nodeId: fileId,
+        granularity: "file",
+        chunkIndex: 0,
+        vector: new Float32Array([0.9, 0.1, 0, 0]),
+        contentHash: "h-file",
+      },
+      {
+        nodeId: commId,
+        granularity: "community",
+        chunkIndex: 0,
+        vector: new Float32Array([0.8, 0.2, 0, 0]),
+        contentHash: "h-comm",
+      },
+    ]);
+
+    const hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.size, 4, "one entry per composite-key row");
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "h-sym-0");
+    assert.equal(hashes.get(`symbol\0${fnId}\0${1}`), "h-sym-1");
+    assert.equal(hashes.get(`file\0${fileId}\0${0}`), "h-file");
+    assert.equal(hashes.get(`community\0${commId}\0${0}`), "h-comm");
+  } finally {
+    await store.close();
+  }
+});
+
+test("listEmbeddingHashes reflects upsert overwrites by composite key", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath, { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const fnId = makeNodeId("Function", "src/a.ts", "a");
+    g.addNode({ id: fnId, kind: "Function", name: "a", filePath: "src/a.ts" });
+    await store.bulkLoad(g);
+
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "original",
+      },
+    ]);
+    let hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "original");
+
+    // Upsert the same PK with a new hash — listEmbeddingHashes must reflect it.
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([0, 1, 0, 0]),
+        contentHash: "updated",
+      },
+    ]);
+    hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.size, 1, "upsert replaces the row — not duplicated");
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "updated");
+  } finally {
+    await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Vector search
 // ---------------------------------------------------------------------------
 
