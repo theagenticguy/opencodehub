@@ -602,12 +602,16 @@ const DART_QUERY = `
 // ---------------------------------------------------------------------------
 // COBOL
 // ---------------------------------------------------------------------------
-// COBOL ships via the regex hot path (see `parse/cobol-regex.ts`); there is
-// no tree-sitter grammar and therefore no S-expression query body. T-M4-5
-// Commit 4 promotes this empty string to a typed "regex" sentinel in the
-// `LanguageProvider` discriminated union, after which `getUnifiedQuery`
-// stops being callable for COBOL at all.
-const COBOL_QUERY = "";
+/**
+ * Regex-provider sentinel. COBOL ships via the pure-regex extractor in
+ * `parse/cobol-regex.ts`; there is no tree-sitter grammar and therefore no
+ * S-expression query body. The sentinel is a stable string constant
+ * downstream consumers can match on (`query === REGEX_PROVIDER_SENTINEL`)
+ * to dispatch around the worker pool. The `"regex:<lang>"` prefix is
+ * intentional — unlike an empty string, it pattern-matches on read and
+ * never collides with a valid tree-sitter query body.
+ */
+export const REGEX_PROVIDER_SENTINEL = "regex:cobol";
 
 const QUERIES: Record<LanguageId, string> = {
   typescript: TYPESCRIPT_QUERY,
@@ -625,10 +629,15 @@ const QUERIES: Record<LanguageId, string> = {
   swift: SWIFT_QUERY,
   php: PHP_QUERY,
   dart: DART_QUERY,
-  cobol: COBOL_QUERY,
+  cobol: REGEX_PROVIDER_SENTINEL,
 };
 
 /** Return the unified S-expression query body for a given language. */
 export function getUnifiedQuery(lang: LanguageId): string {
   return QUERIES[lang];
+}
+
+/** `true` iff `lang`'s query body is a regex-provider sentinel. */
+export function isRegexProviderQuery(query: string): boolean {
+  return query.startsWith("regex:");
 }

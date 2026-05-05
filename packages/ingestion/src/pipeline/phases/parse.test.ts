@@ -715,3 +715,97 @@ describe("parsePhase (cache key determinism)", () => {
     assert.equal(cacheFilePath(cacheDir, key), cacheFilePath(cacheDir, key));
   });
 });
+
+describe("parsePhase — COBOL regex hot path (T-M4-5)", () => {
+  let repo: string;
+
+  beforeEach(async () => {
+    repo = await mkdtemp(path.join(tmpdir(), "och-parse-cobol-"));
+    // Minimal COBOL program + a copybook it references. The regex hot path
+    // should extract PROGRAM-ID, two paragraphs, one PERFORM, one COPY ref.
+    await fs.writeFile(
+      path.join(repo, "HELLO.cbl"),
+      [
+        "000100 IDENTIFICATION DIVISION.",
+        "000200 PROGRAM-ID. HELLO.",
+        "000300 DATA DIVISION.",
+        "000400 WORKING-STORAGE SECTION.",
+        "000500     COPY GREETING.",
+        "000600 PROCEDURE DIVISION.",
+        "000700 MAIN-PARA.",
+        "000800     PERFORM EXIT-PARA.",
+        "000900 EXIT-PARA.",
+        "001000     EXIT.",
+        "",
+      ].join("\n"),
+    );
+    await fs.writeFile(
+      path.join(repo, "GREETING.cpy"),
+      ["000100*> Copybook text.", "000200 01  WS-GREETING PIC X(20) VALUE 'HELLO'.", ""].join("\n"),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  it("emits CodeElement graph nodes for COBOL files without invoking the worker pool", async () => {
+    const { graph, parseOut } = await runThreePhases(repo);
+
+    // Both files counted toward fileCount even though they skip the pool.
+    assert.equal(parseOut.fileCount, 2, "HELLO.cbl + GREETING.cpy");
+    // No tree-sitter work was done, so the worker pool path is idle.
+    assert.equal(parseOut.cacheMisses, 0, "cobol files do not enter the parse cache");
+    assert.equal(parseOut.cacheHits, 0);
+
+    const nodes = [...graph.nodes()];
+    const codeElements = nodes.filter((n) => n.kind === "CodeElement");
+    // Expected elements from HELLO.cbl:
+    //   program-id HELLO, paragraph MAIN-PARA, paragraph EXIT-PARA,
+    //   perform EXIT-PARA, copy GREETING
+    // Plus an external stub for the GREETING copybook ref.
+    // GREETING.cpy contributes no extractions (no program-id, no paragraphs).
+    const names = codeElements.map((n) => n.name).sort();
+    assert.ok(names.includes("HELLO"), "PROGRAM-ID node");
+    assert.ok(names.includes("MAIN-PARA"));
+    assert.ok(names.includes("EXIT-PARA"));
+    // `GREETING` appears twice: once as the COPY reference CodeElement, once
+    // as the external stub.
+    assert.ok(names.filter((n) => n === "GREETING").length >= 2);
+  });
+
+  it("emits DEFINES edges from file to COBOL CodeElement nodes", async () => {
+    const { graph } = await runThreePhases(repo);
+    const definesEdges = [...graph.edges()].filter((e) => e.type === "DEFINES");
+    const cobolDefines = definesEdges.filter(
+      (e) => typeof e.reason === "string" && e.reason.startsWith("cobol-regex:"),
+    );
+    // Five emissions for HELLO.cbl — PROGRAM-ID, 2 paragraphs, 1 PERFORM,
+    // 1 COPY. GREETING.cpy has no paragraphs or PROGRAM-ID.
+    assert.equal(cobolDefines.length, 5);
+    // Reasons should mirror the element kinds.
+    const reasons = cobolDefines.map((e) => e.reason).sort();
+    assert.deepEqual(reasons, [
+      "cobol-regex:copy",
+      "cobol-regex:paragraph",
+      "cobol-regex:paragraph",
+      "cobol-regex:perform",
+      "cobol-regex:program-id",
+    ]);
+  });
+
+  it("emits IMPORTS edges to external copybook stubs", async () => {
+    const { graph } = await runThreePhases(repo);
+    const importEdges = [...graph.edges()].filter(
+      (e) => e.type === "IMPORTS" && e.reason === "cobol-regex:copybook",
+    );
+    assert.equal(importEdges.length, 1);
+    // The target node must be an external CodeElement carrying the
+    // copybook name.
+    const toNode = [...graph.nodes()].find((n) => n.id === importEdges[0]?.to);
+    assert.ok(toNode, "external stub node must exist");
+    assert.equal(toNode?.kind, "CodeElement");
+    assert.equal(toNode?.name, "GREETING");
+    assert.equal(toNode?.filePath, "<external>");
+  });
+});
