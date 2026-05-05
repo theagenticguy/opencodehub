@@ -1,0 +1,451 @@
+/**
+ * Tests for the SHA256-pinned SCIP adapter downloader.
+ *
+ * Every test injects a fake fetch — we never hit the real network. The
+ * matrix covers:
+ *  - Pin match: one-body response, SHA256 verified, chmod +x, atomic rename.
+ *  - Idempotency: second call with matching SHA256 → skipped, no network.
+ *  - Pin mismatch: fetch serves wrong bytes → ScipSha256MismatchError +
+ *    `.tmp` and final file both cleaned up.
+ *  - Concurrent-setup serialization: two in-flight `installScipTool("clang")`
+ *    calls with the same destDir share one promise and issue exactly one
+ *    fetch call.
+ *  - Unsupported platform surfaces a clean error (no fetch).
+ *  - Placeholder-hash refusal: default pins throw `PlaceholderHashError`
+ *    unless `allowPlaceholder: true`.
+ *  - `scip-dotnet` dotnet-tool branch: missing dotnet throws
+ *    `DotnetSdkMissingError`; SDK >= 8 returns a hint without touching the
+ *    network.
+ */
+
+import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
+import { chmod as fsChmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ReadableStream } from "node:stream/web";
+import { describe, it } from "node:test";
+
+import {
+  DotnetSdkMissingError,
+  type FetchFn,
+  installAllScipTools,
+  installScipTool,
+  PlaceholderHashError,
+  SCIP_PINS,
+  ScipSha256MismatchError,
+  type ScipToolPin,
+  UnsupportedPlatformError,
+} from "./scip-downloader.js";
+
+function sha256(buf: Uint8Array): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+function makeResponse(status: number, body: Uint8Array | null): Response {
+  if (status === 200 && body !== null) {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller): void {
+        controller.enqueue(body);
+        controller.close();
+      },
+    });
+    return new Response(stream as unknown as ConstructorParameters<typeof Response>[0], {
+      status,
+    });
+  }
+  return new Response(null, { status });
+}
+
+function makeFetchWith(bodies: Map<string, Uint8Array>): { fetch: FetchFn; calls: string[] } {
+  const calls: string[] = [];
+  const fetchImpl: FetchFn = async (input): Promise<Response> => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as unknown as { url: string }).url;
+    calls.push(url);
+    const body = bodies.get(url);
+    if (body === undefined) return makeResponse(404, null);
+    return makeResponse(200, body);
+  };
+  return { fetch: fetchImpl, calls };
+}
+
+/**
+ * Temporarily overwrite one tool's pin. Because SCIP_PINS is `Readonly`, we
+ * cast to a mutable shape for the test and restore on completion.
+ */
+function withOverridePin<T>(
+  tool: ScipToolPin["tool"],
+  replacement: ScipToolPin,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const original = SCIP_PINS[tool];
+  const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
+  mutable[tool] = replacement;
+  return fn().finally(() => {
+    mutable[tool] = original;
+  });
+}
+
+const LINUX_X64 = { os: "linux", arch: "x64" } as const;
+
+describe("installScipTool", () => {
+  it("downloads a pinned binary, verifies SHA256, chmods +x, and atomically renames", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-happy-"));
+    try {
+      const body = new TextEncoder().encode("#!/usr/bin/env scip-clang\n");
+      const url = "https://example.test/scip-clang-linux";
+      const replacement: ScipToolPin = {
+        tool: "clang",
+        version: "9.9.9",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-clang",
+        platforms: [{ os: "linux", arch: "x64", url, sha256: sha256(body) }],
+      };
+      const { fetch, calls } = makeFetchWith(new Map([[url, body]]));
+
+      const result = await withOverridePin("clang", replacement, () =>
+        installScipTool("clang", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64,
+        }),
+      );
+
+      assert.equal(result.installed, true);
+      assert.equal(result.skipped, false);
+      assert.equal(result.version, "9.9.9");
+      assert.equal(result.path, join(dir, "scip-clang"));
+      assert.equal(calls.length, 1);
+
+      const written = await readFile(result.path);
+      assert.deepEqual(new Uint8Array(written), body);
+      // chmod +x → mode includes user-execute bit.
+      const st = await stat(result.path);
+      assert.equal((st.mode & 0o100) !== 0, true, "owner-execute bit should be set");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is idempotent — a second call with matching SHA256 skips and makes no fetch", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-idem-"));
+    try {
+      const body = new TextEncoder().encode("scip-clang-bytes");
+      const url = "https://example.test/scip-clang-linux";
+      const replacement: ScipToolPin = {
+        tool: "clang",
+        version: "9.9.9",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-clang",
+        platforms: [{ os: "linux", arch: "x64", url, sha256: sha256(body) }],
+      };
+      const { fetch, calls } = makeFetchWith(new Map([[url, body]]));
+      await withOverridePin("clang", replacement, async () => {
+        const first = await installScipTool("clang", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64,
+        });
+        assert.equal(first.installed, true);
+        const second = await installScipTool("clang", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64,
+        });
+        assert.equal(second.installed, false);
+        assert.equal(second.skipped, true);
+      });
+      assert.equal(calls.length, 1, "second install should not fetch");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-downloads when the on-disk file's SHA256 drifts from the pin", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-drift-"));
+    try {
+      const body = new TextEncoder().encode("correct-bytes");
+      const url = "https://example.test/scip-clang-linux";
+      const replacement: ScipToolPin = {
+        tool: "clang",
+        version: "9.9.9",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-clang",
+        platforms: [{ os: "linux", arch: "x64", url, sha256: sha256(body) }],
+      };
+      const { fetch, calls } = makeFetchWith(new Map([[url, body]]));
+      await withOverridePin("clang", replacement, async () => {
+        // Pre-populate with the wrong bytes — mode 0o644 to prove we write
+        // and chmod during the install.
+        const target = join(dir, "scip-clang");
+        await rm(target, { force: true });
+        // Use low-level writeFile to seed
+        const { writeFile } = await import("node:fs/promises");
+        await writeFile(target, new TextEncoder().encode("stale-bytes"));
+        await fsChmod(target, 0o644);
+
+        const result = await installScipTool("clang", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64,
+        });
+        assert.equal(result.installed, true, "drifted hash should trigger re-download");
+        assert.equal(calls.length, 1);
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a pin mismatch, cleans up tmp, and surfaces expected/actual", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-mismatch-"));
+    try {
+      const served = new TextEncoder().encode("malicious-or-stale-bytes");
+      const expected = sha256(new TextEncoder().encode("what-we-wanted"));
+      const url = "https://example.test/scip-clang-linux";
+      const replacement: ScipToolPin = {
+        tool: "clang",
+        version: "9.9.9",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-clang",
+        platforms: [{ os: "linux", arch: "x64", url, sha256: expected }],
+      };
+      const { fetch } = makeFetchWith(new Map([[url, served]]));
+
+      await withOverridePin("clang", replacement, async () => {
+        await assert.rejects(
+          () =>
+            installScipTool("clang", {
+              destDir: dir,
+              fetchImpl: fetch,
+              platform: LINUX_X64,
+            }),
+          (err: unknown) => {
+            assert.ok(err instanceof ScipSha256MismatchError);
+            const e = err as ScipSha256MismatchError;
+            assert.equal(e.tool, "clang");
+            assert.equal(e.expected, expected);
+            assert.equal(e.actual, sha256(served));
+            return true;
+          },
+        );
+      });
+
+      // Neither `.tmp` nor the final binary should exist.
+      await assert.rejects(() => stat(join(dir, "scip-clang.tmp")), { code: "ENOENT" });
+      await assert.rejects(() => stat(join(dir, "scip-clang")), { code: "ENOENT" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes concurrent installs of the same tool into a single fetch", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-concurrent-"));
+    try {
+      const body = new TextEncoder().encode("concurrent-install-body");
+      const url = "https://example.test/scip-clang-linux";
+      const replacement: ScipToolPin = {
+        tool: "clang",
+        version: "9.9.9",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-clang",
+        platforms: [{ os: "linux", arch: "x64", url, sha256: sha256(body) }],
+      };
+      const { fetch, calls } = makeFetchWith(new Map([[url, body]]));
+      await withOverridePin("clang", replacement, async () => {
+        const [a, b, c] = await Promise.all([
+          installScipTool("clang", { destDir: dir, fetchImpl: fetch, platform: LINUX_X64 }),
+          installScipTool("clang", { destDir: dir, fetchImpl: fetch, platform: LINUX_X64 }),
+          installScipTool("clang", { destDir: dir, fetchImpl: fetch, platform: LINUX_X64 }),
+        ]);
+        assert.equal(a.installed, true);
+        assert.equal(b.installed, true);
+        assert.equal(c.installed, true);
+        // All three return the same result because they share one in-flight
+        // promise — but we only assert on the fetch count, which is the
+        // load-bearing invariant.
+      });
+      assert.equal(calls.length, 1, "three concurrent calls should share one fetch");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws UnsupportedPlatformError when no pin matches the detected platform", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-unsupported-"));
+    try {
+      const { fetch, calls } = makeFetchWith(new Map());
+      // Stub a pin with zero platforms → any platform lookup fails.
+      const replacement: ScipToolPin = {
+        ...SCIP_PINS.clang,
+        placeholder: false,
+        platforms: [],
+      };
+      await withOverridePin("clang", replacement, () =>
+        assert.rejects(
+          () =>
+            installScipTool("clang", {
+              destDir: dir,
+              fetchImpl: fetch,
+              platform: LINUX_X64,
+            }),
+          (err: unknown) => err instanceof UnsupportedPlatformError,
+        ),
+      );
+      assert.equal(calls.length, 0, "unsupported-platform path must not fetch");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to run against a placeholder-hash pin unless allowPlaceholder=true", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-placeholder-"));
+    try {
+      // Default SCIP_PINS.clang ships with placeholder: true in AC-M4-0.
+      await assert.rejects(
+        () =>
+          installScipTool("clang", {
+            destDir: dir,
+            fetchImpl: (async () => new Response(null, { status: 200 })) as FetchFn,
+            platform: LINUX_X64,
+          }),
+        (err: unknown) => err instanceof PlaceholderHashError,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  describe("scip-dotnet (dotnet-tool installer)", () => {
+    it("throws DotnetSdkMissingError when `dotnet --version` returns undefined", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "och-scip-dotnet-missing-"));
+      try {
+        await assert.rejects(
+          () =>
+            installScipTool("dotnet", {
+              destDir: dir,
+              dotnetProbe: async () => undefined,
+            }),
+          (err: unknown) => {
+            assert.ok(err instanceof DotnetSdkMissingError);
+            const e = err as DotnetSdkMissingError;
+            assert.equal(e.detectedVersion, undefined);
+            return true;
+          },
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("throws DotnetSdkMissingError when the SDK is older than minDotnetMajor", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "och-scip-dotnet-old-"));
+      try {
+        await assert.rejects(
+          () =>
+            installScipTool("dotnet", {
+              destDir: dir,
+              dotnetProbe: async () => "6.0.420",
+            }),
+          (err: unknown) => err instanceof DotnetSdkMissingError,
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("returns a `dotnet tool install` hint when SDK >= 8 is on PATH", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "och-scip-dotnet-ok-"));
+      try {
+        const result = await installScipTool("dotnet", {
+          destDir: dir,
+          dotnetProbe: async () => "8.0.100",
+        });
+        assert.equal(result.installed, false);
+        assert.equal(result.skipped, true);
+        assert.equal(result.tool, "dotnet");
+        assert.ok(result.dotnetToolHint?.includes("dotnet tool install --global scip-dotnet"));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+});
+
+describe("installAllScipTools", () => {
+  it("runs every tool in order and returns a per-tool result or error", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-all-"));
+    try {
+      // Replace clang/ruby/kotlin with non-placeholder stubs that serve
+      // fresh bodies; keep dotnet on the dotnet-tool branch with a known
+      // probe result so it surfaces its hint.
+      const mkStub = (tool: "clang" | "ruby" | "kotlin", body: Uint8Array): ScipToolPin => ({
+        tool,
+        version: "1.2.3",
+        installerKind: "download",
+        placeholder: false,
+        binName: `scip-${tool}`,
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: `https://example.test/${tool}`,
+            sha256: sha256(body),
+          },
+        ],
+      });
+
+      const clangBody = new TextEncoder().encode("clang-bytes");
+      const rubyBody = new TextEncoder().encode("ruby-bytes");
+      const kotlinBody = new TextEncoder().encode("kotlin-bytes");
+
+      const { fetch } = makeFetchWith(
+        new Map([
+          ["https://example.test/clang", clangBody],
+          ["https://example.test/ruby", rubyBody],
+          ["https://example.test/kotlin", kotlinBody],
+        ]),
+      );
+
+      const originals = {
+        clang: SCIP_PINS.clang,
+        ruby: SCIP_PINS.ruby,
+        kotlin: SCIP_PINS.kotlin,
+      };
+      const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
+      mutable.clang = mkStub("clang", clangBody);
+      mutable.ruby = mkStub("ruby", rubyBody);
+      mutable.kotlin = mkStub("kotlin", kotlinBody);
+
+      try {
+        const results = await installAllScipTools({
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64,
+          dotnetProbe: async () => "8.0.100",
+        });
+
+        assert.equal(results.length, 4);
+        // Clang, ruby, dotnet, kotlin — order from SCIP_TOOL_ORDER.
+        const tools = results.map((r) => ("tool" in r ? r.tool : "error"));
+        assert.deepEqual(tools, ["clang", "ruby", "dotnet", "kotlin"]);
+      } finally {
+        mutable.clang = originals.clang;
+        mutable.ruby = originals.ruby;
+        mutable.kotlin = originals.kotlin;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
