@@ -39,11 +39,19 @@ BANNED_REGEX=(
 )
 
 # Pathspec exclusions — files allowed to legitimately mention banned names.
+#
+# `docs/adr/` is excluded because ADRs document architectural history and must
+# be able to name vendored libraries and their upstream provenance in prose
+# (e.g. an ADR recording the graph-db backend swap needs to cite the product
+# name and its pre-fork lineage for future maintainers). The per-literal
+# allowlist below still covers source / config manifests; this exclusion is
+# scoped to architectural-history prose under `docs/adr/` only.
 EXCLUDES=(
   ':(exclude)scripts/check-banned-strings.sh'
   ':(exclude)vendor'
   ':(exclude)pnpm-lock.yaml'
   ':(exclude).erpaval'
+  ':(exclude)docs/adr'
 )
 
 fail=0
