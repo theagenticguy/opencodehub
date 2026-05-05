@@ -312,6 +312,8 @@ function scipLangToOchLang(k: IndexerKind): string {
       return "ruby";
     case "dotnet":
       return "csharp";
+    case "kotlin":
+      return "kotlin";
   }
 }
 
@@ -344,6 +346,8 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
       return "scip-ruby";
     case "dotnet":
       return "scip-dotnet";
+    case "kotlin":
+      return "scip-kotlin";
   }
 }
 
