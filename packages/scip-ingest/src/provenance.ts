@@ -15,7 +15,8 @@ export type ScipIndexerName =
   | "scip-java"
   | "scip-clang"
   | "scip-ruby"
-  | "scip-dotnet";
+  | "scip-dotnet"
+  | "scip-kotlin";
 
 export function scipProvenanceReason(indexer: ScipIndexerName, version: string): string {
   const v = version.trim() || "unknown";

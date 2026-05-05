@@ -11,8 +11,9 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 export type IndexerKind =
@@ -24,7 +25,8 @@ export type IndexerKind =
   | "clang"
   | "cobol-proleap"
   | "ruby"
-  | "dotnet";
+  | "dotnet"
+  | "kotlin";
 
 /** File extensions that signal a C/C++ project. */
 const CLANG_EXTENSIONS: readonly string[] = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"];
@@ -100,6 +102,14 @@ export interface IndexerResult {
  * `allowedBuildScripts.includes("proleap")`, which the CLI surface only
  * sets in response to an explicit user opt-in (spec W-M4-1). Callers
  * that opted in append `"cobol-proleap"` to the detected set themselves.
+ *
+ * Kotlin note (AC-M4-4): before scip-kotlin existed as a standalone SCIP
+ * adapter, Kotlin projects rode on the `java` adapter + the tree-sitter-kotlin
+ * grammar. With scip-kotlin v0.6.0 promoted in, we detect `.kt`/`.kts` source
+ * files directly and emit `"kotlin"` as its own candidate. Pure-Kotlin
+ * projects (Kotlin sources, no Java sources, no `pom.xml` / `build.sbt` /
+ * plain `build.gradle`) drop `"java"` so the project doesn't double-emit SCIP
+ * via both adapters. Mixed Kotlin+Java projects keep both.
  */
 export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   const exists = (rel: string) => existsSync(join(projectRoot, rel));
@@ -110,13 +120,32 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   }
   if (exists("go.mod")) langs.push("go");
   if (exists("Cargo.toml")) langs.push("rust");
-  if (
+
+  const hasJvmManifest =
     exists("pom.xml") ||
     exists("build.gradle") ||
     exists("build.gradle.kts") ||
-    exists("build.sbt")
-  ) {
-    langs.push("java");
+    exists("build.sbt");
+
+  // Shallow scan for `.kt` / `.kts` / `.java` source files. We don't walk the
+  // whole tree — the JVM manifest already told us it's a JVM project; the
+  // file scan is only disambiguating Kotlin-vs-Java within it.
+  const { hasKotlinSource, hasJavaSource } = scanJvmSources(projectRoot);
+
+  const kotlinDetected = hasKotlinSource || (hasJvmManifest && exists("build.gradle.kts"));
+  const javaDetected = hasJvmManifest || hasJavaSource;
+
+  if (kotlinDetected) langs.push("kotlin");
+  if (javaDetected) {
+    // Pure-Kotlin: drop `java` so we don't double-emit SCIP. A
+    // `build.gradle.kts` alone is Kotlin DSL, not Java source evidence.
+    const pureKotlin =
+      kotlinDetected &&
+      !hasJavaSource &&
+      !exists("pom.xml") &&
+      !exists("build.sbt") &&
+      !exists("build.gradle");
+    if (!pureKotlin) langs.push("java");
   }
   // C/C++ has no canonical manifest — the authoritative signal is that
   // `scip-clang` consumes a JSON compilation database. We surface "clang"
@@ -245,6 +274,63 @@ export function defaultCobolProleapPaths(home: string | undefined = process.env[
   };
 }
 
+/**
+ * Bounded shallow scan for `.kt` / `.kts` / `.java` files. Descends up to 4
+ * directories deep under `projectRoot`, skipping conventional noise dirs
+ * (`node_modules`, `target`, `build`, `dist`, `out`, dotfiles). Stops early
+ * once both questions are answered.
+ */
+function scanJvmSources(projectRoot: string): {
+  hasKotlinSource: boolean;
+  hasJavaSource: boolean;
+} {
+  let hasKotlinSource = false;
+  let hasJavaSource = false;
+
+  const scanDir = (dir: string, depth: number): void => {
+    if (hasKotlinSource && hasJavaSource) return;
+    if (depth > 4) return;
+    let names: string[];
+    try {
+      names = readdirSync(dir) as string[];
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (hasKotlinSource && hasJavaSource) return;
+      if (
+        name === "node_modules" ||
+        name === "target" ||
+        name === "build" ||
+        name === "out" ||
+        name === "dist" ||
+        name.startsWith(".")
+      ) {
+        continue;
+      }
+      const full = join(dir, name);
+      let isDir = false;
+      try {
+        isDir = statSync(full).isDirectory();
+      } catch {
+        continue;
+      }
+      if (isDir) {
+        scanDir(full, depth + 1);
+        continue;
+      }
+      if (name.endsWith(".kt") || name.endsWith(".kts")) {
+        hasKotlinSource = true;
+      } else if (name.endsWith(".java")) {
+        hasJavaSource = true;
+      }
+    }
+  };
+
+  scanDir(projectRoot, 0);
+  return { hasKotlinSource, hasJavaSource };
+}
+
 export async function runIndexer(
   kind: IndexerKind,
   opts: RunIndexerOptions,
@@ -293,6 +379,28 @@ export async function runIndexer(
       skipReason: plan.skipReason,
       durationMs: Date.now() - start,
     };
+  }
+
+  // Kotlin version preflight — scip-kotlin v0.6.0 requires Kotlin 2.2+.
+  // We probe `kotlinc -version` up-front and short-circuit with a clear
+  // skip-reason when the toolchain is too old. The probe failure ("kotlinc
+  // not on PATH") is surfaced in the normal indexOutcome.missing branch
+  // below, so we don't duplicate handling here — we only add the "too old"
+  // branch.
+  if (kind === "kotlin") {
+    const detected = await probeVersion(plan.versionCmd, plan.versionArgs, opts.projectRoot);
+    const check = checkKotlinMinVersion(detected);
+    if (!check.ok) {
+      return {
+        kind,
+        scipPath,
+        tool: plan.tool,
+        version: detected,
+        skipped: true,
+        skipReason: check.reason,
+        durationMs: Date.now() - start,
+      };
+    }
   }
 
   const versionTask = probeVersion(plan.versionCmd, plan.versionArgs, opts.projectRoot);
@@ -521,6 +629,66 @@ export function buildCommand(
         versionArgs: ["--version"],
         tool: "scip-dotnet",
       };
+    case "kotlin": {
+      // scip-kotlin v0.6.0 is a kotlinc compiler plugin (JAR), NOT a
+      // standalone CLI. The emission flow is two-stage:
+      //   1. `kotlinc -Xplugin=<jar> -P plugin:semanticdb-kotlinc:sourceroot=<cwd>
+      //         -P plugin:semanticdb-kotlinc:targetroot=<semanticdbDir> <cwd>`
+      //      → emits `*.semanticdb` files under `<semanticdbDir>/META-INF/semanticdb/`.
+      //   2. `scip-java index-semanticdb --output <scipPath> <semanticdbDir>`
+      //      converts the SemanticDB tree into a single `.scip` index.
+      //
+      // The plugin JAR is installed by `codehub setup --scip=kotlin` under
+      // `~/.codehub/bin/semanticdb-kotlinc-0.6.0.jar` (see
+      // `packages/cli/src/scip-pins.ts`). Preconditions surfaced at runtime:
+      //   - Kotlin 2.2+ is REQUIRED by scip-kotlin v0.6.0 (upstream changelog).
+      //     `versionCmd=kotlinc -version` feeds `probeVersion` the Kotlin
+      //     version string, and downstream consumers MAY assert >= 2.2.
+      //   - `scip-java` must also be on PATH for the SemanticDB → SCIP step.
+      //
+      // Gated behind `allowBuildScripts` for the same reason as `java`: the
+      // plugin runs the Kotlin compiler end-to-end, which may trigger build
+      // scripts and download dependencies.
+      if (!opts.allowBuildScripts) {
+        return {
+          cmd: "kotlinc",
+          args: [],
+          cwd,
+          versionCmd: "kotlinc",
+          versionArgs: ["-version"],
+          tool: "scip-kotlin",
+          skipReason:
+            "kotlin indexer compiles the project via kotlinc; pass allowBuildScripts=true to opt in",
+        };
+      }
+      const jarPath = resolveScipKotlinJar(opts.envOverlay);
+      const semanticdbDir = join(resolve(opts.outputDir), "kotlin-semanticdb");
+      // Chain through `sh -c` to keep `runIndexer`'s one-child-process shape.
+      // Composite exit code propagates cleanly via `&&`.
+      const kotlincInvocation = [
+        "kotlinc",
+        `-Xplugin=${shellQuote(jarPath)}`,
+        `-P plugin:semanticdb-kotlinc:sourceroot=${shellQuote(cwd)}`,
+        `-P plugin:semanticdb-kotlinc:targetroot=${shellQuote(semanticdbDir)}`,
+        shellQuote(cwd),
+      ].join(" ");
+      const convertInvocation = [
+        "scip-java",
+        "index-semanticdb",
+        "--output",
+        shellQuote(scipPath),
+        shellQuote(semanticdbDir),
+      ].join(" ");
+      const mkSemanticdb = `mkdir -p ${shellQuote(semanticdbDir)}`;
+      return {
+        cmd: "sh",
+        args: ["-c", `${mkSemanticdb} && ${kotlincInvocation} && ${convertInvocation}`],
+        cwd,
+        versionCmd: "kotlinc",
+        versionArgs: ["-version"],
+        tool: "scip-kotlin",
+      };
+    }
   }
 }
 
@@ -619,6 +787,87 @@ function parseDotnetMajor(version: string | undefined): number | undefined {
   if (match === null) return undefined;
   const parsed = Number.parseInt(match[1] ?? "", 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Resolve the installed `semanticdb-kotlinc-<version>.jar`. Honors a
+ * `SCIP_KOTLIN_JAR` env overlay (for tests and power-user overrides); falls
+ * back to the conventional install location
+ * `~/.codehub/bin/semanticdb-kotlinc-0.6.0.jar` (matches the `binName` in
+ * `scip-pins.ts`).
+ */
+function resolveScipKotlinJar(envOverlay: NodeJS.ProcessEnv | undefined): string {
+  const override = envOverlay?.["SCIP_KOTLIN_JAR"] ?? process.env["SCIP_KOTLIN_JAR"];
+  if (override !== undefined && override.length > 0) return override;
+  return join(homedir(), ".codehub", "bin", "semanticdb-kotlinc-0.6.0.jar");
+}
+
+/** Minimal POSIX single-quote shell quoting. Safe for paths + args. */
+function shellQuote(arg: string): string {
+  if (arg === "") return "''";
+  if (/^[A-Za-z0-9_./:@=+,-]+$/.test(arg)) return arg;
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * scip-kotlin v0.6.0 requires Kotlin 2.2 or newer on PATH (upstream changelog:
+ * "This release sets the minimal supported version of Kotlin to 2.2"). Older
+ * kotlinc versions will fail the kotlinc invocation with plugin-compatibility
+ * errors, so we preflight at `runIndexer` entry and surface a clean
+ * `skipReason` instead.
+ */
+export const KOTLIN_MIN_MAJOR = 2;
+export const KOTLIN_MIN_MINOR = 2;
+
+/**
+ * Validate a probed `kotlinc -version` string against `KOTLIN_MIN_*`. Returns
+ * `{ ok: true }` when the version is new enough, or `{ ok: false, reason }`
+ * when kotlinc is on PATH but too old. An unknown version string is treated
+ * as "too old" — we refuse to run the indexer against an unverifiable
+ * toolchain so users get a visible skip instead of a silent fail-later.
+ */
+export function checkKotlinMinVersion(
+  versionString: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (versionString === "" || versionString === "unknown") {
+    return {
+      ok: false,
+      reason:
+        `kotlinc version could not be parsed (probed: ${versionString || "<empty>"}); ` +
+        `scip-kotlin v0.6.0 requires Kotlin ${KOTLIN_MIN_MAJOR}.${KOTLIN_MIN_MINOR}+ on PATH`,
+    };
+  }
+  // `kotlinc -version` prints `info: kotlinc-jvm 2.2.0 (JRE 17.0.11)` to stderr.
+  // `probeVersion` pre-filters this to the first `\d+.\d+...` token, so we
+  // work with e.g. `2.2.0` or `1.9.24`. We still tolerate fuller strings.
+  const m = versionString.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (m === null) {
+    return {
+      ok: false,
+      reason:
+        `kotlinc version could not be parsed (probed: ${versionString}); ` +
+        `scip-kotlin v0.6.0 requires Kotlin ${KOTLIN_MIN_MAJOR}.${KOTLIN_MIN_MINOR}+ on PATH`,
+    };
+  }
+  const major = Number.parseInt(m[1] ?? "", 10);
+  const minor = Number.parseInt(m[2] ?? "", 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) {
+    return {
+      ok: false,
+      reason: `kotlinc reported non-numeric version ${versionString}; expected ${KOTLIN_MIN_MAJOR}.${KOTLIN_MIN_MINOR}+`,
+    };
+  }
+  const tooOld =
+    major < KOTLIN_MIN_MAJOR || (major === KOTLIN_MIN_MAJOR && minor < KOTLIN_MIN_MINOR);
+  if (tooOld) {
+    return {
+      ok: false,
+      reason:
+        `kotlinc ${major}.${minor} is too old for scip-kotlin v0.6.0; ` +
+        `install Kotlin ${KOTLIN_MIN_MAJOR}.${KOTLIN_MIN_MINOR}+ and retry`,
+    };
+  }
+  return { ok: true };
 }
 
 type CommandOutcome =

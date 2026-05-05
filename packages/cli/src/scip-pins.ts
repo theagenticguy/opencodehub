@@ -11,13 +11,18 @@
  *                    digest, and (optionally) the binary's executable name on
  *                    disk.
  *
- * AC-M4-0 ships PLACEHOLDER SHA256 hashes (64 zeros) for the standalone
- * binaries. The real digests get computed and substituted when the
- * corresponding adapter (AC-M4-1..4) first runs its install smoke test against
- * the upstream release asset. The `placeholder: true` flag is the canonical
- * "do NOT trust this hash at runtime" marker — `installScipTool()` refuses to
- * run when the selected pin has `placeholder: true` unless the caller sets
- * `opts.allowPlaceholder` (reserved for adapter first-install smoke tests).
+ * AC-M4-0 shipped PLACEHOLDER SHA256 hashes (64 zeros) for the standalone
+ * binaries. Each AC-M4-1..4 adapter PR computes and substitutes the real
+ * digest against the upstream release asset. The `placeholder: true` flag is
+ * the canonical "do NOT trust this hash at runtime" marker — `installScipTool()`
+ * refuses to run when the selected pin has `placeholder: true` unless the
+ * caller sets `opts.allowPlaceholder` (reserved for adapter first-install
+ * smoke tests).
+ *
+ * As of AC-M4-4 (2026-05-05), `scip-kotlin` is the first pin promoted to real
+ * digests: upstream ships the plugin as a Maven Central JAR
+ * (`com.sourcegraph:semanticdb-kotlinc:0.6.0`) whose SHA256 is stable and
+ * publicly verifiable — no first-install smoke test needed.
  *
  * `scip-dotnet` is the odd one out: upstream does NOT ship a self-contained
  * release binary, so its install path goes through
@@ -209,52 +214,40 @@ const SCIP_DOTNET_PIN: ScipToolPin = {
 };
 
 /**
- * scip-kotlin v0.6.0 — released 2024-09-08.
- * Standalone binary under
- * `github.com/sourcegraph/scip-kotlin/releases/tag/v0.6.0`. Kotlin is a
- * promotion from "rides on scip-java" — v0.6.0 is the first release that is
- * distinct from scip-java and must be downloaded separately.
+ * scip-kotlin v0.6.0 — released 2025-09-08, "Kotlin 2.2" release.
+ * Published as a **Maven Central JAR** (`com.sourcegraph:semanticdb-kotlinc:0.6.0`),
+ * NOT as GitHub release binaries. The GitHub release
+ * (`github.com/sourcegraph/scip-kotlin/releases/tag/v0.6.0`) ships zero assets.
  *
- * Upstream publishes a single `scip-kotlin` JVM-based launcher (platform
- * independent but requires JRE 11+ on PATH). We still record per-platform
- * entries so the downloader's platform-detection path is uniform — each
- * platform just points at the same URL / SHA256.
+ * scip-kotlin is a **kotlinc compiler plugin** (not a self-contained CLI):
+ * the user invokes `kotlinc -Xplugin=<jar> ...` to emit SemanticDB files,
+ * then `scip-java index-semanticdb <targetroot>` converts the SemanticDB
+ * output into a `.scip` index. v0.6.0 requires Kotlin 2.2+ on PATH.
+ *
+ * The plugin is a JVM artifact — the same JAR works on every platform. We
+ * record four platform entries all pointing at the same Maven Central URL +
+ * SHA256 so the downloader's platform-detection path stays uniform across
+ * every SCIP tool (see `resolvePlatformPin` in `scip-downloader.ts`).
+ * `binName` is the JAR filename inside `~/.codehub/bin/` — the adapter
+ * references it by absolute path when invoking `kotlinc -Xplugin=<path>`.
+ *
+ * SHA256 computed against Maven Central at implementation time (AC-M4-4).
  */
+const SCIP_KOTLIN_JAR_SHA256 = "bd6abb49d95a909c48dbf1bc2ce27f5ebcd871952f2f5683edb72a806db9b8ba";
+const SCIP_KOTLIN_JAR_URL =
+  "https://repo1.maven.org/maven2/com/sourcegraph/semanticdb-kotlinc/0.6.0/semanticdb-kotlinc-0.6.0.jar";
+
 const SCIP_KOTLIN_PIN: ScipToolPin = {
   tool: "kotlin",
   version: "0.6.0",
   installerKind: "download",
-  placeholder: true,
-  binName: "scip-kotlin",
+  placeholder: false,
+  binName: "semanticdb-kotlinc-0.6.0.jar",
   platforms: [
-    {
-      os: "linux",
-      arch: "x64",
-      url: "https://github.com/sourcegraph/scip-kotlin/releases/download/v0.6.0/scip-kotlin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
-    {
-      os: "linux",
-      arch: "arm64",
-      url: "https://github.com/sourcegraph/scip-kotlin/releases/download/v0.6.0/scip-kotlin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
-    {
-      os: "darwin",
-      arch: "x64",
-      url: "https://github.com/sourcegraph/scip-kotlin/releases/download/v0.6.0/scip-kotlin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
-    {
-      os: "darwin",
-      arch: "arm64",
-      url: "https://github.com/sourcegraph/scip-kotlin/releases/download/v0.6.0/scip-kotlin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
+    { os: "linux", arch: "x64", url: SCIP_KOTLIN_JAR_URL, sha256: SCIP_KOTLIN_JAR_SHA256 },
+    { os: "linux", arch: "arm64", url: SCIP_KOTLIN_JAR_URL, sha256: SCIP_KOTLIN_JAR_SHA256 },
+    { os: "darwin", arch: "x64", url: SCIP_KOTLIN_JAR_URL, sha256: SCIP_KOTLIN_JAR_SHA256 },
+    { os: "darwin", arch: "arm64", url: SCIP_KOTLIN_JAR_URL, sha256: SCIP_KOTLIN_JAR_SHA256 },
   ],
 };
 

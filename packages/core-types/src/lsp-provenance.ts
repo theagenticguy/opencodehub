@@ -18,6 +18,7 @@ export const SCIP_PROVENANCE_PREFIXES: readonly string[] = [
   "scip:scip-clang@",
   "scip:scip-ruby@",
   "scip:scip-dotnet@",
+  "scip:scip-kotlin@",
 ];
 
 export const PROVENANCE_PREFIXES: readonly string[] = SCIP_PROVENANCE_PREFIXES;
