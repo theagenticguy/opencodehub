@@ -15,6 +15,7 @@
  * network, no LLM, no subprocess.
  */
 
+export type { Evidence, FrameworkDetection } from "@opencodehub/core-types";
 export {
   FRAMEWORK_CATALOG,
   type FrameworkEcosystem,

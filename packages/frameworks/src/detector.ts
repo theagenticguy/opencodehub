@@ -24,7 +24,7 @@
  * Determinism: output is sorted alphabetically by `name`.
  */
 
-import type { FrameworkDetection } from "@opencodehub/core-types";
+import type { Evidence, FrameworkDetection } from "@opencodehub/core-types";
 import {
   FRAMEWORK_CATALOG,
   type FrameworkEcosystem,
@@ -109,12 +109,19 @@ export function detectFrameworksStructured(
 // ---------------------------------------------------------------------------
 
 interface RuleHit {
-  /** Signals that corroborated this framework (sorted, deduped). */
-  readonly signals: readonly string[];
-  /** Whether a manifest-level (tier D) signal fired. */
+  /**
+   * Structured evidence entries (stages 1+4) that corroborated this
+   * framework. Deduped by (stage, source, detail). Sorted deterministically.
+   */
+  readonly evidence: readonly Evidence[];
+  /** Whether a manifest-level (stage 1, tier D) signal fired. */
   readonly hasManifestHit: boolean;
-  /** Whether a layout/heuristic (tier H) signal fired. */
+  /** Whether a layout/heuristic (stage 4, tier H) signal fired. */
   readonly hasFileHit: boolean;
+}
+
+function evidenceKey(e: Evidence): string {
+  return `${e.stage}\x00${e.source}\x00${e.detail}`;
 }
 
 function evaluateRule(
@@ -122,44 +129,57 @@ function evaluateRule(
   input: FrameworkDetectorInput,
   manifestJson: ReadonlyMap<string, unknown>,
 ): RuleHit | null {
-  const signals = new Set<string>();
+  const evidenceSeen = new Map<string, Evidence>();
   let hasManifestHit = false;
   let hasFileHit = false;
 
-  // file markers — exact path match
+  const push = (e: Evidence): void => {
+    const key = evidenceKey(e);
+    if (!evidenceSeen.has(key)) evidenceSeen.set(key, e);
+  };
+
+  // Stage 4 — file markers (exact path match).
   if (rule.fileMarkers) {
     for (const marker of rule.fileMarkers) {
       if (input.relPaths.has(marker)) {
-        signals.add(`file:${marker}`);
+        push({ stage: 4, source: marker, detail: `file marker: ${marker}` });
         hasFileHit = true;
       }
     }
   }
-  // file regex markers
+  // Stage 4 — file regex markers.
   if (rule.fileRegexMarkers) {
     for (const rx of rule.fileRegexMarkers) {
       for (const p of input.relPaths) {
         if (rx.test(p)) {
-          signals.add(`file-regex:${rx.source}`);
+          push({ stage: 4, source: p, detail: `file regex: ${rx.source}` });
           hasFileHit = true;
           break;
         }
       }
     }
   }
-  // manifest-key fingerprints
+  // Stage 1 — manifest-key fingerprints.
   if (rule.manifestKeys) {
     for (const key of rule.manifestKeys) {
       if (matchManifestKey(key, manifestJson, input.manifestText)) {
-        signals.add(`manifest:${key.file}${key.path !== undefined ? `#${key.path}` : ""}`);
+        const detail =
+          key.path !== undefined
+            ? `manifest key: ${key.file}#${key.path}`
+            : `manifest present: ${key.file}`;
+        push({ stage: 1, source: key.file, detail });
         hasManifestHit = true;
       }
     }
   }
 
   if (!hasManifestHit && !hasFileHit) return null;
-  const sortedSignals = [...signals].sort();
-  return { signals: sortedSignals, hasManifestHit, hasFileHit };
+  const sorted = [...evidenceSeen.values()].sort((a, b) => {
+    if (a.stage !== b.stage) return a.stage - b.stage;
+    if (a.source !== b.source) return a.source < b.source ? -1 : 1;
+    return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
+  });
+  return { evidence: sorted, hasManifestHit, hasFileHit };
 }
 
 function matchManifestKey(
@@ -192,7 +212,7 @@ function buildDetection(
     name: rule.name,
     category: rule.category,
     confidence,
-    signals: hit.signals,
+    evidence: hit.evidence,
     ...(variant !== undefined ? { variant } : {}),
     ...(version !== undefined ? { version } : {}),
     ...(rule.parent !== undefined ? { parentName: rule.parent } : {}),

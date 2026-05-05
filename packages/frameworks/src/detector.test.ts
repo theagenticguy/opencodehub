@@ -696,6 +696,40 @@ describe("framework detection — malformed manifest", () => {
 // Stage 2 — lockfile-pinned versions override manifest-declared ranges
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Shape — evidence[] replaces signals[] (post-commit-6)
+// ---------------------------------------------------------------------------
+
+describe("framework detection — evidence shape", () => {
+  it("emits structured evidence entries with {stage, source, detail}", () => {
+    const input = mkInput(
+      ["package.json", "next.config.mjs", "app/page.tsx"],
+      [["package.json", JSON.stringify({ dependencies: { next: "15.0.0", react: "18.3.0" } })]],
+      ["typescript"],
+    );
+    const out = detectFrameworksStructured(input);
+    const next = findByName(out, "nextjs");
+    assert.ok(next, "nextjs detected");
+    assert.ok(Array.isArray(next?.evidence), "evidence is an array");
+    assert.ok((next?.evidence.length ?? 0) > 0, "at least one evidence entry");
+    for (const e of next?.evidence ?? []) {
+      assert.ok([1, 2, 3, 4, 5].includes(e.stage), `stage ${e.stage} is valid`);
+      assert.ok(typeof e.source === "string" && e.source.length > 0, "source is non-empty string");
+      assert.ok(typeof e.detail === "string" && e.detail.length > 0, "detail is non-empty string");
+    }
+  });
+
+  it("evidence is sorted deterministically by (stage, source, detail)", () => {
+    const input = mkInput(
+      ["package.json", "next.config.mjs", "app/page.tsx"],
+      [["package.json", JSON.stringify({ dependencies: { next: "15.0.0" } })]],
+      ["typescript"],
+    );
+    const [a, b] = [detectFrameworksStructured(input), detectFrameworksStructured(input)];
+    assert.deepEqual(a, b, "two runs produce identical shape");
+  });
+});
+
 describe("framework detection — stage 2 lockfile version override", () => {
   it("lockfile pin replaces semver range on manifest-resolved version", () => {
     const baseInput = mkInput(
