@@ -71,6 +71,10 @@ program
     "--strict-detectors",
     "Drop heuristic-only matches from the route / ORM detectors — emit edges only when the receiver's module origin was confirmed (DET-O-001)",
   )
+  .option(
+    "--allow-build-scripts <list>",
+    "Comma-separated opt-ins that enable build-script-driven indexers. Current value: `proleap` (JVM COBOL deep-parse). Unset → regex hot path only.",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
     // `--wasm-only` is honored by the parse worker via the `OCH_WASM_ONLY`
@@ -101,6 +105,7 @@ program
     }
 
     const granularity = parseGranularityCsv(opts["granularity"]);
+    const allowBuildScripts = parseAllowBuildScripts(opts["allowBuildScripts"]);
     // When --embeddings is on and the user didn't pick a worker count, default
     // to "auto" — single-threaded ONNX inference on 100k+ nodes takes ~45 min
     // vs ~6–8 min with all cores busy. Power users can still pass
@@ -129,6 +134,7 @@ program
       ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),
       skills: opts["skills"] === true,
       strictDetectors: opts["strictDetectors"] === true,
+      ...(allowBuildScripts !== undefined ? { allowBuildScripts } : {}),
     });
   });
 
@@ -192,10 +198,20 @@ program
     "--scip <tool>",
     "Install an external SCIP adapter binary (clang|ruby|dotnet|kotlin) or 'all'. SHA256-pinned; dotnet requires .NET SDK 8+ on PATH",
   )
+  .option(
+    "--cobol-proleap",
+    "Build the uwol/cobol-parser library from source (git clone + mvn install) and compile the bridge wrapper. Requires git, mvn, JDK 17+ on PATH. Installs under ~/.codehub/vendor/proleap/",
+  )
   .action(async (opts: Record<string, string | boolean | undefined>) => {
     const mod = await import("./commands/setup.js");
     if (opts["plugin"] === true) {
       await mod.runSetupPlugin({});
+      return;
+    }
+    if (opts["cobolProleap"] === true) {
+      await mod.runSetupCobolProleap({
+        force: opts["force"] === true,
+      });
       return;
     }
     if (typeof opts["scip"] === "string") {
@@ -704,6 +720,33 @@ function parseGranularityCsv(
     if (seen.has(token)) continue;
     seen.add(token);
     out.push(token as "symbol");
+  }
+  return out;
+}
+
+/**
+ * Parse the `--allow-build-scripts` CSV flag for `codehub analyze`. Today
+ * the only recognized token is `proleap` (JVM COBOL deep-parse); unknown
+ * tokens throw so a typo surfaces immediately instead of silently leaving
+ * the build-script path disabled.
+ *
+ * Returns `undefined` when the flag is not supplied so the analyze pipeline
+ * preserves its own default ("regex hot path only, no JVM").
+ */
+function parseAllowBuildScripts(raw: unknown): readonly "proleap"[] | undefined {
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  const valid = new Set(["proleap"] as const);
+  const out: "proleap"[] = [];
+  const seen = new Set<string>();
+  for (const token of splitList(raw)) {
+    if (!valid.has(token as "proleap")) {
+      throw new Error(
+        `Unknown --allow-build-scripts value: "${token}". Expected one of: ${[...valid].join(", ")}`,
+      );
+    }
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token as "proleap");
   }
   return out;
 }

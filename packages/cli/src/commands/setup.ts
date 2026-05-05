@@ -28,6 +28,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  runSetupCobolProleap,
+  type SetupCobolProleapOptions,
+  type SetupCobolProleapResult,
+} from "../cobol-proleap-setup.js";
+import {
   ALL_EDITOR_IDS,
   createClaudeCodeWriter,
   createCodexWriter,
@@ -54,6 +59,9 @@ import {
   type FetchFn as ScipFetchFn,
   type ScipTool,
 } from "../scip-downloader.js";
+
+export type { SetupCobolProleapOptions, SetupCobolProleapResult };
+export { runSetupCobolProleap };
 
 /**
  * Filesystem seam. Tests supply an in-memory implementation.

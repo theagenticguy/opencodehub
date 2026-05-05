@@ -126,6 +126,15 @@ export interface AnalyzeOptions {
    * (DET-O-001). Off by default so legacy repos keep emitting.
    */
   readonly strictDetectors?: boolean;
+  /**
+   * Opt-ins that enable build-script-driven indexers. Current surface:
+   * `"proleap"` — wakes the JVM COBOL deep-parse bridge
+   * (`@opencodehub/cobol-proleap`) provided the JAR has been installed via
+   * `codehub setup --cobol-proleap`. Unset → regex hot path only; the JVM
+   * is never spawned. The flag is a CSV-style whitelist to leave room for
+   * future opt-ins (rust `build.rs`, `gradle`, etc).
+   */
+  readonly allowBuildScripts?: readonly "proleap"[];
   /** Test hook: override the home dir used for the registry. */
   readonly home?: string;
 }
