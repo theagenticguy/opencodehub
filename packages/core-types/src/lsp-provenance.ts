@@ -15,6 +15,7 @@ export const SCIP_PROVENANCE_PREFIXES: readonly string[] = [
   "scip:scip-go@",
   "scip:rust-analyzer@",
   "scip:scip-java@",
+  "scip:scip-ruby@",
 ];
 
 export const PROVENANCE_PREFIXES: readonly string[] = SCIP_PROVENANCE_PREFIXES;

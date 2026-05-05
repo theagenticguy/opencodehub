@@ -152,43 +152,43 @@ const SCIP_CLANG_PIN: ScipToolPin = {
 };
 
 /**
- * scip-ruby v0.4.7 — Sourcegraph Ruby indexer, released 2024-11-07.
+ * scip-ruby v0.4.7 — Sourcegraph Ruby indexer, released 2025-11-07.
  * Releases: `github.com/sourcegraph/scip-ruby/releases/tag/scip-ruby-v0.4.7`.
+ *
+ * Upstream publishes self-contained executables for ONLY two platforms
+ * (per the v0.4.7 README: "we have gems and binaries available for x86_64
+ * Linux and arm64 macOS"):
+ *
+ *   - linux-x64:     `scip-ruby-x86_64-linux`
+ *   - darwin-arm64:  `scip-ruby-arm64-darwin`
+ *
+ * There are NO standalone linux-arm64 or darwin-x64 release binaries for
+ * v0.4.7. Users on those platforms fall back to the RubyGems install path
+ * (`gem install scip-ruby`), which is outside this downloader's scope.
+ * `resolvePlatformPin()` raises `UnsupportedPlatformError` on a missing
+ * `{os, arch}` — the CLI surfaces that as a clear install hint.
+ *
+ * SHA-256 digests verified against the GitHub Release API's `digest` field
+ * (2026-05-05) and independently confirmed with `curl -sL | sha256sum`.
  */
 const SCIP_RUBY_PIN: ScipToolPin = {
   tool: "ruby",
   version: "0.4.7",
   installerKind: "download",
-  placeholder: true,
+  placeholder: false,
   binName: "scip-ruby",
   platforms: [
     {
       os: "linux",
       arch: "x64",
       url: "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
-    {
-      os: "linux",
-      arch: "arm64",
-      url: "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-aarch64-linux",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
-    },
-    {
-      os: "darwin",
-      arch: "x64",
-      url: "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-darwin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
+      sha256: "a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd",
     },
     {
       os: "darwin",
       arch: "arm64",
-      url: "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-aarch64-darwin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
+      url: "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-arm64-darwin",
+      sha256: "6a2bcda64ed385f0e99e92f9c5693296dc38325e4ed5ca91cd8e4b686ba14fb1",
     },
   ],
 };

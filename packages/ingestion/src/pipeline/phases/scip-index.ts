@@ -32,7 +32,12 @@ import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GraphNode, NodeId } from "@opencodehub/core-types";
-import type { DerivedEdge, IndexerKind, IndexerResult } from "@opencodehub/scip-ingest";
+import type {
+  DerivedEdge,
+  IndexerKind,
+  IndexerResult,
+  ScipIndexerName,
+} from "@opencodehub/scip-ingest";
 import {
   buildSymbolDefIndex,
   deriveIndex,
@@ -301,22 +306,16 @@ function scipLangToOchLang(k: IndexerKind): string {
       // sources by extension. C++-specific consumers see `clang` under
       // the indexer name in provenance reasons.
       return "c";
-    default:
-      return k;
+    case "cobol-proleap":
+      return "cobol";
+    case "ruby":
+      return "ruby";
   }
 }
 
 function kindToTool(k: IndexerKind): string {
   return k === "rust" ? "rust-analyzer" : `scip-${k}`;
 }
-
-type ScipIndexerName =
-  | "scip-typescript"
-  | "scip-python"
-  | "scip-go"
-  | "rust-analyzer"
-  | "scip-java"
-  | "scip-clang";
 
 function kindToProvenance(k: IndexerKind): ScipIndexerName {
   switch (k) {
@@ -332,8 +331,15 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
       return "scip-java";
     case "clang":
       return "scip-clang";
-    default:
+    case "cobol-proleap":
+      // cobol-proleap edges don't flow through the SCIP derivation path —
+      // the in-process bridge emits CodeRelation rows directly. This switch
+      // arm exists only to keep the function exhaustive under
+      // `noFallthroughCasesInSwitch`; callers never invoke scipProvenance
+      // for the cobol-proleap kind.
       return "scip-typescript";
+    case "ruby":
+      return "scip-ruby";
   }
 }
 

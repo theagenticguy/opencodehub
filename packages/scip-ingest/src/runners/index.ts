@@ -22,7 +22,8 @@ export type IndexerKind =
   | "rust"
   | "java"
   | "clang"
-  | "cobol-proleap";
+  | "cobol-proleap"
+  | "ruby";
 
 /** File extensions that signal a C/C++ project. */
 const CLANG_EXTENSIONS: readonly string[] = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"];
@@ -104,6 +105,20 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   if (exists("compile_commands.json") || hasClangSource(projectRoot)) {
     langs.push("clang");
   }
+  // Ruby: look for the canonical Bundler / Rake manifests at the repo root.
+  // `*.gemspec` is included because gem libraries commonly ship without a
+  // Gemfile. scip-ruby itself reads `sorbet/config` at index time if present,
+  // but detection here is manifest-based so we stay consistent with the rest
+  // of the function.
+  if (
+    exists("Gemfile") ||
+    exists("Gemfile.lock") ||
+    exists("Rakefile") ||
+    exists("sorbet/config") ||
+    hasGemspec(projectRoot)
+  ) {
+    langs.push("ruby");
+  }
   return langs;
 }
 
@@ -140,6 +155,18 @@ function hasClangSource(projectRoot: string): boolean {
     }
   } catch {
     // unreadable project root → no signal
+  }
+  return false;
+}
+
+/** Shallow root-only scan for any `*.gemspec` sibling. */
+function hasGemspec(projectRoot: string): boolean {
+  try {
+    for (const entry of readdirSync(projectRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".gemspec")) return true;
+    }
+  } catch {
+    // Unreadable project root → no signal.
   }
   return false;
 }
@@ -370,6 +397,38 @@ export function buildCommand(
         tool: "cobol-proleap",
         skipReason: "cobol-proleap is resolved upstream, not via buildCommand",
       };
+    case "ruby": {
+      // scip-ruby (v0.4.7) CLI per
+      // https://github.com/sourcegraph/scip-ruby/blob/scip-ruby-v0.4.7/docs/scip-ruby/CLI.md
+      //
+      //   --index-file <arg>    Output path; defaults to `index.scip`.
+      //   --gem-metadata <arg>  `name@version`. Optional — inferred from
+      //                         Gemfile.lock / *.gemspec / cwd when absent.
+      //
+      // Invocation contract:
+      //   - With `sorbet/config`, `scip-ruby` reads the file list from there
+      //     (the Sorbet convention). No positional arg needed.
+      //   - Without `sorbet/config`, the `.` positional argument indexes all
+      //     files reachable from the project root.
+      //   - `--gem-metadata` is forwarded when `opts.projectName` is supplied
+      //     so graph edges carry a stable gem identifier even in repos with
+      //     no Gemfile.lock (e.g. script directories).
+      const args: string[] = ["--index-file", scipPath];
+      if (opts.projectName) {
+        args.push("--gem-metadata", `${opts.projectName}@0.0.0`);
+      }
+      if (!existsSync(join(cwd, "sorbet", "config"))) {
+        args.push(".");
+      }
+      return {
+        cmd: "scip-ruby",
+        args,
+        cwd,
+        versionCmd: "scip-ruby",
+        versionArgs: ["--version"],
+        tool: "scip-ruby",
+      };
+    }
   }
 }
 
