@@ -3,6 +3,10 @@
 Compound-extracted lessons and EARS specs from prior autonomous
 development sessions. Solutions are reusable; specs are per-feature.
 
+## Roadmap (durable — read FIRST before planning any milestone)
+
+- [v1.0 roadmap](ROADMAP.md) — M1→M7 dependency graph, 5 hard rails, 10 validation constraints, target package layout, language + scanner coverage. If in-conversation scope disagrees with this file, this file wins.
+
 ## Solutions (architecture patterns + conventions)
 
 - [SCIP replaces LSP for code-graph oracle edges](solutions/architecture-patterns/scip-replaces-lsp.md) — one-shot indexers beat stateful LSP clients for compiler-grade graph edges.
