@@ -12,7 +12,8 @@ export type ScipIndexerName =
   | "scip-python"
   | "scip-go"
   | "rust-analyzer"
-  | "scip-java";
+  | "scip-java"
+  | "scip-clang";
 
 export function scipProvenanceReason(indexer: ScipIndexerName, version: string): string {
   const v = version.trim() || "unknown";

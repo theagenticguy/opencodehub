@@ -11,11 +11,21 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-export type IndexerKind = "typescript" | "python" | "go" | "rust" | "java" | "cobol-proleap";
+export type IndexerKind =
+  | "typescript"
+  | "python"
+  | "go"
+  | "rust"
+  | "java"
+  | "clang"
+  | "cobol-proleap";
+
+/** File extensions that signal a C/C++ project. */
+const CLANG_EXTENSIONS: readonly string[] = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"];
 
 export interface RunIndexerOptions {
   readonly projectRoot: string;
@@ -85,7 +95,53 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   ) {
     langs.push("java");
   }
+  // C/C++ has no canonical manifest — the authoritative signal is that
+  // `scip-clang` consumes a JSON compilation database. We surface "clang"
+  // as a candidate when either the compilation DB is already present OR
+  // the project root has at least one source file with a C/C++ extension.
+  // The preflight inside buildCommand("clang") still enforces the
+  // compilation DB requirement at index time.
+  if (exists("compile_commands.json") || hasClangSource(projectRoot)) {
+    langs.push("clang");
+  }
   return langs;
+}
+
+/**
+ * Shallow scan for C/C++ source files at the project root. We look one
+ * level deep on purpose: the common layouts (`src/`, `include/`, flat
+ * root) are all covered, and we avoid walking `node_modules`,
+ * `vendor/`, and the like. The `detectLanguages()` result is a
+ * candidate list — a follow-on `runIndexer("clang", ...)` still
+ * preflights `compile_commands.json` and skips cleanly if absent.
+ */
+function hasClangSource(projectRoot: string): boolean {
+  try {
+    const stack: string[] = [projectRoot];
+    let depth = 0;
+    while (stack.length > 0 && depth <= 1) {
+      const levelSize = stack.length;
+      for (let i = 0; i < levelSize; i++) {
+        const dir = stack.shift() ?? "";
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          if (entry.name.startsWith(".")) continue;
+          if (entry.name === "node_modules") continue;
+          if (entry.isFile()) {
+            const lower = entry.name.toLowerCase();
+            for (const ext of CLANG_EXTENSIONS) {
+              if (lower.endsWith(ext)) return true;
+            }
+          } else if (entry.isDirectory() && depth < 1) {
+            stack.push(join(dir, entry.name));
+          }
+        }
+      }
+      depth++;
+    }
+  } catch {
+    // unreadable project root → no signal
+  }
+  return false;
 }
 
 /**
@@ -164,7 +220,7 @@ export async function runIndexer(
   };
 }
 
-interface CommandPlan {
+export interface CommandPlan {
   readonly cmd: string;
   readonly args: readonly string[];
   readonly cwd: string;
@@ -174,7 +230,16 @@ interface CommandPlan {
   readonly skipReason?: string;
 }
 
-function buildCommand(kind: IndexerKind, opts: RunIndexerOptions, scipPath: string): CommandPlan {
+/**
+ * Build the shell plan for a given indexer. Exported for unit tests — the
+ * tests assert on flag shape + preflight skip semantics without spawning a
+ * real subprocess. Runtime callers should invoke `runIndexer()` instead.
+ */
+export function buildCommand(
+  kind: IndexerKind,
+  opts: RunIndexerOptions,
+  scipPath: string,
+): CommandPlan {
   const cwd = opts.projectRoot;
   const name = opts.projectName ?? pathBasename(opts.projectRoot);
 
@@ -260,6 +325,39 @@ function buildCommand(kind: IndexerKind, opts: RunIndexerOptions, scipPath: stri
         versionArgs: ["--version"],
         tool: "scip-java",
       };
+    case "clang": {
+      // scip-clang requires a JSON compilation database at the project
+      // root. We do NOT attempt to generate one — projects point scip-
+      // clang at the file emitted by their build system (CMake's
+      // CMAKE_EXPORT_COMPILE_COMMANDS, Bazel's extractor, Bear for
+      // Make, etc.). Missing file → skip with a specific, actionable
+      // error — not a silent miss.
+      //
+      // Flag shape validated against scip-clang v0.4.0 source
+      // (`indexer/main.cc`): `--compdb-path=<path>` and
+      // `--index-output-path=<path>`. Per the upstream README, scip-
+      // clang MUST be invoked from the project root.
+      const compdbPath = join(cwd, "compile_commands.json");
+      if (!existsSync(compdbPath)) {
+        return {
+          cmd: "scip-clang",
+          args: [],
+          cwd,
+          versionCmd: "scip-clang",
+          versionArgs: ["--version"],
+          tool: "scip-clang",
+          skipReason: "scip-clang requires compile_commands.json at project root",
+        };
+      }
+      return {
+        cmd: "scip-clang",
+        args: [`--compdb-path=${compdbPath}`, `--index-output-path=${scipPath}`],
+        cwd,
+        versionCmd: "scip-clang",
+        versionArgs: ["--version"],
+        tool: "scip-clang",
+      };
+    }
     case "cobol-proleap":
       // Handled upstream in runIndexer(); this branch keeps the switch
       // exhaustive under `noFallthroughCasesInSwitch`.
@@ -395,7 +493,6 @@ function resolveTypeScriptRoot(projectRoot: string): string {
     }
   }
   try {
-    const { readdirSync } = require("node:fs") as typeof import("node:fs");
     for (const entry of readdirSync(projectRoot, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;

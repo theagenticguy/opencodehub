@@ -311,16 +311,48 @@ describe("installScipTool", () => {
   it("refuses to run against a placeholder-hash pin unless allowPlaceholder=true", async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-placeholder-"));
     try {
-      // Default SCIP_PINS.clang ships with placeholder: true in AC-M4-0.
+      // scip-clang v0.4.0 ships with real sha256 digests as of AC-M4-1 — it
+      // is no longer a placeholder. scip-ruby still carries the all-zero
+      // placeholder hash from AC-M4-0 and is the current coverage vector for
+      // this branch.
       await assert.rejects(
         () =>
-          installScipTool("clang", {
+          installScipTool("ruby", {
             destDir: dir,
             fetchImpl: (async () => new Response(null, { status: 200 })) as FetchFn,
             platform: LINUX_X64,
           }),
         (err: unknown) => err instanceof PlaceholderHashError,
       );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to download from an upstream-unavailable platform", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-unavailable-"));
+    try {
+      const { fetch, calls } = makeFetchWith(new Map());
+      // scip-clang v0.4.0 does NOT ship a darwin-x64 asset — the pin row
+      // carries `platformUnavailable: true`. The downloader must surface a
+      // specific "upstream does not ship this platform" error and perform
+      // zero network calls.
+      await assert.rejects(
+        () =>
+          installScipTool("clang", {
+            destDir: dir,
+            fetchImpl: fetch,
+            platform: { os: "darwin", arch: "x64" },
+          }),
+        (err: unknown) => {
+          assert.ok(err instanceof UnsupportedPlatformError);
+          const e = err as UnsupportedPlatformError;
+          assert.equal(e.os, "darwin");
+          assert.equal(e.arch, "x64");
+          return true;
+        },
+      );
+      assert.equal(calls.length, 0, "unavailable platform must not fetch");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

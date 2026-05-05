@@ -251,6 +251,13 @@ function resolvePlatformPin(pin: ScipToolPin, platform: DetectedPlatform): ScipP
   if (hit === undefined) {
     throw new UnsupportedPlatformError(platform.os, platform.arch, `scip-${pin.tool}`);
   }
+  if (hit.platformUnavailable === true) {
+    throw new UnsupportedPlatformError(
+      platform.os,
+      platform.arch,
+      `scip-${pin.tool} v${pin.version} (upstream does not ship a release asset for this platform)`,
+    );
+  }
   return hit;
 }
 

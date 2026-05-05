@@ -295,6 +295,12 @@ function scipLangToOchLang(k: IndexerKind): string {
       return "rust";
     case "java":
       return "java";
+    case "clang":
+      // `clang` covers C + C++. Downstream LanguageId is a single token;
+      // "c" matches existing code paths that have looked up C-derived
+      // sources by extension. C++-specific consumers see `clang` under
+      // the indexer name in provenance reasons.
+      return "c";
     default:
       return k;
   }
@@ -309,7 +315,8 @@ type ScipIndexerName =
   | "scip-python"
   | "scip-go"
   | "rust-analyzer"
-  | "scip-java";
+  | "scip-java"
+  | "scip-clang";
 
 function kindToProvenance(k: IndexerKind): ScipIndexerName {
   switch (k) {
@@ -323,6 +330,8 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
       return "rust-analyzer";
     case "java":
       return "scip-java";
+    case "clang":
+      return "scip-clang";
     default:
       return "scip-typescript";
   }

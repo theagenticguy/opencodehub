@@ -49,6 +49,15 @@ export interface ScipPlatformPin {
    * future tools that publish tarballs or zips.
    */
   readonly archiveEntry?: string;
+  /**
+   * True when upstream does NOT publish a release asset for this `{os, arch}`
+   * pair. The entry is retained so the pin documents the gap explicitly
+   * (vs. silently omitting the row, which would leave callers guessing).
+   * The downloader refuses to install against an unavailable platform and
+   * surfaces a specific "upstream does not ship this platform" error. The
+   * `sha256` and `url` stay for traceability but must never be fetched.
+   */
+  readonly platformUnavailable?: boolean;
 }
 
 /** Canonical pin shape shared by every tool. */
@@ -88,43 +97,56 @@ const PLACEHOLDER_SHA256 = "0".repeat(64);
  * scip-clang v0.4.0 — Sourcegraph C/C++ indexer, released 2026-02-23.
  * Releases: `github.com/sourcegraph/scip-clang/releases/tag/v0.4.0`.
  *
- * Upstream publishes one binary per `{arch}-{os}` pair. linux-arm64 + darwin
- * binaries are available for 0.4.0 — earlier releases were linux-x64 only.
+ * Upstream ships release assets for exactly two `{arch, os}` pairs at
+ * v0.4.0 (per `api.github.com/repos/sourcegraph/scip-clang/releases/tags/v0.4.0`):
+ *
+ *   - x86_64-linux   — scip-clang-x86_64-linux
+ *   - arm64-darwin   — scip-clang-arm64-darwin
+ *
+ * The matching SCIP-CLANG README Supported Platforms section states plainly:
+ * "Binary releases are available for x86_64 Linux (glibc 2.16 or newer) and
+ * arm64 macOS." x86_64-darwin and aarch64-linux are NOT shipped; the two
+ * unavailable rows stay in the pin marked `platformUnavailable: true` so the
+ * gap is documented rather than silently omitted.
  */
 const SCIP_CLANG_PIN: ScipToolPin = {
   tool: "clang",
   version: "0.4.0",
   installerKind: "download",
-  placeholder: true,
+  placeholder: false,
   binName: "scip-clang",
   platforms: [
     {
       os: "linux",
       arch: "x64",
       url: "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
+      // Verified 2026-05-05 via `curl -sL <url> | sha256sum` against the
+      // upstream release asset (149 MB binary).
+      sha256: "06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784",
     },
     {
       os: "linux",
       arch: "arm64",
       url: "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-aarch64-linux",
-      // PLACEHOLDER HASH — compute at implementation time
+      // Upstream does NOT ship a linux-arm64 binary at v0.4.0 (asset URL 404s).
       sha256: PLACEHOLDER_SHA256,
+      platformUnavailable: true,
     },
     {
       os: "darwin",
       arch: "x64",
       url: "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-darwin",
-      // PLACEHOLDER HASH — compute at implementation time
+      // Upstream does NOT ship a darwin-x64 binary at v0.4.0 (asset URL 404s).
       sha256: PLACEHOLDER_SHA256,
+      platformUnavailable: true,
     },
     {
       os: "darwin",
       arch: "arm64",
       url: "https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-arm64-darwin",
-      // PLACEHOLDER HASH — compute at implementation time
-      sha256: PLACEHOLDER_SHA256,
+      // Verified 2026-05-05 via `curl -sL <url> | sha256sum` against the
+      // upstream release asset (71 MB binary).
+      sha256: "ff042fbc8a029f09f4b69fc7692e290e21c52923593207ee52d4e7439473ec64",
     },
   ],
 };
