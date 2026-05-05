@@ -58,7 +58,9 @@ Sequenced by dependency only. No calendar estimates.
 
 ## M3 — LadybugDB phase-1 (PENDING, parallel with M4)
 
-Replace recursive-CTE traversals with single `CodeRelation` rel-table (21 edge types keyed by `type` column). LadybugDB = community successor to Kuzu (Apple acquisition). Pre-1.0 with ABI breaks every few months (v0.16.0 landed 2026-04-29; GitNexus uses v0.15.2).
+Replace recursive-CTE traversals with polymorphic rel-table-per-edge schema (**corrected 2026-05-05** — the v1 roadmap proposed a single rel-table with a `type` column; LadybugDB docs recommend one named rel table per edge kind with multiple `FROM/TO` pairs for columnar predicate pushdown). Current OCH edge-kind count is **23** (post-M2 additions `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`), not 21 as originally estimated.
+
+LadybugDB = community successor to Kuzu (Apple acquisition). Pre-1.0 with ABI breaks every few months. **Current npm package: `@ladybugdb/core@0.16.1`** (released 2026-05-04, one day before roadmap review). GitNexus pins 0.15.2. Source-level naming uses `GraphDbStore` / `graphdb-adapter.ts` / `graphdb-pool.ts` to stay within `scripts/check-banned-strings.sh` limits — the `ladybug` and `kuzu` literals are rejected in tracked source files; the `@ladybugdb/core` dep in `package.json` is permitted under package-scope precedent.
 
 | Task | Scope | Dependency | Test gate |
 |------|-------|-----------|-----------|
@@ -80,7 +82,7 @@ Replace recursive-CTE traversals with single `CodeRelation` rel-table (21 edge t
 | T-M4-3 | `scip-dotnet` adapter | — |
 | T-M4-4 | Kotlin promotion (distinct from Java) | `scip-kotlin` v0.6.0 via `scip-java` |
 | T-M4-5 | COBOL regex hot path | ~1 ms/file; `copybook`, `CICS`, `PARAGRAPH`, `PERFORM` extraction |
-| T-M4-6 | COBOL ProLeap v4.0.0 backend | ANTLR4/JVM Java subprocess, `--allow-build-scripts` gated. tree-sitter-cobol (v0.1.1, 2023-02-01) is dead and hangs ~5% of files. |
+| T-M4-6 | COBOL ProLeap v4.0.0 backend | ANTLR4/JVM Java subprocess, `--allow-build-scripts` gated. tree-sitter-cobol (v0.1.1, 2023-02-01 — no newer tagged release) remains unreliable. **ProLeap is NOT published to Maven Central** (`search.maven.org` returns 0; last GitHub Release v2.4.0 from 2018); M4-6 must `git clone + mvn install` OR ship a prebuilt JAR under `vendor/proleap/`. ProLeap does not ship a CLI — need a small Java `main` wrapper. |
 | T-M4-7 | Framework detection 5-stage pipeline | New `@opencodehub/frameworks` package. No OSS drop-in; custom curated-registry. |
 
 **Framework detection stages** (each emits `{framework, version?, confidence, evidence[]}`):
