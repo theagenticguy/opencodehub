@@ -32,6 +32,11 @@ export {
 } from "./frameworks.js";
 export { detectManifests } from "./manifests.js";
 export {
+  CONFIG_AST_FILES,
+  type ConfigAstFinding,
+  inspectConfigAst,
+} from "./stages/config-ast.js";
+export {
   indexResolutions,
   KNOWN_LOCKFILES,
   type LockfileFile,
