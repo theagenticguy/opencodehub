@@ -175,7 +175,9 @@ program
 
 program
   .command("setup")
-  .description("Write MCP config entries for supported editors, or download embedder weights")
+  .description(
+    "Write MCP config entries for supported editors, download embedder weights, or install SCIP adapter binaries",
+  )
   .option(
     "--editors <list>",
     "Comma-separated editor ids (claude-code,cursor,codex,windsurf,opencode). Default: all",
@@ -186,10 +188,22 @@ program
   .option("--int8", "Use the int8 weight variant (~150 MB) instead of fp32 (~596 MB)")
   .option("--model-dir <path>", "Override the target directory for embedder weights")
   .option("--plugin", "Install the Claude Code plugin to ~/.claude/plugins/opencodehub/")
+  .option(
+    "--scip <tool>",
+    "Install an external SCIP adapter binary (clang|ruby|dotnet|kotlin) or 'all'. SHA256-pinned; dotnet requires .NET SDK 8+ on PATH",
+  )
   .action(async (opts: Record<string, string | boolean | undefined>) => {
     const mod = await import("./commands/setup.js");
     if (opts["plugin"] === true) {
       await mod.runSetupPlugin({});
+      return;
+    }
+    if (typeof opts["scip"] === "string") {
+      const tool = mod.parseScipFlag(opts["scip"]);
+      await mod.runSetupScip({
+        tool,
+        force: opts["force"] === true,
+      });
       return;
     }
     if (opts["embeddings"] === true) {

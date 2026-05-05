@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { ReadableStream } from "node:stream/web";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import * as TOML from "@iarna/toml";
 import type { EditorId } from "../editors/types.js";
-import { type FsApi, runSetup, runSetupPlugin, type SetupResult } from "./setup.js";
+import type { FetchFn as ScipFetchFn } from "../scip-downloader.js";
+import {
+  type FsApi,
+  parseScipFlag,
+  runSetup,
+  runSetupPlugin,
+  runSetupScip,
+  type SetupResult,
+} from "./setup.js";
 
 /**
  * In-memory `FsApi` used by every test in this file. Tracks which paths were
@@ -369,5 +379,112 @@ test("setup writes all 5 editors at their expected config paths", async () => {
   for (const r of results) {
     assert.equal(r.action, "wrote");
     assert.ok(fs.files.has(r.configPath));
+  }
+});
+
+test("parseScipFlag accepts tool names and 'all'", () => {
+  assert.equal(parseScipFlag("clang"), "clang");
+  assert.equal(parseScipFlag("ruby"), "ruby");
+  assert.equal(parseScipFlag("dotnet"), "dotnet");
+  assert.equal(parseScipFlag("kotlin"), "kotlin");
+  assert.equal(parseScipFlag("all"), "all");
+  // Whitespace tolerance.
+  assert.equal(parseScipFlag("  clang  "), "clang");
+});
+
+test("parseScipFlag rejects unknown values with a clear error", () => {
+  assert.throws(() => parseScipFlag("rust"), /Unknown --scip value: "rust"/);
+  assert.throws(() => parseScipFlag(""), /Unknown --scip value: ""/);
+});
+
+test("runSetupScip routes --scip=dotnet to the dotnet-tool hint path", async () => {
+  const logs: string[] = [];
+  const warns: string[] = [];
+  const dir = await mkdtemp(join(tmpdir(), "och-scip-setup-"));
+  try {
+    // No fetch should fire because dotnet is the tool-install branch.
+    const result = await runSetupScip({
+      tool: "dotnet",
+      destDir: dir,
+      fetchImpl: (async () => {
+        throw new Error("fetch should not be called for dotnet-tool installer");
+      }) as ScipFetchFn,
+      log: (m) => logs.push(m),
+      warn: (m) => warns.push(m),
+    });
+    // In this test environment `dotnet` is likely absent — we accept either
+    // outcome (installed hint OR failed DotnetSdkMissingError) and only
+    // assert structural invariants.
+    assert.equal(result.installed.length + result.failed.length, 1);
+    if (result.installed.length === 1) {
+      const r = result.installed[0];
+      assert.ok(r !== undefined);
+      assert.equal(r.tool, "dotnet");
+      assert.ok(r.dotnetToolHint?.includes("dotnet tool install"));
+    } else {
+      const f = result.failed[0];
+      assert.ok(f !== undefined);
+      assert.equal(f.tool, "dotnet");
+      assert.ok(/DOTNET|SDK|dotnet/i.test(f.error.message));
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("runSetupScip installs a single tool via injected fetch + allowPlaceholder", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-scip-setup-one-"));
+  try {
+    const body = new TextEncoder().encode("fake-scip-clang");
+    const expected = createHash("sha256").update(body).digest("hex");
+    // Override the pin in-place so the downloader verifies against the
+    // injected hash rather than the placeholder.
+    const pinsModule = await import("../scip-pins.js");
+    type Pin = (typeof pinsModule.SCIP_PINS)["clang"];
+    const mutable = pinsModule.SCIP_PINS as unknown as { clang: Pin };
+    const original: Pin = mutable.clang;
+    mutable.clang = {
+      tool: original.tool,
+      version: original.version,
+      installerKind: original.installerKind,
+      binName: original.binName,
+      placeholder: false,
+      platforms: [
+        { os: "linux", arch: "x64", url: "https://example.test/clang", sha256: expected },
+      ],
+    };
+    try {
+      const fetchImpl: ScipFetchFn = async () => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(body);
+            c.close();
+          },
+        });
+        return new Response(stream as unknown as ConstructorParameters<typeof Response>[0], {
+          status: 200,
+        });
+      };
+      const logs: string[] = [];
+      // Force linux-x64 platform selection via the downloader internals — the
+      // test runs on AL2023 which is already linux-x64, so this is a no-op.
+      const result = await runSetupScip({
+        tool: "clang",
+        destDir: dir,
+        fetchImpl,
+        log: (m) => logs.push(m),
+        warn: () => undefined,
+      });
+      assert.equal(result.installed.length, 1);
+      assert.equal(result.failed.length, 0);
+      assert.equal(result.installed[0]?.tool, "clang");
+      // Binary landed at destDir/scip-clang with x bit.
+      const st = await stat(join(dir, "scip-clang"));
+      assert.equal((st.mode & 0o100) !== 0, true);
+    } finally {
+      mutable.clang = original;
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
