@@ -1,0 +1,32 @@
+{
+  "name": "@opencodehub/cobol-proleap",
+  "version": "0.1.0",
+  "description": "OpenCodeHub — COBOL deep-parse bridge over the uwol/cobol-parser JVM library (v4.0.0); gated behind --allow-build-scripts=proleap",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "java"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test './dist/**/*.test.js'",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/ingestion": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3"
+  }
+}
