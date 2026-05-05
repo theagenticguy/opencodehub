@@ -168,6 +168,22 @@ const NODE_COLUMNS: readonly string[] = [
 const EDGE_COLUMNS: readonly string[] = ["id", "confidence", "reason", "step"];
 
 /**
+ * Column layout for the `Embedding` node table. Matches graphdb-schema.ts.
+ * `vector` is a FLOAT[dim] fixed-size array column; everything else is
+ * bound as a plain scalar.
+ */
+const EMBEDDING_COLUMNS: readonly string[] = [
+  "id",
+  "node_id",
+  "granularity",
+  "chunk_index",
+  "start_line",
+  "end_line",
+  "vector",
+  "content_hash",
+];
+
+/**
  * Column → node-field descriptors used by the round-trip readback path.
  * AC-M3-3 Commit 4's `rebuildGraphFromStore` walks this list so the
  * returned graph carries the same field set the bulk writer ingested.
@@ -223,6 +239,11 @@ function buildEdgeMergeCypher(kind: string): string {
     `MATCH (a:CodeNode {id: $p1}), (b:CodeNode {id: $p2}) ` +
     `MERGE (a)-[r:${kind}]->(b) SET ${setClauses}`
   );
+}
+
+function buildEmbeddingCreateCypher(): string {
+  const propPairs = EMBEDDING_COLUMNS.map((col, i) => `${col}: $p${i + 1}`).join(", ");
+  return `CREATE (e:Embedding {${propPairs}})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,15 +413,95 @@ export class GraphDbStore implements IGraphStore {
   }
 
   // --------------------------------------------------------------------------
-  // Embeddings (deferred to AC-M3-3 Commit 3)
+  // Embeddings
   // --------------------------------------------------------------------------
 
-  async upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {
-    throw new NotImplementedError("upsertEmbeddings");
+  async upsertEmbeddings(rows: readonly EmbeddingRow[]): Promise<void> {
+    if (rows.length === 0) return;
+    const pool = this.requirePool();
+    const dim = this.embeddingDim;
+
+    // Delete any existing rows that match (node_id, granularity,
+    // chunk_index). Mirrors duckdb-adapter.ts — MERGE on Embedding would
+    // work but the composite key is not the primary key, so the safest
+    // pattern is delete-then-create. DETACH DELETE because the prior row
+    // may have an EMBEDS rel attached, and the native engine refuses a
+    // bare DELETE on a node with dangling rels.
+    const delCypher =
+      `MATCH (e:Embedding) WHERE e.node_id = $p1 AND e.granularity = $p2 ` +
+      `AND e.chunk_index = $p3 DETACH DELETE e`;
+    for (const r of rows) {
+      const granularity = r.granularity ?? "symbol";
+      await pool.query(delCypher, [r.nodeId, granularity, r.chunkIndex]);
+    }
+
+    // Create one Embedding node per row + an EMBEDS rel linking it back
+    // to its source CodeNode (so the vectorSearch post-filter can join
+    // back through the graph without an extra property lookup).
+    const createCypher = buildEmbeddingCreateCypher();
+    const embedsCypher = `MATCH (e:Embedding {id: $p1}), (n:CodeNode {id: $p2}) CREATE (e)-[:EMBEDS]->(n)`;
+    for (const r of rows) {
+      if (r.vector.length !== dim) {
+        throw new Error(`Embedding dimension mismatch: got ${r.vector.length}, expected ${dim}`);
+      }
+      const granularity = r.granularity ?? "symbol";
+      const embeddingId = `Emb:${granularity}:${r.nodeId}:${r.chunkIndex}`;
+      // The native binding does not accept Float32Array directly for a
+      // FLOAT[dim] column; Array.from converts once per row and keeps the
+      // serialized shape a plain number[]. The cast to `SqlParam` is a structural
+      // narrowing — the pool forwards arbitrary JS values to the native
+      // binding, which accepts arrays for fixed-dim float columns.
+      const vector = Array.from(r.vector) as unknown as SqlParam;
+      const params: readonly SqlParam[] = [
+        embeddingId,
+        r.nodeId,
+        granularity,
+        r.chunkIndex,
+        r.startLine ?? null,
+        r.endLine ?? null,
+        vector,
+        r.contentHash,
+      ];
+      await pool.query(createCypher, params);
+      // Best-effort EMBEDS rel. Missing CodeNode is not a hard error —
+      // this mirrors the DuckDB embeddings table (which doesn't require a
+      // join target) but still gives the graph traversal tools a hook.
+      try {
+        await pool.query(embedsCypher, [embeddingId, r.nodeId]);
+      } catch {
+        // Node not yet loaded; the traversal side will treat the embedding
+        // as orphaned. Round-trip cases always bulkLoad before upserting,
+        // so this only fires when callers write embeddings for nodes that
+        // have been purged by a prior replace.
+      }
+    }
   }
 
   async listEmbeddingHashes(): Promise<Map<string, string>> {
-    throw new NotImplementedError("listEmbeddingHashes");
+    const pool = this.requirePool();
+    const rows = await pool.query(
+      `MATCH (e:Embedding) RETURN e.node_id AS node_id, e.granularity AS granularity, ` +
+        `e.chunk_index AS chunk_index, e.content_hash AS content_hash`,
+    );
+    const out = new Map<string, string>();
+    for (const row of rows) {
+      const rec = row as Record<string, unknown>;
+      const nodeId = rec["node_id"];
+      const granularity = rec["granularity"];
+      const chunkIndex = rec["chunk_index"];
+      const contentHash = rec["content_hash"];
+      if (
+        typeof nodeId !== "string" ||
+        typeof granularity !== "string" ||
+        typeof contentHash !== "string" ||
+        (typeof chunkIndex !== "number" && typeof chunkIndex !== "bigint")
+      ) {
+        continue;
+      }
+      const ci = typeof chunkIndex === "bigint" ? Number(chunkIndex) : chunkIndex;
+      out.set(`${granularity}\0${nodeId}\0${ci}`, contentHash);
+    }
+    return out;
   }
 
   // --------------------------------------------------------------------------

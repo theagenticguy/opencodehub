@@ -69,13 +69,10 @@ test("stubbed methods throw NotImplementedError tagged with method name", async 
   // require an open pool so their before-open behaviour is tested
   // separately below.
   // search / vectorSearch / traverse / getMeta / setMeta were wired in
-  // AC-M3-3 Commit 2; they now throw a "before open" error rather than
-  // NotImplementedError. The below only covers the truly stubbed surfaces
-  // (embeddings + cochanges + symbol summaries), which AC-M3-3 Commit 3
-  // and AC-M3-4 land.
+  // AC-M3-3 Commit 2 and upsertEmbeddings / listEmbeddingHashes in
+  // Commit 3. The remaining stubs are the cochange and symbol-summary
+  // surfaces, which AC-M3-4 lands.
   const cases: readonly (readonly [string, () => Promise<unknown>])[] = [
-    ["upsertEmbeddings", () => s.upsertEmbeddings([])],
-    ["listEmbeddingHashes", () => s.listEmbeddingHashes()],
     ["bulkLoadCochanges", () => s.bulkLoadCochanges([])],
     ["lookupCochangesForFile", () => s.lookupCochangesForFile("a")],
     ["lookupCochangesBetween", () => s.lookupCochangesBetween("a", "b")],
@@ -632,6 +629,192 @@ test("healthCheck returns ok once the pool is open", async () => {
   try {
     const result = await store.healthCheck();
     assert.equal(result.ok, true);
+  } finally {
+    await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Integration: upsertEmbeddings + listEmbeddingHashes (AC-M3-3 Commit 3)
+// ---------------------------------------------------------------------------
+
+test("upsertEmbeddings dimension mismatch throws without touching the store", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    await assert.rejects(
+      () =>
+        store.upsertEmbeddings([
+          {
+            nodeId: "x" as NodeId,
+            chunkIndex: 0,
+            vector: new Float32Array([1, 0]),
+            contentHash: "h",
+          },
+        ]),
+      /dimension mismatch/,
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("listEmbeddingHashes is empty on a fresh store", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const hashes = await store.listEmbeddingHashes();
+    assert.ok(hashes instanceof Map, "returns a Map instance");
+    assert.equal(hashes.size, 0);
+  } finally {
+    await store.close();
+  }
+});
+
+test("upsertEmbeddings writes one row per (granularity, node_id, chunk_index)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const fnId = makeNodeId("Function", "src/a.ts", "a");
+    const fileId = makeNodeId("File", "src/a.ts", "src/a.ts");
+    g.addNode({ id: fnId, kind: "Function", name: "a", filePath: "src/a.ts" });
+    g.addNode({ id: fileId, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+    await store.bulkLoad(g);
+
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h-sym-0",
+      },
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 1,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "h-sym-1",
+      },
+      {
+        nodeId: fileId,
+        granularity: "file",
+        chunkIndex: 0,
+        vector: new Float32Array([0.9, 0.1, 0, 0]),
+        contentHash: "h-file",
+      },
+    ]);
+
+    const hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.size, 3);
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "h-sym-0");
+    assert.equal(hashes.get(`symbol\0${fnId}\0${1}`), "h-sym-1");
+    assert.equal(hashes.get(`file\0${fileId}\0${0}`), "h-file");
+  } finally {
+    await store.close();
+  }
+});
+
+test("upsertEmbeddings overwrites rows with matching composite key", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const fnId = makeNodeId("Function", "src/a.ts", "a");
+    g.addNode({ id: fnId, kind: "Function", name: "a", filePath: "src/a.ts" });
+    await store.bulkLoad(g);
+
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "original",
+      },
+    ]);
+    let hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "original");
+
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([0, 1, 0, 0]),
+        contentHash: "updated",
+      },
+    ]);
+    hashes = await store.listEmbeddingHashes();
+    assert.equal(hashes.size, 1, "upsert replaces the row, not duplicated");
+    assert.equal(hashes.get(`symbol\0${fnId}\0${0}`), "updated");
+  } finally {
+    await store.close();
+  }
+});
+
+test("vectorSearch returns nearest row after upsertEmbeddings", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const ids: NodeId[] = [];
+    const vectors = [
+      [1.0, 0.0, 0.0, 0.0],
+      [0.9, 0.1, 0.0, 0.0],
+      [0.0, 1.0, 0.0, 0.0],
+    ];
+    for (let i = 0; i < vectors.length; i += 1) {
+      const id = makeNodeId("File", `src/f${i}.ts`, `f${i}`);
+      ids.push(id);
+      g.addNode({ id, kind: "File", name: `f${i}`, filePath: `src/f${i}.ts` });
+    }
+    await store.bulkLoad(g);
+    await store.upsertEmbeddings(
+      ids.map((id, i) => ({
+        nodeId: id,
+        chunkIndex: 0,
+        vector: new Float32Array(vectors[i] ?? []),
+        contentHash: `h${i}`,
+      })),
+    );
+    const hits = await store.vectorSearch({
+      vector: new Float32Array([1.0, 0.0, 0.0, 0.0]),
+      limit: 2,
+    });
+    assert.equal(hits.length, 2);
+    // Nearest first — identical vector wins.
+    assert.equal(hits[0]?.nodeId, ids[0]);
+    assert.ok(
+      (hits[0]?.distance ?? Number.POSITIVE_INFINITY) <=
+        (hits[1]?.distance ?? Number.POSITIVE_INFINITY),
+    );
   } finally {
     await store.close();
   }
