@@ -13,10 +13,26 @@
  *
  * All stages are pure-local file-system + string/regex inspection; no
  * network, no LLM, no subprocess.
- *
- * This file is the scaffold entry point — concrete exports land in later
- * commits of T-M4-7 as files are moved from `packages/ingestion`.
  */
 
-// Scaffold — concrete exports added in subsequent commits (see T-M4-7).
-export {};
+export {
+  FRAMEWORK_CATALOG,
+  type FrameworkEcosystem,
+  type FrameworkRule,
+  type FrameworkTier,
+  type ManifestKey,
+  type VariantDefinition,
+} from "./catalog.js";
+export { detectFrameworksStructured, type FrameworkDetectorInput } from "./detector.js";
+export {
+  detectFrameworks,
+  detectFrameworksDetailed,
+  type FrameworkDetectionInput,
+  type FrameworkFileInput,
+} from "./frameworks.js";
+export { detectManifests } from "./manifests.js";
+export {
+  VARIANT_RESOLVERS,
+  type VariantResolveInput,
+  type VariantResolver,
+} from "./variant-detectors.js";

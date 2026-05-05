@@ -16,12 +16,22 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { ScannedFile } from "../phases/scan.js";
-import { detectFrameworksStructured } from "./framework-detector.js";
+import { detectFrameworksStructured } from "./detector.js";
+
+/**
+ * Minimal file shape the frameworks package reads. Every call site in
+ * `packages/ingestion` passes a `ScannedFile[]`; structurally-compatible
+ * callers can supply any `{ relPath }` record. We keep this narrow to
+ * avoid pulling the full scan-phase surface into the frameworks package.
+ */
+export interface FrameworkFileInput {
+  /** POSIX-separated path relative to repo root. */
+  readonly relPath: string;
+}
 
 export interface FrameworkDetectionInput {
   readonly repoRoot: string;
-  readonly files: readonly ScannedFile[];
+  readonly files: readonly FrameworkFileInput[];
   readonly manifests: readonly string[];
   /**
    * Optional — languages detected for this repo. When supplied the

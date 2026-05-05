@@ -30,7 +30,7 @@ import {
   type FrameworkEcosystem,
   type FrameworkRule,
   type ManifestKey,
-} from "./frameworks-catalog.js";
+} from "./catalog.js";
 import {
   VARIANT_RESOLVERS,
   type VariantResolveInput,

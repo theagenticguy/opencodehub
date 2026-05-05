@@ -15,7 +15,7 @@
  * alphabetically so two runs on the same repo emit the same sequence.
  */
 
-import type { ScannedFile } from "../phases/scan.js";
+import type { FrameworkFileInput } from "./frameworks.js";
 
 /**
  * Ecosystem → ordered list of manifest filenames to look for at the repo
@@ -44,7 +44,7 @@ const DOTNET_MANIFEST_EXTS: ReadonlySet<string> = new Set([".csproj", ".fsproj",
  * every `.csproj`/`.fsproj`/`.sln` file at the repo root (C# projects may
  * legitimately have multiple).
  */
-export function detectManifests(files: readonly ScannedFile[]): readonly string[] {
+export function detectManifests(files: readonly FrameworkFileInput[]): readonly string[] {
   const rootFiles = new Set<string>();
   const dotnetFiles: string[] = [];
 

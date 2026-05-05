@@ -18,8 +18,8 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import type { FrameworkDetection } from "@opencodehub/core-types";
-import { detectFrameworksStructured, type FrameworkDetectorInput } from "./framework-detector.js";
-import { FRAMEWORK_CATALOG } from "./frameworks-catalog.js";
+import { FRAMEWORK_CATALOG } from "./catalog.js";
+import { detectFrameworksStructured, type FrameworkDetectorInput } from "./detector.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
