@@ -32,6 +32,8 @@ test("GraphDbStore honours option overrides", () => {
 
 test("stubbed methods throw NotImplementedError tagged with method name", async () => {
   const s = new GraphDbStore("/tmp/graph.db");
+  // `query` is wired to the pool in AC-M3-2 and is no longer a stub; when
+  // the pool is not open it throws a generic Error, not NotImplementedError.
   const cases: readonly (readonly [string, () => Promise<unknown>])[] = [
     ["createSchema", () => s.createSchema()],
     [
@@ -42,7 +44,6 @@ test("stubbed methods throw NotImplementedError tagged with method name", async 
     ],
     ["upsertEmbeddings", () => s.upsertEmbeddings([])],
     ["listEmbeddingHashes", () => s.listEmbeddingHashes()],
-    ["query", () => s.query("SELECT 1")],
     ["search", () => s.search({ text: "x" })],
     ["vectorSearch", () => s.vectorSearch({ vector: new Float32Array([0]) })],
     ["traverse", () => s.traverse({ startId: "x", direction: "both", maxDepth: 1 })],
@@ -77,11 +78,16 @@ test("stubbed methods throw NotImplementedError tagged with method name", async 
   }
 });
 
-test("healthCheck reports not-wired without throwing", async () => {
+test("query before open rejects with a clear error (pool-wired in AC-M3-2)", async () => {
+  const s = new GraphDbStore("/tmp/graph.db");
+  await assert.rejects(() => s.query("RETURN 1"), /before open/);
+});
+
+test("healthCheck reports pool-not-open without throwing", async () => {
   const s = new GraphDbStore("/tmp/graph.db");
   const result = await s.healthCheck();
   assert.equal(result.ok, false);
-  assert.match(String(result.message), /not yet wired/);
+  assert.match(String(result.message), /not open/);
 });
 
 test("close is a tolerant no-op before open", async () => {

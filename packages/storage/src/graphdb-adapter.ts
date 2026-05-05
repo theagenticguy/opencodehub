@@ -21,6 +21,7 @@
  */
 
 import type { KnowledgeGraph } from "@opencodehub/core-types";
+import { GraphDbPool, type GraphDbPoolConfig } from "./graphdb-pool.js";
 import type {
   BulkLoadOptions,
   BulkLoadStats,
@@ -45,6 +46,12 @@ export interface GraphDbStoreOptions {
   readonly embeddingDim?: number;
   /** Default query timeout for `query()` calls in ms. Default 5000. */
   readonly timeoutMs?: number;
+  /**
+   * Overrides for the underlying connection pool. Tests inject a fake
+   * `binding` to avoid the native dep; production callers rely on
+   * defaults.
+   */
+  readonly poolConfig?: GraphDbPoolConfig;
 }
 
 const DEFAULT_EMBEDDING_DIM = 768;
@@ -84,12 +91,15 @@ export class GraphDbStore implements IGraphStore {
   private readonly readOnly: boolean;
   private readonly embeddingDim: number;
   private readonly defaultTimeoutMs: number;
+  private readonly poolConfig: GraphDbPoolConfig;
+  private pool: GraphDbPool | null = null;
 
   constructor(path: string, opts: GraphDbStoreOptions = {}) {
     this.path = path;
     this.readOnly = opts.readOnly === true;
     this.embeddingDim = opts.embeddingDim ?? DEFAULT_EMBEDDING_DIM;
     this.defaultTimeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.poolConfig = opts.poolConfig ?? {};
   }
 
   // --------------------------------------------------------------------------
@@ -97,22 +107,30 @@ export class GraphDbStore implements IGraphStore {
   // --------------------------------------------------------------------------
 
   async open(): Promise<void> {
-    // AC-M3-2 replaces this body with a real pool/database bootstrap. For
-    // this AC we only verify the native binding can be resolved — the real
-    // connection is deferred. Importing by name keeps the dep lazy so
-    // `CODEHUB_STORE=duck` runs never touch the binding.
-    try {
-      // Dynamic import is load-bearing: keeps the binding off the startup
-      // path when the default DuckDB backend is selected.
-      await import("@ladybugdb/core");
-    } catch (err) {
-      throw new GraphDbBindingError(err);
+    if (this.pool?.isOpen()) return;
+    // Surface missing-binding failures as a typed error per spec 004 §S-M3-2.
+    // The pool's own lazy import would produce a raw module-not-found error
+    // otherwise. When the caller injected a `binding` in `poolConfig` (tests)
+    // we skip the probe — the fake already provides the types.
+    if (!this.poolConfig.binding) {
+      try {
+        await import("@ladybugdb/core");
+      } catch (err) {
+        throw new GraphDbBindingError(err);
+      }
     }
-    throw new NotImplementedError("open");
+    this.pool = new GraphDbPool(this.path, {
+      ...this.poolConfig,
+      readOnly: this.poolConfig.readOnly ?? this.readOnly,
+    });
+    await this.pool.open();
   }
 
   async close(): Promise<void> {
-    // No-op until AC-M3-2 wires the pool. Idempotent by construction.
+    if (!this.pool) return;
+    const pool = this.pool;
+    this.pool = null;
+    await pool.close();
   }
 
   async createSchema(): Promise<void> {
@@ -144,11 +162,15 @@ export class GraphDbStore implements IGraphStore {
   // --------------------------------------------------------------------------
 
   async query(
-    _sql: string,
-    _params?: readonly SqlParam[],
-    _opts?: { readonly timeoutMs?: number },
+    sql: string,
+    params?: readonly SqlParam[],
+    opts?: { readonly timeoutMs?: number },
   ): Promise<readonly Record<string, unknown>[]> {
-    throw new NotImplementedError("query");
+    if (!this.pool) {
+      throw new Error("graph-db: query called before open()");
+    }
+    const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
+    return this.pool.query(sql, params, { timeoutMs });
   }
 
   async search(_q: SearchQuery): Promise<readonly SearchResult[]> {
@@ -176,7 +198,10 @@ export class GraphDbStore implements IGraphStore {
   }
 
   async healthCheck(): Promise<{ ok: boolean; message?: string }> {
-    return { ok: false, message: "graph-db: healthCheck not yet wired (AC-M3-2)" };
+    if (!this.pool?.isOpen()) {
+      return { ok: false, message: "graph-db: pool not open" };
+    }
+    return { ok: true };
   }
 
   // --------------------------------------------------------------------------
