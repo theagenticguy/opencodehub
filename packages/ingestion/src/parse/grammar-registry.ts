@@ -49,6 +49,12 @@ const GRAMMAR_PACKAGE_BY_LANGUAGE: Readonly<Record<LanguageId, string>> = {
   swift: "tree-sitter-swift",
   php: "tree-sitter-php",
   dart: "tree-sitter-dart",
+  // COBOL has no tree-sitter grammar — the parse pipeline routes `.cbl` /
+  // `.cob` / `.cpy` files through the regex hot path (see
+  // `parse/cobol-regex.ts`). The empty-string placeholder here keeps the
+  // `satisfies Record<LanguageId, string>` constraint happy; T-M4-5 Commit 2
+  // replaces this with a proper `LanguageProvider` discriminated union.
+  cobol: "",
 };
 
 /** Opaque wrapper holding everything a worker needs for one language. */
@@ -184,6 +190,13 @@ async function loadLanguageObject(lang: LanguageId): Promise<unknown> {
       // via the `git+https://…#sha` URL in package.json. Module IS the
       // Language (CJS, uses legacy `nan` addon API).
       return requireFn("tree-sitter-dart");
+    case "cobol":
+      // COBOL has no tree-sitter grammar; callers that reach `loadGrammar`
+      // for `cobol` have bypassed the parse pipeline's regex-routing guard
+      // and should surface that as an error rather than silently no-op.
+      // T-M4-5 Commit 2 promotes this to a typed `LanguageProvider`
+      // discriminator so the failure is caught at compile time.
+      throw new Error("loadGrammar: cobol has no tree-sitter grammar; use parseCobolFile instead");
   }
 }
 
@@ -206,7 +219,9 @@ export async function getGrammarSha(lang: LanguageId): Promise<string | null> {
     return grammarShaCache.get(lang) ?? null;
   }
   const pkgName = GRAMMAR_PACKAGE_BY_LANGUAGE[lang];
-  const sha = await computeGrammarSha(pkgName);
+  // Empty pkgName marks a regex-provider language (cobol) — no npm grammar
+  // exists to fingerprint, so parse-cache keying is disabled for those files.
+  const sha = pkgName === "" ? null : await computeGrammarSha(pkgName);
   grammarShaCache.set(lang, sha);
   return sha;
 }

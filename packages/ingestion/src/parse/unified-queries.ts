@@ -599,6 +599,16 @@ const DART_QUERY = `
 // registry
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// COBOL
+// ---------------------------------------------------------------------------
+// COBOL ships via the regex hot path (see `parse/cobol-regex.ts`); there is
+// no tree-sitter grammar and therefore no S-expression query body. T-M4-5
+// Commit 4 promotes this empty string to a typed "regex" sentinel in the
+// `LanguageProvider` discriminated union, after which `getUnifiedQuery`
+// stops being callable for COBOL at all.
+const COBOL_QUERY = "";
+
 const QUERIES: Record<LanguageId, string> = {
   typescript: TYPESCRIPT_QUERY,
   tsx: TYPESCRIPT_QUERY,
@@ -615,6 +625,7 @@ const QUERIES: Record<LanguageId, string> = {
   swift: SWIFT_QUERY,
   php: PHP_QUERY,
   dart: DART_QUERY,
+  cobol: COBOL_QUERY,
 };
 
 /** Return the unified S-expression query body for a given language. */

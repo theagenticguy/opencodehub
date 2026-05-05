@@ -20,6 +20,9 @@ const ALL_LANGUAGES: readonly LanguageId[] = [
   "swift",
   "php",
   "dart",
+  // --- Regex-provider languages (T-M4-5). The cobol provider is a stub; the
+  //     regex hot path in `parse/cobol-regex.ts` owns the actual extraction.
+  "cobol",
 ];
 
 test("registry: every LanguageId returns a provider with matching id", () => {
@@ -54,6 +57,7 @@ test("registry: MRO strategies are assigned per the language family", () => {
     swift: "single-inheritance",
     php: "single-inheritance",
     dart: "c3",
+    cobol: "none",
   };
   for (const lang of ALL_LANGUAGES) {
     assert.equal(
@@ -105,6 +109,7 @@ test("registry: extensions cover the expected suffixes", () => {
     ".phtml",
   ]);
   assert.deepEqual(getProvider("dart").extensions, [".dart"]);
+  assert.deepEqual(getProvider("cobol").extensions, [".cbl", ".cob", ".cpy"]);
 });
 
 test("registry: every provider returns empty arrays for empty inputs", () => {
@@ -127,8 +132,11 @@ test("registry: every provider returns empty arrays for empty inputs", () => {
 });
 
 test("registry: extended languages pick the right heritage edge", () => {
-  // C alone has no class hierarchy => null. All others use EXTENDS.
+  // C alone has no class hierarchy => null. COBOL has no tree-sitter
+  // heritage at all and ships via the regex hot path => null. All others
+  // use EXTENDS.
   assert.equal(getProvider("c").heritageEdge, null);
+  assert.equal(getProvider("cobol").heritageEdge, null);
   for (const lang of ["cpp", "ruby", "kotlin", "swift", "php", "dart"] as const) {
     assert.equal(getProvider(lang).heritageEdge, "EXTENDS", `${lang}: expected EXTENDS`);
   }

@@ -1,4 +1,5 @@
 import { cProvider } from "./c.js";
+import { cobolProvider } from "./cobol.js";
 import { cppProvider } from "./cpp.js";
 import { csharpProvider } from "./csharp.js";
 import { dartProvider } from "./dart.js";
@@ -36,6 +37,7 @@ const providers = {
   swift: swiftProvider,
   php: phpProvider,
   dart: dartProvider,
+  cobol: cobolProvider,
 } satisfies Record<LanguageId, LanguageProvider>;
 
 export function getProvider(lang: LanguageId): LanguageProvider {

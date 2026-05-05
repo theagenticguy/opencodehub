@@ -25,4 +25,7 @@ export type LanguageId =
   | "kotlin"
   | "swift"
   | "php"
-  | "dart";
+  | "dart"
+  // COBOL ships via the regex-provider discriminator in the ingestion grammar
+  // registry — there is no tree-sitter grammar for it. See T-M4-5.
+  | "cobol";
