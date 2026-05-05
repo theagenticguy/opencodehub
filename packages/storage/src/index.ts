@@ -5,6 +5,11 @@ export {
   type GraphDbStoreOptions,
   NotImplementedError,
 } from "./graphdb-adapter.js";
+export {
+  type GraphDbSchemaOptions,
+  generateSchemaDdl,
+  getAllRelationTypes,
+} from "./graphdb-schema.js";
 export type {
   BulkLoadStats,
   CochangeLookupOptions,
