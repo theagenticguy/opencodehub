@@ -37,6 +37,14 @@ export {
   inspectConfigAst,
 } from "./stages/config-ast.js";
 export {
+  detectFromImports,
+  FRAMEWORK_ROOT_MODULES,
+  type ImportEdgeLike,
+  type ImportFinding,
+  type ImportNodeLike,
+  type ImportStageGraph,
+} from "./stages/imports.js";
+export {
   indexResolutions,
   KNOWN_LOCKFILES,
   type LockfileFile,
