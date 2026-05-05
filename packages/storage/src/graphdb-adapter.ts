@@ -407,7 +407,20 @@ export class GraphDbStore implements IGraphStore {
     if (edges.length === 0) return;
     const cypher = mode === "upsert" ? buildEdgeMergeCypher(kind) : buildEdgeCreateCypher(kind);
     for (const e of edges) {
-      const params: SqlParam[] = [e.from, e.to, e.id, e.confidence, e.reason ?? null, e.step ?? 0];
+      // `step` is preserved as NULL when the source edge omits it so the
+      // round-trip reader can distinguish "intentionally absent" from
+      // "explicit zero". DuckDbStore stores 0 in both cases because the
+      // column is NOT NULL; the graph-db schema declares it as nullable
+      // INT32 and the canonical-JSON hash stays stable across backends as
+      // long as both adapters agree on the sentinel (AC-M3-4 gate).
+      const params: SqlParam[] = [
+        e.from,
+        e.to,
+        e.id,
+        e.confidence,
+        e.reason ?? null,
+        e.step ?? null,
+      ];
       await pool.query(cypher, params);
     }
   }
