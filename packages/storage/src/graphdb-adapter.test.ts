@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
-import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
+import {
+  assertReadOnlyCypher,
+  GraphDbBindingError,
+  GraphDbStore,
+  NotImplementedError,
+} from "./graphdb-adapter.js";
 import { openStore, resolveStoreBackend } from "./index.js";
 
 async function scratchDbPath(): Promise<string> {
@@ -63,23 +68,14 @@ test("stubbed methods throw NotImplementedError tagged with method name", async 
   // `createSchema` and `bulkLoad` were wired in AC-M3-3 Commit 1; both
   // require an open pool so their before-open behaviour is tested
   // separately below.
+  // search / vectorSearch / traverse / getMeta / setMeta were wired in
+  // AC-M3-3 Commit 2; they now throw a "before open" error rather than
+  // NotImplementedError. The below only covers the truly stubbed surfaces
+  // (embeddings + cochanges + symbol summaries), which AC-M3-3 Commit 3
+  // and AC-M3-4 land.
   const cases: readonly (readonly [string, () => Promise<unknown>])[] = [
     ["upsertEmbeddings", () => s.upsertEmbeddings([])],
     ["listEmbeddingHashes", () => s.listEmbeddingHashes()],
-    ["search", () => s.search({ text: "x" })],
-    ["vectorSearch", () => s.vectorSearch({ vector: new Float32Array([0]) })],
-    ["traverse", () => s.traverse({ startId: "x", direction: "both", maxDepth: 1 })],
-    ["getMeta", () => s.getMeta()],
-    [
-      "setMeta",
-      () =>
-        s.setMeta({
-          schemaVersion: "0",
-          indexedAt: "1970-01-01T00:00:00Z",
-          nodeCount: 0,
-          edgeCount: 0,
-        }),
-    ],
     ["bulkLoadCochanges", () => s.bulkLoadCochanges([])],
     ["lookupCochangesForFile", () => s.lookupCochangesForFile("a")],
     ["lookupCochangesBetween", () => s.lookupCochangesBetween("a", "b")],
@@ -370,6 +366,272 @@ test("bulkLoad cycles through every declared edge kind without fault", async () 
       const count = Number((row[0] as { c?: unknown })?.c ?? -1);
       assert.equal(count, 1, `kind ${kind} should have exactly one edge`);
     }
+  } finally {
+    await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cypher write-guard (AC-M3-3 Commit 2)
+// ---------------------------------------------------------------------------
+
+test("assertReadOnlyCypher accepts plain MATCH ... RETURN", () => {
+  assertReadOnlyCypher("MATCH (n:CodeNode) RETURN n.id LIMIT 10");
+  assertReadOnlyCypher("WITH 1 AS x RETURN x");
+  assertReadOnlyCypher("RETURN 1 AS one");
+});
+
+test("assertReadOnlyCypher rejects every write verb the native binding accepts", () => {
+  const writes = [
+    "CREATE (n:CodeNode {id: '1'})",
+    "MERGE (n:CodeNode {id: '1'}) ON CREATE SET n.name = 'x'",
+    "MATCH (n:CodeNode) DELETE n",
+    "MATCH (n:CodeNode {id: '1'}) SET n.name = 'x'",
+    "MATCH (n:CodeNode {id: '1'}) REMOVE n.name",
+    "DROP TABLE CodeNode",
+    "COPY CodeNode FROM 'file.csv'",
+    "INSTALL FTS",
+    "LOAD EXTENSION FTS",
+  ];
+  for (const stmt of writes) {
+    assert.throws(() => assertReadOnlyCypher(stmt), /refused write keyword/);
+  }
+});
+
+test("assertReadOnlyCypher tolerates write keywords inside line comments", () => {
+  assertReadOnlyCypher("// CREATE is mentioned here but not executed\nRETURN 1 AS one");
+  assertReadOnlyCypher("/* MERGE */ RETURN 1 AS one");
+});
+
+test("assertReadOnlyCypher rejects empty / non-string statements", () => {
+  assert.throws(() => assertReadOnlyCypher(""), /non-empty/);
+  // `as never` to sidestep the type guard — we care about the runtime
+  // behaviour, which must fail cleanly rather than crash.
+  assert.throws(() => assertReadOnlyCypher(null as unknown as string), /non-empty/);
+});
+
+// ---------------------------------------------------------------------------
+// Integration: query / search / vectorSearch / traverse / setMeta / getMeta
+// ---------------------------------------------------------------------------
+
+test("query rejects writes but passes reads through to the pool", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    // Reads succeed.
+    const rows = await store.query("MATCH (n:CodeNode) RETURN count(n) AS c");
+    assert.equal(Number((rows[0] as { c?: unknown })?.c ?? -1), 0);
+    // Writes are rejected up front — the pool never sees them.
+    await assert.rejects(
+      () => store.query("CREATE (n:CodeNode {id: 'x'})"),
+      /refused write keyword/,
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("traverse (down) reaches transitive children within depth bound", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const a = makeNodeId("Function", "x.ts", "A");
+    const b = makeNodeId("Function", "x.ts", "B");
+    const c = makeNodeId("Function", "x.ts", "C");
+    const d = makeNodeId("Function", "x.ts", "D");
+    for (const [id, name] of [
+      [a, "A"],
+      [b, "B"],
+      [c, "C"],
+      [d, "D"],
+    ] as const) {
+      g.addNode({ id, kind: "Function", name, filePath: "x.ts" });
+    }
+    g.addEdge({ from: a, to: b, type: "CALLS", confidence: 1.0 });
+    g.addEdge({ from: b, to: c, type: "CALLS", confidence: 1.0 });
+    g.addEdge({ from: c, to: d, type: "CALLS", confidence: 1.0 });
+    await store.bulkLoad(g);
+
+    const downDepth2 = await store.traverse({
+      startId: a,
+      direction: "down",
+      maxDepth: 2,
+      relationTypes: ["CALLS"],
+    });
+    const reachedIds = new Set(downDepth2.map((r) => r.nodeId));
+    assert.ok(reachedIds.has(b), "B should be reached at depth 1");
+    assert.ok(reachedIds.has(c), "C should be reached at depth 2");
+    assert.ok(!reachedIds.has(d), "D must be pruned by depth bound");
+
+    const upFromD = await store.traverse({
+      startId: d,
+      direction: "up",
+      maxDepth: 3,
+      relationTypes: ["CALLS"],
+    });
+    const upIds = new Set(upFromD.map((r) => r.nodeId));
+    assert.ok(upIds.has(c) && upIds.has(b) && upIds.has(a), "up traversal reaches A");
+  } finally {
+    await store.close();
+  }
+});
+
+test("traverse respects minConfidence filter", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const a = makeNodeId("Function", "x.ts", "A");
+    const b = makeNodeId("Function", "x.ts", "B");
+    const c = makeNodeId("Function", "x.ts", "C");
+    g.addNode({ id: a, kind: "Function", name: "A", filePath: "x.ts" });
+    g.addNode({ id: b, kind: "Function", name: "B", filePath: "x.ts" });
+    g.addNode({ id: c, kind: "Function", name: "C", filePath: "x.ts" });
+    g.addEdge({ from: a, to: b, type: "CALLS", confidence: 0.3 });
+    g.addEdge({ from: a, to: c, type: "CALLS", confidence: 0.9 });
+    await store.bulkLoad(g);
+
+    const hits = await store.traverse({
+      startId: a,
+      direction: "down",
+      maxDepth: 1,
+      relationTypes: ["CALLS"],
+      minConfidence: 0.5,
+    });
+    const ids = new Set(hits.map((r) => r.nodeId));
+    assert.ok(ids.has(c), "confident edge survives");
+    assert.ok(!ids.has(b), "low-confidence edge is pruned");
+  } finally {
+    await store.close();
+  }
+});
+
+test("search: BM25 index finds a distinct symbol name", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const ids: NodeId[] = [
+      makeNodeId("Function", "src/user.ts", "parseUserProfile"),
+      makeNodeId("Function", "src/view.ts", "renderMarkdownView"),
+    ];
+    g.addNode({
+      id: ids[0] as NodeId,
+      kind: "Function",
+      name: "parseUserProfile",
+      filePath: "src/user.ts",
+      signature: "function parseUserProfile()",
+    });
+    g.addNode({
+      id: ids[1] as NodeId,
+      kind: "Function",
+      name: "renderMarkdownView",
+      filePath: "src/view.ts",
+      signature: "function renderMarkdownView()",
+    });
+    await store.bulkLoad(g);
+
+    const results = await store.search({ text: "parseUserProfile", limit: 5 });
+    assert.ok(results.length >= 1, "search should return at least one row");
+    const top = results[0];
+    assert.ok(top);
+    assert.equal(top.nodeId, ids[0]);
+    assert.ok(top.score > 0, "BM25 score should be positive");
+  } finally {
+    await store.close();
+  }
+});
+
+// NOTE: a real vectorSearch integration test lands in AC-M3-3 Commit 3
+// alongside upsertEmbeddings — the vector query path is already wired here
+// but it needs at least one embedding row to return non-empty results, and
+// upsertEmbeddings is still a stub at this commit.
+
+test("vectorSearch rejects vectors with the wrong dimension", async () => {
+  const store = new GraphDbStore("/tmp/graph-vec-dim.db", { embeddingDim: 4 });
+  // No open() — the dimension check runs before we reach the pool so the
+  // test does not need a live native binding.
+  await assert.rejects(
+    () => store.vectorSearch({ vector: new Float32Array([1, 0]) }),
+    /dimension mismatch/,
+  );
+});
+
+test("setMeta → getMeta round-trips the full shape", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const meta = {
+      schemaVersion: "1.2",
+      lastCommit: "abc123",
+      indexedAt: "2026-05-05T00:00:00Z",
+      nodeCount: 100,
+      edgeCount: 250,
+      stats: { files: 10, functions: 90 },
+      cacheHitRatio: 0.75,
+      cacheSizeBytes: 1024,
+      lastCompaction: "2026-05-04T12:00:00Z",
+    };
+    await store.setMeta(meta);
+    const read = await store.getMeta();
+    assert.deepEqual(read, meta);
+  } finally {
+    await store.close();
+  }
+});
+
+test("getMeta returns undefined on a fresh store", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const read = await store.getMeta();
+    assert.equal(read, undefined);
+  } finally {
+    await store.close();
+  }
+});
+
+test("healthCheck returns ok once the pool is open", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    const result = await store.healthCheck();
+    assert.equal(result.ok, true);
   } finally {
     await store.close();
   }

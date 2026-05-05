@@ -236,6 +236,10 @@ export class GraphDbStore implements IGraphStore {
   private readonly defaultTimeoutMs: number;
   private readonly poolConfig: GraphDbPoolConfig;
   private pool: GraphDbPool | null = null;
+  private ftsExtensionLoaded = false;
+  private vectorExtensionLoaded = false;
+  private ftsIndexBuilt = false;
+  private vectorIndexBuilt = false;
 
   constructor(path: string, opts: GraphDbStoreOptions = {}) {
     this.path = path;
@@ -273,6 +277,12 @@ export class GraphDbStore implements IGraphStore {
     if (!this.pool) return;
     const pool = this.pool;
     this.pool = null;
+    // Clear lazy-init latches so a subsequent open() re-probes the
+    // extensions against the freshly opened database.
+    this.ftsExtensionLoaded = false;
+    this.vectorExtensionLoaded = false;
+    this.ftsIndexBuilt = false;
+    this.vectorIndexBuilt = false;
     await pool.close();
   }
 
@@ -405,20 +415,188 @@ export class GraphDbStore implements IGraphStore {
     if (!this.pool) {
       throw new Error("graph-db: query called before open()");
     }
+    // Refuse write keywords so the user surface stays read-only. A full
+    // Cypher-guard lands in AC-M3-5; this minimal deny-list matches the
+    // DuckDB backend's assertReadOnlySql approach and trips every write
+    // verb the native binding accepts.
+    assertReadOnlyCypher(sql);
     const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
     return this.pool.query(sql, params, { timeoutMs });
   }
 
-  async search(_q: SearchQuery): Promise<readonly SearchResult[]> {
-    throw new NotImplementedError("search");
+  async search(q: SearchQuery): Promise<readonly SearchResult[]> {
+    const pool = this.requirePool();
+    await this.ensureFtsExtension();
+    await this.ensureFtsIndex();
+    const limit = q.limit ?? 50;
+    const kindFilter = q.kinds && q.kinds.length > 0 ? q.kinds : undefined;
+
+    // $p1 = FTS query text, $p2..$pN+1 = optional kind filter values,
+    // $p(limit) = LIMIT. The index maps back to the kind-filter array when
+    // present.
+    const params: SqlParam[] = [q.text];
+    let kindPredicate = "";
+    if (kindFilter) {
+      const phs = kindFilter.map((_, i) => `$p${i + 2}`).join(", ");
+      kindPredicate = ` WHERE node.kind IN [${phs}]`;
+      for (const k of kindFilter) params.push(k);
+    }
+    // Tiebreaker columns mirror DuckDbStore.search — (id, file_path, name)
+    // ascending so identical scores yield a stable order across runs.
+    const cypher =
+      `CALL QUERY_FTS_INDEX('CodeNode', 'och_fts', $p1) ` +
+      `WITH node, score${kindPredicate} ` +
+      `RETURN node.id AS id, node.name AS name, node.kind AS kind, ` +
+      `node.file_path AS file_path, score ` +
+      `ORDER BY score DESC, id ASC, file_path ASC, name ASC LIMIT ${Number(limit)}`;
+    const rows = await pool.query(cypher, params);
+    const out: SearchResult[] = [];
+    for (const row of rows) {
+      out.push({
+        nodeId: String((row as Record<string, unknown>)["id"]),
+        name: String((row as Record<string, unknown>)["name"] ?? ""),
+        kind: String((row as Record<string, unknown>)["kind"] ?? ""),
+        filePath: String((row as Record<string, unknown>)["file_path"] ?? ""),
+        score: Number((row as Record<string, unknown>)["score"] ?? 0),
+      });
+    }
+    return out;
   }
 
-  async vectorSearch(_q: VectorQuery): Promise<readonly VectorResult[]> {
-    throw new NotImplementedError("vectorSearch");
+  async vectorSearch(q: VectorQuery): Promise<readonly VectorResult[]> {
+    // Dimension guard runs before any pool access so it fails fast on
+    // misconfigured callers — an 'not open' message would hide the real
+    // problem.
+    if (q.vector.length !== this.embeddingDim) {
+      throw new Error(
+        `Vector dimension mismatch: got ${q.vector.length}, expected ${this.embeddingDim}`,
+      );
+    }
+    const pool = this.requirePool();
+    await this.ensureVectorExtension();
+    await this.ensureVectorIndex();
+    const limit = q.limit ?? 10;
+    const granularities: readonly string[] | undefined =
+      q.granularity === undefined
+        ? undefined
+        : Array.isArray(q.granularity)
+          ? (q.granularity as readonly string[])
+          : [q.granularity as string];
+
+    // Over-fetch k so the post-filter WHERE still leaves `limit` rows when
+    // some of the top-k are dropped by the predicate. 4x limit (min 32)
+    // is the same headroom DuckDbStore uses for its granularity filter.
+    const k = Math.max(limit * 4, 32);
+
+    // $p1 = query vector, $p2 = k. Subsequent params are the WHERE clause
+    // values (callers pass `?` placeholders, we rewrite to $pN).
+    const params: SqlParam[] = [Array.from(q.vector) as unknown as SqlParam, k];
+    let nextPh = 3;
+    const whereParts: string[] = [];
+
+    if (q.whereClause && q.whereClause.length > 0) {
+      const localParams = q.params ?? [];
+      const rewritten = rewriteWhereClause(q.whereClause, () => {
+        const name = `$p${nextPh}`;
+        nextPh += 1;
+        return name;
+      });
+      whereParts.push(`(${rewritten})`);
+      for (const p of localParams) params.push(p);
+    }
+    if (granularities !== undefined && granularities.length > 0) {
+      const phs: string[] = [];
+      for (const g of granularities) {
+        phs.push(`$p${nextPh}`);
+        nextPh += 1;
+        params.push(g);
+      }
+      whereParts.push(`e.granularity IN [${phs.join(", ")}]`);
+    }
+
+    const wherePredicate = whereParts.length > 0 ? ` WHERE ${whereParts.join(" AND ")}` : "";
+
+    // CALL QUERY_VECTOR_INDEX returns rows with `node` (the Embedding
+    // record) and `distance`. We pull the `e.node_id` column through so
+    // callers get the CodeNode id — the join to CodeNode via EMBEDS is
+    // only needed when the caller-supplied whereClause references `n.*`.
+    const needsJoin = (q.whereClause ?? "").trim().length > 0;
+    const joinClause = needsJoin ? `MATCH (e)-[:EMBEDS]->(node:CodeNode) ` : "";
+    const cypher =
+      `CALL QUERY_VECTOR_INDEX('Embedding', 'och_vec', $p1, $p2) ` +
+      `WITH node AS e, distance ` +
+      `${joinClause}` +
+      `${wherePredicate} ` +
+      `RETURN e.node_id AS node_id, distance ORDER BY distance LIMIT ${Number(limit)}`;
+
+    const rows = await pool.query(cypher, params);
+    const out: VectorResult[] = [];
+    for (const row of rows) {
+      const rec = row as Record<string, unknown>;
+      out.push({
+        nodeId: String(rec["node_id"]),
+        distance: Number(rec["distance"] ?? 0),
+      });
+    }
+    return out;
   }
 
-  async traverse(_q: TraverseQuery): Promise<readonly TraverseResult[]> {
-    throw new NotImplementedError("traverse");
+  async traverse(q: TraverseQuery): Promise<readonly TraverseResult[]> {
+    const pool = this.requirePool();
+    const maxDepth = Math.max(0, Math.floor(q.maxDepth));
+    if (maxDepth === 0) return [];
+    const minConfidence = q.minConfidence ?? 0;
+    const relTypes: readonly string[] =
+      q.relationTypes && q.relationTypes.length > 0 ? q.relationTypes : getAllRelationTypes();
+    // Variable-length MATCH: `[r:T1|T2*1..N]`. The native engine accepts
+    // the pipe-separated label union and the lower..upper bound syntax.
+    // Depth is inlined because the native binding rejects a prepared
+    // statement whose variable-length bounds are bound via parameters.
+    const typeLabels = relTypes.join("|");
+    const { head, tail } =
+      q.direction === "up"
+        ? { head: "<-", tail: "-" }
+        : q.direction === "down"
+          ? { head: "-", tail: "->" }
+          : { head: "-", tail: "-" };
+
+    // NOTE: `[n IN nodes(p) | n.id]` is rejected by the native engine
+    // (v0.16.1 `Binder exception: Variable n is not in scope`). Use
+    // `list_transform` instead.
+    //
+    // The native prepared-statement planner asserts `UNREACHABLE_CODE` when
+    // a variable-length pattern (`*1..N`) co-exists with ANY bound
+    // parameter. Work-around: inline the two inputs this traversal needs
+    // (startId and minConfidence), then route through `pool.query()`
+    // without a param list so the pool picks the direct-query path. Both
+    // values are validated before interpolation — startId is either a
+    // UUID-shaped NodeId or a composite identifier from `makeNodeId`, and
+    // minConfidence is a finite number — so the inlining cannot smuggle a
+    // Cypher fragment.
+    const startIdLiteral = cypherStringLiteral(q.startId);
+    const confLiteral = cypherNumberLiteral(minConfidence);
+    const cypher =
+      `MATCH p = (start:CodeNode {id: ${startIdLiteral}})${head}` +
+      `[r:${typeLabels}*1..${maxDepth}]${tail}(other:CodeNode) ` +
+      `WHERE ALL(x IN rels(p) WHERE x.confidence >= ${confLiteral}) ` +
+      `AND other.id <> ${startIdLiteral} ` +
+      `RETURN other.id AS node_id, length(p) AS depth, ` +
+      `list_transform(nodes(p), x -> x.id) AS path ` +
+      `ORDER BY depth, node_id`;
+
+    const rows = await pool.query(cypher);
+    const out: TraverseResult[] = [];
+    for (const row of rows) {
+      const rec = row as Record<string, unknown>;
+      const pathVal = rec["path"];
+      const path = Array.isArray(pathVal) ? pathVal.map((v) => String(v)) : [];
+      out.push({
+        nodeId: String(rec["node_id"]),
+        depth: Number(rec["depth"] ?? 0),
+        path,
+      });
+    }
+    return out;
   }
 
   // --------------------------------------------------------------------------
@@ -426,18 +604,82 @@ export class GraphDbStore implements IGraphStore {
   // --------------------------------------------------------------------------
 
   async getMeta(): Promise<StoreMeta | undefined> {
-    throw new NotImplementedError("getMeta");
+    const pool = this.requirePool();
+    const rows = await pool.query(
+      `MATCH (m:StoreMeta {id: 1}) RETURN m.schema_version AS schema_version, ` +
+        `m.last_commit AS last_commit, m.indexed_at AS indexed_at, ` +
+        `m.node_count AS node_count, m.edge_count AS edge_count, ` +
+        `m.stats_json AS stats_json, m.cache_hit_ratio AS cache_hit_ratio, ` +
+        `m.cache_size_bytes AS cache_size_bytes, m.last_compaction AS last_compaction ` +
+        `LIMIT 1`,
+    );
+    const first = rows[0];
+    if (!first) return undefined;
+    const row = first as Record<string, unknown>;
+    const statsStr = row["stats_json"];
+    const stats =
+      typeof statsStr === "string" && statsStr.length > 0
+        ? (JSON.parse(statsStr) as Record<string, number>)
+        : undefined;
+    const lastCommit = row["last_commit"];
+    const cacheHitRatio = row["cache_hit_ratio"];
+    const cacheSizeBytes = row["cache_size_bytes"];
+    const lastCompaction = row["last_compaction"];
+    return {
+      schemaVersion: String(row["schema_version"]),
+      ...(lastCommit !== null && lastCommit !== undefined
+        ? { lastCommit: String(lastCommit) }
+        : {}),
+      indexedAt: String(row["indexed_at"]),
+      nodeCount: Number(row["node_count"] ?? 0),
+      edgeCount: Number(row["edge_count"] ?? 0),
+      ...(stats ? { stats } : {}),
+      ...(cacheHitRatio !== null && cacheHitRatio !== undefined
+        ? { cacheHitRatio: Number(cacheHitRatio) }
+        : {}),
+      ...(cacheSizeBytes !== null && cacheSizeBytes !== undefined
+        ? { cacheSizeBytes: Number(cacheSizeBytes) }
+        : {}),
+      ...(lastCompaction !== null && lastCompaction !== undefined
+        ? { lastCompaction: String(lastCompaction) }
+        : {}),
+    };
   }
 
-  async setMeta(_meta: StoreMeta): Promise<void> {
-    throw new NotImplementedError("setMeta");
+  async setMeta(meta: StoreMeta): Promise<void> {
+    const pool = this.requirePool();
+    const statsJson = meta.stats ? JSON.stringify(meta.stats) : null;
+    // MERGE by id=1 so repeat writes update in place without carrying a
+    // separate DELETE pass.
+    await pool.query(
+      `MERGE (m:StoreMeta {id: 1}) ` +
+        `SET m.schema_version = $p1, m.last_commit = $p2, m.indexed_at = $p3, ` +
+        `m.node_count = $p4, m.edge_count = $p5, m.stats_json = $p6, ` +
+        `m.cache_hit_ratio = $p7, m.cache_size_bytes = $p8, m.last_compaction = $p9`,
+      [
+        meta.schemaVersion,
+        meta.lastCommit ?? null,
+        meta.indexedAt,
+        meta.nodeCount,
+        meta.edgeCount,
+        statsJson,
+        meta.cacheHitRatio ?? null,
+        meta.cacheSizeBytes ?? null,
+        meta.lastCompaction ?? null,
+      ],
+    );
   }
 
   async healthCheck(): Promise<{ ok: boolean; message?: string }> {
     if (!this.pool?.isOpen()) {
       return { ok: false, message: "graph-db: pool not open" };
     }
-    return { ok: true };
+    try {
+      await this.pool.query("RETURN 1 AS one");
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: (err as Error).message };
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -490,6 +732,59 @@ export class GraphDbStore implements IGraphStore {
       throw new Error("graph-db: query called before open()");
     }
     return this.pool;
+  }
+
+  private async ensureFtsExtension(): Promise<void> {
+    if (this.ftsExtensionLoaded) return;
+    const pool = this.requirePool();
+    try {
+      if (!this.readOnly) await pool.query("INSTALL FTS;");
+      await pool.query("LOAD EXTENSION FTS;");
+      this.ftsExtensionLoaded = true;
+    } catch (err) {
+      throw new Error(`graph-db: FTS extension unavailable: ${(err as Error).message}`);
+    }
+  }
+
+  private async ensureVectorExtension(): Promise<void> {
+    if (this.vectorExtensionLoaded) return;
+    const pool = this.requirePool();
+    try {
+      if (!this.readOnly) await pool.query("INSTALL VECTOR;");
+      await pool.query("LOAD EXTENSION VECTOR;");
+      this.vectorExtensionLoaded = true;
+    } catch (err) {
+      throw new Error(`graph-db: VECTOR extension unavailable: ${(err as Error).message}`);
+    }
+  }
+
+  private async ensureFtsIndex(): Promise<void> {
+    if (this.ftsIndexBuilt) return;
+    const pool = this.requirePool();
+    // `CALL CREATE_FTS_INDEX` fails if the index already exists; swallow
+    // that specific failure so the call is idempotent from the adapter's
+    // point of view. Any other error (missing table, permission) surfaces.
+    try {
+      await pool.query(
+        "CALL CREATE_FTS_INDEX('CodeNode', 'och_fts', ['name', 'signature', 'description'])",
+      );
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (!/exist|already/i.test(msg)) throw err;
+    }
+    this.ftsIndexBuilt = true;
+  }
+
+  private async ensureVectorIndex(): Promise<void> {
+    if (this.vectorIndexBuilt) return;
+    const pool = this.requirePool();
+    try {
+      await pool.query("CALL CREATE_VECTOR_INDEX('Embedding', 'och_vec', 'vector')");
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (!/exist|already/i.test(msg)) throw err;
+    }
+    this.vectorIndexBuilt = true;
   }
 
   // --------------------------------------------------------------------------
@@ -655,4 +950,84 @@ function jsonObjectOrNull(v: unknown): string | null {
   if (typeof v !== "object") return null;
   if (Array.isArray(v)) return null;
   return JSON.stringify(v);
+}
+
+/**
+ * Minimal read-only check over a Cypher statement. The full cypher-guard
+ * lands in AC-M3-5; until then we refuse the write keywords that would let
+ * a caller mutate the store via the user-facing `query()` surface.
+ *
+ * The allowlist-first approach would be safer but we do not yet have a
+ * Cypher tokeniser; the deny-list matches the DuckDB backend's
+ * `assertReadOnlySql` philosophy and trips every write verb the native
+ * binding accepts.
+ */
+export function assertReadOnlyCypher(stmt: string): void {
+  if (typeof stmt !== "string" || stmt.length === 0) {
+    throw new Error("graph-db: query() requires a non-empty statement");
+  }
+  // Strip single-line (`//`) and block (`/* ... */`) comments before probing
+  // so a `// CREATE` commit note does not trip the guard.
+  const cleaned = stmt.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const upper = cleaned.toUpperCase();
+  const WRITE_KEYWORDS = [
+    /\bCREATE\b/,
+    /\bMERGE\b/,
+    /\bDELETE\b/,
+    /\bSET\b/,
+    /\bREMOVE\b/,
+    /\bDROP\b/,
+    /\bALTER\b/,
+    /\bCOPY\b/,
+    /\bIMPORT\b/,
+    /\bEXPORT\b/,
+    /\bCHECKPOINT\b/,
+    /\bINSTALL\b/,
+    /\bLOAD EXTENSION\b/,
+  ];
+  for (const re of WRITE_KEYWORDS) {
+    if (re.test(upper)) {
+      const match = re.exec(upper);
+      throw new Error(`graph-db: query() refused write keyword '${(match?.[0] ?? "").trim()}'`);
+    }
+  }
+}
+
+/**
+ * Rewrite a DuckDB-style whereClause (using `?` placeholders and `n.*`
+ * column references) into Cypher (using `$pN` placeholders and `node.*`).
+ * The substitution is positional — every `?` is replaced by the next
+ * `$pN` as chosen by the caller-provided name generator.
+ */
+function rewriteWhereClause(clause: string, nextName: () => string): string {
+  let rewritten = clause.replace(/\bn\./g, "node.");
+  rewritten = rewritten.replace(/\?/g, () => nextName());
+  return rewritten;
+}
+
+/**
+ * Emit `'escaped'` form for a string that MUST be inlined into a Cypher
+ * statement (e.g. inside a variable-length traversal where the native
+ * engine rejects bound parameters). The caller is responsible for
+ * guaranteeing the value is string-typed; we only escape `\\` and `'`.
+ */
+function cypherStringLiteral(value: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`cypherStringLiteral expects a string, got ${typeof value}`);
+  }
+  const escaped = value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  return `'${escaped}'`;
+}
+
+/**
+ * Emit a Cypher numeric literal from a finite JS number. Used when the
+ * native engine's parameter path is unavailable — the caller pre-validates
+ * the input so non-finite values surface as a clean error rather than a
+ * silent string concat.
+ */
+function cypherNumberLiteral(value: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`cypherNumberLiteral expects a finite number, got ${String(value)}`);
+  }
+  return value.toString();
 }
