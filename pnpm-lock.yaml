@@ -438,6 +438,9 @@ importers:
       '@duckdb/node-api':
         specifier: 1.5.2-r.1
         version: 1.5.2-r.1
+      '@ladybugdb/core':
+        specifier: ^0.16.1
+        version: 0.16.1
       '@opencodehub/core-types':
         specifier: workspace:*
         version: link:../core-types
@@ -1292,6 +1295,34 @@ packages:
   '@kwsites/promise-deferred@1.1.1':
     resolution: {integrity: sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw==}
 
+  '@ladybugdb/core-darwin-arm64@0.16.1':
+    resolution: {integrity: sha512-Nl+Cf70rD+HaC9IBHv+oeUwqX9plghXD7PN9tyMzMohRVPvcGEbqWPB6YcdJa8rR7qRqCCbmaNMDen5wg4rY2w==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@ladybugdb/core-darwin-x64@0.16.1':
+    resolution: {integrity: sha512-4eAjfimAAQRSmDfUUkGrl9OhefxcW1ziA9tl0eljBlGoUseE7dL02+RSqjGohYMcQ+lzuHAq1QWb0XRlMA8YTQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@ladybugdb/core-linux-arm64@0.16.1':
+    resolution: {integrity: sha512-zkctksev+hsPFrNxHHdq4lYK5OWdLhWfRdQzjzkgDyaHayHU6yCL2fgD6uPGQ8TRQ6/2DxMErb4p3FzGW85Ubw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@ladybugdb/core-linux-x64@0.16.1':
+    resolution: {integrity: sha512-5rAb9T5vif8WKhHwhobosu2/aiOwJkWb/ViybvUc5GFKunKl8VI6RmZQVeufT9zUzRktUwrxBrxblCxsnamXJw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@ladybugdb/core-win32-x64@0.16.1':
+    resolution: {integrity: sha512-ShOUTrIuZKQ63J95tcRJxKf1cvg8yi2FSYx9kMTSercc1FdQZPV+zxUN0myMq3MTWOl7xDxsVMmdp/t80O29UQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@ladybugdb/core@0.16.1':
+    resolution: {integrity: sha512-qwuEcR8CVMKb6tNDaHtq7Ux8hT/XbPC0db+vwutX6JxNAejyx7YomHKPSy9XAKURhYK8mezZe3UN8rf+xpHOjQ==}
+
   '@modelcontextprotocol/sdk@1.29.0':
     resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
     engines: {node: '>=18'}
@@ -2052,6 +2083,11 @@ packages:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
 
+  cmake-js@8.0.0:
+    resolution: {integrity: sha512-YbUP88RDwCvoQkZhRtGURYm9RIpWdtvZuhT87fKNoLjk8kIFIFeARpKfuZQGdwfH99GZpUmqSfcDrK62X7lTgg==}
+    engines: {node: ^20.17.0 || >=22.9.0}
+    hasBin: true
+
   code-block-writer@13.0.3:
     resolution: {integrity: sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg==}
 
@@ -2775,6 +2811,10 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  isexe@4.0.0:
+    resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
+    engines: {node: '>=20'}
+
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
 
@@ -2818,9 +2858,6 @@ packages:
 
   json-stringify-safe@5.0.1:
     resolution: {integrity: sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==}
-
-  jsonfile@6.1.0:
-    resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
 
   jsonfile@6.2.0:
     resolution: {integrity: sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg==}
@@ -3144,6 +3181,9 @@ packages:
     resolution: {integrity: sha512-6u9UwL0HlAl21+agMN3YAMXcKByMqwGx+pq+P76vii5f7hTPtKDp08/H9py6DY+cfDw7kQNTGEj/rly3IgbNQA==}
     engines: {node: '>=10'}
 
+  node-addon-api@6.1.0:
+    resolution: {integrity: sha512-+eawOlIgy680F0kBzPUNFhMZGtJ1YmqM6l4+Crf4IkImjYrO/mqPwRMh352g23uIaQKFItcQ64I7KMaJxHgAVA==}
+
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
@@ -3154,6 +3194,9 @@ packages:
   node-addon-api@8.7.0:
     resolution: {integrity: sha512-9MdFxmkKaOYVTV+XVRG8ArDwwQ77XIgIPyKASB1k3JPq3M8fGQQQE3YpMOrKm6g//Ktx8ivZr8xo1Qmtqub+GA==}
     engines: {node: ^18 || ^20 || >= 21}
+
+  node-api-headers@1.8.0:
+    resolution: {integrity: sha512-jfnmiKWjRAGbdD1yQS28bknFM1tbHC1oucyuMPjmkEs+kpiu76aRs40WlTmBmyEgzDM76ge1DQ7XJ3R5deiVjQ==}
 
   node-gyp-build@4.8.4:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
@@ -3957,6 +4000,9 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
+  url-join@4.0.1:
+    resolution: {integrity: sha512-jk1+QP6ZJqyOiuEI9AEWQfju/nB2Pw466kbA0LEZljHwKeMgd9WrAEgEGxjPDD2+TNbbb37rTyhEfrCXfuKXnA==}
+
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
@@ -3984,6 +4030,11 @@ packages:
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
+    hasBin: true
+
+  which@6.0.1:
+    resolution: {integrity: sha512-oGLe46MIrCRqX7ytPUf66EAYvdeMIZYn3WaocqqKZAxrBpkqHfL/qvTyJ/bTk5+AqHCjXmrv3CEWgy368zhRUg==}
+    engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
 
   widest-line@5.0.0:
@@ -5213,6 +5264,34 @@ snapshots:
 
   '@kwsites/promise-deferred@1.1.1': {}
 
+  '@ladybugdb/core-darwin-arm64@0.16.1':
+    optional: true
+
+  '@ladybugdb/core-darwin-x64@0.16.1':
+    optional: true
+
+  '@ladybugdb/core-linux-arm64@0.16.1':
+    optional: true
+
+  '@ladybugdb/core-linux-x64@0.16.1':
+    optional: true
+
+  '@ladybugdb/core-win32-x64@0.16.1':
+    optional: true
+
+  '@ladybugdb/core@0.16.1':
+    dependencies:
+      cmake-js: 8.0.0
+      node-addon-api: 6.1.0
+    optionalDependencies:
+      '@ladybugdb/core-darwin-arm64': 0.16.1
+      '@ladybugdb/core-darwin-x64': 0.16.1
+      '@ladybugdb/core-linux-arm64': 0.16.1
+      '@ladybugdb/core-linux-x64': 0.16.1
+      '@ladybugdb/core-win32-x64': 0.16.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.14)
@@ -6164,6 +6243,20 @@ snapshots:
 
   clone@1.0.4: {}
 
+  cmake-js@8.0.0:
+    dependencies:
+      debug: 4.4.3
+      fs-extra: 11.3.4
+      node-api-headers: 1.8.0
+      rc: 1.2.8
+      semver: 7.7.4
+      tar: 7.5.13
+      url-join: 4.0.1
+      which: 6.0.1
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - supports-color
+
   code-block-writer@13.0.3:
     optional: true
 
@@ -6623,7 +6716,7 @@ snapshots:
     dependencies:
       at-least-node: 1.0.0
       graceful-fs: 4.2.11
-      jsonfile: 6.1.0
+      jsonfile: 6.2.0
       universalify: 2.0.1
 
   fs.realpath@1.0.0: {}
@@ -6945,6 +7038,8 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  isexe@4.0.0: {}
+
   jackspeak@3.4.3:
     dependencies:
       '@isaacs/cliui': 8.0.2
@@ -6978,12 +7073,6 @@ snapshots:
   json-schema-typed@8.0.2: {}
 
   json-stringify-safe@5.0.1: {}
-
-  jsonfile@6.1.0:
-    dependencies:
-      universalify: 2.0.1
-    optionalDependencies:
-      graceful-fs: 4.2.11
 
   jsonfile@6.2.0:
     dependencies:
@@ -7250,11 +7339,15 @@ snapshots:
     dependencies:
       semver: 7.7.4
 
+  node-addon-api@6.1.0: {}
+
   node-addon-api@7.1.1: {}
 
   node-addon-api@8.5.0: {}
 
   node-addon-api@8.7.0: {}
+
+  node-api-headers@1.8.0: {}
 
   node-gyp-build@4.8.4: {}
 
@@ -8124,6 +8217,8 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
+  url-join@4.0.1: {}
+
   util-deprecate@1.0.2: {}
 
   uuid@14.0.0: {}
@@ -8148,6 +8243,10 @@ snapshots:
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
+
+  which@6.0.1:
+    dependencies:
+      isexe: 4.0.0
 
   widest-line@5.0.0:
     dependencies:

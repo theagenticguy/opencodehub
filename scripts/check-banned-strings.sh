@@ -48,12 +48,42 @@ EXCLUDES=(
 
 fail=0
 
+# Per-literal allowlist of tolerated substrings. The `ladybug` literal is
+# exempt when it appears exclusively as part of the scoped npm package
+# identifier `@ladybugdb/...` — that is a manifest/import surface, not a
+# source-level identifier (spec 004 §Banned-string sensitivities). Every
+# OTHER occurrence of `ladybug` (class names, variable names, prose) still
+# fails the sweep.
+#
+# Indexed by literal. A line is only forgiven if EVERY banned-literal match
+# on that line is covered by the tolerated pattern.
+declare -A LITERAL_ALLOWLIST_REGEX=(
+  ['ladybug']='@ladybugdb[/A-Za-z0-9_-]*'
+)
+
 # Literal-string sweep (case-insensitive).
 for pat in "${BANNED_LITERALS[@]}"; do
   if matches=$(git grep -I -n -i -e "$pat" --untracked -- "${EXCLUDES[@]}" 2>/dev/null); then
-    echo "FAIL: banned literal '$pat' found:" >&2
-    printf '%s\n' "$matches" >&2
-    fail=1
+    allow="${LITERAL_ALLOWLIST_REGEX[$pat]:-}"
+    if [ -n "$allow" ]; then
+      # Strip every allow-listed occurrence from each hit; if the line still
+      # contains the banned literal, it's a real fail.
+      filtered=$(printf '%s\n' "$matches" | while IFS= read -r line; do
+        stripped=$(printf '%s' "$line" | sed -E "s#${allow}##g")
+        if printf '%s' "$stripped" | grep -i -q -- "$pat"; then
+          printf '%s\n' "$line"
+        fi
+      done)
+      if [ -n "$filtered" ]; then
+        echo "FAIL: banned literal '$pat' found:" >&2
+        printf '%s\n' "$filtered" >&2
+        fail=1
+      fi
+    else
+      echo "FAIL: banned literal '$pat' found:" >&2
+      printf '%s\n' "$matches" >&2
+      fail=1
+    fi
   fi
 done
 
