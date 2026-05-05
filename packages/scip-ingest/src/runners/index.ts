@@ -15,14 +15,36 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-export type IndexerKind = "typescript" | "python" | "go" | "rust" | "java";
+export type IndexerKind = "typescript" | "python" | "go" | "rust" | "java" | "cobol-proleap";
 
 export interface RunIndexerOptions {
   readonly projectRoot: string;
   readonly outputDir: string; // e.g. <repo>/.codehub/scip
   readonly projectName?: string;
   readonly envOverlay?: NodeJS.ProcessEnv;
+  /**
+   * When true (legacy boolean form), every build-script-driven indexer is
+   * enabled. Preserves backward compatibility with existing callers;
+   * prefer {@link allowedBuildScripts} for fine-grained opt-ins.
+   */
   readonly allowBuildScripts?: boolean; // required for rust + java
+  /**
+   * Explicit opt-in whitelist for build-script-driven indexers. Current
+   * surface: `"proleap"` gates the COBOL deep-parse via
+   * `@opencodehub/cobol-proleap`. Missing entry → the `cobol-proleap`
+   * kind is skipped and COBOL falls through to the regex hot path.
+   */
+  readonly allowedBuildScripts?: readonly "proleap"[];
+  /**
+   * Path to the uwol/cobol-parser JAR when `allowedBuildScripts` includes
+   * `"proleap"`. Default: `~/.codehub/vendor/proleap/proleap-cobol-parser.jar`.
+   */
+  readonly cobolProleapJarPath?: string;
+  /**
+   * Path to the directory containing `cobol_to_scip.class`. Default:
+   * `~/.codehub/vendor/proleap/`.
+   */
+  readonly cobolProleapWrapperDir?: string;
   readonly timeoutMs?: number;
 }
 
@@ -39,6 +61,12 @@ export interface IndexerResult {
 /**
  * Detect which languages have roots worth indexing by looking for
  * idiomatic manifests. Returns the set a caller should fan out on.
+ *
+ * Note on `cobol-proleap`: the detector never infers the proleap kind
+ * from disk alone — it is strictly gated behind
+ * `allowedBuildScripts.includes("proleap")`, which the CLI surface only
+ * sets in response to an explicit user opt-in (spec W-M4-1). Callers
+ * that opted in append `"cobol-proleap"` to the detected set themselves.
  */
 export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   const exists = (rel: string) => existsSync(join(projectRoot, rel));
@@ -60,6 +88,21 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   return langs;
 }
 
+/**
+ * Resolve the default vendor paths for the ProLeap JAR + compiled
+ * wrapper. Factored out so tests can inject in-memory paths.
+ */
+export function defaultCobolProleapPaths(home: string | undefined = process.env["HOME"]): {
+  jarPath: string;
+  wrapperDir: string;
+} {
+  const base = join(home ?? "", ".codehub", "vendor", "proleap");
+  return {
+    jarPath: join(base, "proleap-cobol-parser.jar"),
+    wrapperDir: base,
+  };
+}
+
 export async function runIndexer(
   kind: IndexerKind,
   opts: RunIndexerOptions,
@@ -68,6 +111,15 @@ export async function runIndexer(
   await mkdir(outputDir, { recursive: true });
   const scipPath = join(outputDir, `${kind}.scip`);
   const start = Date.now();
+
+  // `cobol-proleap` is not a CLI spawn — it's a marker that the in-process
+  // @opencodehub/cobol-proleap bridge should run during the parse phase.
+  // We handle gating here so every caller can treat it uniformly with the
+  // SCIP runners: the returned result is either activated (skipped=false,
+  // no external cmd) or skipped with a reason the ingestion layer logs.
+  if (kind === "cobol-proleap") {
+    return resolveCobolProleap(opts, scipPath, start);
+  }
 
   const plan = buildCommand(kind, opts, scipPath);
   if (plan.skipReason) {
@@ -208,7 +260,70 @@ function buildCommand(kind: IndexerKind, opts: RunIndexerOptions, scipPath: stri
         versionArgs: ["--version"],
         tool: "scip-java",
       };
+    case "cobol-proleap":
+      // Handled upstream in runIndexer(); this branch keeps the switch
+      // exhaustive under `noFallthroughCasesInSwitch`.
+      return {
+        cmd: "cobol-proleap",
+        args: [],
+        cwd,
+        versionCmd: "",
+        versionArgs: [],
+        tool: "cobol-proleap",
+        skipReason: "cobol-proleap is resolved upstream, not via buildCommand",
+      };
   }
+}
+
+/**
+ * Resolve activation for the `cobol-proleap` kind. Returns an
+ * {@link IndexerResult} reporting whether the deep-parse bridge is active
+ * for this run. The actual JVM spawn lives in `@opencodehub/cobol-proleap`;
+ * this runner only gates based on the opt-in whitelist and JAR presence.
+ */
+function resolveCobolProleap(
+  opts: RunIndexerOptions,
+  scipPath: string,
+  start: number,
+): IndexerResult {
+  const tool = "cobol-proleap";
+  const whitelisted =
+    opts.allowedBuildScripts?.includes("proleap") === true || opts.allowBuildScripts === true;
+  if (!whitelisted) {
+    return {
+      kind: "cobol-proleap",
+      scipPath,
+      tool,
+      version: "",
+      skipped: true,
+      skipReason:
+        "cobol-proleap is gated behind --allow-build-scripts=proleap; falling back to regex hot path",
+      durationMs: Date.now() - start,
+    };
+  }
+  const defaults = defaultCobolProleapPaths();
+  const jarPath = opts.cobolProleapJarPath ?? defaults.jarPath;
+  if (!existsSync(jarPath)) {
+    return {
+      kind: "cobol-proleap",
+      scipPath,
+      tool,
+      version: "",
+      skipped: true,
+      skipReason:
+        `cobol-proleap JAR not found at ${jarPath}. Run \`codehub setup --cobol-proleap\` to install it. ` +
+        "Falling back to the regex hot path for this run.",
+      durationMs: Date.now() - start,
+    };
+  }
+  return {
+    kind: "cobol-proleap",
+    scipPath,
+    tool,
+    version: "v4",
+    skipped: false,
+    durationMs: Date.now() - start,
+  };
 }
 
 type CommandOutcome =

@@ -50,4 +50,4 @@ export {
 } from "./parse.js";
 export { scipProvenanceReason } from "./provenance.js";
 export type { IndexerKind, IndexerResult, RunIndexerOptions } from "./runners/index.js";
-export { detectLanguages, runIndexer } from "./runners/index.js";
+export { defaultCobolProleapPaths, detectLanguages, runIndexer } from "./runners/index.js";
