@@ -48,6 +48,14 @@ export interface FrameworkDetectorInput {
    * gate the catalog so we skip entries for absent ecosystems.
    */
   readonly detectedLanguages: readonly string[];
+  /**
+   * Stage 2 — per-dep exact-version resolutions from parsed lockfiles
+   * (`package-lock.json`, `pnpm-lock.yaml`, `Gemfile.lock`, `poetry.lock`,
+   * `uv.lock`, `Cargo.lock`). When a rule's `versionKey` points at a
+   * dep whose manifest declaration is a semver range, the detector
+   * substitutes the lockfile's pinned version. Absent for legacy callers.
+   */
+  readonly lockfileVersions?: ReadonlyMap<string, string>;
 }
 
 /** Mapping language → ecosystem. Covers the tree-sitter languages OpenCodeHub indexes. */
@@ -83,7 +91,13 @@ export function detectFrameworksStructured(
     if (rule.ecosystem !== "any" && !activeEcosystems.has(rule.ecosystem)) continue;
     const hit = evaluateRule(rule, input, manifestJson);
     if (hit === null) continue;
-    const detection = buildDetection(rule, hit, resolverInput, manifestJson);
+    const detection = buildDetection(
+      rule,
+      hit,
+      resolverInput,
+      manifestJson,
+      input.lockfileVersions,
+    );
     out.push(detection);
   }
   out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -169,8 +183,9 @@ function buildDetection(
   hit: RuleHit,
   resolverInput: VariantResolveInput,
   manifestJson: ReadonlyMap<string, unknown>,
+  lockfileVersions: ReadonlyMap<string, string> | undefined,
 ): FrameworkDetection {
-  const version = resolveVersion(rule, manifestJson);
+  const version = resolveVersion(rule, manifestJson, lockfileVersions);
   const variant = resolveVariant(rule, resolverInput);
   const confidence = inferConfidence(rule, hit);
   const det: FrameworkDetection = {
@@ -215,13 +230,34 @@ function resolveVariant(
 function resolveVersion(
   rule: FrameworkRule,
   manifestJson: ReadonlyMap<string, unknown>,
+  lockfileVersions: ReadonlyMap<string, string> | undefined,
 ): string | undefined {
   if (!rule.versionKey) return undefined;
+  // Stage 2: prefer the lockfile-resolved exact version when present. The
+  // versionKey.path is dot-delimited — the last segment is the dep name
+  // (`dependencies.react` → `react`, `require.laravel/framework` →
+  // `laravel/framework`). Lockfile entries use the bare dep name, so we
+  // match on the last segment.
+  if (lockfileVersions !== undefined) {
+    const depName = lastPathSegment(rule.versionKey.path);
+    if (depName !== null) {
+      const pinned = lockfileVersions.get(depName);
+      if (pinned !== undefined) return pinned;
+    }
+  }
+  // Fallback to the manifest-declared range.
   const parsed = manifestJson.get(rule.versionKey.file);
   if (parsed === undefined || parsed === null) return undefined;
   const v = getPath(parsed, rule.versionKey.path);
   if (typeof v !== "string") return undefined;
   return v;
+}
+
+function lastPathSegment(path: string): string | null {
+  const idx = path.lastIndexOf(".");
+  if (idx < 0) return path.length > 0 ? path : null;
+  const seg = path.slice(idx + 1);
+  return seg.length > 0 ? seg : null;
 }
 
 // ---------------------------------------------------------------------------

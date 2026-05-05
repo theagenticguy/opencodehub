@@ -17,6 +17,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { detectFrameworksStructured } from "./detector.js";
+import { indexResolutions, KNOWN_LOCKFILES, parseLockfile } from "./stages/lockfile.js";
 
 /**
  * Minimal file shape the frameworks package reads. Every call site in
@@ -87,29 +88,55 @@ async function preReadManifests(
 }
 
 /**
+ * Stage 2 — pre-read every known lockfile at the repo root, parse it, and
+ * return a dep-name → version map. Unreadable / missing / malformed files
+ * are skipped (FRM-UN-002 log-and-continue).
+ */
+async function preReadLockfiles(
+  repoRoot: string,
+  relPaths: ReadonlySet<string>,
+): Promise<ReadonlyMap<string, string>> {
+  const all = [];
+  for (const name of KNOWN_LOCKFILES) {
+    if (!relPaths.has(name)) continue;
+    try {
+      const text = await fs.readFile(path.join(repoRoot, name), "utf8");
+      all.push(...parseLockfile(name, text));
+    } catch {
+      // Malformed / unreadable — skip.
+    }
+  }
+  return indexResolutions(all);
+}
+
+const ALL_ECOSYSTEM_LANGUAGES: readonly string[] = [
+  "javascript",
+  "typescript",
+  "python",
+  "ruby",
+  "go",
+  "rust",
+  "java",
+  "kotlin",
+  "php",
+  "csharp",
+];
+
+/**
  * Legacy entrypoint — returns a sorted flat list of framework names.
  * Delegates to `detectFrameworksStructured` for the actual detection.
  */
 export async function detectFrameworks(input: FrameworkDetectionInput): Promise<readonly string[]> {
   const relPaths = new Set(input.files.map((f) => f.relPath));
-  const manifestText = await preReadManifests(input.repoRoot, relPaths);
+  const [manifestText, lockfileVersions] = await Promise.all([
+    preReadManifests(input.repoRoot, relPaths),
+    preReadLockfiles(input.repoRoot, relPaths),
+  ]);
   const detections = detectFrameworksStructured({
     relPaths,
     manifestText,
-    detectedLanguages: input.detectedLanguages ?? [
-      // Fallback: treat all ecosystems as active when the caller did not
-      // profile-gate. Keeps the legacy "run every rule" contract.
-      "javascript",
-      "typescript",
-      "python",
-      "ruby",
-      "go",
-      "rust",
-      "java",
-      "kotlin",
-      "php",
-      "csharp",
-    ],
+    lockfileVersions,
+    detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
   });
   return detections.map((d) => d.name);
 }
@@ -124,21 +151,14 @@ export async function detectFrameworksDetailed(
   input: FrameworkDetectionInput,
 ): Promise<ReturnType<typeof detectFrameworksStructured>> {
   const relPaths = new Set(input.files.map((f) => f.relPath));
-  const manifestText = await preReadManifests(input.repoRoot, relPaths);
+  const [manifestText, lockfileVersions] = await Promise.all([
+    preReadManifests(input.repoRoot, relPaths),
+    preReadLockfiles(input.repoRoot, relPaths),
+  ]);
   return detectFrameworksStructured({
     relPaths,
     manifestText,
-    detectedLanguages: input.detectedLanguages ?? [
-      "javascript",
-      "typescript",
-      "python",
-      "ruby",
-      "go",
-      "rust",
-      "java",
-      "kotlin",
-      "php",
-      "csharp",
-    ],
+    lockfileVersions,
+    detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
   });
 }

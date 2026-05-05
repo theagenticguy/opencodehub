@@ -32,6 +32,13 @@ export {
 } from "./frameworks.js";
 export { detectManifests } from "./manifests.js";
 export {
+  indexResolutions,
+  KNOWN_LOCKFILES,
+  type LockfileFile,
+  type LockfileResolution,
+  parseLockfile,
+} from "./stages/lockfile.js";
+export {
   VARIANT_RESOLVERS,
   type VariantResolveInput,
   type VariantResolver,

@@ -691,3 +691,39 @@ describe("framework detection — malformed manifest", () => {
     assert.deepEqual(names(out), []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 2 — lockfile-pinned versions override manifest-declared ranges
+// ---------------------------------------------------------------------------
+
+describe("framework detection — stage 2 lockfile version override", () => {
+  it("lockfile pin replaces semver range on manifest-resolved version", () => {
+    const baseInput = mkInput(
+      ["package.json"],
+      [["package.json", JSON.stringify({ dependencies: { react: "^18.0.0" } })]],
+      ["javascript"],
+    );
+    const withLock: FrameworkDetectorInput = {
+      ...baseInput,
+      lockfileVersions: new Map([["react", "18.3.1"]]),
+    };
+    const out = detectFrameworksStructured(withLock);
+    const react = findByName(out, "react");
+    assert.ok(react, "react detected");
+    assert.equal(react?.version, "18.3.1", "lockfile pin wins over manifest range");
+  });
+
+  it("manifest range preserved when lockfile has no entry for the dep", () => {
+    const input: FrameworkDetectorInput = {
+      ...mkInput(
+        ["package.json"],
+        [["package.json", JSON.stringify({ dependencies: { react: "^18.0.0" } })]],
+        ["javascript"],
+      ),
+      lockfileVersions: new Map([["some-other-dep", "1.0.0"]]),
+    };
+    const out = detectFrameworksStructured(input);
+    const react = findByName(out, "react");
+    assert.equal(react?.version, "^18.0.0", "manifest range used when lockfile silent");
+  });
+});
