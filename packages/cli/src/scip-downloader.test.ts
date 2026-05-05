@@ -311,19 +311,33 @@ describe("installScipTool", () => {
   it("refuses to run against a placeholder-hash pin unless allowPlaceholder=true", async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-placeholder-"));
     try {
-      // scip-clang v0.4.0 ships with real sha256 digests as of AC-M4-1 — it
-      // is no longer a placeholder. scip-ruby still carries the all-zero
-      // placeholder hash from AC-M4-0 and is the current coverage vector for
-      // this branch.
-      await assert.rejects(
-        () =>
-          installScipTool("ruby", {
-            destDir: dir,
-            fetchImpl: (async () => new Response(null, { status: 200 })) as FetchFn,
-            platform: LINUX_X64,
-          }),
-        (err: unknown) => err instanceof PlaceholderHashError,
-      );
+      // All 4 adapter pins (clang/ruby/dotnet/kotlin) now ship real sha256
+      // digests post AC-M4-1..4. To exercise the placeholder-refusal path
+      // we synthesize a placeholder pin and install via override.
+      const PLACEHOLDER = "0".repeat(64);
+      const replacement: ScipToolPin = {
+        ...SCIP_PINS.clang,
+        placeholder: true,
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: "https://example.invalid/placeholder",
+            sha256: PLACEHOLDER,
+          },
+        ],
+      };
+      await withOverridePin("clang", replacement, async () => {
+        await assert.rejects(
+          () =>
+            installScipTool("clang", {
+              destDir: dir,
+              fetchImpl: (async () => new Response(null, { status: 200 })) as FetchFn,
+              platform: LINUX_X64,
+            }),
+          (err: unknown) => err instanceof PlaceholderHashError,
+        );
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
