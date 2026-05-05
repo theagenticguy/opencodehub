@@ -4,12 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
-import {
-  assertReadOnlyCypher,
-  GraphDbBindingError,
-  GraphDbStore,
-  NotImplementedError,
-} from "./graphdb-adapter.js";
+import { assertReadOnlyCypher } from "./cypher-guard.js";
+import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
 import { openStore, resolveStoreBackend } from "./index.js";
 
 async function scratchDbPath(): Promise<string> {
@@ -391,7 +387,10 @@ test("assertReadOnlyCypher rejects every write verb the native binding accepts",
     "LOAD EXTENSION FTS",
   ];
   for (const stmt of writes) {
-    assert.throws(() => assertReadOnlyCypher(stmt), /refused write keyword/);
+    assert.throws(
+      () => assertReadOnlyCypher(stmt),
+      /Banned keyword|Leading keyword not allowed|LOAD EXTENSION|CALL procedure|CALL requires/,
+    );
   }
 });
 
@@ -401,10 +400,10 @@ test("assertReadOnlyCypher tolerates write keywords inside line comments", () =>
 });
 
 test("assertReadOnlyCypher rejects empty / non-string statements", () => {
-  assert.throws(() => assertReadOnlyCypher(""), /non-empty/);
+  assert.throws(() => assertReadOnlyCypher(""), /non-empty|must contain/);
   // `as never` to sidestep the type guard — we care about the runtime
   // behaviour, which must fail cleanly rather than crash.
-  assert.throws(() => assertReadOnlyCypher(null as unknown as string), /non-empty/);
+  assert.throws(() => assertReadOnlyCypher(null as unknown as string), /non-empty|must contain/);
 });
 
 // ---------------------------------------------------------------------------
@@ -426,7 +425,7 @@ test("query rejects writes but passes reads through to the pool", async () => {
     // Writes are rejected up front — the pool never sees them.
     await assert.rejects(
       () => store.query("CREATE (n:CodeNode {id: 'x'})"),
-      /refused write keyword/,
+      /Banned keyword|Leading keyword not allowed/,
     );
   } finally {
     await store.close();

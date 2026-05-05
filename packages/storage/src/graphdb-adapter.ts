@@ -22,6 +22,7 @@
  */
 
 import type { GraphNode, KnowledgeGraph, NodeId, RelationType } from "@opencodehub/core-types";
+import { assertReadOnlyCypher } from "./cypher-guard.js";
 import { GraphDbPool, type GraphDbPoolConfig } from "./graphdb-pool.js";
 import { generateSchemaDdl, getAllRelationTypes } from "./graphdb-schema.js";
 import type {
@@ -1064,47 +1065,6 @@ function jsonObjectOrNull(v: unknown): string | null {
   if (typeof v !== "object") return null;
   if (Array.isArray(v)) return null;
   return JSON.stringify(v);
-}
-
-/**
- * Minimal read-only check over a Cypher statement. The full cypher-guard
- * lands in AC-M3-5; until then we refuse the write keywords that would let
- * a caller mutate the store via the user-facing `query()` surface.
- *
- * The allowlist-first approach would be safer but we do not yet have a
- * Cypher tokeniser; the deny-list matches the DuckDB backend's
- * `assertReadOnlySql` philosophy and trips every write verb the native
- * binding accepts.
- */
-export function assertReadOnlyCypher(stmt: string): void {
-  if (typeof stmt !== "string" || stmt.length === 0) {
-    throw new Error("graph-db: query() requires a non-empty statement");
-  }
-  // Strip single-line (`//`) and block (`/* ... */`) comments before probing
-  // so a `// CREATE` commit note does not trip the guard.
-  const cleaned = stmt.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-  const upper = cleaned.toUpperCase();
-  const WRITE_KEYWORDS = [
-    /\bCREATE\b/,
-    /\bMERGE\b/,
-    /\bDELETE\b/,
-    /\bSET\b/,
-    /\bREMOVE\b/,
-    /\bDROP\b/,
-    /\bALTER\b/,
-    /\bCOPY\b/,
-    /\bIMPORT\b/,
-    /\bEXPORT\b/,
-    /\bCHECKPOINT\b/,
-    /\bINSTALL\b/,
-    /\bLOAD EXTENSION\b/,
-  ];
-  for (const re of WRITE_KEYWORDS) {
-    if (re.test(upper)) {
-      const match = re.exec(upper);
-      throw new Error(`graph-db: query() refused write keyword '${(match?.[0] ?? "").trim()}'`);
-    }
-  }
 }
 
 /**
