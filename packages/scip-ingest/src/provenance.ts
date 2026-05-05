@@ -14,7 +14,8 @@ export type ScipIndexerName =
   | "rust-analyzer"
   | "scip-java"
   | "scip-clang"
-  | "scip-ruby";
+  | "scip-ruby"
+  | "scip-dotnet";
 
 export function scipProvenanceReason(indexer: ScipIndexerName, version: string): string {
   const v = version.trim() || "unknown";

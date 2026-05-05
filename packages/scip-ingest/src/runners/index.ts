@@ -23,10 +23,26 @@ export type IndexerKind =
   | "java"
   | "clang"
   | "cobol-proleap"
-  | "ruby";
+  | "ruby"
+  | "dotnet";
 
 /** File extensions that signal a C/C++ project. */
 const CLANG_EXTENSIONS: readonly string[] = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"];
+
+/**
+ * Optional async probe for `dotnet --version`. Returns the version string
+ * (e.g. `"8.0.404"`) on success, or `undefined` when the SDK is missing /
+ * the probe fails. Tests inject a stub so the test runner does not need a
+ * real `dotnet` on PATH.
+ */
+export type DotnetProbe = () => Promise<string | undefined>;
+
+/**
+ * Minimum .NET SDK major version required by scip-dotnet v0.2.12. If the
+ * runtime probe detects a lower major (or `dotnet` is absent), the runner
+ * short-circuits with a `skipReason` pointing at `codehub setup --scip=dotnet`.
+ */
+export const SCIP_DOTNET_MIN_SDK_MAJOR = 8;
 
 export interface RunIndexerOptions {
   readonly projectRoot: string;
@@ -57,6 +73,12 @@ export interface RunIndexerOptions {
    */
   readonly cobolProleapWrapperDir?: string;
   readonly timeoutMs?: number;
+  /**
+   * Override the `dotnet --version` preflight probe (tests). When unset,
+   * the runner spawns `dotnet --version` directly. Only consulted when
+   * `kind === "dotnet"`.
+   */
+  readonly dotnetProbe?: DotnetProbe;
 }
 
 export interface IndexerResult {
@@ -119,6 +141,15 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   ) {
     langs.push("ruby");
   }
+  // .NET has no single canonical manifest — `.sln` covers multi-project
+  // workspaces, `.csproj` covers C# single-project layouts, and `.vbproj`
+  // covers the rarer VB.NET case. Loose `.cs` / `.vb` files at the root
+  // (no project file) still warrant a candidate emit — the preflight
+  // inside buildCommand("dotnet") enforces the .NET SDK requirement at
+  // index time.
+  if (hasDotnetProject(projectRoot)) {
+    langs.push("dotnet");
+  }
   return langs;
 }
 
@@ -152,6 +183,34 @@ function hasClangSource(projectRoot: string): boolean {
         }
       }
       depth++;
+    }
+  } catch {
+    // unreadable project root → no signal
+  }
+  return false;
+}
+
+/**
+ * Shallow scan for .NET project markers at the project root. Looks for the
+ * canonical project files (`.sln`, `.csproj`, `.vbproj`, `.fsproj`) and
+ * falls back to detecting loose `.cs` / `.vb` source files at the root —
+ * enough to trigger the `dotnet` candidate without walking the whole tree.
+ */
+function hasDotnetProject(projectRoot: string): boolean {
+  try {
+    for (const entry of readdirSync(projectRoot, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const lower = entry.name.toLowerCase();
+      if (
+        lower.endsWith(".sln") ||
+        lower.endsWith(".csproj") ||
+        lower.endsWith(".vbproj") ||
+        lower.endsWith(".fsproj") ||
+        lower.endsWith(".cs") ||
+        lower.endsWith(".vb")
+      ) {
+        return true;
+      }
     }
   } catch {
     // unreadable project root → no signal
@@ -202,6 +261,25 @@ export async function runIndexer(
   // no external cmd) or skipped with a reason the ingestion layer logs.
   if (kind === "cobol-proleap") {
     return resolveCobolProleap(opts, scipPath, start);
+  }
+
+  // scip-dotnet is installed via `dotnet tool install --global scip-dotnet`
+  // and therefore requires the .NET SDK on PATH at analyze time. We probe
+  // `dotnet --version` here — NOT inside buildCommand — because the probe
+  // is async while buildCommand must stay sync.
+  if (kind === "dotnet") {
+    const preflight = await preflightDotnet(opts.dotnetProbe);
+    if (preflight !== undefined) {
+      return {
+        kind,
+        scipPath,
+        tool: "scip-dotnet",
+        version: "",
+        skipped: true,
+        skipReason: preflight,
+        durationMs: Date.now() - start,
+      };
+    }
   }
 
   const plan = buildCommand(kind, opts, scipPath);
@@ -429,6 +507,20 @@ export function buildCommand(
         tool: "scip-ruby",
       };
     }
+    case "dotnet":
+      // scip-dotnet v0.2.12 reads the .sln/.csproj tree at <path> and
+      // writes a SCIP index to the -o location. It shells out to the
+      // .NET SDK for build graph introspection, so the preflight in
+      // runIndexer() ensures `dotnet` (SDK ≥ 8) is available before we
+      // reach this command.
+      return {
+        cmd: "scip-dotnet",
+        args: ["index", cwd, "-o", scipPath],
+        cwd,
+        versionCmd: "scip-dotnet",
+        versionArgs: ["--version"],
+        tool: "scip-dotnet",
+      };
   }
 }
 
@@ -481,6 +573,52 @@ function resolveCobolProleap(
     skipped: false,
     durationMs: Date.now() - start,
   };
+}
+
+/**
+ * Run `dotnet --version` (or the injected probe) and verify the SDK major
+ * meets {@link SCIP_DOTNET_MIN_SDK_MAJOR}. Returns `undefined` on success
+ * (caller proceeds), or a user-facing skip reason when the SDK is missing
+ * or too old. The skip reason always points at `codehub setup --scip=dotnet`
+ * so users have a single install entry point.
+ */
+async function preflightDotnet(probe: DotnetProbe | undefined): Promise<string | undefined> {
+  const runProbe = probe ?? defaultDotnetProbe;
+  const version = await runProbe();
+  const major = parseDotnetMajor(version);
+  if (major === undefined) {
+    return (
+      `scip-dotnet requires .NET SDK ${SCIP_DOTNET_MIN_SDK_MAJOR}.0+ on PATH ` +
+      `(dotnet is not on PATH). ` +
+      `Install from https://dotnet.microsoft.com/download, then run ` +
+      "`codehub setup --scip=dotnet` to surface the install hint."
+    );
+  }
+  if (major < SCIP_DOTNET_MIN_SDK_MAJOR) {
+    return (
+      `scip-dotnet requires .NET SDK ${SCIP_DOTNET_MIN_SDK_MAJOR}.0+ on PATH ` +
+      `(detected dotnet --version: ${version ?? "unknown"}). ` +
+      `Upgrade from https://dotnet.microsoft.com/download, then run ` +
+      "`codehub setup --scip=dotnet`."
+    );
+  }
+  return undefined;
+}
+
+/** Default `dotnet --version` probe — spawns `dotnet --version` with a 5s timeout. */
+const defaultDotnetProbe: DotnetProbe = async () => {
+  const outcome = await runCommand("dotnet", ["--version"], process.cwd(), undefined, 5000);
+  if (outcome.kind !== "ok") return undefined;
+  return outcome.stdout.trim() || undefined;
+};
+
+/** Parse `dotnet --version` output and extract the major version number. */
+function parseDotnetMajor(version: string | undefined): number | undefined {
+  if (version === undefined) return undefined;
+  const match = version.match(/^(\d+)\./);
+  if (match === null) return undefined;
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 type CommandOutcome =

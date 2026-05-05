@@ -310,6 +310,8 @@ function scipLangToOchLang(k: IndexerKind): string {
       return "cobol";
     case "ruby":
       return "ruby";
+    case "dotnet":
+      return "csharp";
   }
 }
 
@@ -340,6 +342,8 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
       return "scip-typescript";
     case "ruby":
       return "scip-ruby";
+    case "dotnet":
+      return "scip-dotnet";
   }
 }
 

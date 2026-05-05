@@ -52,6 +52,7 @@ export type { ScipIndexerName } from "./provenance.js";
 export { scipProvenanceReason } from "./provenance.js";
 export type {
   CommandPlan,
+  DotnetProbe,
   IndexerKind,
   IndexerResult,
   RunIndexerOptions,
@@ -61,4 +62,5 @@ export {
   defaultCobolProleapPaths,
   detectLanguages,
   runIndexer,
+  SCIP_DOTNET_MIN_SDK_MAJOR,
 } from "./runners/index.js";
