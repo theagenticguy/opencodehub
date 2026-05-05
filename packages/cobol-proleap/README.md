@@ -23,15 +23,35 @@ single bad file never aborts the run (spec AC-M4-6 success criterion #3).
 
 ## Install
 
-The library is NOT on Maven Central. `codehub setup --cobol-proleap` performs
-the one-time bootstrap:
+The library is NOT on Maven Central (per 2026-04 research: `search.maven.org`
+returns 0 results for `io.github.uwol:proleap-cobol-parser`, and the latest
+GitHub Release is v2.4.0 from 2018 even though the repo's `master` is on
+v4.x).
 
-1. `git clone https://github.com/uwol/cobol-parser --branch master
-   <tmp>` — grabs the source.
-2. `mvn install -DskipTests` — builds the JAR from source.
-3. `javac -cp <jar> cobol_to_scip.java` — compiles our wrapper against the
-   resulting JAR.
-4. Atomic rename into `~/.codehub/vendor/proleap/`.
+`codehub setup --cobol-proleap` performs the one-time build-from-source
+bootstrap:
+
+```
+# 1. grab the source
+git clone https://github.com/uwol/cobol-parser --branch master <tmp>
+
+# 2. build the JAR (produces target/proleap-cobol-parser-<v>.jar)
+(cd <tmp> && mvn install -DskipTests)
+
+# 3. compile the wrapper against the JAR
+javac -cp <jar> packages/cobol-proleap/java/cobol_to_scip.java
+
+# 4. atomic rename into ~/.codehub/vendor/proleap/
+```
+
+The wrapper uses **reflection** against `io.proleap.cobol.asg.*`, so it does
+not have to import any ProLeap types at compile time. That means the SAME
+`.java` source compiles against any v4.x point release — which is why the
+build step needs only a JAR on the classpath, not a specific package name.
+A vanilla `javac cobol_to_scip.java` (no classpath) succeeds too and produces
+a runnable wrapper class, though running it without the JAR on
+`-cp` will error out with the "required class … not on classpath" hint by
+design.
 
 ### Prerequisites
 

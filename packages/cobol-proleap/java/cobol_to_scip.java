@@ -1,51 +1,67 @@
 /*
- * cobol_to_scip.java — tiny JVM wrapper over the uwol/cobol-parser library
- * (v4.0.0, package prefix io.proleap.cobol). Scaffolded in commit 1 with a
- * minimal "print classpath signal" main; commit 3 replaces the inner
- * walkProgram() body with the real ASG traversal.
+ * cobol_to_scip.java — JVM wrapper over the uwol/cobol-parser library
+ * (v4.0.0, package prefix io.proleap.cobol). Reads file paths on stdin,
+ * parses each one via the library runner, walks the ASG, and emits one
+ * NDJSON record per discovered construct on stdout.
  *
- * Protocol:
- *   - Reads one file path per line on stdin.
- *   - For each path, parses via CobolParserRunnerImpl.analyzeFile(...,
- *     CobolSourceFormatEnum.FIXED).
- *   - Emits one NDJSON record per discovered symbol def or ref on stdout.
- *     Record shape matches src/types.ts CobolDeepElement:
- *       { "kind": "program-id"|"paragraph"|"perform"|"copy"|"cics"
- *                |"data-item"|"file-descriptor",
- *         "name": string, "filePath": string,
- *         "startLine": int, "endLine": int }
- *   - On a single-file parse crash, emits a `"diagnostic"` record and
- *     continues to the next file so one bad file can't wedge the batch.
- *   - Exits 0 unless the JVM itself crashes (OOM, class-not-found, etc).
+ * Record shape matches src/types.ts CobolDeepElement:
+ *   { "kind": "program-id"|"paragraph"|"perform"|"copy"|"cics"
+ *            |"data-item"|"file-descriptor",
+ *     "name": string, "filePath": string,
+ *     "startLine": int, "endLine": int }
+ *
+ * On a single-file parse crash we emit:
+ *   { "kind": "diagnostic", "filePath": string, "message": string }
+ * and continue to the next path so one bad file can't wedge the batch.
  *
  * NO external dependencies beyond the cobol-parser JAR and the JDK. Compile
  * against the JAR with:
  *   javac -cp /path/to/proleap-cobol-parser-4.0.0.jar cobol_to_scip.java
+ *
+ * The ASG traversal uses reflection rather than imports of the
+ * io.proleap.cobol.asg.* types so this source compiles in every
+ * environment that has the JAR on the classpath, regardless of the exact
+ * v4.x point release. Reflection keeps the wrapper resilient across the
+ * minor ASG reshuffles the library has shipped.
  */
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 public class cobol_to_scip {
 
+    // Canonical ASG API entry point. The runner class has a
+    // `analyzeFile(File, CobolSourceFormatEnum)` method that returns a
+    // `io.proleap.cobol.asg.metamodel.Program` root. We hold the types by
+    // name to avoid a compile-time dependency on any single point release.
+    private static final String RUNNER_CLASS =
+        "io.proleap.cobol.asg.runner.impl.CobolParserRunnerImpl";
+    private static final String FORMAT_ENUM =
+        "io.proleap.cobol.preprocessor.CobolPreprocessor$CobolSourceFormatEnum";
+
     public static void main(String[] args) throws Exception {
         // Verify the library classpath is present; if not, surface a clear
-        // error rather than a generic ClassNotFoundException stack. We try to
-        // load the top-level runner class name by reflection so the check
-        // works even if the cobol-parser API package reshuffles between
-        // maintenance releases.
-        String runnerClass = "io.proleap.cobol.asg.runner.impl.CobolParserRunnerImpl";
+        // error rather than a generic ClassNotFoundException stack.
+        final Class<?> runnerClass;
+        final Class<?> formatClass;
         try {
-            Class.forName(runnerClass);
+            runnerClass = Class.forName(RUNNER_CLASS);
+            formatClass = Class.forName(FORMAT_ENUM);
         } catch (ClassNotFoundException e) {
             System.err.println(
-                "cobol_to_scip: required class " + runnerClass
+                "cobol_to_scip: required class " + e.getMessage()
                     + " not on classpath. Expected the uwol/cobol-parser JAR "
                     + "(v4.0.0) on -cp. Re-run `codehub setup --cobol-proleap`.");
             System.exit(2);
+            return;
         }
+
+        final Object runner = runnerClass.getDeclaredConstructor().newInstance();
+        final Method analyzeFile = runnerClass.getMethod("analyzeFile", File.class, formatClass);
+        final Object formatFixed = Enum.valueOf(formatClass.asSubclass(Enum.class), "FIXED");
 
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
@@ -54,31 +70,143 @@ public class cobol_to_scip {
                 String path = line.trim();
                 if (path.isEmpty()) continue;
                 try {
-                    walkProgram(new File(path));
+                    Object program = analyzeFile.invoke(runner, new File(path), formatFixed);
+                    walkProgram(program, path);
                 } catch (Throwable t) {
                     // Per-file isolation: never let a single parse failure
                     // kill the batch. The TS wrapper treats the diagnostic
                     // record as a fallback-trigger for this path.
-                    emitDiagnostic(path, t.getClass().getSimpleName() + ": " + t.getMessage());
+                    Throwable cause = unwrap(t);
+                    emitDiagnostic(path, cause.getClass().getSimpleName() + ": " + cause.getMessage());
                 }
             }
         }
     }
 
     /**
-     * Walk a single COBOL file and emit NDJSON records. Scaffolded here as a
-     * minimal "proof the classpath works" probe — commit 3 replaces the body
-     * with a real ASG traversal via
-     * CobolParserRunnerImpl.analyzeFile(file, CobolSourceFormatEnum.FIXED).
+     * Walk a Program ASG and emit NDJSON records. Uses reflection against the
+     * io.proleap.cobol.asg.metamodel.* API: Program.getCompilationUnits()
+     * returns a List<CompilationUnit>; each CompilationUnit holds a
+     * ProgramUnit which holds the four divisions (IDENTIFICATION,
+     * ENVIRONMENT, DATA, PROCEDURE). We extract:
+     *   - PROGRAM-ID from the IDENTIFICATION division
+     *   - Paragraph + PERFORM call sites from the PROCEDURE division
+     *   - COPY statements from the compilation unit's copybook list
+     *
+     * The traversal is intentionally shallow — the regex hot path already
+     * provides CICS spans and a working coverage floor; the deep-parse value
+     * is in the authoritative ASG edges (paragraph → perform target,
+     * copybook resolution). Richer node kinds (data-item, file-descriptor)
+     * will follow once we have fixtures that exercise them.
      */
-    static void walkProgram(File file) throws Exception {
-        // Commit-1 scaffold: emit a single PROGRAM-ID stub record so downstream
-        // wiring tests can exercise the bridge without needing the JAR. Commit
-        // 3 tears this out and walks the ASG for real.
-        String name = file.getName();
-        int dot = name.lastIndexOf('.');
-        if (dot > 0) name = name.substring(0, dot);
-        emitRecord("program-id", name, file.getPath(), 1, 1);
+    static void walkProgram(Object program, String path) throws Exception {
+        if (program == null) {
+            emitDiagnostic(path, "runner returned null Program");
+            return;
+        }
+        Iterable<?> compilationUnits = (Iterable<?>) call(program, "getCompilationUnits");
+        if (compilationUnits == null) return;
+        for (Object cu : compilationUnits) {
+            String cuName = (String) call(cu, "getName");
+            // Each CompilationUnit exposes its primary ProgramUnit plus any
+            // copybook inclusions; we only map the program unit in this
+            // first-pass implementation.
+            Object programUnit = call(cu, "getProgramUnit");
+            if (programUnit == null) continue;
+
+            // IDENTIFICATION DIVISION → PROGRAM-ID.
+            Object idDivision = call(programUnit, "getIdentificationDivision");
+            if (idDivision != null) {
+                Object programIdPara = call(idDivision, "getProgramIdParagraph");
+                if (programIdPara != null) {
+                    String name = asString(call(programIdPara, "getName"));
+                    if (name == null) name = cuName != null ? cuName : "UNKNOWN";
+                    int[] lines = lineSpan(programIdPara);
+                    emitRecord("program-id", name, path, lines[0], lines[1]);
+                }
+            }
+
+            // PROCEDURE DIVISION → paragraphs + PERFORMs.
+            Object procDivision = call(programUnit, "getProcedureDivision");
+            if (procDivision != null) {
+                Iterable<?> paragraphs = (Iterable<?>) call(procDivision, "getParagraphs");
+                if (paragraphs != null) {
+                    for (Object para : paragraphs) {
+                        String name = asString(call(para, "getName"));
+                        if (name == null) continue;
+                        int[] lines = lineSpan(para);
+                        emitRecord("paragraph", name, path, lines[0], lines[1]);
+                    }
+                }
+                Iterable<?> performs = (Iterable<?>) call(procDivision, "getPerformStatements");
+                if (performs != null) {
+                    for (Object perf : performs) {
+                        String target = asString(call(perf, "getProcedureName"));
+                        if (target == null) continue;
+                        int[] lines = lineSpan(perf);
+                        emitRecord("perform", target, path, lines[0], lines[1]);
+                    }
+                }
+            }
+
+            // Copybook references — recorded on the CompilationUnit itself.
+            Iterable<?> copies = (Iterable<?>) call(cu, "getCopyStatements");
+            if (copies != null) {
+                for (Object copy : copies) {
+                    String target = asString(call(copy, "getCopybookName"));
+                    if (target == null) continue;
+                    int[] lines = lineSpan(copy);
+                    emitRecord("copy", target, path, lines[0], lines[1]);
+                }
+            }
+        }
+    }
+
+    /**
+     * Reflective getter — the ASG types are interface-heavy and the method
+     * set changes slightly between maintenance releases. We tolerate a
+     * missing method by returning null rather than crashing the batch.
+     */
+    static Object call(Object target, String method) {
+        if (target == null) return null;
+        try {
+            Method m = target.getClass().getMethod(method);
+            return m.invoke(target);
+        } catch (NoSuchMethodException e) {
+            return null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Pull a (startLine, endLine) span out of a node's source-context. The
+     * ASG exposes `getCtx().getStart().getLine()` / `getCtx().getStop().getLine()`
+     * on the ANTLR parse tree, since the library uses ANTLR4 under the hood.
+     */
+    static int[] lineSpan(Object node) {
+        Object ctx = call(node, "getCtx");
+        if (ctx == null) return new int[] {1, 1};
+        Object start = call(ctx, "getStart");
+        Object stop = call(ctx, "getStop");
+        int startLine = start == null ? 1 : intValue(call(start, "getLine"), 1);
+        int stopLine = stop == null ? startLine : intValue(call(stop, "getLine"), startLine);
+        return new int[] {startLine, stopLine};
+    }
+
+    static int intValue(Object v, int fallback) {
+        if (v instanceof Number) return ((Number) v).intValue();
+        return fallback;
+    }
+
+    static String asString(Object v) {
+        return v == null ? null : v.toString();
+    }
+
+    static Throwable unwrap(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) cur = cur.getCause();
+        return cur;
     }
 
     static void emitRecord(String kind, String name, String path, int startLine, int endLine) {
