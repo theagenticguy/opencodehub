@@ -17,6 +17,24 @@
  *   - dart: git-pinned CJS module that IS the Language
  *
  * This module abstracts those differences behind {@link loadGrammar}.
+ *
+ * ## Regex-provider escape hatch (T-M4-5)
+ *
+ * Some languages — COBOL is the first — have no maintained tree-sitter
+ * grammar and ship via a pure-regex extractor instead. The registry encodes
+ * that split with a {@link LanguageProviderSpec} discriminated union:
+ *
+ *   - `{ kind: "tree-sitter", package: string }` — the classic path; the
+ *     grammar package is resolved lazily from npm and hashed into the
+ *     parse-cache key via {@link getGrammarSha}.
+ *   - `{ kind: "regex" }` — the escape hatch; {@link loadGrammar} refuses
+ *     to build a `GrammarHandle`, {@link getGrammarSha} returns `null`
+ *     (disables parse-cache keying), and upstream parse-phase code is
+ *     expected to route the file through the language-specific regex
+ *     extractor instead of the worker pool.
+ *
+ * This keeps every tree-sitter consumer of the registry working unchanged
+ * while giving downstream code a typed way to detect regex-only languages.
  */
 
 import { createRequire } from "node:module";
@@ -27,35 +45,72 @@ import { getUnifiedQuery } from "./unified-queries.js";
 const requireFn = createRequire(import.meta.url);
 
 /**
- * Per-language tree-sitter grammar npm package. Used by
- * {@link getGrammarSha} to hash `{ name, version }` from the package's
- * `package.json`, which keys the content-addressed parse cache. A grammar
- * version bump in the workspace `package.json` therefore invalidates the
- * cache cleanly, satisfying thecache-key invariant.
+ * Provider spec for a single language. Discriminated on `kind`:
+ *   - `"tree-sitter"` — the language has an npm-published tree-sitter
+ *     grammar. `package` names the package whose `package.json` supplies
+ *     the parse-cache fingerprint.
+ *   - `"regex"` — the language has no tree-sitter grammar; the parse
+ *     pipeline routes its files through a bespoke regex extractor. No
+ *     grammar package to fingerprint, so parse-cache keying is disabled
+ *     (see {@link getGrammarSha}).
+ *
+ * Named `LanguageProviderSpec` to avoid colliding with the broader
+ * `LanguageProvider` interface in `providers/types.ts` (which covers
+ * extract-* hooks, MRO strategy, and other provider-wide behavior).
  */
-const GRAMMAR_PACKAGE_BY_LANGUAGE: Readonly<Record<LanguageId, string>> = {
-  typescript: "tree-sitter-typescript",
-  tsx: "tree-sitter-typescript",
-  javascript: "tree-sitter-javascript",
-  python: "tree-sitter-python",
-  go: "tree-sitter-go",
-  rust: "tree-sitter-rust",
-  java: "tree-sitter-java",
-  csharp: "tree-sitter-c-sharp",
-  c: "tree-sitter-c",
-  cpp: "tree-sitter-cpp",
-  ruby: "tree-sitter-ruby",
-  kotlin: "tree-sitter-kotlin",
-  swift: "tree-sitter-swift",
-  php: "tree-sitter-php",
-  dart: "tree-sitter-dart",
-  // COBOL has no tree-sitter grammar — the parse pipeline routes `.cbl` /
-  // `.cob` / `.cpy` files through the regex hot path (see
-  // `parse/cobol-regex.ts`). The empty-string placeholder here keeps the
-  // `satisfies Record<LanguageId, string>` constraint happy; T-M4-5 Commit 2
-  // replaces this with a proper `LanguageProvider` discriminated union.
-  cobol: "",
-};
+export type LanguageProviderSpec =
+  | { readonly kind: "tree-sitter"; readonly package: string }
+  | { readonly kind: "regex" };
+
+/**
+ * Per-language provider spec. `satisfies Record<LanguageId, …>` keeps this
+ * 1:1 with the `LanguageId` union at compile time — adding a new language
+ * without an entry here fails the type check.
+ *
+ * Tree-sitter entries carry the npm grammar package name. The content-
+ * addressed parse cache hashes `{ name, version }` from that package's
+ * `package.json`, so a grammar version bump in the workspace lockfile
+ * invalidates the cache cleanly.
+ *
+ * Regex entries (currently only `cobol`) carry no package reference —
+ * {@link loadGrammar} and {@link getGrammarSha} treat them as a marker
+ * that the caller must dispatch through the language's regex extractor.
+ */
+const LANGUAGE_PROVIDERS = {
+  typescript: { kind: "tree-sitter", package: "tree-sitter-typescript" },
+  tsx: { kind: "tree-sitter", package: "tree-sitter-typescript" },
+  javascript: { kind: "tree-sitter", package: "tree-sitter-javascript" },
+  python: { kind: "tree-sitter", package: "tree-sitter-python" },
+  go: { kind: "tree-sitter", package: "tree-sitter-go" },
+  rust: { kind: "tree-sitter", package: "tree-sitter-rust" },
+  java: { kind: "tree-sitter", package: "tree-sitter-java" },
+  csharp: { kind: "tree-sitter", package: "tree-sitter-c-sharp" },
+  c: { kind: "tree-sitter", package: "tree-sitter-c" },
+  cpp: { kind: "tree-sitter", package: "tree-sitter-cpp" },
+  ruby: { kind: "tree-sitter", package: "tree-sitter-ruby" },
+  kotlin: { kind: "tree-sitter", package: "tree-sitter-kotlin" },
+  swift: { kind: "tree-sitter", package: "tree-sitter-swift" },
+  php: { kind: "tree-sitter", package: "tree-sitter-php" },
+  dart: { kind: "tree-sitter", package: "tree-sitter-dart" },
+  // COBOL ships via the regex hot path (see `parse/cobol-regex.ts`).
+  cobol: { kind: "regex" },
+} as const satisfies Readonly<Record<LanguageId, LanguageProviderSpec>>;
+
+/**
+ * Narrow a language's provider spec to its discriminated union. Exported so
+ * upstream parse-phase code can branch on the provider kind without
+ * re-implementing the registry lookup. Typical use:
+ * `getLanguageProvider(lang).kind === "regex"` to guard the regex-dispatch
+ * path.
+ */
+export function getLanguageProvider(lang: LanguageId): LanguageProviderSpec {
+  return LANGUAGE_PROVIDERS[lang];
+}
+
+/** `true` iff `lang` ships via the regex hot path rather than tree-sitter. */
+export function isRegexProviderLanguage(lang: LanguageId): boolean {
+  return LANGUAGE_PROVIDERS[lang].kind === "regex";
+}
 
 /** Opaque wrapper holding everything a worker needs for one language. */
 export interface GrammarHandle {
@@ -81,8 +136,21 @@ const grammarShaCache = new Map<LanguageId, string | null>();
  * Thread/context note: the cache is per-module-instance, so in the
  * piscina worker model each worker has its own cache — which matches
  * tree-sitter's thread-safety rules (one Parser per worker_thread).
+ *
+ * Regex-provider languages (see {@link isRegexProviderLanguage}) throw
+ * on entry: they have no tree-sitter grammar to load, and reaching this
+ * function means the caller skipped the `kind === "regex"` dispatch
+ * guard. That is a bug on the call site, not a runtime condition to
+ * recover from.
  */
 export async function loadGrammar(lang: LanguageId): Promise<GrammarHandle> {
+  const spec = LANGUAGE_PROVIDERS[lang];
+  if (spec.kind === "regex") {
+    throw new Error(
+      `loadGrammar: ${lang} is a regex-provider language and has no tree-sitter grammar; ` +
+        `route the file through the language's regex extractor instead.`,
+    );
+  }
   const cached = cache.get(lang);
   if (cached !== undefined) {
     return cached;
@@ -191,12 +259,13 @@ async function loadLanguageObject(lang: LanguageId): Promise<unknown> {
       // Language (CJS, uses legacy `nan` addon API).
       return requireFn("tree-sitter-dart");
     case "cobol":
-      // COBOL has no tree-sitter grammar; callers that reach `loadGrammar`
-      // for `cobol` have bypassed the parse pipeline's regex-routing guard
-      // and should surface that as an error rather than silently no-op.
-      // T-M4-5 Commit 2 promotes this to a typed `LanguageProvider`
-      // discriminator so the failure is caught at compile time.
-      throw new Error("loadGrammar: cobol has no tree-sitter grammar; use parseCobolFile instead");
+      // Guarded at the `loadGrammar` entry point via the provider-kind
+      // discriminator; a direct call to `loadLanguageObject("cobol")`
+      // indicates a caller bypassed that guard. Keep the branch so
+      // TypeScript's exhaustiveness check passes.
+      throw new Error(
+        "loadLanguageObject: cobol is a regex-provider language (no tree-sitter grammar)",
+      );
   }
 }
 
@@ -218,10 +287,11 @@ export async function getGrammarSha(lang: LanguageId): Promise<string | null> {
   if (grammarShaCache.has(lang)) {
     return grammarShaCache.get(lang) ?? null;
   }
-  const pkgName = GRAMMAR_PACKAGE_BY_LANGUAGE[lang];
-  // Empty pkgName marks a regex-provider language (cobol) — no npm grammar
-  // exists to fingerprint, so parse-cache keying is disabled for those files.
-  const sha = pkgName === "" ? null : await computeGrammarSha(pkgName);
+  const spec = LANGUAGE_PROVIDERS[lang];
+  // Regex-provider languages have no npm grammar to fingerprint, so
+  // parse-cache keying is disabled for those files (cache writes / reads
+  // treat `null` as "uncacheable").
+  const sha = spec.kind === "regex" ? null : await computeGrammarSha(spec.package);
   grammarShaCache.set(lang, sha);
   return sha;
 }
