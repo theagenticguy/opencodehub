@@ -103,7 +103,20 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
       input_schema_json    TEXT,
       partial_fingerprint  TEXT,
       baseline_state       TEXT,
-      suppressed_json      TEXT
+      suppressed_json      TEXT,
+      -- Repo (AC-M6-1). One row per indexed repository. The "group" field
+      -- is a reserved SQL keyword, so the column is named repo_group. The
+      -- index_time field is node-level metadata that is kept out of
+      -- graphHash determinism inputs per E-M6-1 / W-M6-1.
+      origin_url           TEXT,
+      repo_uri             TEXT,
+      default_branch       TEXT,
+      commit_sha           TEXT,
+      index_time           TEXT,
+      repo_group           TEXT,
+      visibility           TEXT,
+      indexer              TEXT,
+      language_stats_json  TEXT
     )`,
 
     `CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes (kind)`,

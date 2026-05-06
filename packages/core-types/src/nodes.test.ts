@@ -14,22 +14,24 @@ import type {
 } from "./nodes.js";
 import { NODE_KINDS } from "./nodes.js";
 
-test("NODE_KINDS: contains all five v1.0 additions (append-only)", () => {
+test("NODE_KINDS: contains all v1.0 + M6 additions (append-only)", () => {
   assert.ok(NODE_KINDS.includes("Finding"));
   assert.ok(NODE_KINDS.includes("Dependency"));
   assert.ok(NODE_KINDS.includes("Operation"));
   assert.ok(NODE_KINDS.includes("Contributor"));
   assert.ok(NODE_KINDS.includes("ProjectProfile"));
+  assert.ok(NODE_KINDS.includes("Repo"));
   // Appended, not inserted: the original last MVP kind stays at its prior slot.
   const firstNewIdx = NODE_KINDS.indexOf("Finding");
   assert.equal(NODE_KINDS[firstNewIdx - 1], "Section");
-  // Appended in the spec order.
+  // Appended in the spec order. AC-M6-1 adds `Repo` at the tail.
   assert.deepEqual(NODE_KINDS.slice(firstNewIdx), [
     "Finding",
     "Dependency",
     "Operation",
     "Contributor",
     "ProjectProfile",
+    "Repo",
   ]);
 });
 
@@ -73,6 +75,7 @@ test("type-level exhaustiveness: every NodeKind has a sample shape", () => {
     Operation: {},
     Contributor: {},
     ProjectProfile: {},
+    Repo: {},
   } satisfies Record<NodeKind, unknown>;
   assert.equal(Object.keys(samples).length, NODE_KINDS.length);
 });

@@ -63,6 +63,20 @@ export type { ParseOutput } from "./phases/parse.js";
 export { PARSE_PHASE_NAME, parsePhase } from "./phases/parse.js";
 export type { ProfileOutput } from "./phases/profile.js";
 export { PROFILE_PHASE_NAME, profilePhase } from "./phases/profile.js";
+export type {
+  GitProbe,
+  RepoNodePhaseInput,
+  RepoNodePhaseOutput,
+} from "./phases/repo-node.js";
+export {
+  defaultGitProbe,
+  deriveLanguageStats,
+  deriveLocalRepoUri,
+  deriveRepoUri,
+  REPO_NODE_PHASE_NAME,
+  repoNodePhase,
+  runRepoNodePhase,
+} from "./phases/repo-node.js";
 export type { RiskSnapshotOptions, RiskSnapshotOutput } from "./phases/risk-snapshot.js";
 export {
   RISK_SNAPSHOT_PHASE_NAME,

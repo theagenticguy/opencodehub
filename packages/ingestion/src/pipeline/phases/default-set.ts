@@ -41,6 +41,7 @@ import { ownershipPhase } from "./ownership.js";
 import { parsePhase } from "./parse.js";
 import { processesPhase } from "./processes.js";
 import { profilePhase } from "./profile.js";
+import { repoNodePhase } from "./repo-node.js";
 import { riskSnapshotPhase } from "./risk-snapshot.js";
 import { routesPhase } from "./routes.js";
 import { sbomPhase } from "./sbom.js";
@@ -54,6 +55,11 @@ import { toolsPhase } from "./tools.js";
 export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   scanPhase,
   profilePhase,
+  // `repo-node` emits one RepoNode (AC-M6-1) and runs immediately after
+  // `profile` so it inherits the detected-languages list when deriving
+  // `languageStats`. It has no downstream dependents — the node is read
+  // from the graph by MCP tools at query time, not consumed by later phases.
+  repoNodePhase,
   structurePhase,
   markdownPhase,
   parsePhase,

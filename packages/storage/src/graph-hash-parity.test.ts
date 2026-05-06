@@ -319,7 +319,46 @@ const NODE_COLUMN_MAP: readonly (readonly [string, string, "number" | "string" |
   ["content_hash", "contentHash", "string"],
   ["email_hash", "emailHash", "string"],
   ["email_plain", "emailPlain", "string"],
+  // Repo (AC-M6-1) — each string column round-trips verbatim. Nullable
+  // fields on the interface (originUrl / defaultBranch / group) are written
+  // as SQL NULL, so the reconstructed node gets the field re-attached as
+  // `null` below when we see the row is a Repo. Standalone `applyNodeColumns`
+  // skips NULLs here; Repo-specific nullable reconstruction happens in
+  // `applyRepoNullables`.
+  ["origin_url", "originUrl", "string"],
+  ["repo_uri", "repoUri", "string"],
+  ["default_branch", "defaultBranch", "string"],
+  ["commit_sha", "commitSha", "string"],
+  ["index_time", "indexTime", "string"],
+  ["repo_group", "group", "string"],
+  ["visibility", "visibility", "string"],
+  ["indexer", "indexer", "string"],
 ];
+
+/**
+ * RepoNode carries three nullable-string fields. `applyNodeColumns` drops
+ * null/undefined so a Repo row comes back without them, which breaks
+ * canonical-JSON parity because the original fixture carries explicit
+ * `null`. Re-attach them here for Repo rows only.
+ */
+function applyRepoNullables(rec: Record<string, unknown>, base: Record<string, unknown>): void {
+  if (base["kind"] !== "Repo") return;
+  for (const [col, key] of [
+    ["origin_url", "originUrl"],
+    ["default_branch", "defaultBranch"],
+    ["repo_group", "group"],
+  ] as const) {
+    const v = rec[col];
+    if (v === null || v === undefined) base[key] = null;
+  }
+  // languageStats is a JSON object, not a scalar column.
+  const statsRaw = rec["language_stats_json"];
+  if (typeof statsRaw === "string" && statsRaw.length > 0) {
+    base["languageStats"] = JSON.parse(statsRaw);
+  } else {
+    base["languageStats"] = {};
+  }
+}
 
 function applyNodeColumns(
   rec: Record<string, unknown>,
@@ -339,7 +378,9 @@ async function rebuildFromDuckDb(store: DuckDbStore): Promise<KnowledgeGraph> {
   const nodeRows = await store.query(
     `SELECT id, kind, name, file_path, start_line, end_line, is_exported, signature,
             parameter_count, return_type, declared_type, owner, content_hash,
-            email_hash, email_plain
+            email_hash, email_plain,
+            origin_url, repo_uri, default_branch, commit_sha, index_time,
+            repo_group, visibility, indexer, language_stats_json
      FROM nodes ORDER BY id`,
   );
   const edgeRows = await store.query(
@@ -347,13 +388,15 @@ async function rebuildFromDuckDb(store: DuckDbStore): Promise<KnowledgeGraph> {
   );
   const g = new KnowledgeGraph();
   for (const row of nodeRows) {
+    const rec = row as Record<string, unknown>;
     const base: Record<string, unknown> = {
-      id: String(row["id"]),
-      kind: String(row["kind"]),
-      name: String(row["name"] ?? ""),
-      filePath: String(row["file_path"] ?? ""),
+      id: String(rec["id"]),
+      kind: String(rec["kind"]),
+      name: String(rec["name"] ?? ""),
+      filePath: String(rec["file_path"] ?? ""),
     };
-    applyNodeColumns(row as Record<string, unknown>, base);
+    applyNodeColumns(rec, base);
+    applyRepoNullables(rec, base);
     g.addNode(base as unknown as GraphNode);
   }
   for (const row of edgeRows) {
@@ -380,7 +423,12 @@ async function rebuildFromGraphDb(store: GraphDbStore): Promise<KnowledgeGraph> 
       `n.parameter_count AS parameter_count, n.return_type AS return_type, ` +
       `n.declared_type AS declared_type, n.owner AS owner, ` +
       `n.content_hash AS content_hash, n.email_hash AS email_hash, ` +
-      `n.email_plain AS email_plain ORDER BY n.id`,
+      `n.email_plain AS email_plain, ` +
+      `n.origin_url AS origin_url, n.repo_uri AS repo_uri, ` +
+      `n.default_branch AS default_branch, n.commit_sha AS commit_sha, ` +
+      `n.index_time AS index_time, n.repo_group AS repo_group, ` +
+      `n.visibility AS visibility, n.indexer AS indexer, ` +
+      `n.language_stats_json AS language_stats_json ORDER BY n.id`,
   );
 
   const g = new KnowledgeGraph();
@@ -393,6 +441,7 @@ async function rebuildFromGraphDb(store: GraphDbStore): Promise<KnowledgeGraph> 
       filePath: String(rec["file_path"] ?? ""),
     };
     applyNodeColumns(rec, base);
+    applyRepoNullables(rec, base);
     g.addNode(base as unknown as GraphNode);
   }
 
@@ -514,4 +563,76 @@ test("graphHash parity: medium fixture (mixed node kinds + OWNED_BY edges)", asy
 
 test("graphHash parity: large fixture (≥500 nodes, 24-edge-kind sweep)", async () => {
   await assertParity({ name: "large", fixture: buildLargeFixture() });
+});
+
+/**
+ * AC-M6-1 addition: a fixture that includes a RepoNode exercising every
+ * field — populated + explicit-null variants of `originUrl` / `defaultBranch`
+ * / `group`, and a non-empty `languageStats` record. The fixture must
+ * round-trip through both stores with matching graphHash, proving the new
+ * Repo columns carry their payload losslessly.
+ */
+function buildRepoFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const fileA = makeNodeId("File", "src/a.ts", "a.ts");
+  g.addNode({ id: fileA, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+
+  // Populated Repo node: every attribute carries a concrete value so the
+  // round-trip exercises each column.
+  const repoId = makeNodeId("Repo", "", "repo");
+  g.addNode({
+    id: repoId,
+    kind: "Repo",
+    name: "github.com/acme/example",
+    filePath: "",
+    originUrl: "https://github.com/acme/example.git",
+    repoUri: "github.com/acme/example",
+    defaultBranch: "main",
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-06T12:34:56Z",
+    group: "acme",
+    visibility: "private",
+    indexer: "opencodehub@0.1.0",
+    languageStats: { ts: 0.83, py: 0.14, md: 0.03 },
+  });
+  return g;
+}
+
+/**
+ * Parallel RepoNode fixture with the nullable string fields explicitly set
+ * to `null` — covers the S-M6-1 "no remote" branch where originUrl is
+ * absent, defaultBranch is unknown, and the repo is group-less. Empty
+ * languageStats ({}) is normalised to NULL on the wire; the reader
+ * reconstructs it as `{}` so canonical-JSON parity holds.
+ */
+function buildRepoNullFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const fileA = makeNodeId("File", "src/a.ts", "a.ts");
+  g.addNode({ id: fileA, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+
+  const repoId = makeNodeId("Repo", "", "repo");
+  g.addNode({
+    id: repoId,
+    kind: "Repo",
+    name: "local:abcdef012345",
+    filePath: "",
+    originUrl: null,
+    repoUri: "local:abcdef012345",
+    defaultBranch: null,
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-06T12:34:56Z",
+    group: null,
+    visibility: "private",
+    indexer: "opencodehub@0.1.0",
+    languageStats: {},
+  });
+  return g;
+}
+
+test("graphHash parity: repo fixture (RepoNode with all attributes populated)", async () => {
+  await assertParity({ name: "repo", fixture: buildRepoFixture() });
+});
+
+test("graphHash parity: repo fixture with explicit-null origin / branch / group", async () => {
+  await assertParity({ name: "repo-null", fixture: buildRepoNullFixture() });
 });

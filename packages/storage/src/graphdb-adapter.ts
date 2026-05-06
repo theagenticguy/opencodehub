@@ -22,6 +22,7 @@
  */
 
 import type { GraphNode, KnowledgeGraph, NodeId, RelationType } from "@opencodehub/core-types";
+import { canonicalJson } from "@opencodehub/core-types";
 import { assertReadOnlyCypher } from "./cypher-guard.js";
 import { GraphDbPool, type GraphDbPoolConfig } from "./graphdb-pool.js";
 import { generateSchemaDdl, getAllRelationTypes } from "./graphdb-schema.js";
@@ -163,6 +164,16 @@ const NODE_COLUMNS: readonly string[] = [
   "partial_fingerprint",
   "baseline_state",
   "suppressed_json",
+  // Repo (AC-M6-1). Append-only so existing parameter slots stay stable.
+  "origin_url",
+  "repo_uri",
+  "default_branch",
+  "commit_sha",
+  "index_time",
+  "repo_group",
+  "visibility",
+  "indexer",
+  "language_stats_json",
 ];
 
 /** Edge rel-table property columns. Matches graphdb-schema.ts. */
@@ -1019,7 +1030,42 @@ function nodeToParams(node: GraphNode): readonly SqlParam[] {
     stringOrNull(n["partialFingerprint"]),
     stringOrNull(n["baselineState"]),
     stringOrNull(n["suppressedJson"]),
+    // Repo (AC-M6-1). Populated only when `node.kind === "Repo"`; NULL for
+    // every other kind.
+    repoStringOrNull(n, "originUrl"),
+    stringOrNull(n["repoUri"]),
+    repoStringOrNull(n, "defaultBranch"),
+    stringOrNull(n["commitSha"]),
+    stringOrNull(n["indexTime"]),
+    repoStringOrNull(n, "group"),
+    stringOrNull(n["visibility"]),
+    stringOrNull(n["indexer"]),
+    languageStatsJsonOrNull(n["languageStats"]),
   ];
+}
+
+/**
+ * Resolve a RepoNode field whose interface-level type is `string | null`.
+ * Named helper keeps intent explicit at the call site — the collapse is the
+ * same as `stringOrNull`, but we surface the semantic separately.
+ */
+function repoStringOrNull(n: Record<string, unknown>, key: string): string | null {
+  const v = n[key];
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.length > 0) return v;
+  return null;
+}
+
+/**
+ * Serialize `RepoNode.languageStats` to byte-stable canonical JSON (sorted
+ * keys). NULL for non-object / empty inputs so the column stays NULL for
+ * every non-Repo row.
+ */
+function languageStatsJsonOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "object" || Array.isArray(v)) return null;
+  if (Object.keys(v as object).length === 0) return null;
+  return canonicalJson(v);
 }
 
 function normalizeDeadness(v: unknown): unknown {

@@ -94,9 +94,9 @@ export function generateSchemaDdl(opts: GraphDbSchemaOptions = {}): string {
   // Node tables. CodeNode collapses every kind (File / Folder / Function /
   // Class / Interface / Method / CodeElement / Community / Process / Route /
   // Tool / Section / Finding / Dependency / Operation / Contributor /
-  // ProjectProfile) behind a `kind` discriminator, mirroring the DuckDB
-  // `nodes` table. Embeddings live in their own NODE TABLE so the vector
-  // column stays homogeneous and an HNSW index can attach.
+  // ProjectProfile / Repo) behind a `kind` discriminator, mirroring the
+  // DuckDB `nodes` table. Embeddings live in their own NODE TABLE so the
+  // vector column stays homogeneous and an HNSW index can attach.
   // -------------------------------------------------------------------------
   statements.push(`CREATE NODE TABLE IF NOT EXISTS CodeNode (
   id STRING,
@@ -163,6 +163,15 @@ export function generateSchemaDdl(opts: GraphDbSchemaOptions = {}): string {
   partial_fingerprint STRING,
   baseline_state STRING,
   suppressed_json STRING,
+  origin_url STRING,
+  repo_uri STRING,
+  default_branch STRING,
+  commit_sha STRING,
+  index_time STRING,
+  repo_group STRING,
+  visibility STRING,
+  indexer STRING,
+  language_stats_json STRING,
   PRIMARY KEY (id)
 )`);
 

@@ -933,6 +933,99 @@ test("bulkLoad stores Finding / Dependency / Operation / Contributor / ProjectPr
   }
 });
 
+test("bulkLoad stores Repo columns (AC-M6-1 first-class repo node)", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const repoId = makeNodeId("Repo", "", "repo");
+    g.addNode({
+      id: repoId,
+      kind: "Repo",
+      name: "github.com/acme/example",
+      filePath: "",
+      originUrl: "https://github.com/acme/example.git",
+      repoUri: "github.com/acme/example",
+      defaultBranch: "main",
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      indexTime: "2026-05-06T12:34:56Z",
+      group: "acme",
+      visibility: "internal",
+      indexer: "opencodehub@0.1.0",
+      languageStats: { ts: 0.83, py: 0.14, md: 0.03 },
+    } as unknown as GraphNode);
+    await store.bulkLoad(g);
+
+    const rRow = await store.query(
+      `SELECT origin_url, repo_uri, default_branch, commit_sha, index_time,
+              repo_group, visibility, indexer, language_stats_json
+       FROM nodes WHERE id = ?`,
+      [repoId],
+    );
+    const rr = rRow[0];
+    assert.ok(rr);
+    assert.equal(rr["origin_url"], "https://github.com/acme/example.git");
+    assert.equal(rr["repo_uri"], "github.com/acme/example");
+    assert.equal(rr["default_branch"], "main");
+    assert.equal(rr["commit_sha"], "0123456789abcdef0123456789abcdef01234567");
+    assert.equal(rr["index_time"], "2026-05-06T12:34:56Z");
+    assert.equal(rr["repo_group"], "acme");
+    assert.equal(rr["visibility"], "internal");
+    assert.equal(rr["indexer"], "opencodehub@0.1.0");
+    // canonicalJson sorts keys — the stored JSON must match the sorted form.
+    assert.equal(rr["language_stats_json"], '{"md":0.03,"py":0.14,"ts":0.83}');
+  } finally {
+    await store.close();
+  }
+});
+
+test("bulkLoad stores Repo columns with explicit-null nullable fields (S-M6-1)", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const repoId = makeNodeId("Repo", "", "repo");
+    g.addNode({
+      id: repoId,
+      kind: "Repo",
+      name: "local:abcdef012345",
+      filePath: "",
+      originUrl: null,
+      repoUri: "local:abcdef012345",
+      defaultBranch: null,
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      indexTime: "2026-05-06T12:34:56Z",
+      group: null,
+      visibility: "private",
+      indexer: "opencodehub@0.1.0",
+      languageStats: {},
+    } as unknown as GraphNode);
+    await store.bulkLoad(g);
+
+    const rRow = await store.query(
+      `SELECT origin_url, default_branch, repo_group, language_stats_json
+       FROM nodes WHERE id = ?`,
+      [repoId],
+    );
+    const rr = rRow[0];
+    assert.ok(rr);
+    // Nullable interface fields ({origin_url, default_branch, repo_group})
+    // round-trip to SQL NULL when the source node carries `null`.
+    assert.equal(rr["origin_url"], null);
+    assert.equal(rr["default_branch"], null);
+    assert.equal(rr["repo_group"], null);
+    // Empty languageStats collapses to NULL on the wire — the read path
+    // reconstructs `{}` so graph-hash parity holds.
+    assert.equal(rr["language_stats_json"], null);
+  } finally {
+    await store.close();
+  }
+});
+
 test("bulkLoad stores FOUND_IN / DEPENDS_ON / OWNED_BY relation types", async () => {
   const dbPath = await scratchDbPath();
   const store = new DuckDbStore(dbPath);
