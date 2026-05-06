@@ -2,14 +2,16 @@
  * @opencodehub/pack — deterministic M5 code-pack BOM.
  *
  * Public surface:
- *   - generatePack(opts): stub here; body lands in AC-M5-3 (manifest + pack_hash)
- *     and AC-M5-4..7 (BOM body implementations).
+ *   - generatePack(opts): stub here; body lands in AC-M5-7.
+ *   - buildManifest / serializeManifest: BOM manifest + pack_hash (AC-M5-3).
  *   - Type surface: {BomItem, DeterminismClass, PackManifest, PackOpts, PackPins}.
  *
- * AC-M5-1 provides the empty-but-wired scaffold so subsequent ACs can
- * parallel-implement against stable types.
+ * AC-M5-3 lands the deterministic manifest core; AC-M5-4..6 fill the BOM
+ * bodies; AC-M5-7 wires generatePack through the CLI.
  */
 
+export type { BuildManifestOpts } from "./manifest.js";
+export { buildManifest, serializeManifest } from "./manifest.js";
 export type { BomItem, DeterminismClass, PackManifest, PackOpts, PackPins } from "./types.js";
 
 import type { PackManifest, PackOpts } from "./types.js";
