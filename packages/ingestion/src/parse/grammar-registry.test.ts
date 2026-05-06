@@ -1,6 +1,13 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { _resetGrammarCacheForTests, loadGrammar, preloadGrammars } from "./grammar-registry.js";
+import {
+  _resetGrammarCacheForTests,
+  getGrammarSha,
+  getLanguageProvider,
+  isRegexProviderLanguage,
+  loadGrammar,
+  preloadGrammars,
+} from "./grammar-registry.js";
 import { getUnifiedQuery } from "./unified-queries.js";
 
 describe("grammar-registry", () => {
@@ -47,6 +54,31 @@ describe("grammar-registry", () => {
     const a = await loadGrammar("typescript");
     const b = await loadGrammar("typescript");
     assert.equal(a, b);
+  });
+
+  it("classifies cobol as a regex-provider language", () => {
+    const spec = getLanguageProvider("cobol");
+    assert.equal(spec.kind, "regex");
+    assert.equal(isRegexProviderLanguage("cobol"), true);
+    // Sanity — tree-sitter languages are NOT regex-providers.
+    assert.equal(isRegexProviderLanguage("typescript"), false);
+    assert.equal(isRegexProviderLanguage("python"), false);
+    const tsSpec = getLanguageProvider("typescript");
+    assert.equal(tsSpec.kind, "tree-sitter");
+    if (tsSpec.kind === "tree-sitter") {
+      assert.equal(tsSpec.package, "tree-sitter-typescript");
+    }
+  });
+
+  it("refuses to loadGrammar for a regex-provider language", async () => {
+    _resetGrammarCacheForTests();
+    await assert.rejects(loadGrammar("cobol"), /regex-provider/);
+  });
+
+  it("getGrammarSha returns null for regex-provider languages", async () => {
+    _resetGrammarCacheForTests();
+    const sha = await getGrammarSha("cobol");
+    assert.equal(sha, null, "cobol has no grammar package — sha should be null");
   });
 
   it("loads extended-language grammars when the native bindings are installed", async () => {

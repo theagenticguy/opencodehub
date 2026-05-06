@@ -18,6 +18,7 @@
     { "path": "../analysis" },
     { "path": "../core-types" },
     { "path": "../embedder" },
+    { "path": "../frameworks" },
     { "path": "../scip-ingest" },
     { "path": "../storage" },
     { "path": "../summarizer" }

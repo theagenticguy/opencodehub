@@ -13,6 +13,7 @@
     { "path": "./packages/mcp" },
     { "path": "./packages/cli" },
     { "path": "./packages/summarizer" },
-    { "path": "./packages/scip-ingest" }
+    { "path": "./packages/scip-ingest" },
+    { "path": "./packages/cobol-proleap" }
   ]
 }

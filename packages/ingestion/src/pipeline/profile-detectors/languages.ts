@@ -34,6 +34,7 @@ const LANGUAGE_NAME_BY_ID: Readonly<Record<LanguageId, string>> = {
   swift: "swift",
   php: "php",
   dart: "dart",
+  cobol: "cobol",
 };
 
 export function detectLanguages(files: readonly ScannedFile[]): readonly string[] {

@@ -34,6 +34,12 @@ import path from "node:path";
 import type { GraphNode, NodeKind, RelationType } from "@opencodehub/core-types";
 import { makeNodeId, type NodeId, SCHEMA_VERSION } from "@opencodehub/core-types";
 import { META_DIR_NAME } from "@opencodehub/storage";
+import {
+  type CobolElement,
+  type CobolRegexResult,
+  parseCobolFile,
+} from "../../parse/cobol-regex.js";
+import { isRegexProviderLanguage } from "../../parse/grammar-registry.js";
 import type { LanguageId, ParseTask } from "../../parse/types.js";
 import { ParsePool } from "../../parse/worker-pool.js";
 import { idForDefinition } from "../../providers/definition-ids.js";
@@ -126,9 +132,25 @@ async function runParse(
   // Filter to files with a known language; everything else is noise for
   // symbol extraction.
   type ParseCandidate = ScannedFile & { readonly language: LanguageId };
-  const parseCandidates: readonly ParseCandidate[] = scan.files.filter(
+  const allParseCandidates: readonly ParseCandidate[] = scan.files.filter(
     (f): f is ParseCandidate => f.language !== undefined,
   );
+
+  // Partition the candidates by provider kind. Regex-provider languages
+  // (currently only `cobol` via T-M4-5) bypass the worker pool entirely —
+  // they carry no tree-sitter grammar, so the content-addressed parse
+  // cache, the piscina worker, the unified-query evaluator, and the
+  // three-tier resolver chain are all skipped. The regex handler lower
+  // down emits `CodeElement` graph nodes directly.
+  const cobolCandidates: ParseCandidate[] = [];
+  const parseCandidates: ParseCandidate[] = [];
+  for (const candidate of allParseCandidates) {
+    if (isRegexProviderLanguage(candidate.language)) {
+      cobolCandidates.push(candidate);
+    } else {
+      parseCandidates.push(candidate);
+    }
+  }
 
   const cacheDir = path.join(ctx.repoPath, PARSE_CACHE_DIRNAME);
   const force = ctx.options.force === true;
@@ -590,6 +612,85 @@ async function runParse(
     }
   }
 
+  // ---- Regex-provider dispatch: COBOL (T-M4-5). -------------------------
+  //
+  // COBOL files bypass the tree-sitter worker pool entirely. `parseCobolFile`
+  // returns `CobolElement` records that we map to `CodeElement` graph nodes
+  // with a DEFINES edge from the file. Copybook references (`COPY <name>`)
+  // become external stubs in `<external>` space with an IMPORTS edge — the
+  // same shape used by unresolved tree-sitter imports, so downstream impact
+  // / wiki / contract-map consumers treat them uniformly. PERFORM
+  // references land as CodeElement nodes with a diagnostic reason; we
+  // deliberately do NOT emit CALLS edges between paragraphs because the
+  // regex heuristic cannot disambiguate without a full ASG (task anti-goal).
+  const COBOL_EXTERNAL_PATH = "<external>";
+  const cobolEmittedCopyStubIds = new Set<NodeId>();
+  for (const candidate of cobolCandidates) {
+    let content: string;
+    try {
+      const buf = await fs.readFile(candidate.absPath);
+      content = buf.toString("utf8");
+      sourceByFile.set(candidate.relPath, content);
+    } catch (err) {
+      ctx.onProgress?.({
+        phase: PARSE_PHASE_NAME,
+        kind: "warn",
+        message: `parse: cannot read ${candidate.relPath}: ${(err as Error).message}`,
+      });
+      continue;
+    }
+
+    const result: CobolRegexResult = parseCobolFile(candidate.relPath, content);
+    for (const diag of result.diagnostics) {
+      ctx.onProgress?.({ phase: PARSE_PHASE_NAME, kind: "warn", message: diag });
+    }
+
+    const fileId = makeNodeId("File", candidate.relPath, candidate.relPath);
+
+    for (const elt of result.elements) {
+      const nodeId = makeCobolElementNodeId(candidate.relPath, elt);
+      ctx.graph.addNode({
+        id: nodeId,
+        kind: "CodeElement",
+        name: elt.name,
+        filePath: candidate.relPath,
+        startLine: elt.startLine,
+        endLine: elt.endLine,
+        ...(elt.snippet !== undefined ? { content: elt.snippet } : {}),
+      });
+      ctx.graph.addEdge({
+        from: fileId,
+        to: nodeId,
+        type: "DEFINES",
+        confidence: 0.6, // heuristic tier
+        reason: `cobol-regex:${elt.kind}`,
+      });
+    }
+
+    // Emit copybook IMPORTS edges as external stubs. Deterministic iteration
+    // order because `copybookRefs` is already deduped + sorted.
+    for (const copybook of result.copybookRefs) {
+      const stubId = makeNodeId("CodeElement", COBOL_EXTERNAL_PATH, `cobol-copybook:${copybook}`);
+      if (!cobolEmittedCopyStubIds.has(stubId)) {
+        cobolEmittedCopyStubIds.add(stubId);
+        ctx.graph.addNode({
+          id: stubId,
+          kind: "CodeElement",
+          name: copybook,
+          filePath: COBOL_EXTERNAL_PATH,
+          content: `cobol copybook reference: ${copybook}`,
+        });
+      }
+      ctx.graph.addEdge({
+        from: fileId,
+        to: stubId,
+        type: "IMPORTS",
+        confidence: 0.8,
+        reason: "cobol-regex:copybook",
+      });
+    }
+  }
+
   return {
     definitionsByFile,
     callsByFile,
@@ -598,10 +699,22 @@ async function runParse(
     symbolIndex,
     sourceByFile,
     parseTimeMs: Date.now() - start,
-    fileCount: parseCandidates.length,
+    // Count both tree-sitter candidates and cobol candidates so the phase
+    // report accurately reflects the total number of files touched.
+    fileCount: parseCandidates.length + cobolCandidates.length,
     cacheHits: hits.length,
     cacheMisses: missFiles.length,
   };
+}
+
+/**
+ * Build a stable `CodeElement` NodeId for a COBOL element. The key
+ * combines the element kind, name, and 1-indexed start line so repeated
+ * PERFORM references (same target, different call sites) don't collide
+ * and the id survives determinism checks across runs on unchanged files.
+ */
+function makeCobolElementNodeId(relPath: string, elt: CobolElement): NodeId {
+  return makeNodeId("CodeElement", relPath, `cobol:${elt.kind}:${elt.name}:${elt.startLine}`);
 }
 
 function confidenceFor(tier: ResolutionTier): number {

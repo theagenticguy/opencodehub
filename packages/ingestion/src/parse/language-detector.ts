@@ -46,6 +46,12 @@ const EXTENSION_MAP: ReadonlyMap<string, LanguageId> = new Map([
   [".php7", "php"],
   [".phtml", "php"],
   [".dart", "dart"],
+  // --- COBOL (regex hot path; see parse/cobol-regex.ts). Fixed-format .cbl /
+  //     .cob programs and .cpy copybooks. Free-format COBOL is NOT handled
+  //     in v1 — that's T-M4-6 (ProLeap deep-parse). ---
+  [".cbl", "cobol"],
+  [".cob", "cobol"],
+  [".cpy", "cobol"],
 ]);
 
 /**
