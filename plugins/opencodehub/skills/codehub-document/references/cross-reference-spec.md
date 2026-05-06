@@ -32,9 +32,12 @@ The assembler scans only between backtick pairs — never raw prose.
 
 ## `.docmeta.json` schema
 
+The file carries a `schema_version` integer. **v2 is the current schema** (ships with AC-M6-3); v1 files on disk remain readable — the orchestrator lazily upgrades them on the next regeneration by re-running Phase E and writing v2. v2 adds one new field — `cross_repo_links[]` — populated in group mode from the `group_cross_repo_links` MCP tool. All v1 fields carry through unchanged.
+
 ```json
 {
-  "$schema": "https://opencodehub.dev/schemas/docmeta-v1.json",
+  "$schema": "https://opencodehub.dev/schemas/docmeta-v2.json",
+  "schema_version": 2,
   "generated_at": "2026-04-27T18:12:04Z",
   "codehub_graph_hash": "sha256:a1b2c3…",
   "mode": "single-repo",
@@ -55,11 +58,12 @@ The assembler scans only between backtick pairs — never raw prose.
     }
   ],
   "cross_repo_refs": [],
+  "cross_repo_links": [],
   "frontmatter_removed": []
 }
 ```
 
-Group mode populates `cross_repo_refs[]`:
+Group mode populates `cross_repo_refs[]` (as in v1):
 
 ```json
 {
@@ -73,6 +77,39 @@ Group mode populates `cross_repo_refs[]`:
   ]
 }
 ```
+
+And `cross_repo_links[]` (new in v2, sourced from `group_cross_repo_links`):
+
+```json
+{
+  "cross_repo_links": [
+    {
+      "source_repo_uri": "github.com/org/frontend",
+      "target_repo_uri": "github.com/org/orders-api",
+      "source_doc_path": "frontend/architecture.md",
+      "target_doc_path": "orders-api/architecture.md",
+      "relation": "depends_on",
+      "evidence": "GET /orders/{id}"
+    },
+    {
+      "source_repo_uri": "github.com/org/orders-api",
+      "target_repo_uri": "github.com/org/frontend",
+      "source_doc_path": "orders-api/architecture.md",
+      "target_doc_path": "frontend/architecture.md",
+      "relation": "consumer_of",
+      "evidence": "GET /orders/{id}"
+    }
+  ]
+}
+```
+
+`cross_repo_links[]` is the sourced, deterministic, alpha-sorted link graph emitted by `group_cross_repo_links`. The engine owns the data (one record per matched contract, emitted in both directions — `depends_on` from consumer to producer, `consumer_of` from producer to consumer). The skill owns the file — it embeds the tool's output verbatim during Phase E and renders the `## See also (other repos in group)` footer from it. Backward-compat: pre-v2 files without `cross_repo_links` are fine to read; the orchestrator writes v2 on next regeneration.
+
+**Relation vocabulary**:
+
+- `depends_on` — source repo consumes target repo (consumer → producer). The target is an upstream API.
+- `consumer_of` — source repo is consumed BY target repo (producer → consumer). The target is a known downstream.
+- `see_also` — reserved for a later AC. Bidirectional doc link inferred from non-contract cross-repo references.
 
 `staleness_at` is copied from the `_meta.codehub/staleness` envelope on the last MCP response the assembler observed.
 

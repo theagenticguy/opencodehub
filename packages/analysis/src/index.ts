@@ -40,10 +40,14 @@ export {
 } from "./git.js";
 // Cross-repo group contract extractors (HTTP, gRPC, topic) + sync.
 export type {
+  ComputeCrossRepoLinksOpts,
   Contract,
   ContractRegistry,
   ContractType,
   CrossLink,
+  CrossRepoLink,
+  CrossRepoRelation,
+  DocPathScheme,
   GrpcClientExtractOptions,
   GrpcProtoExtractOptions,
   HttpExtractOptions,
@@ -57,6 +61,7 @@ export type {
 export {
   buildManifestLinks,
   buildRegistry,
+  computeCrossRepoLinks,
   contractFamily,
   extractGrpcClientContracts,
   extractGrpcProtoContracts,

@@ -30,6 +30,7 @@ import { registerContextTool } from "./tools/context.js";
 import { registerDependenciesTool } from "./tools/dependencies.js";
 import { registerDetectChangesTool } from "./tools/detect-changes.js";
 import { registerGroupContractsTool } from "./tools/group-contracts.js";
+import { registerGroupCrossRepoLinksTool } from "./tools/group-cross-repo-links.js";
 import { registerGroupListTool } from "./tools/group-list.js";
 import { registerGroupQueryTool } from "./tools/group-query.js";
 import { registerGroupStatusTool } from "./tools/group-status.js";
@@ -159,6 +160,7 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
   registerGroupQueryTool(server, ctx);
   registerGroupStatusTool(server, ctx);
   registerGroupContractsTool(server, ctx);
+  registerGroupCrossRepoLinksTool(server, ctx);
   registerGroupSyncTool(server, ctx);
   registerProjectProfileTool(server, ctx);
   registerDependenciesTool(server, ctx);
