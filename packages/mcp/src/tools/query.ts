@@ -50,6 +50,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -71,10 +72,7 @@ const QueryInput = {
     .string()
     .min(1)
     .describe("Free-text search phrase; embedded + BM25-searched, then fused via RRF."),
-  repo: z
-    .string()
-    .optional()
-    .describe("Registered repo name. Omit to use the only registered repo."),
+  ...repoArgShape,
   limit: z
     .number()
     .int()
@@ -604,6 +602,7 @@ async function fetchProcessGrouping(
 interface QueryArgs {
   readonly query: string;
   readonly repo?: string;
+  readonly repo_uri?: string;
   readonly limit?: number;
   readonly kinds?: readonly string[];
   readonly task_context?: string;
@@ -628,7 +627,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
   // or `goal` are present, they get prefixed so the ranker sees the broader
   // intent; `args.query` remains the human-facing string echoed in headers.
   const searchText = buildSearchText(args.query, args.task_context, args.goal);
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const kinds = args.kinds && args.kinds.length > 0 ? args.kinds : undefined;
 
@@ -824,6 +823,7 @@ export function registerQueryTool(server: McpServer, ctx: ToolContext): void {
       const typed: QueryArgs = {
         query: args.query,
         ...(args.repo !== undefined ? { repo: args.repo } : {}),
+        ...(args.repo_uri !== undefined ? { repo_uri: args.repo_uri } : {}),
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
         ...(args.kinds !== undefined ? { kinds: args.kinds } : {}),
         ...(args.task_context !== undefined ? { task_context: args.task_context } : {}),

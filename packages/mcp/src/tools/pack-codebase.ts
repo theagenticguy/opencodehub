@@ -22,7 +22,18 @@ import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from 
 const DEFAULT_REPOMIX_VERSION = "1.14.0";
 
 const PackInput = z.object({
-  repo: z.string().describe("Registered repo name (see list_repos)."),
+  repo: z
+    .string()
+    .optional()
+    .describe(
+      "Registered repo name (see list_repos). Provide `repo` or `repo_uri`; required when ≥ 2 repos are registered.",
+    ),
+  repo_uri: z
+    .string()
+    .optional()
+    .describe(
+      "Sourcegraph-style repo URI (e.g. `github.com/org/repo`). Accepted as an alias for `repo`; wins when both are provided.",
+    ),
   style: z
     .enum(["xml", "markdown", "json", "plain"])
     .optional()
@@ -39,10 +50,16 @@ type PackInput = z.infer<typeof PackInput>;
 
 export async function runPackCodebase(ctx: ToolContext, input: PackInput): Promise<ToolResult> {
   try {
-    const entry = await resolveRepo(input.repo, {
-      ...(ctx.home !== undefined ? { home: ctx.home } : {}),
-      skipMeta: true,
-    });
+    const entry = await resolveRepo(
+      {
+        ...(input.repo !== undefined ? { repo: input.repo } : {}),
+        ...(input.repo_uri !== undefined ? { repo_uri: input.repo_uri } : {}),
+      },
+      {
+        ...(ctx.home !== undefined ? { home: ctx.home } : {}),
+        skipMeta: true,
+      },
+    );
     const outputPath = join(entry.repoPath, ".codehub", "pack", `repo.${extForStyle(input.style)}`);
     await mkdir(dirname(outputPath), { recursive: true });
 

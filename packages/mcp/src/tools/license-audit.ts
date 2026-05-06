@@ -25,12 +25,12 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -38,12 +38,7 @@ import {
 } from "./shared.js";
 
 const LicenseAuditInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
 };
 
 /**
@@ -118,13 +113,14 @@ export function classifyDependencies(deps: readonly DependencyRef[]): LicenseAud
 
 interface LicenseAuditArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runLicenseAudit(
   ctx: ToolContext,
   args: LicenseAuditArgs,
 ): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const rows = (await store.query(
         `SELECT id, name, version, license, lockfile_source, ecosystem, file_path

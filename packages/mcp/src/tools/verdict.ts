@@ -19,6 +19,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -26,7 +27,7 @@ import {
 } from "./shared.js";
 
 const VerdictInput = {
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
   base: z.string().optional().describe("Base git ref (default 'main')."),
   head: z.string().optional().describe("Head git ref (default 'HEAD')."),
   config: z
@@ -55,13 +56,14 @@ interface VerdictConfigArgs {
 
 interface VerdictArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly base?: string | undefined;
   readonly head?: string | undefined;
   readonly config?: VerdictConfigArgs | undefined;
 }
 
 export async function runVerdict(ctx: ToolContext, args: VerdictArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const config: Record<string, number | boolean> = {};
       if (args.config) {

@@ -36,6 +36,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -43,12 +44,7 @@ import {
 } from "./shared.js";
 
 const RemoveDeadCodeInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   dryRun: z
     .boolean()
     .optional()
@@ -83,6 +79,7 @@ export interface RemoveDeadCodeContext extends ToolContext {
 
 interface RemoveDeadCodeArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly dryRun?: boolean | undefined;
   readonly filePathPattern?: string | undefined;
   readonly apply?: boolean | undefined;
@@ -96,7 +93,7 @@ export async function runRemoveDeadCode(
   const apply = args.apply === true;
   const pattern = args.filePathPattern;
 
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       // Refuse an apply that skipped the explicit opt-in. Even when the
       // caller disables dryRun, we require `apply=true` as a second

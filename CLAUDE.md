@@ -25,7 +25,14 @@ full inventory, use the `/opencodehub-guide` skill.
 ## AMBIGUOUS_REPO
 
 When two or more repos are indexed on this machine, per-repo tools require
-an explicit `repo:` argument and return `AMBIGUOUS_REPO` otherwise.
+an explicit `repo:` (or the `repo_uri:` alias — a Sourcegraph-style URI
+such as `github.com/org/repo`, or `local:<hash>` for unpublished repos)
+and return `AMBIGUOUS_REPO` otherwise. The error envelope carries a
+structured `_meta` payload on `structuredContent.error`:
+`{ error_code: "AMBIGUOUS_REPO", jsonrpc_code: -32602, choices: [ { repo_uri, default_branch, group } ] (capped at 10), total_matches, hint }` —
+so the calling agent can retry deterministically with a single `repo_uri`
+from `choices`. When `total_matches > choices.length`, the caller knows
+the list was truncated.
 
 ## Durable lessons
 

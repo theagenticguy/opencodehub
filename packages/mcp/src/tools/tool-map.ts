@@ -20,6 +20,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -27,7 +28,7 @@ import {
 } from "./shared.js";
 
 const ToolMapInput = {
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
   tool: z.string().optional().describe("Substring match against tool name."),
 };
 
@@ -40,11 +41,12 @@ interface ToolRow {
 
 interface ToolMapArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly tool?: string | undefined;
 }
 
 export async function runToolMap(ctx: ToolContext, args: ToolMapArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const clauses: string[] = ["kind = 'Tool'"];
       const params: (string | number)[] = [];

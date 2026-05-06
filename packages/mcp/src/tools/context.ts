@@ -38,6 +38,7 @@ import { stalenessFromMeta } from "../staleness.js";
 import { computeConfidenceBreakdown, type EdgeConfidenceSource } from "./confidence.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -86,7 +87,7 @@ const ContextInput = {
     .describe(
       "Direct node id from prior tool results. When supplied, skips name-based disambiguation.",
     ),
-  repo: z.string().optional().describe("Registered repo name; defaults to the only indexed repo."),
+  ...repoArgShape,
   kind: z
     .string()
     .optional()
@@ -173,6 +174,7 @@ interface ContextArgs {
   readonly name?: string | undefined;
   readonly uid?: string | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly kind?: string | undefined;
   readonly file_path?: string | undefined;
   readonly filePath?: string | undefined;
@@ -180,7 +182,7 @@ interface ContextArgs {
 }
 
 export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const nameInput = args.symbol ?? args.name;
       const uid = args.uid;
