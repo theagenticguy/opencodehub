@@ -21,9 +21,12 @@ import type {
   VectorResult,
 } from "@opencodehub/storage";
 import { ConnectionPool } from "../connection-pool.js";
+import { deriveRepoUri } from "../repo-resolver.js";
+import { registerGroupContractsTool } from "./group-contracts.js";
 import { registerGroupListTool } from "./group-list.js";
 import { registerGroupQueryTool } from "./group-query.js";
 import { registerGroupStatusTool } from "./group-status.js";
+import { registerGroupSyncTool } from "./group-sync.js";
 import { registerQueryTool } from "./query.js";
 import type { ToolContext } from "./shared.js";
 
@@ -32,6 +35,24 @@ import type { ToolContext } from "./shared.js";
 interface FakeRepoData {
   readonly name: string;
   readonly searchResults: readonly SearchResult[];
+  /**
+   * Optional: the graph-backed `RepoNode.repoUri` the fake DB exposes via
+   * `SELECT repo_uri FROM nodes WHERE id = ?`. When omitted, the query
+   * returns zero rows and the tool falls back to `deriveRepoUri` (AC-M6-4).
+   */
+  readonly repoNodeUri?: string;
+  /** Optional seed for FETCHES edges returned by group_contracts. */
+  readonly fetchesEdges?: readonly {
+    readonly fromId: string;
+    readonly method: string;
+    readonly path: string;
+  }[];
+  /** Optional seed for Route nodes returned by group_contracts. */
+  readonly routes?: readonly {
+    readonly id: string;
+    readonly method: string;
+    readonly url: string;
+  }[];
 }
 
 function makeFakeStore(data: FakeRepoData): DuckDbStore {
@@ -52,6 +73,24 @@ function makeFakeStore(data: FakeRepoData): DuckDbStore {
       p: readonly SqlParam[] = [],
     ): Promise<readonly Record<string, unknown>[]> => {
       const normalized = sql.replace(/\s+/g, " ").trim();
+      // AC-M6-4: RepoNode lookup (`repo-uri-for-entry.ts`).
+      if (normalized.startsWith("SELECT repo_uri FROM nodes WHERE id =")) {
+        if (data.repoNodeUri === undefined) return [];
+        return [{ repo_uri: data.repoNodeUri }];
+      }
+      // group_contracts: FETCHES edges (consumers).
+      if (normalized.startsWith("SELECT from_id, to_id FROM relations WHERE type = 'FETCHES'")) {
+        const edges = data.fetchesEdges ?? [];
+        return edges.map((e) => ({
+          from_id: e.fromId,
+          to_id: `fetches:unresolved:${e.method}:${e.path}`,
+        }));
+      }
+      // group_contracts: Route nodes (producers).
+      if (normalized.startsWith("SELECT id, method, url FROM nodes WHERE kind = 'Route'")) {
+        const routes = data.routes ?? [];
+        return routes.map((r) => ({ id: r.id, method: r.method, url: r.url }));
+      }
       // query tool's node hydration — return minimal rows so enrichWithContext
       // can keep fused hits in place. Snippet extraction will be null because
       // the fake filesystem does not serve any source files.
@@ -98,6 +137,23 @@ interface RepoFixture {
   readonly nodeCount: number;
   readonly edgeCount: number;
   readonly searchResults: readonly SearchResult[];
+  /**
+   * Optional: graph-backed `RepoNode.repoUri` for AC-M6-4 assertions.
+   * When set, the fake DB returns it for the `SELECT repo_uri FROM nodes
+   * WHERE id = 'Repo::::repo'` probe; otherwise the tool falls back to
+   * `deriveRepoUri`.
+   */
+  readonly repoNodeUri?: string;
+  readonly fetchesEdges?: readonly {
+    readonly fromId: string;
+    readonly method: string;
+    readonly path: string;
+  }[];
+  readonly routes?: readonly {
+    readonly id: string;
+    readonly method: string;
+    readonly url: string;
+  }[];
 }
 
 interface GroupFixture {
@@ -151,7 +207,16 @@ async function withTestHarness(
       // dbPath looks like <repoPath>/.codehub/graph.duckdb — match by repo name.
       for (const r of repos) {
         const rp = repoPaths.get(r.name);
-        if (rp && dbPath.startsWith(rp)) return makeFakeStore(r);
+        if (rp && dbPath.startsWith(rp)) {
+          const fakeArgs: FakeRepoData = {
+            name: r.name,
+            searchResults: r.searchResults,
+            ...(r.repoNodeUri !== undefined ? { repoNodeUri: r.repoNodeUri } : {}),
+            ...(r.fetchesEdges !== undefined ? { fetchesEdges: r.fetchesEdges } : {}),
+            ...(r.routes !== undefined ? { routes: r.routes } : {}),
+          };
+          return makeFakeStore(fakeArgs);
+        }
       }
       throw new Error(`no fake store wired for ${dbPath}`);
     });
@@ -663,6 +728,333 @@ test("group_query is deterministic across 3 successive runs (byte-equal structur
       }
       assert.equal(snapshots[0], snapshots[1], "run 1 vs run 2 drift");
       assert.equal(snapshots[1], snapshots[2], "run 2 vs run 3 drift");
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// AC-M6-4 — additive `repo_uri` across group_* tool responses.
+// Legacy fields (`name`, `_repo`, `consumerRepo`, `producerRepo`) stay
+// byte-for-byte; the new fields augment them without altering ordering.
+// ---------------------------------------------------------------------------
+
+test("group_list emits repo_uri derived from deriveRepoUri when no RepoNode exists (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      { name: "alpha", nodeCount: 1, edgeCount: 0, searchResults: [] },
+      { name: "bravo", nodeCount: 1, edgeCount: 0, searchResults: [] },
+    ],
+    [{ name: "stack", repos: ["alpha", "bravo"] }],
+    async (ctx, server) => {
+      registerGroupListTool(server, ctx);
+      const handler = getHandler(server, "group_list");
+      const result = await handler({}, {});
+      const sc = result.structuredContent as {
+        groups: Array<{
+          name: string;
+          repos: Array<{ name: string; repo_uri: string; path: string }>;
+        }>;
+      };
+      const group = sc.groups[0];
+      assert.ok(group);
+      assert.equal(group.repos.length, 2);
+      // Bare names without `/` → `local:<hash>` per deriveRepoUri.
+      for (const r of group.repos) {
+        assert.match(
+          r.repo_uri,
+          /^local:[0-9a-f]{12}$/,
+          `expected local:<hash> form, got ${r.repo_uri}`,
+        );
+      }
+      // Legacy `name` stays byte-for-byte.
+      assert.deepEqual(
+        group.repos.map((r) => r.name),
+        ["alpha", "bravo"],
+      );
+    },
+  );
+});
+
+test("group_list emits repo_uri from RepoNode.repoUri when the graph has one (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      {
+        name: "alpha",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [],
+        repoNodeUri: "github.com/acme/alpha",
+      },
+      {
+        name: "bravo",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [],
+        // No repoNodeUri — exercises the fall-back path in the same call.
+      },
+    ],
+    [{ name: "stack", repos: ["alpha", "bravo"] }],
+    async (ctx, server) => {
+      registerGroupListTool(server, ctx);
+      const handler = getHandler(server, "group_list");
+      const result = await handler({}, {});
+      const sc = result.structuredContent as {
+        groups: Array<{
+          repos: Array<{ name: string; repo_uri: string }>;
+        }>;
+      };
+      const repos = sc.groups[0]?.repos ?? [];
+      const alpha = repos.find((r) => r.name === "alpha");
+      const bravo = repos.find((r) => r.name === "bravo");
+      assert.ok(alpha);
+      assert.ok(bravo);
+      // Graph-backed: exact URI surfaces.
+      assert.equal(alpha.repo_uri, "github.com/acme/alpha");
+      // Derived fall-back.
+      assert.match(bravo.repo_uri, /^local:[0-9a-f]{12}$/);
+    },
+  );
+});
+
+test("group_status per-member row carries both name and repo_uri (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      {
+        name: "alpha",
+        nodeCount: 10,
+        edgeCount: 20,
+        searchResults: [],
+        repoNodeUri: "github.com/acme/alpha",
+      },
+      { name: "bravo", nodeCount: 30, edgeCount: 40, searchResults: [] },
+    ],
+    [{ name: "stack", repos: ["alpha", "bravo"] }],
+    async (ctx, server) => {
+      registerGroupStatusTool(server, ctx);
+      const handler = getHandler(server, "group_status");
+      const result = await handler({ groupName: "stack" }, {});
+      const sc = result.structuredContent as {
+        repos: Array<{
+          name: string;
+          repo_uri: string;
+          inRegistry: boolean;
+          nodeCount: number | null;
+        }>;
+      };
+      assert.equal(sc.repos.length, 2);
+      const alpha = sc.repos.find((r) => r.name === "alpha");
+      const bravo = sc.repos.find((r) => r.name === "bravo");
+      assert.ok(alpha);
+      assert.ok(bravo);
+      // Graph-backed preferred.
+      assert.equal(alpha.repo_uri, "github.com/acme/alpha");
+      // Fall-back to deriveRepoUri → local:<hash>.
+      assert.match(bravo.repo_uri, /^local:[0-9a-f]{12}$/);
+      // Legacy `name` + other fields stay intact.
+      assert.equal(alpha.inRegistry, true);
+      assert.equal(alpha.nodeCount, 10);
+    },
+  );
+});
+
+test("group_status emits repo_uri for orphan references (not in registry) (AC-M6-4)", async () => {
+  await withTestHarness(
+    [{ name: "alpha", nodeCount: 1, edgeCount: 0, searchResults: [] }],
+    [{ name: "mixed", repos: ["alpha", "ghost"] }],
+    async (ctx, server, home) => {
+      // Rewrite the group file to inject an unregistered `ghost` member.
+      const groupsDir = resolve(home, ".codehub", "groups");
+      await writeFile(
+        resolve(groupsDir, "mixed.json"),
+        JSON.stringify({
+          name: "mixed",
+          createdAt: "2026-04-18T00:00:00Z",
+          repos: [
+            { name: "alpha", path: resolve(home, "alpha") },
+            { name: "ghost", path: resolve(home, "ghost") },
+          ],
+        }),
+      );
+      registerGroupStatusTool(server, ctx);
+      const handler = getHandler(server, "group_status");
+      const result = await handler({ groupName: "mixed" }, {});
+      const sc = result.structuredContent as {
+        repos: Array<{ name: string; repo_uri: string; inRegistry: boolean }>;
+      };
+      const ghost = sc.repos.find((r) => r.name === "ghost");
+      assert.ok(ghost);
+      assert.equal(ghost.inRegistry, false);
+      // Orphan still receives a deterministic `local:<hash>` handle.
+      assert.match(ghost.repo_uri, /^local:[0-9a-f]{12}$/);
+    },
+  );
+});
+
+test("group_query result row carries both _repo and _repo_uri (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      {
+        name: "alpha",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [
+          {
+            nodeId: "F:alpha:foo",
+            name: "foo",
+            kind: "Function",
+            filePath: "alpha/foo.ts",
+            score: 1,
+          },
+        ],
+        repoNodeUri: "github.com/acme/alpha",
+      },
+      {
+        name: "bravo",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [
+          {
+            nodeId: "F:bravo:foo",
+            name: "foo",
+            kind: "Function",
+            filePath: "bravo/foo.ts",
+            score: 1,
+          },
+        ],
+      },
+    ],
+    [{ name: "stack", repos: ["alpha", "bravo"] }],
+    async (ctx, server) => {
+      registerGroupQueryTool(server, ctx);
+      const handler = getHandler(server, "group_query");
+      const result = await handler({ groupName: "stack", query: "foo" }, {});
+      const sc = result.structuredContent as {
+        results: Array<{ _repo: string; _repo_uri: string; nodeId: string }>;
+      };
+      assert.ok(sc.results.length >= 2);
+      const alpha = sc.results.find((r) => r._repo === "alpha");
+      const bravo = sc.results.find((r) => r._repo === "bravo");
+      assert.ok(alpha);
+      assert.ok(bravo);
+      assert.equal(alpha._repo_uri, "github.com/acme/alpha");
+      assert.match(bravo._repo_uri, /^local:[0-9a-f]{12}$/);
+    },
+  );
+});
+
+test("group_contracts ContractRow carries both legacy and *RepoUri fields (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      {
+        name: "consumer",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [],
+        repoNodeUri: "github.com/acme/consumer",
+        // Consumer issues a FETCH to GET /orders/{id}.
+        fetchesEdges: [{ fromId: "F:consumer:fetchOrder", method: "GET", path: "/orders/{id}" }],
+      },
+      {
+        name: "producer",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [],
+        // Producer hosts GET /orders/{id}.
+        routes: [{ id: "R:producer:getOrder", method: "GET", url: "/orders/{id}" }],
+      },
+    ],
+    [{ name: "stack", repos: ["consumer", "producer"] }],
+    async (ctx, server) => {
+      registerGroupContractsTool(server, ctx);
+      const handler = getHandler(server, "group_contracts");
+      const result = await handler({ groupName: "stack" }, {});
+      const sc = result.structuredContent as {
+        contracts: Array<{
+          consumerRepo: string;
+          consumerRepoUri: string;
+          consumerSymbol: string;
+          producerRepo: string;
+          producerRepoUri: string;
+          producerRoute: string;
+          method: string;
+          path: string;
+        }>;
+      };
+      assert.equal(sc.contracts.length, 1);
+      const c = sc.contracts[0];
+      assert.ok(c);
+      // Legacy fields preserved.
+      assert.equal(c.consumerRepo, "consumer");
+      assert.equal(c.producerRepo, "producer");
+      assert.equal(c.consumerSymbol, "F:consumer:fetchOrder");
+      assert.equal(c.producerRoute, "R:producer:getOrder");
+      assert.equal(c.method, "GET");
+      assert.equal(c.path, "/orders/{id}");
+      // New additive fields.
+      assert.equal(c.consumerRepoUri, "github.com/acme/consumer");
+      assert.match(c.producerRepoUri, /^local:[0-9a-f]{12}$/);
+    },
+  );
+});
+
+test("group_sync structuredContent carries reposWithUri {name, repo_uri} additively (AC-M6-4)", async () => {
+  await withTestHarness(
+    [
+      {
+        name: "alpha",
+        nodeCount: 1,
+        edgeCount: 0,
+        searchResults: [],
+        repoNodeUri: "github.com/acme/alpha",
+      },
+      { name: "bravo", nodeCount: 1, edgeCount: 0, searchResults: [] },
+    ],
+    [{ name: "stack", repos: ["alpha", "bravo"] }],
+    async (ctx, server) => {
+      registerGroupSyncTool(server, ctx);
+      const handler = getHandler(server, "group_sync");
+      const result = await handler({ groupName: "stack" }, {});
+      const sc = result.structuredContent as {
+        repos: readonly string[];
+        reposWithUri: ReadonlyArray<{ name: string; repo_uri: string }>;
+      };
+      // Legacy string[] preserved.
+      assert.deepEqual([...sc.repos].sort(), ["alpha", "bravo"]);
+      // New additive field.
+      assert.equal(sc.reposWithUri.length, 2);
+      const alpha = sc.reposWithUri.find((r) => r.name === "alpha");
+      const bravo = sc.reposWithUri.find((r) => r.name === "bravo");
+      assert.ok(alpha);
+      assert.ok(bravo);
+      assert.equal(alpha.repo_uri, "github.com/acme/alpha");
+      assert.match(bravo.repo_uri, /^local:[0-9a-f]{12}$/);
+    },
+  );
+});
+
+test("group_list repo_uri for bare names is byte-equal to deriveRepoUri (AC-M6-4)", async () => {
+  await withTestHarness(
+    [{ name: "solo", nodeCount: 1, edgeCount: 0, searchResults: [] }],
+    [{ name: "only", repos: ["solo"] }],
+    async (ctx, server, home) => {
+      registerGroupListTool(server, ctx);
+      const handler = getHandler(server, "group_list");
+      const result = await handler({}, {});
+      const sc = result.structuredContent as {
+        groups: Array<{ repos: Array<{ name: string; repo_uri: string; path: string }> }>;
+      };
+      const repo = sc.groups[0]?.repos[0];
+      assert.ok(repo);
+      // Expected URI = deriveRepoUri against the registry entry synthesized
+      // inside withTestHarness (path = <home>/solo).
+      const expected = deriveRepoUri({
+        name: "solo",
+        path: resolve(home, "solo"),
+        indexedAt: "",
+        nodeCount: 0,
+        edgeCount: 0,
+      });
+      assert.equal(repo.repo_uri, expected);
     },
   );
 });

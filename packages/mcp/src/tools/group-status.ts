@@ -19,7 +19,8 @@ import { z } from "zod";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { readGroup } from "../group-resolver.js";
 import { withNextSteps } from "../next-step-hints.js";
-import { readRegistry } from "../repo-resolver.js";
+import { deriveRepoUri, readRegistry } from "../repo-resolver.js";
+import { repoUriForEntry } from "../repo-uri-for-entry.js";
 import { stalenessFor } from "../staleness.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
 
@@ -29,6 +30,13 @@ const GroupStatusInput = {
 
 interface RepoStatusRow {
   readonly name: string;
+  /**
+   * Cross-repo handle. Additive per AC-M6-4: prefers the graph-backed
+   * `RepoNode.repoUri` when the repo has been indexed with AC-M6-1's
+   * phase; falls back to `deriveRepoUri` for orphan references / pre-M6
+   * indexes. Legacy `name` field stays through M7.
+   */
+  readonly repo_uri: string;
   readonly path: string;
   readonly inRegistry: boolean;
   readonly indexedAt: string | null;
@@ -64,8 +72,18 @@ export async function runGroupStatus(ctx: ToolContext, args: GroupStatusArgs): P
     for (const repo of sorted) {
       const hit = registry[repo.name];
       if (!hit) {
+        // Orphan reference — still emit a deterministic repo_uri so
+        // consumers always receive the additive AC-M6-4 field.
+        const orphanUri = deriveRepoUri({
+          name: repo.name,
+          path: repo.path,
+          indexedAt: "",
+          nodeCount: 0,
+          edgeCount: 0,
+        });
         rows.push({
           name: repo.name,
+          repo_uri: orphanUri,
           path: repo.path,
           inRegistry: false,
           indexedAt: null,
@@ -79,8 +97,10 @@ export async function runGroupStatus(ctx: ToolContext, args: GroupStatusArgs): P
       const staleness = meta
         ? await stalenessFor(hit.path, meta).catch(() => undefined)
         : undefined;
+      const repoUri = await repoUriForEntry(hit, ctx.pool);
       rows.push({
         name: hit.name,
+        repo_uri: repoUri,
         path: hit.path,
         inRegistry: true,
         indexedAt: hit.indexedAt,
