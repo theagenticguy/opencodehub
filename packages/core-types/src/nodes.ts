@@ -454,13 +454,32 @@ export type FrameworkCategory =
   | "monorepo"
   | "signals";
 
+/**
+ * Structured evidence for a single framework detection. Each entry is a
+ * citation — which of the 5 pipeline stages produced it, which source
+ * file or symbol supplied the signal, and a short human-readable detail.
+ * Replaces the unstructured `signals: string[]` field on v1.0 graphs.
+ */
+export interface Evidence {
+  /** Which pipeline stage produced this evidence (1=manifest, 2=lockfile, 3=config-AST, 4=folder, 5=imports). */
+  readonly stage: 1 | 2 | 3 | 4 | 5;
+  /** Source file path or symbol id that supplied the signal. */
+  readonly source: string;
+  /** Human-readable discovery. */
+  readonly detail: string;
+}
+
 export interface FrameworkDetection {
   readonly name: string;
   readonly category: FrameworkCategory;
   readonly variant?: string;
   readonly version?: string;
   readonly confidence: "deterministic" | "heuristic" | "composite";
-  readonly signals: readonly string[];
+  /**
+   * Structured evidence the 5-stage detection pipeline produced. Sorted
+   * deterministically by (stage, source, detail) for byte-stable output.
+   */
+  readonly evidence: readonly Evidence[];
   readonly parentName?: string;
 }
 

@@ -28,6 +28,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  runSetupCobolProleap,
+  type SetupCobolProleapOptions,
+  type SetupCobolProleapResult,
+} from "../cobol-proleap-setup.js";
+import {
   ALL_EDITOR_IDS,
   createClaudeCodeWriter,
   createCodexWriter,
@@ -45,6 +50,18 @@ import {
   downloadEmbedderWeights,
 } from "../embedder-downloader.js";
 import { writeFileAtomic as defaultWriteFileAtomic } from "../fs-atomic.js";
+import {
+  type InstallScipResult,
+  installAllScipTools,
+  installScipTool,
+  isScipTool,
+  SCIP_TOOL_ORDER,
+  type FetchFn as ScipFetchFn,
+  type ScipTool,
+} from "../scip-downloader.js";
+
+export type { SetupCobolProleapOptions, SetupCobolProleapResult };
+export { runSetupCobolProleap };
 
 /**
  * Filesystem seam. Tests supply an in-memory implementation.
@@ -285,6 +302,111 @@ export async function runSetupEmbeddings(
     warn(`codehub setup --embeddings: ${message}`);
     throw err;
   }
+}
+
+/**
+ * Options for `codehub setup --scip=<tool>` and `--scip=all`.
+ *
+ * Each call installs one or more SCIP adapter binaries (clang, ruby, dotnet,
+ * kotlin) into `~/.codehub/bin/` via the SHA256-pinned `scip-downloader`.
+ * scip-dotnet defers to `dotnet tool install --global scip-dotnet` and
+ * requires a .NET SDK 8+ on PATH.
+ */
+export interface SetupScipOptions {
+  /** Tool name (`"clang" | "ruby" | "dotnet" | "kotlin"`) or `"all"`. Required. */
+  readonly tool: ScipTool | "all";
+  /** Override the install dir. Defaults to `~/.codehub/bin/`. */
+  readonly destDir?: string;
+  /** Re-download even if the on-disk binary already matches the pin. */
+  readonly force?: boolean;
+  /** Dependency-inject fetch (tests). */
+  readonly fetchImpl?: ScipFetchFn;
+  /** Bypass the placeholder-hash refusal (for adapter first-install smoke tests). */
+  readonly allowPlaceholder?: boolean;
+  /** Structured logger. Defaults to `console.warn`. */
+  readonly log?: (message: string) => void;
+  readonly warn?: (message: string) => void;
+}
+
+export interface SetupScipResult {
+  readonly installed: readonly InstallScipResult[];
+  readonly failed: readonly { tool: ScipTool; error: Error }[];
+}
+
+/**
+ * Public entry point for `codehub setup --scip=<tool>` / `--scip=all`.
+ *
+ * Dispatches to {@link installScipTool} for one tool, or
+ * {@link installAllScipTools} for the full set. Never throws — every error is
+ * surfaced on `stderr` via `warn` and collected into the `failed` array so
+ * `--scip=all` completes the surviving tools instead of short-circuiting on
+ * the first missing .NET SDK.
+ */
+export async function runSetupScip(opts: SetupScipOptions): Promise<SetupScipResult> {
+  const log = opts.log ?? ((msg: string) => console.warn(msg));
+  const warn = opts.warn ?? ((msg: string) => console.warn(msg));
+  const installOpts = {
+    ...(opts.destDir !== undefined ? { destDir: opts.destDir } : {}),
+    ...(opts.force !== undefined ? { force: opts.force } : {}),
+    ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+    ...(opts.allowPlaceholder !== undefined ? { allowPlaceholder: opts.allowPlaceholder } : {}),
+    log,
+  };
+
+  const installed: InstallScipResult[] = [];
+  const failed: { tool: ScipTool; error: Error }[] = [];
+
+  if (opts.tool === "all") {
+    log(`codehub setup --scip=all: installing ${SCIP_TOOL_ORDER.join(", ")}`);
+    const results = await installAllScipTools(installOpts);
+    for (const r of results) {
+      if ("error" in r) {
+        warn(`codehub setup --scip=${r.tool}: ${r.error.message}`);
+        failed.push({ tool: r.tool, error: r.error });
+      } else {
+        installed.push(r);
+      }
+    }
+  } else {
+    log(`codehub setup --scip=${opts.tool}: starting`);
+    try {
+      const result = await installScipTool(opts.tool, installOpts);
+      installed.push(result);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      warn(`codehub setup --scip=${opts.tool}: ${error.message}`);
+      failed.push({ tool: opts.tool, error });
+    }
+  }
+
+  const summary = installed
+    .map((r) =>
+      r.dotnetToolHint !== undefined
+        ? `scip-${r.tool} (run \`${r.dotnetToolHint}\`)`
+        : `scip-${r.tool} ${r.installed ? "installed" : "skipped"} at ${r.path}`,
+    )
+    .join(", ");
+  if (summary.length > 0) {
+    log(`codehub setup --scip: ${summary}`);
+  }
+  if (failed.length > 0) {
+    warn(`codehub setup --scip: ${failed.length} tool(s) failed`);
+  }
+  return { installed, failed };
+}
+
+/**
+ * Parse the CLI `--scip=<value>` flag. Accepts a tool name or the literal
+ * `"all"`. Throws on anything else so typos surface instead of silently
+ * defaulting.
+ */
+export function parseScipFlag(raw: string): ScipTool | "all" {
+  const trimmed = raw.trim();
+  if (trimmed === "all") return "all";
+  if (isScipTool(trimmed)) return trimmed;
+  throw new Error(
+    `Unknown --scip value: "${raw}". Expected one of: ${[...SCIP_TOOL_ORDER, "all"].join(", ")}`,
+  );
 }
 
 /**

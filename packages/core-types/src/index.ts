@@ -23,6 +23,7 @@ export type {
   DependencyNode,
   Embedding,
   EnumNode,
+  Evidence,
   FileBranchDivergence,
   FileNode,
   FindingNode,

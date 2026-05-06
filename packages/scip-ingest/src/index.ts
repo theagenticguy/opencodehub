@@ -48,6 +48,19 @@ export {
   SCIP_ROLE_READ_ACCESS,
   SCIP_ROLE_WRITE_ACCESS,
 } from "./parse.js";
+export type { ScipIndexerName } from "./provenance.js";
 export { scipProvenanceReason } from "./provenance.js";
-export type { IndexerKind, IndexerResult, RunIndexerOptions } from "./runners/index.js";
-export { detectLanguages, runIndexer } from "./runners/index.js";
+export type {
+  CommandPlan,
+  DotnetProbe,
+  IndexerKind,
+  IndexerResult,
+  RunIndexerOptions,
+} from "./runners/index.js";
+export {
+  buildCommand,
+  defaultCobolProleapPaths,
+  detectLanguages,
+  runIndexer,
+  SCIP_DOTNET_MIN_SDK_MAJOR,
+} from "./runners/index.js";

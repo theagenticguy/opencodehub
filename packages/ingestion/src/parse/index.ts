@@ -2,6 +2,8 @@
  * Barrel exports for the parse subsystem.
  */
 
+export type { CobolElement, CobolElementKind, CobolRegexResult } from "./cobol-regex.js";
+export { parseCobolFile } from "./cobol-regex.js";
 export type { GrammarHandle } from "./grammar-registry.js";
 export { _resetGrammarCacheForTests, loadGrammar, preloadGrammars } from "./grammar-registry.js";
 export { detectLanguage } from "./language-detector.js";

@@ -32,7 +32,12 @@ import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GraphNode, NodeId } from "@opencodehub/core-types";
-import type { DerivedEdge, IndexerKind, IndexerResult } from "@opencodehub/scip-ingest";
+import type {
+  DerivedEdge,
+  IndexerKind,
+  IndexerResult,
+  ScipIndexerName,
+} from "@opencodehub/scip-ingest";
 import {
   buildSymbolDefIndex,
   deriveIndex,
@@ -295,21 +300,26 @@ function scipLangToOchLang(k: IndexerKind): string {
       return "rust";
     case "java":
       return "java";
-    default:
-      return k;
+    case "clang":
+      // `clang` covers C + C++. Downstream LanguageId is a single token;
+      // "c" matches existing code paths that have looked up C-derived
+      // sources by extension. C++-specific consumers see `clang` under
+      // the indexer name in provenance reasons.
+      return "c";
+    case "cobol-proleap":
+      return "cobol";
+    case "ruby":
+      return "ruby";
+    case "dotnet":
+      return "csharp";
+    case "kotlin":
+      return "kotlin";
   }
 }
 
 function kindToTool(k: IndexerKind): string {
   return k === "rust" ? "rust-analyzer" : `scip-${k}`;
 }
-
-type ScipIndexerName =
-  | "scip-typescript"
-  | "scip-python"
-  | "scip-go"
-  | "rust-analyzer"
-  | "scip-java";
 
 function kindToProvenance(k: IndexerKind): ScipIndexerName {
   switch (k) {
@@ -323,8 +333,21 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
       return "rust-analyzer";
     case "java":
       return "scip-java";
-    default:
+    case "clang":
+      return "scip-clang";
+    case "cobol-proleap":
+      // cobol-proleap edges don't flow through the SCIP derivation path —
+      // the in-process bridge emits CodeRelation rows directly. This switch
+      // arm exists only to keep the function exhaustive under
+      // `noFallthroughCasesInSwitch`; callers never invoke scipProvenance
+      // for the cobol-proleap kind.
       return "scip-typescript";
+    case "ruby":
+      return "scip-ruby";
+    case "dotnet":
+      return "scip-dotnet";
+    case "kotlin":
+      return "scip-kotlin";
   }
 }
 

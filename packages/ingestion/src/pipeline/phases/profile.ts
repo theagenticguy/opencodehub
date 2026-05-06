@@ -25,11 +25,10 @@
 
 import type { ProjectProfileNode } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
+import { detectFrameworksDetailed, detectManifests } from "@opencodehub/frameworks";
 import { detectApiContracts } from "../profile-detectors/api-contracts.js";
-import { detectFrameworksDetailed } from "../profile-detectors/frameworks.js";
 import { detectIaCTypes } from "../profile-detectors/iac.js";
 import { detectLanguages } from "../profile-detectors/languages.js";
-import { detectManifests } from "../profile-detectors/manifests.js";
 import { detectSrcDirs } from "../profile-detectors/src-dirs.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";

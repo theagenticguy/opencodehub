@@ -37,3 +37,6 @@ examples/fixtures/**/.codehub/
 .claude/settings.local.json
 .claude/worktrees/
 .handoff/
+.gitnexus
+.claude/skills/gitnexus/
+.claude/skills/generated/

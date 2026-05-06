@@ -84,6 +84,14 @@ describe("detectLanguage", () => {
     assert.equal(detectLanguage("lib/main.dart"), "dart");
   });
 
+  it("maps COBOL (.cbl, .cob, .cpy)", () => {
+    // Programs and copybooks both resolve to the single "cobol" LanguageId;
+    // the parse pipeline tells them apart by extension downstream.
+    assert.equal(detectLanguage("src/HELLO.cbl"), "cobol");
+    assert.equal(detectLanguage("src/ACCOUNT-BATCH.cob"), "cobol");
+    assert.equal(detectLanguage("copybooks/ACCTREC.cpy"), "cobol");
+  });
+
   it("returns undefined for unknown extension", () => {
     assert.equal(detectLanguage("README.txt"), undefined);
     assert.equal(detectLanguage("data.bin"), undefined);
