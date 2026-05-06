@@ -476,6 +476,9 @@ importers:
       '@bufbuild/protobuf':
         specifier: 2.12.0
         version: 2.12.0
+      '@opencodehub/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@opencodehub/core-types':
         specifier: workspace:*
         version: link:../core-types

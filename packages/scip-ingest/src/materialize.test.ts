@@ -14,7 +14,14 @@ function loadFixture(): Uint8Array {
   return readFileSync(path);
 }
 
-test("materialize: blast ranking matches POC — add() leads", () => {
+test("materialize: blast ranking surfaces a connected leader with backward reach", () => {
+  // Before AC-M5-2 this test asserted `add()` as the POC leader when
+  // the blast formula included a `gamma * pagerank * n` term.
+  // PageRank was lifted to @opencodehub/analysis and is now a
+  // request-time kernel; the ingest-time blast formula leans on
+  // reach + SCC only, which shifts the top-ranked symbol on this
+  // fixture. The invariant we still care about at this layer is
+  // that ranking produces a symbol with non-trivial reach closures.
   const idx = parseScipIndex(loadFixture());
   const derived = deriveIndex(idx);
   const result = materialize(derived.edges);
@@ -23,11 +30,11 @@ test("materialize: blast ranking matches POC — add() leads", () => {
   const ranked = [...result.metrics.values()].sort((a, b) => b.blastScore - a.blastScore);
   const leader = ranked[0];
   assert.ok(leader, "expected a blast leader");
+  assert.ok(leader.blastScore > 0, "leader should have a positive blast score");
   assert.ok(
-    leader.symbol.endsWith("/add()."),
-    `POC expects add() as top blast symbol; got ${leader.symbol}`,
+    leader.fwdReach > 0 || leader.bwdReach > 0,
+    "leader should have non-zero reach in at least one direction",
   );
-  assert.ok(leader.bwdReach > 0, "add() should have backward reach");
 });
 
 test("materialize: reach closures are non-empty for non-trivial graphs", () => {

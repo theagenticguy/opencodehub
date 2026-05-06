@@ -71,6 +71,8 @@ export {
   runGroupSync,
 } from "./group/index.js";
 export { runImpact } from "./impact.js";
+export type { Adjacency, EdgeLike } from "./page-rank.js";
+export { buildAdjacency, pageRank } from "./page-rank.js";
 export { runRename } from "./rename.js";
 export type { OrphanGrade } from "./risk.js";
 export {

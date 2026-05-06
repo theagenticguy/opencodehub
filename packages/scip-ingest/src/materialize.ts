@@ -6,15 +6,19 @@
  * dependency-free TypeScript. We keep the adjacency in typed arrays so
  * the BFS closures run on the same scale as the Python+NetworkX
  * implementation for ~10k-node repos (OCH's analyze target).
+ *
+ * PageRank was lifted to `@opencodehub/analysis/page-rank.ts`
+ * (AC-M5-2). It's now a request-time kernel; this file no longer
+ * computes per-symbol PageRank during ingest.
  */
 
+import { type Adjacency, buildAdjacency } from "@opencodehub/analysis";
 import type { DerivedEdge } from "./derive.js";
 
 export interface BlastMetrics {
   readonly symbol: string;
   readonly inDegree: number;
   readonly outDegree: number;
-  readonly pagerank: number;
   readonly fwdReach: number;
   readonly bwdReach: number;
   readonly sccId: number;
@@ -39,58 +43,32 @@ export interface MaterializeResult {
 export interface MaterializeOptions {
   readonly alpha?: number;
   readonly beta?: number;
-  readonly gamma?: number;
   readonly delta?: number;
-  readonly prDamping?: number;
-  readonly prIterations?: number;
 }
 
-interface Adjacency {
-  readonly nodes: string[];
+/**
+ * scip-ingest needs `inAdj` + `indexOf` for SCC + reach-backward,
+ * which the public `@opencodehub/analysis` Adjacency contract does
+ * not surface. Compute them locally from the public adjacency.
+ */
+interface LocalAdjacency {
+  readonly base: Adjacency;
   readonly indexOf: ReadonlyMap<string, number>;
-  readonly outAdj: readonly (readonly number[])[];
   readonly inAdj: readonly (readonly number[])[];
-  readonly weight: readonly (readonly number[])[];
 }
 
-function buildAdjacency(edges: readonly DerivedEdge[]): Adjacency {
-  const nodeSet = new Set<string>();
-  for (const e of edges) {
-    nodeSet.add(e.caller);
-    nodeSet.add(e.callee);
-  }
-  const nodes = [...nodeSet].sort();
+function enrichAdjacency(adj: Adjacency): LocalAdjacency {
   const indexOf = new Map<string, number>();
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
+  for (let i = 0; i < adj.nodes.length; i++) {
+    const n = adj.nodes[i];
     if (n !== undefined) indexOf.set(n, i);
   }
-
-  const outMap: Map<number, Map<number, number>> = new Map();
-  for (const e of edges) {
-    const u = indexOf.get(e.caller);
-    const v = indexOf.get(e.callee);
-    if (u === undefined || v === undefined) continue;
-    let row = outMap.get(u);
-    if (!row) {
-      row = new Map();
-      outMap.set(u, row);
-    }
-    row.set(v, (row.get(v) ?? 0) + 1);
+  const inAdj: number[][] = adj.nodes.map(() => []);
+  for (let u = 0; u < adj.nodes.length; u++) {
+    const outs = adj.outAdj[u] ?? [];
+    for (const v of outs) inAdj[v]?.push(u);
   }
-
-  const outAdj: number[][] = nodes.map(() => []);
-  const weight: number[][] = nodes.map(() => []);
-  const inAdj: number[][] = nodes.map(() => []);
-  for (const [u, row] of outMap) {
-    for (const [v, w] of row) {
-      outAdj[u]?.push(v);
-      weight[u]?.push(w);
-      inAdj[v]?.push(u);
-    }
-  }
-
-  return { nodes, indexOf, outAdj, inAdj, weight };
+  return { base: adj, indexOf, inAdj };
 }
 
 function bfsDistances(adj: readonly (readonly number[])[], start: number): Map<number, number> {
@@ -110,42 +88,6 @@ function bfsDistances(adj: readonly (readonly number[])[], start: number): Map<n
     }
   }
   return dist;
-}
-
-function pagerank(adj: Adjacency, damping = 0.85, iterations = 50): Float64Array {
-  const n = adj.nodes.length;
-  const pr = new Float64Array(n).fill(1 / Math.max(n, 1));
-  if (n === 0) return pr;
-  const outWeightSum = new Float64Array(n);
-  for (let u = 0; u < n; u++) {
-    const row = adj.weight[u] ?? [];
-    let s = 0;
-    for (const w of row) s += w;
-    outWeightSum[u] = s;
-  }
-  const tele = (1 - damping) / n;
-  for (let iter = 0; iter < iterations; iter++) {
-    const next = new Float64Array(n).fill(tele);
-    let dangling = 0;
-    for (let u = 0; u < n; u++) {
-      if (outWeightSum[u] === 0) dangling += pr[u] ?? 0;
-    }
-    const danglingShare = (damping * dangling) / n;
-    for (let u = 0; u < n; u++) {
-      const outs = adj.outAdj[u] ?? [];
-      const ws = adj.weight[u] ?? [];
-      const s = outWeightSum[u] ?? 0;
-      if (s === 0) continue;
-      const share = damping * ((pr[u] ?? 0) / s);
-      for (let j = 0; j < outs.length; j++) {
-        const v = outs[j] ?? 0;
-        next[v] = (next[v] ?? 0) + share * (ws[j] ?? 0);
-      }
-    }
-    for (let u = 0; u < n; u++) next[u] = (next[u] ?? 0) + danglingShare;
-    for (let u = 0; u < n; u++) pr[u] = next[u] ?? 0;
-  }
-  return pr;
 }
 
 /**
@@ -214,11 +156,15 @@ export function materialize(
 ): MaterializeResult {
   const alpha = opts.alpha ?? 1;
   const beta = opts.beta ?? 1;
-  const gamma = opts.gamma ?? 5;
   const delta = opts.delta ?? 2;
 
-  const adj = buildAdjacency(edges);
-  const n = adj.nodes.length;
+  // `@opencodehub/analysis` `buildAdjacency` takes EdgeLike
+  // (`fromId`/`toId`); DerivedEdge uses `caller`/`callee`. Translate
+  // at the boundary — do not mutate DerivedEdge.
+  const edgeLikes = edges.map((e) => ({ fromId: e.caller, toId: e.callee }));
+  const base = buildAdjacency(edgeLikes);
+  const adj = enrichAdjacency(base);
+  const n = adj.base.nodes.length;
   const metrics = new Map<string, BlastMetrics>();
   const reachForward: ReachPair[] = [];
   const reachBackward: ReachPair[] = [];
@@ -228,41 +174,39 @@ export function materialize(
     return { nodes: [], metrics, reachForward, reachBackward, sccMembership };
   }
 
-  const pr = pagerank(adj, opts.prDamping, opts.prIterations);
-  const scc = stronglyConnectedComponents(adj);
+  const scc = stronglyConnectedComponents(adj.base);
 
   const fwdReach = new Int32Array(n);
   const bwdReach = new Int32Array(n);
 
   for (let u = 0; u < n; u++) {
-    const fwd = bfsDistances(adj.outAdj, u);
+    const fwd = bfsDistances(adj.base.outAdj, u);
     const bwd = bfsDistances(adj.inAdj, u);
     fwdReach[u] = fwd.size - 1;
     bwdReach[u] = bwd.size - 1;
-    const src = adj.nodes[u] ?? "";
+    const src = adj.base.nodes[u] ?? "";
     for (const [v, d] of fwd) {
-      if (d > 0) reachForward.push({ source: src, target: adj.nodes[v] ?? "", distance: d });
+      if (d > 0) reachForward.push({ source: src, target: adj.base.nodes[v] ?? "", distance: d });
     }
     for (const [v, d] of bwd) {
-      if (d > 0) reachBackward.push({ source: src, target: adj.nodes[v] ?? "", distance: d });
+      if (d > 0) reachBackward.push({ source: src, target: adj.base.nodes[v] ?? "", distance: d });
     }
   }
 
   for (let u = 0; u < n; u++) {
-    const sym = adj.nodes[u] ?? "";
+    const sym = adj.base.nodes[u] ?? "";
     const sccEntry = scc[u] ?? { sccId: -1, size: 0 };
     const sccContribution = sccEntry.size > 1 ? sccEntry.size : 0;
-    const raw =
-      alpha * (fwdReach[u] ?? 0) +
-      beta * (bwdReach[u] ?? 0) +
-      gamma * (pr[u] ?? 0) * n +
-      delta * sccContribution;
+    // PageRank term (`gamma * pr * n`) was removed with the lift to
+    // @opencodehub/analysis (AC-M5-2). The field was never consumed
+    // outside this file; ranking now leans on reach closures + SCC
+    // membership until AC-M5-4 reintroduces PageRank at request time.
+    const raw = alpha * (fwdReach[u] ?? 0) + beta * (bwdReach[u] ?? 0) + delta * sccContribution;
     const blast = Math.log1p(raw);
     metrics.set(sym, {
       symbol: sym,
       inDegree: (adj.inAdj[u] ?? []).length,
-      outDegree: (adj.outAdj[u] ?? []).length,
-      pagerank: pr[u] ?? 0,
+      outDegree: (adj.base.outAdj[u] ?? []).length,
       fwdReach: fwdReach[u] ?? 0,
       bwdReach: bwdReach[u] ?? 0,
       sccId: sccEntry.sccId,
@@ -272,5 +216,5 @@ export function materialize(
     sccMembership.set(sym, sccEntry);
   }
 
-  return { nodes: [...adj.nodes], metrics, reachForward, reachBackward, sccMembership };
+  return { nodes: [...adj.base.nodes], metrics, reachForward, reachBackward, sccMembership };
 }
