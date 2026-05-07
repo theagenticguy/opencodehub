@@ -35,6 +35,40 @@ so the calling agent can retry deterministically with a single `repo_uri`
 from `choices`. When `total_matches > choices.length`, the caller knows
 the list was truncated.
 
+See ADR 0012 (`docs/adr/0012-repo-as-first-class-node.md`) for the
+rationale behind `repo_uri` as a first-class node attribute. The
+`repo_uri` shape was promoted to a typed graph attribute by AC-M6-1
+(`packages/core-types/src/nodes.ts:524-552`). `group_cross_repo_links`
+(the AC-M6-3-reframed MCP tool) and the `group_*` family (AC-M6-4) all
+emit `repo_uri` in the same canonical form, so a caller can use any of
+those tools' `repo_uri` outputs as input to `AMBIGUOUS_REPO.choices`
+retries.
+
+Worked example — error envelope, then retry:
+
+```jsonc
+// Error envelope returned by a per-repo tool when two repos are indexed
+{
+  "structuredContent": {
+    "error": {
+      "error_code": "AMBIGUOUS_REPO",
+      "jsonrpc_code": -32602,
+      "choices": [
+        { "repo_uri": "github.com/org/api-svc", "default_branch": "main", "group": "platform" },
+        { "repo_uri": "github.com/org/billing-svc", "default_branch": "main", "group": "platform" }
+      ],
+      "total_matches": 2,
+      "hint": "Retry with repo_uri=<one of above>"
+    }
+  }
+}
+```
+
+```jsonc
+// Retry — pick the first choice deterministically
+{ "tool": "context", "args": { "repo_uri": "github.com/org/api-svc", "symbol": "..." } }
+```
+
 ## Durable lessons
 
 Prior-session architecture lessons live in `.erpaval/INDEX.md` (SCIP edge
