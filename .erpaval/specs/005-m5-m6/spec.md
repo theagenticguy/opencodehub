@@ -13,7 +13,7 @@ Full detail in `.erpaval/sessions/session-e1d819/explore.yaml` and `research-m5m
 - `@opencodehub/pack` is **greenfield** — `packages/pack/` doesn't exist. ROADMAP §`Target package layout` already lists it.
 - `packages/mcp/src/tools/pack-codebase.ts` is a thin repomix wrapper (`pack_codebase` MCP tool at L40-105) — **NOT** the 9-item BOM. Prior lesson `repomix-is-output-side` explicitly bans substituting repomix for a tree-sitter chunker.
 - **PageRank lift is safe** — `pagerank(adj, damping=0.85, iterations=50): Float64Array` at `packages/scip-ingest/src/materialize.ts:115-149` computes into `BlastMetrics.pagerank` (L17) which has **zero downstream consumers** (grep-verified). `Adjacency` (L48-54) + `buildAdjacency` (L56-93) must move or be re-exported. Fixed-iteration (not tolerance-based) is the determinism-safe shape — do NOT adopt `graphology-metrics`.
-- **AST chunker**: `chonkie-ts v0.3.0 (MIT)` is the only OSS chunker that emits byte offsets. LangChain's `fromLanguage` splitter rejected — no byte offsets, heuristic separators that drift across LangChain releases. The 15 OCH tree-sitter grammars stay owned; chonkie is the budget-aware layer only.
+- **AST chunker**: `@chonkiejs/core v0.0.9 (MIT)` is the only OSS chunker that emits byte offsets. LangChain's `fromLanguage` splitter rejected — no byte offsets, heuristic separators that drift across LangChain releases. The 15 OCH tree-sitter grammars stay owned; chonkie is the budget-aware layer only.
 - **Parquet sidecar**: DuckDB's `COPY (SELECT id, vec FROM ... ORDER BY id) TO 'x.parquet' (FORMAT PARQUET, COMPRESSION ZSTD)` — OCH already depends on DuckDB; zero new dep surface. DuckDB v1.3.0+ rewrote the writer with no implicit timestamps. `@dsnp/parquetjs` kept as fallback; `parquet-wasm` kept as escape hatch.
 - **Tokenizer ID convention**: `vendor:name@pin` — `openai:o200k_base@tiktoken-0.8.0`, `anthropic:claude-opus-4-7@2026-04`, `hf:Xenova/claude-tokenizer@sha-<12>`. Anthropic ships no local tokenizer (only `messages.count_tokens` API). A silent Anthropic tokenizer rotation drifted counts ~47% in Apr-2026, so the Claude lane is explicitly `determinism_class: best_effort`; the OpenAI lane is `strict`.
 - **Hashing**: canonical-JSON (RFC 8785-shaped) + SHA-256 hex. OCH's existing `graphHash` helper (`packages/core-types/src/graph-hash.ts`) is already the right pattern — extend `writeCanonicalJson` usage to the BOM manifest. File bytes hashed raw (no canonicalization); pack_hash wraps file hashes in canonical JSON envelope. Per-file hashes from file bytes; normalize CRLF → LF at ingest (not at hash time).
@@ -58,7 +58,7 @@ Full detail in `.erpaval/sessions/session-e1d819/explore.yaml` and `research-m5m
 
 ## M5 — State-driven requirements
 
-- **S-M5-1**: While `chonkie-ts` fails to install or load (native-binding unavailable on CI platform), `@opencodehub/pack` MUST degrade to a line-split fallback and stamp `determinism_class: degraded` in the manifest — NOT silently emit byte-different output claiming strict determinism.
+- **S-M5-1**: While `@chonkiejs/core` fails to install or load (native-binding unavailable on CI platform), `@opencodehub/pack` MUST degrade to a line-split fallback and stamp `determinism_class: degraded` in the manifest — NOT silently emit byte-different output claiming strict determinism.
 - **S-M5-2**: While `tokenizer_id` names a Claude model, the manifest MUST set `determinism_class: best_effort` and the BOM verifier MUST warn when asked to check byte-identity against such a pack.
 - **S-M5-3**: While the target repo has no embeddings computed, BOM item #7 (Parquet sidecar) MUST be absent entirely (not an empty file) and `manifest.files[]` MUST NOT list a path to it.
 
@@ -80,7 +80,7 @@ Full detail in `.erpaval/sessions/session-e1d819/explore.yaml` and `research-m5m
 
 ### AC-M5-1: scaffold `@opencodehub/pack` workspace package
 
-- [ ] `packages/pack/package.json` — `@opencodehub/pack`, Apache-2.0, `type: module`, deps: `@opencodehub/core-types`, `@opencodehub/analysis`, `@opencodehub/ingestion`, `@opencodehub/storage`, `chonkie-ts@^0.3.0`
+- [ ] `packages/pack/package.json` — `@opencodehub/pack`, Apache-2.0, `type: module`, deps: `@opencodehub/core-types`, `@opencodehub/analysis`, `@opencodehub/ingestion`, `@opencodehub/storage`, `@chonkiejs/core@^0.0.9`
 - [ ] `packages/pack/tsconfig.json` — extends `tsconfig.base.json`, `include: ["src/**/*"]`
 - [ ] `packages/pack/src/index.ts` — exports `generatePack(opts): Promise<PackManifest>` as the public entry point
 - [ ] `packages/pack/src/types.ts` — `PackManifest`, `BomItem`, `PackOpts` interfaces
@@ -121,7 +121,7 @@ Full detail in `.erpaval/sessions/session-e1d819/explore.yaml` and `research-m5m
 
 ### AC-M5-5: AST chunker + xrefs + findings + licenses
 
-- [ ] `packages/pack/src/ast-chunker.ts` — wraps `chonkie-ts` CodeChunker; returns `{path, start_byte, end_byte, token_count}[]`; pins `chonkie_version` into manifest
+- [ ] `packages/pack/src/ast-chunker.ts` — wraps `@chonkiejs/core` CodeChunker; returns `{path, start_byte, end_byte, token_count}[]`; pins `chonkie_version` into manifest
 - [ ] `packages/pack/src/xrefs.ts` — SCIP-grounded cross-refs; Community clusters (from `CommunityNode`) + call-graph slice from `CodeRelation{CALLS}`
 - [ ] `packages/pack/src/findings.ts` — salient SARIF findings grouped by `{severity, rule_id}`; reuses `packages/sarif`
 - [ ] `packages/pack/src/licenses.ts` — reuses `license_audit` MCP tool logic; LICENSES / NOTICES aggregation
