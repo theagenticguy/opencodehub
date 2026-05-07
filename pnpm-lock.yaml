@@ -412,6 +412,9 @@ importers:
       '@opencodehub/ingestion':
         specifier: workspace:*
         version: link:../ingestion
+      '@opencodehub/sarif':
+        specifier: workspace:*
+        version: link:../sarif
       '@opencodehub/storage':
         specifier: workspace:*
         version: link:../storage

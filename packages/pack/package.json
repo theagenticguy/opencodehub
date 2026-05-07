@@ -25,6 +25,7 @@
     "@opencodehub/analysis": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/ingestion": "workspace:*",
+    "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*"
   },
   "devDependencies": {

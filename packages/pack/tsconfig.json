@@ -10,6 +10,7 @@
     { "path": "../core-types" },
     { "path": "../storage" },
     { "path": "../ingestion" },
-    { "path": "../analysis" }
+    { "path": "../analysis" },
+    { "path": "../sarif" }
   ]
 }
