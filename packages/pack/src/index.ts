@@ -10,8 +10,14 @@
  * bodies; AC-M5-7 wires generatePack through the CLI.
  */
 
+export type { DepRow, DepsOpts } from "./deps.js";
+export { buildDeps } from "./deps.js";
+export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";
+export { buildFileTree } from "./file-tree.js";
 export type { BuildManifestOpts } from "./manifest.js";
 export { buildManifest, serializeManifest } from "./manifest.js";
+export type { SkeletonOpts, SkeletonRow } from "./skeleton.js";
+export { buildSkeleton } from "./skeleton.js";
 export type { BomItem, DeterminismClass, PackManifest, PackOpts, PackPins } from "./types.js";
 
 import type { PackManifest, PackOpts } from "./types.js";
