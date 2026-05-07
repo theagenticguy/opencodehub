@@ -40,6 +40,7 @@ for the scope rationale.
 | Draft a PR description from the current diff  | `codehub-pr-description`      | "write the PR description", "summarize this branch" |
 | Write an onboarding guide with reading order  | `codehub-onboarding`          | "write ONBOARDING.md", "what should a new hire read first" |
 | Map inter-repo contracts for a group          | `codehub-contract-map`        | "map the contracts", "show the contract matrix for <group>" |
+| Build a deterministic 9-item code-pack BOM    | `codehub-code-pack`           | "pack this repo for an LLM", "deterministic code pack", "pack the platform group" |
 | Draft an ADR (P1 — not yet shipped)           | `codehub-adr` *(P1 backlog)*  | —                                               |
 
 Fire these directly; do not nest them inside analysis skills. Each is a
