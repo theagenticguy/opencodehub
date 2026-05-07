@@ -108,6 +108,9 @@ importers:
       '@opencodehub/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@opencodehub/pack':
+        specifier: workspace:*
+        version: link:../pack
       '@opencodehub/policy':
         specifier: workspace:*
         version: link:../policy
@@ -372,6 +375,9 @@ importers:
       '@opencodehub/embedder':
         specifier: workspace:*
         version: link:../embedder
+      '@opencodehub/pack':
+        specifier: workspace:*
+        version: link:../pack
       '@opencodehub/sarif':
         specifier: workspace:*
         version: link:../sarif
