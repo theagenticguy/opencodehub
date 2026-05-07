@@ -1,21 +1,26 @@
 /**
- * Unit tests for the pure `classifyDependencies` helper used by
- * `license_audit`. The MCP-level wiring is exercised in
- * `../tool-handlers.test.ts`.
+ * Unit tests for the pure `classifyDependencies` helper. Mirrors the
+ * coverage that previously lived in
+ * `@opencodehub/mcp/src/tools/license-audit.test.ts` so the lifted
+ * implementation has its own, package-local regression suite.
  *
  * Covered cases:
  *   1. All MIT/Apache → tier=OK.
  *   2. One UNKNOWN + nothing else flagged → tier=WARN.
- *   3. One GPL-3.0 → tier=BLOCK (even if others are OK).
- *   4. One PROPRIETARY → tier=BLOCK.
- *   5. AGPL / SSPL / EUPL / CPAL / OSL / RPL all route to copyleft.
- *   6. LGPL does NOT match copyleft (intentional — weak copyleft is
- *      categorised separately, currently UNKNOWN/WARN).
+ *   3. Empty license string → tier=WARN (treated as UNKNOWN).
+ *   4. One GPL-3.0 → tier=BLOCK (even if others are OK).
+ *   5. One PROPRIETARY → tier=BLOCK.
+ *   6. AGPL / SSPL / EUPL / CPAL / OSL / RPL all route to copyleft.
+ *   7. LGPL does NOT match copyleft (intentional — weak copyleft is
+ *      categorised separately, currently OK at v1.0).
+ *   8. Case-insensitive copyleft match.
+ *   9. BLOCK wins over WARN when both are present.
  */
 
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { classifyDependencies, type DependencyRef } from "@opencodehub/analysis";
+import type { DependencyRef } from "./license-classify.js";
+import { classifyDependencies } from "./license-classify.js";
 
 function dep(name: string, license: string): DependencyRef {
   return {

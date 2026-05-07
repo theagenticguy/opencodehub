@@ -76,6 +76,13 @@ export {
   runGroupSync,
 } from "./group/index.js";
 export { runImpact } from "./impact.js";
+export type {
+  DependencyRef,
+  LicenseAuditFlagged,
+  LicenseAuditResult,
+  LicenseTier,
+} from "./license-classify.js";
+export { classifyDependencies } from "./license-classify.js";
 export type { Adjacency, EdgeLike } from "./page-rank.js";
 export { buildAdjacency, pageRank } from "./page-rank.js";
 export { runRename } from "./rename.js";
