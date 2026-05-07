@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
+import type { GraphNode } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
   CochangeRow,
@@ -90,6 +91,9 @@ class StubStore implements IGraphStore {
     return undefined;
   }
   async lookupSymbolSummariesByNode(): Promise<readonly SymbolSummaryRow[]> {
+    return [];
+  }
+  async listNodes(): Promise<readonly GraphNode[]> {
     return [];
   }
 }

@@ -13,11 +13,13 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import type { GraphNode } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
   CochangeRow,
   EmbeddingRow,
   IGraphStore,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -140,6 +142,22 @@ class WikiFakeStore implements IGraphStore {
   ): Promise<readonly Record<string, unknown>[]> {
     const trimmed = sql.replace(/\s+/g, " ").trim();
     return Promise.resolve(this.dispatch(trimmed, params));
+  }
+
+  listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
+    const kinds = opts.kinds;
+    if (kinds !== undefined && kinds.length === 0) return Promise.resolve([]);
+    const filtered =
+      kinds && kinds.length > 0
+        ? this.nodes.filter((n) => kinds.includes(n.kind))
+        : [...this.nodes];
+    const sorted = filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
+    const sliced =
+      limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
+    return Promise.resolve(sliced as unknown as readonly GraphNode[]);
   }
 
   private dispatch(sql: string, params: readonly SqlParam[]): readonly Record<string, unknown>[] {

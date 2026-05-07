@@ -33,6 +33,7 @@ import type {
   CochangeRow,
   EmbeddingRow,
   IGraphStore,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -548,6 +549,71 @@ export class GraphDbStore implements IGraphStore {
     assertReadOnlyCypher(sql);
     const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
     return this.pool.query(sql, params, { timeoutMs });
+  }
+
+  /**
+   * Enumerate fully-rehydrated GraphNodes by kind. Mirror of the
+   * DuckStore implementation — same input/output contract so the M5 BOM
+   * bodies render identical results regardless of which backend the user
+   * picked.
+   *
+   * The graph-db schema stores every kind under the single label
+   * `:CodeNode` with `kind` as a discriminator property (see
+   * graphdb-schema.ts). One MATCH plus an optional `WHERE n.kind IN [...]`
+   * predicate is therefore sufficient — no per-kind table fan-out.
+   *
+   * Determinism: ORDER BY n.id ASC at the Cypher layer, plus a JS-side
+   * lex-stable tiebreak on the rehydrated nodes so the output matches
+   * DuckStore byte-for-byte.
+   */
+  async listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
+    const kinds = opts.kinds;
+    // Empty-kinds short-circuit BEFORE the pool guard — the contract is
+    // pure-JS ("kinds: [] returns []") and must hold even when the store
+    // has not been opened yet. Saves callers a defensive .open() when
+    // they know the kinds list is empty.
+    if (kinds !== undefined && kinds.length === 0) return [];
+    const pool = this.requirePool();
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const offset = clampNonNegativeIntGd(opts.offset);
+
+    // RETURN every column the writer emits. Each column → field mapping
+    // mirrors `nodeToParams` exactly so the round-trip is symmetric.
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+
+    const params: SqlParam[] = [];
+    let kindPredicate = "";
+    if (kinds && kinds.length > 0) {
+      const phs: string[] = [];
+      for (let i = 0; i < kinds.length; i += 1) {
+        phs.push(`$p${i + 1}`);
+        params.push(kinds[i] ?? "");
+      }
+      kindPredicate = `WHERE n.kind IN [${phs.join(", ")}] `;
+    }
+    // SKIP / LIMIT bound via inline literals after the clampNonNegativeInt
+    // guard has confirmed they are finite non-negative integers — no
+    // injection risk because `Number.isFinite` + `Math.floor` enforce a
+    // strict integer encoding before we interpolate.
+    let pagination = "";
+    if (offset !== undefined) pagination += `SKIP ${offset} `;
+    if (limit !== undefined) pagination += `LIMIT ${limit} `;
+
+    const cypher = (
+      `MATCH (n:CodeNode) ${kindPredicate}` +
+      `RETURN ${returnList} ` +
+      `ORDER BY n.id ASC ${pagination}`
+    ).trim();
+
+    const rows = await pool.query(cypher, params);
+    const out: GraphNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node) out.push(node);
+    }
+    // Lex-stable tiebreak on id so DuckStore + GraphDbStore agree
+    // byte-for-byte when graphHash is computed over the result.
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   async search(q: SearchQuery): Promise<readonly SearchResult[]> {
@@ -1150,4 +1216,230 @@ function cypherNumberLiteral(value: number): string {
     throw new Error(`cypherNumberLiteral expects a finite number, got ${String(value)}`);
   }
   return value.toString();
+}
+
+// ---------------------------------------------------------------------------
+// listNodes rehydration helpers — read every column the writer emits and
+// rebuild a typed GraphNode with the same field set the original write
+// carried. Mirrors the DuckStore `rowToGraphNode` helper byte-for-byte so
+// cross-adapter parity holds when callers serialise via canonicalJson.
+// ---------------------------------------------------------------------------
+
+/**
+ * Clamp a number to a non-negative integer. Local to this adapter so the
+ * file remains self-contained; semantics match the DuckStore helper of
+ * the same shape — `0` is preserved, `undefined`/negative/non-finite all
+ * fall through to `undefined`.
+ */
+function clampNonNegativeIntGd(v: number | undefined): number | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  if (v < 0) return undefined;
+  return Math.floor(v);
+}
+
+/**
+ * Rehydrate a Cypher record from `MATCH (n:CodeNode) RETURN n.col AS col …`
+ * into a typed {@link GraphNode}. Inverse of {@link nodeToParams}: every
+ * column it writes is read back here.
+ *
+ * Returns `undefined` if the load-bearing primary-key columns (`id` /
+ * `kind` / `name` / `file_path`) are missing.
+ */
+function recordToGraphNode(rec: Record<string, unknown>): GraphNode | undefined {
+  const id = rec["id"];
+  const kindVal = rec["kind"];
+  const name = rec["name"];
+  const filePath = rec["file_path"];
+  if (
+    typeof id !== "string" ||
+    typeof kindVal !== "string" ||
+    typeof name !== "string" ||
+    typeof filePath !== "string"
+  ) {
+    return undefined;
+  }
+  const isOperation = kindVal === "Operation";
+  const out: Record<string, unknown> = {
+    id,
+    kind: kindVal,
+    name,
+    filePath,
+  };
+
+  setStringFieldGd(out, "signature", rec["signature"]);
+  setNumberFieldGd(out, "startLine", rec["start_line"]);
+  setNumberFieldGd(out, "endLine", rec["end_line"]);
+  setBooleanFieldGd(out, "isExported", rec["is_exported"]);
+  setNumberFieldGd(out, "parameterCount", rec["parameter_count"]);
+  setStringFieldGd(out, "returnType", rec["return_type"]);
+  setStringFieldGd(out, "declaredType", rec["declared_type"]);
+  setStringFieldGd(out, "owner", rec["owner"]);
+  setStringFieldGd(out, "url", rec["url"]);
+  if (isOperation) {
+    setStringFieldGd(out, "method", rec["http_method"]);
+    setStringFieldGd(out, "path", rec["http_path"]);
+  } else {
+    setStringFieldGd(out, "method", rec["method"]);
+  }
+  setStringFieldGd(out, "toolName", rec["tool_name"]);
+  setStringFieldGd(out, "content", rec["content"]);
+  setStringFieldGd(out, "contentHash", rec["content_hash"]);
+  setStringFieldGd(out, "inferredLabel", rec["inferred_label"]);
+  setNumberFieldGd(out, "symbolCount", rec["symbol_count"]);
+  setNumberFieldGd(out, "cohesion", rec["cohesion"]);
+  setStringArrayFieldGd(out, "keywords", rec["keywords"]);
+  setStringFieldGd(out, "entryPointId", rec["entry_point_id"]);
+  setNumberFieldGd(out, "stepCount", rec["step_count"]);
+  setNumberFieldGd(out, "level", rec["level"]);
+  setStringArrayFieldGd(out, "responseKeys", rec["response_keys"]);
+  setStringFieldGd(out, "description", rec["description"]);
+  setStringFieldGd(out, "severity", rec["severity"]);
+  setStringFieldGd(out, "ruleId", rec["rule_id"]);
+  setStringFieldGd(out, "scannerId", rec["scanner_id"]);
+  setStringFieldGd(out, "message", rec["message"]);
+  setJsonObjectFieldGd(out, "propertiesBag", rec["properties_bag"]);
+  setStringFieldGd(out, "version", rec["version"]);
+  setStringFieldGd(out, "license", rec["license"]);
+  setStringFieldGd(out, "lockfileSource", rec["lockfile_source"]);
+  setStringFieldGd(out, "ecosystem", rec["ecosystem"]);
+  setStringFieldGd(out, "summary", rec["summary"]);
+  setStringFieldGd(out, "operationId", rec["operation_id"]);
+  setStringFieldGd(out, "emailHash", rec["email_hash"]);
+  setStringFieldGd(out, "emailPlain", rec["email_plain"]);
+  setJsonArrayFieldGd(out, "languages", rec["languages_json"]);
+  applyFrameworksJsonReadbackGd(out, rec["frameworks_json"]);
+  setJsonArrayFieldGd(out, "iacTypes", rec["iac_types_json"]);
+  setJsonArrayFieldGd(out, "apiContracts", rec["api_contracts_json"]);
+  setJsonArrayFieldGd(out, "manifests", rec["manifests_json"]);
+  setJsonArrayFieldGd(out, "srcDirs", rec["src_dirs_json"]);
+  setStringFieldGd(out, "orphanGrade", rec["orphan_grade"]);
+  setBooleanFieldGd(out, "isOrphan", rec["is_orphan"]);
+  setNumberFieldGd(out, "truckFactor", rec["truck_factor"]);
+  setNumberFieldGd(out, "ownershipDrift30d", rec["ownership_drift_30d"]);
+  setNumberFieldGd(out, "ownershipDrift90d", rec["ownership_drift_90d"]);
+  setNumberFieldGd(out, "ownershipDrift365d", rec["ownership_drift_365d"]);
+  setStringFieldGd(out, "deadness", denormalizeDeadnessGd(rec["deadness"]));
+  setNumberFieldGd(out, "coveragePercent", rec["coverage_percent"]);
+  setStringFieldGd(out, "coveredLinesJson", rec["covered_lines_json"]);
+  setNumberFieldGd(out, "cyclomaticComplexity", rec["cyclomatic_complexity"]);
+  setNumberFieldGd(out, "nestingDepth", rec["nesting_depth"]);
+  setNumberFieldGd(out, "nloc", rec["nloc"]);
+  setNumberFieldGd(out, "halsteadVolume", rec["halstead_volume"]);
+  setStringFieldGd(out, "inputSchemaJson", rec["input_schema_json"]);
+  setStringFieldGd(out, "partialFingerprint", rec["partial_fingerprint"]);
+  setStringFieldGd(out, "baselineState", rec["baseline_state"]);
+  setStringFieldGd(out, "suppressedJson", rec["suppressed_json"]);
+  if (kindVal === "Repo") {
+    out["originUrl"] = readNullableStringGd(rec["origin_url"]);
+    setStringFieldGd(out, "repoUri", rec["repo_uri"]);
+    out["defaultBranch"] = readNullableStringGd(rec["default_branch"]);
+    setStringFieldGd(out, "commitSha", rec["commit_sha"]);
+    setStringFieldGd(out, "indexTime", rec["index_time"]);
+    out["group"] = readNullableStringGd(rec["repo_group"]);
+    setStringFieldGd(out, "visibility", rec["visibility"]);
+    setStringFieldGd(out, "indexer", rec["indexer"]);
+    out["languageStats"] = readLanguageStatsGd(rec["language_stats_json"]);
+  }
+  return out as unknown as GraphNode;
+}
+
+function setStringFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v === "string" && v.length > 0) out[key] = v;
+}
+
+function setNumberFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (v === null || v === undefined) return;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    out[key] = v;
+    return;
+  }
+  if (typeof v === "bigint") {
+    out[key] = Number(v);
+    return;
+  }
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) out[key] = n;
+  }
+}
+
+function setBooleanFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v === "boolean") out[key] = v;
+}
+
+function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (!Array.isArray(v)) return;
+  const arr: string[] = [];
+  for (const item of v) if (typeof item === "string") arr.push(item);
+  if (arr.length > 0) out[key] = arr;
+}
+
+function setJsonArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (Array.isArray(parsed)) out[key] = parsed;
+  } catch {
+    /* skip */
+  }
+}
+
+function setJsonObjectFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      out[key] = parsed;
+    }
+  } catch {
+    /* skip */
+  }
+}
+
+function applyFrameworksJsonReadbackGd(out: Record<string, unknown>, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (Array.isArray(parsed)) {
+      out["frameworks"] = parsed;
+      return;
+    }
+    if (parsed && typeof parsed === "object") {
+      const env = parsed as { flat?: unknown; detected?: unknown };
+      if (Array.isArray(env.flat)) out["frameworks"] = env.flat;
+      if (Array.isArray(env.detected) && env.detected.length > 0) {
+        out["frameworksDetected"] = env.detected;
+      }
+    }
+  } catch {
+    /* skip */
+  }
+}
+
+function denormalizeDeadnessGd(v: unknown): unknown {
+  if (v === "unreachable_export") return "unreachable-export";
+  return v;
+}
+
+function readNullableStringGd(v: unknown): string | null {
+  if (typeof v === "string" && v.length > 0) return v;
+  return null;
+}
+
+function readLanguageStatsGd(v: unknown): Readonly<Record<string, number>> {
+  if (typeof v !== "string" || v.length === 0) return {};
+  try {
+    const parsed = JSON.parse(v);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out: Record<string, number> = {};
+      for (const [k, val] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof val === "number" && Number.isFinite(val)) out[k] = val;
+      }
+      return out;
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return {};
 }
