@@ -435,6 +435,88 @@ export class DuckDbStore implements IGraphStore {
   }
 
   /**
+   * Stream the `embeddings` table to a Parquet file via DuckDB's built-in
+   * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Backs the M5 BOM
+   * item #7 (Parquet sidecar) for `@opencodehub/pack`.
+   *
+   * Determinism contract — must hold byte-for-byte across two runs against
+   * the same on-disk DuckDB file:
+   *   - Row ordering is `node_id ASC, granularity ASC, chunk_index ASC`. The
+   *     COPY pipes the SELECT result directly so the Parquet row groups
+   *     materialize in that order.
+   *   - ZSTD compression at the DuckDB default level. The default is
+   *     deterministic; do NOT pass an explicit level — that would couple the
+   *     output to whichever level the caller picked and risk byte drift.
+   *   - DuckDB v1.3.0+ ("Ossivalis") rewrote the parquet writer to drop the
+   *     implicit timestamps that previously broke byte-identity. The
+   *     `created_by` metadata still embeds the engine version string, so we
+   *     surface that string to the caller via `duckdbVersion` and the pack
+   *     manifest pins it (`PackPins.duckdbVersion`).
+   *
+   * When the embeddings table is empty, NO file is written (S-M5-3 contract
+   * for the pack BOM); the caller is expected to skip the BomItem entirely.
+   *
+   * Caller MUST pass an absolute path. Path is interpolated into the SQL
+   * statement after a strict format check (alphanumerics + `/_-.` only and
+   * leading `/` required) so injection attempts via path-as-input are
+   * blocked. We do not parameterize the COPY target because DuckDB's
+   * prepared-statement parser does not bind COPY destinations.
+   */
+  async exportEmbeddingsParquet(
+    absOutPath: string,
+  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }> {
+    const c = this.requireConn();
+    const duckdbVersion = await this.fetchDuckdbVersion();
+
+    const countReader = await c.runAndReadAll("SELECT COUNT(*) AS n FROM embeddings");
+    const countRows = countReader.getRowObjects();
+    const first = countRows[0];
+    const rowCount = first ? Number((first as { n: unknown }).n) : 0;
+
+    if (rowCount === 0) {
+      return { rowCount: 0, duckdbVersion };
+    }
+
+    if (!isSafeAbsolutePath(absOutPath)) {
+      throw new Error(
+        "exportEmbeddingsParquet: outPath must be an absolute path with safe characters " +
+          "(alphanumerics, slash, underscore, dash, dot)",
+      );
+    }
+
+    // COPY does not accept bound parameters for the destination. The path
+    // has been validated above so single-quote injection is impossible
+    // (the safe-path regex rejects quotes outright).
+    const sql =
+      `COPY (SELECT node_id, granularity, chunk_index, vector ` +
+      `FROM embeddings ORDER BY node_id ASC, granularity ASC, chunk_index ASC) ` +
+      `TO '${absOutPath}' (FORMAT PARQUET, COMPRESSION ZSTD)`;
+    await c.run(sql);
+    return { rowCount, duckdbVersion };
+  }
+
+  /**
+   * Resolve the live DuckDB engine version via `SELECT version()`. The
+   * result is the string DuckDB embeds in the parquet `created_by`
+   * metadata, so the pack manifest's `pins.duckdbVersion` stays bound to
+   * the writer version that produced the sidecar.
+   *
+   * Defensive: returns `"unknown"` if the call fails or returns a non-string
+   * — older bindings have been observed to return a struct value here.
+   */
+  private async fetchDuckdbVersion(): Promise<string> {
+    const c = this.requireConn();
+    try {
+      const reader = await c.runAndReadAll("SELECT version() AS v");
+      const rows = reader.getRowObjects();
+      const v = rows[0] ? (rows[0] as { v?: unknown }).v : undefined;
+      return typeof v === "string" && v.length > 0 ? v : "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
    * Load every prior `content_hash` from the `embeddings` table keyed by the
    * composite `(granularity, node_id, chunk_index)` tuple. Used by the
    * ingestion embeddings phase to skip re-embedding chunks whose source
@@ -1953,4 +2035,18 @@ function normalizeValue(v: unknown): unknown {
     }
   }
   return v;
+}
+
+/**
+ * Conservative absolute-path validator used by `exportEmbeddingsParquet`
+ * to inline a destination path into a `COPY ... TO '<path>' ...` SQL
+ * statement. DuckDB's prepared-statement parser does not bind COPY
+ * destinations, so the path is concatenated; allow only POSIX absolute
+ * paths over a safe character class so single-quote injection is
+ * structurally impossible.
+ */
+function isSafeAbsolutePath(p: string): boolean {
+  if (typeof p !== "string" || p.length === 0) return false;
+  if (!p.startsWith("/")) return false;
+  return /^[A-Za-z0-9/_\-.]+$/.test(p);
 }

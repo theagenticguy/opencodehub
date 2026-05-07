@@ -2,13 +2,14 @@
  * @opencodehub/pack — deterministic M5 code-pack BOM.
  *
  * Public surface:
- *   - generatePack(opts): assembles the 8-item BOM (skeleton, file-tree,
- *     deps, ast-chunks, xrefs, findings, licenses.md, readme.md) plus the
- *     manifest. Parquet sidecar is owned by T-W3-1 and intentionally NOT
- *     emitted here.
+ *   - generatePack(opts): assembles the 9-item BOM (skeleton, file-tree,
+ *     deps, ast-chunks, xrefs, findings, licenses.md, readme.md, optional
+ *     Parquet embeddings sidecar) plus the manifest. The Parquet sidecar
+ *     (AC-M5-6) is absent when no embeddings exist (S-M5-3).
  *   - buildManifest / serializeManifest: BOM manifest + pack_hash (AC-M5-3).
  *   - Per-BOM-item builders re-exported for direct use (skeleton, file-tree,
- *     deps, ast-chunker, xrefs, findings, licenses, readme).
+ *     deps, ast-chunker, xrefs, findings, licenses, readme,
+ *     embeddings-sidecar).
  *   - Type surface: {BomItem, DeterminismClass, PackManifest, PackOpts, PackPins}.
  */
 
@@ -23,6 +24,7 @@ import {
   buildAstChunks,
 } from "./ast-chunker.js";
 import { buildDeps } from "./deps.js";
+import { buildEmbeddingsSidecar } from "./embeddings-sidecar.js";
 import { buildFileTree } from "./file-tree.js";
 import { buildFindings } from "./findings.js";
 import { buildLicenses } from "./licenses.js";
@@ -36,6 +38,11 @@ export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.j
 export { buildAstChunks } from "./ast-chunker.js";
 export type { DepRow, DepsOpts } from "./deps.js";
 export { buildDeps } from "./deps.js";
+export type {
+  EmbeddingsSidecarOpts,
+  EmbeddingsSidecarResult,
+} from "./embeddings-sidecar.js";
+export { buildEmbeddingsSidecar } from "./embeddings-sidecar.js";
 export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";
 export { buildFileTree } from "./file-tree.js";
 export type { FindingExample, FindingGroup, FindingSeverity, FindingsOpts } from "./findings.js";
@@ -74,10 +81,11 @@ export interface GeneratePackInternalOpts {
 }
 
 /**
- * Generate the deterministic 9-item code-pack (8 files in this M5 cut;
- * the Parquet sidecar lands in T-W3-1 and is intentionally absent here).
+ * Generate the deterministic 9-item code-pack.
  *
- * Writes 8 files plus the manifest into `opts.outDir`:
+ * Writes the 8 always-present BOM files plus the manifest into
+ * `opts.outDir`, plus an optional Parquet sidecar when the underlying
+ * embeddings table has rows (AC-M5-6):
  *   - skeleton.jsonl
  *   - file-tree.jsonl
  *   - deps.jsonl
@@ -86,6 +94,7 @@ export interface GeneratePackInternalOpts {
  *   - findings.jsonl
  *   - licenses.md
  *   - readme.md
+ *   - embeddings.parquet (optional — absent when no embeddings, S-M5-3)
  *   - manifest.json
  *
  * Determinism class:
@@ -147,11 +156,39 @@ export async function generatePack(
     bomItem("licenses", "licenses.md", licensesBytes),
   ];
 
+  // --- Optional Parquet embeddings sidecar (BOM item #7, AC-M5-6). The
+  //     sidecar writes its `.parquet` file directly via DuckDB COPY, so
+  //     mkdirp the outDir BEFORE invoking it. When the embeddings table is
+  //     empty (or the store does not implement Parquet export), the
+  //     sidecar resolves to `absent: true` and we leave `manifest.files[]`
+  //     unchanged (S-M5-3). When present, the sidecar's runtime
+  //     `SELECT version()` overrides `pins.duckdbVersion` so the manifest
+  //     binds determinism to the engine version that produced the file —
+  //     the parquet `created_by` metadata embeds it. ---
+  await mkdir(opts.outDir, { recursive: true });
+  const sidecarPath = path.join(opts.outDir, "embeddings.parquet");
+  const sidecar = await buildEmbeddingsSidecar({ store, outPath: sidecarPath });
+  if (!sidecar.absent && sidecar.fileHash !== undefined) {
+    items.push({
+      kind: "embeddings-sidecar",
+      path: "embeddings.parquet",
+      fileHash: sidecar.fileHash,
+    });
+  }
+
   // --- Resolve the determinism class + pins object. ---
   const determinismClass = resolveDeterminism(opts.tokenizerId, astResult.determinismClass);
   const pins: PackPins = {
     chonkieVersion: astResult.pinsHint.chonkieVersion ?? "unknown",
-    duckdbVersion: internal.duckdbVersion ?? (await readDuckdbVersion()) ?? "unknown",
+    // Prefer the runtime DuckDB engine version reported by the sidecar
+    // when it actually wrote a file — that string is what the parquet
+    // `created_by` metadata carries. Fall back to the test-injectable
+    // override, then the @duckdb/node-api package version, then "unknown".
+    duckdbVersion:
+      sidecar.pinsHint.duckdbVersion ??
+      internal.duckdbVersion ??
+      (await readDuckdbVersion()) ??
+      "unknown",
     grammarCommits: internal.grammarCommits ?? {},
   };
 
@@ -181,8 +218,8 @@ export async function generatePack(
   });
   const readmeBytes = encodeUtf8(readmeMd);
 
-  // --- Write everything. mkdirp the outDir first. ---
-  await mkdir(opts.outDir, { recursive: true });
+  // --- Write everything. The outDir was already created above to host
+  //     the optional Parquet sidecar; the bodies share it.
   // BOM bodies first, then manifest, then readme. Order is irrelevant for
   // byte-identity (writes are independent), but we serialize manifest
   // last so a crash mid-write leaves an obviously-incomplete pack.

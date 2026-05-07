@@ -333,3 +333,74 @@ test("E2E-F. production store path throws cleanly when no internal store provide
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// AC-M5-6 — sidecar wiring. The fixture store does not implement
+// `exportEmbeddingsParquet`, so the sidecar resolves to `absent: true`; the
+// manifest must therefore NOT list `embeddings.parquet` and the file must
+// NOT exist on disk. When the store DOES implement the export hook, the
+// manifest must list it and the file must exist.
+// ---------------------------------------------------------------------------
+
+test("E2E-G. sidecar absent — manifest.files[] does not list embeddings.parquet", async () => {
+  const dir = await tempDir();
+  try {
+    const manifest = await runFixture(dir);
+    const paths = manifest.files.map((f) => f.path);
+    assert.ok(
+      !paths.includes("embeddings.parquet"),
+      "absent sidecar must not appear in manifest.files[]",
+    );
+    const entries = await readdir(dir);
+    assert.ok(
+      !entries.includes("embeddings.parquet"),
+      "absent sidecar must not produce a file on disk (S-M5-3)",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides", async () => {
+  const dir = await tempDir();
+  try {
+    // Inject a store that DOES implement exportEmbeddingsParquet. The fake
+    // writes 4 magic bytes ("PAR1") to the path so we can verify the hash
+    // round-trips into manifest.files[].
+    const baseStore = makeFixtureStore() as unknown as Record<string, unknown>;
+    baseStore["exportEmbeddingsParquet"] = async (absPath: string) => {
+      await (await import("node:fs/promises")).writeFile(
+        absPath,
+        new Uint8Array([0x50, 0x41, 0x52, 0x31]),
+      );
+      return { rowCount: 3, duckdbVersion: "v1.3.99-test" };
+    };
+    const manifest = await generatePack(
+      {
+        repoPath: "/tmp/fixture-repo",
+        outDir: dir,
+        budgetTokens: COMMON_OPTS.budgetTokens,
+        tokenizerId: COMMON_OPTS.tokenizerId,
+      },
+      {
+        ...COMMON_INTERNAL,
+        store: baseStore as unknown as IGraphStore,
+        chunkerFiles: FIXTURE_FILES,
+      },
+    );
+
+    // pins.duckdbVersion must override the test injection because the
+    // sidecar runtime version is more bound to the actual file.
+    assert.equal(manifest.pins.duckdbVersion, "v1.3.99-test");
+
+    const sidecarItem = manifest.files.find((f) => f.kind === "embeddings-sidecar");
+    assert.ok(sidecarItem, "manifest must list the sidecar BomItem when present");
+    assert.equal(sidecarItem.path, "embeddings.parquet");
+
+    const onDisk = await readFile(path.join(dir, "embeddings.parquet"));
+    const expected = createHash("sha256").update(onDisk).digest("hex");
+    assert.equal(sidecarItem.fileHash, expected);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
