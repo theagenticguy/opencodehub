@@ -32,7 +32,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { IGraphStore } from "@opencodehub/storage";
 
 /** Inputs to {@link buildEmbeddingsSidecar}. */
@@ -127,14 +127,15 @@ export async function buildEmbeddingsSidecar(
     };
   }
 
-  // Stat for size + hash for byte-identity verification by callers.
-  // Reading the whole file is fine here: the typical M5 pack target is
+  // Read the whole file for byte-identity hashing; derive size from the
+  // same buffer so `bytesWritten` and `fileHash` are taken from one
+  // read (no stat/read race). Fine here: the typical M5 pack target is
   // a single repo and the `.parquet` file is small (hundreds of KB to a
   // few MB). The pack writer hashes every BOM body anyway.
-  const [{ size }, bytes] = await Promise.all([stat(outPath), readFile(outPath)]);
+  const bytes = await readFile(outPath);
   const fileHash = createHash("sha256").update(bytes).digest("hex");
   return {
-    bytesWritten: size,
+    bytesWritten: bytes.byteLength,
     rowCount,
     absent: false,
     pinsHint: { duckdbVersion },
