@@ -36,6 +36,7 @@ import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { readGroup } from "../group-resolver.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { readRegistry } from "../repo-resolver.js";
+import { repoUriForEntry } from "../repo-uri-for-entry.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
 
 const GroupQueryInput = {
@@ -65,6 +66,12 @@ const GroupQueryInput = {
 /** Row shape persisted in the per-call meta map; emitted verbatim in `results[]`. */
 interface ResultRow {
   readonly _repo: string;
+  /**
+   * Additive per AC-M6-4. Authoritative cross-repo handle alongside the
+   * legacy `_repo` (registry name). Derived from the graph-backed
+   * `RepoNode.repoUri` when available, otherwise `deriveRepoUri`.
+   */
+  readonly _repo_uri: string;
   readonly _rrf_score: number;
   readonly nodeId: string;
   readonly name: string;
@@ -148,6 +155,10 @@ export async function runGroupQuery(ctx: ToolContext, args: GroupQueryArgs): Pro
         );
         continue;
       }
+      // AC-M6-4 additive field — resolve once per repo so every result row
+      // from this repo receives the same `_repo_uri`. Best-effort: the
+      // helper falls back to `deriveRepoUri` on any DB failure.
+      const repoUri = await repoUriForEntry(hit, ctx.pool);
       const repoPath = resolve(hit.path);
       const dbPath = resolveDbPath(repoPath);
 
@@ -174,6 +185,7 @@ export async function runGroupQuery(ctx: ToolContext, args: GroupQueryArgs): Pro
           if (!meta.has(id)) {
             meta.set(id, {
               _repo: repo.name,
+              _repo_uri: repoUri,
               _rrf_score: 0,
               nodeId: r.nodeId,
               name: r.name,

@@ -40,6 +40,7 @@ import type {
   CochangeRow,
   EmbeddingRow,
   IGraphStore,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -434,6 +435,88 @@ export class DuckDbStore implements IGraphStore {
   }
 
   /**
+   * Stream the `embeddings` table to a Parquet file via DuckDB's built-in
+   * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Backs the M5 BOM
+   * item #7 (Parquet sidecar) for `@opencodehub/pack`.
+   *
+   * Determinism contract — must hold byte-for-byte across two runs against
+   * the same on-disk DuckDB file:
+   *   - Row ordering is `node_id ASC, granularity ASC, chunk_index ASC`. The
+   *     COPY pipes the SELECT result directly so the Parquet row groups
+   *     materialize in that order.
+   *   - ZSTD compression at the DuckDB default level. The default is
+   *     deterministic; do NOT pass an explicit level — that would couple the
+   *     output to whichever level the caller picked and risk byte drift.
+   *   - DuckDB v1.3.0+ ("Ossivalis") rewrote the parquet writer to drop the
+   *     implicit timestamps that previously broke byte-identity. The
+   *     `created_by` metadata still embeds the engine version string, so we
+   *     surface that string to the caller via `duckdbVersion` and the pack
+   *     manifest pins it (`PackPins.duckdbVersion`).
+   *
+   * When the embeddings table is empty, NO file is written (S-M5-3 contract
+   * for the pack BOM); the caller is expected to skip the BomItem entirely.
+   *
+   * Caller MUST pass an absolute path. Path is interpolated into the SQL
+   * statement after a strict format check (alphanumerics + `/_-.` only and
+   * leading `/` required) so injection attempts via path-as-input are
+   * blocked. We do not parameterize the COPY target because DuckDB's
+   * prepared-statement parser does not bind COPY destinations.
+   */
+  async exportEmbeddingsParquet(
+    absOutPath: string,
+  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }> {
+    const c = this.requireConn();
+    const duckdbVersion = await this.fetchDuckdbVersion();
+
+    const countReader = await c.runAndReadAll("SELECT COUNT(*) AS n FROM embeddings");
+    const countRows = countReader.getRowObjects();
+    const first = countRows[0];
+    const rowCount = first ? Number((first as { n: unknown }).n) : 0;
+
+    if (rowCount === 0) {
+      return { rowCount: 0, duckdbVersion };
+    }
+
+    if (!isSafeAbsolutePath(absOutPath)) {
+      throw new Error(
+        "exportEmbeddingsParquet: outPath must be an absolute path with safe characters " +
+          "(alphanumerics, slash, underscore, dash, dot)",
+      );
+    }
+
+    // COPY does not accept bound parameters for the destination. The path
+    // has been validated above so single-quote injection is impossible
+    // (the safe-path regex rejects quotes outright).
+    const sql =
+      `COPY (SELECT node_id, granularity, chunk_index, vector ` +
+      `FROM embeddings ORDER BY node_id ASC, granularity ASC, chunk_index ASC) ` +
+      `TO '${absOutPath}' (FORMAT PARQUET, COMPRESSION ZSTD)`;
+    await c.run(sql);
+    return { rowCount, duckdbVersion };
+  }
+
+  /**
+   * Resolve the live DuckDB engine version via `SELECT version()`. The
+   * result is the string DuckDB embeds in the parquet `created_by`
+   * metadata, so the pack manifest's `pins.duckdbVersion` stays bound to
+   * the writer version that produced the sidecar.
+   *
+   * Defensive: returns `"unknown"` if the call fails or returns a non-string
+   * — older bindings have been observed to return a struct value here.
+   */
+  private async fetchDuckdbVersion(): Promise<string> {
+    const c = this.requireConn();
+    try {
+      const reader = await c.runAndReadAll("SELECT version() AS v");
+      const rows = reader.getRowObjects();
+      const v = rows[0] ? (rows[0] as { v?: unknown }).v : undefined;
+      return typeof v === "string" && v.length > 0 ? v : "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
    * Load every prior `content_hash` from the `embeddings` table keyed by the
    * composite `(granularity, node_id, chunk_index)` tuple. Used by the
    * ingestion embeddings phase to skip re-embedding chunks whose source
@@ -758,6 +841,71 @@ export class DuckDbStore implements IGraphStore {
         stmt.destroySync();
       }
     });
+  }
+
+  /**
+   * Enumerate fully-rehydrated GraphNodes by kind. Backs the M5 BOM bodies
+   * (skeleton, file-tree, deps, xrefs) so they can iterate typed nodes
+   * without scattering raw SELECT statements across `packages/pack/`.
+   *
+   * The polymorphic `nodes` table stores wider columns than `NodeBase`
+   * (e.g. `version` / `license` / `lockfile_source` / `ecosystem` for
+   * Dependency rows; `repo_uri` / `default_branch` / etc. for Repo rows).
+   * `SELECT *` is unsafe across kinds because callers downstream rely on
+   * field absence to discriminate, so we enumerate every column explicitly
+   * and rehydrate via {@link rowToGraphNode}.
+   *
+   * Determinism: ORDER BY id ASC at the SQL layer + a JS-side lex-stable
+   * tiebreak, matching the GraphDbStore implementation byte-for-byte.
+   */
+  async listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
+    const c = this.requireConn();
+    const kinds = opts.kinds;
+    // Empty-kinds short-circuit. The contract is "kinds: [] returns []";
+    // we never even hit SQL so the round-trip is free.
+    if (kinds !== undefined && kinds.length === 0) return [];
+    const limit = clampNonNegativeInt(opts.limit);
+    const offset = clampNonNegativeInt(opts.offset);
+
+    const columnList = NODE_COLUMNS.join(", ");
+    const whereClause =
+      kinds && kinds.length > 0 ? `WHERE kind IN (${kinds.map(() => "?").join(", ")})` : "";
+    // ORDER BY id ASC at the SQL layer; LIMIT/OFFSET applied after the
+    // filter so paging stays stable across calls. Both clauses are omitted
+    // when their values are undefined so the prepared statement plan
+    // stays minimal for the common "list everything" case.
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const offsetClause = offset !== undefined ? "OFFSET ?" : "";
+    const sql = (
+      `SELECT ${columnList} FROM nodes ${whereClause} ` +
+      `ORDER BY id ASC ${limitClause} ${offsetClause}`
+    ).trim();
+
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      if (kinds) {
+        for (const k of kinds) {
+          stmt.bindVarchar(idx++, k);
+        }
+      }
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      if (offset !== undefined) stmt.bindInteger(idx++, offset);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: GraphNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node) out.push(node);
+      }
+      // Lex-stable tiebreak on id so both adapters agree byte-for-byte even
+      // when the underlying engine's sort collation diverges (DuckDB uses
+      // bytewise ASCII; the graph-db engine returns rows in primary-key
+      // order which can vary across versions).
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
   }
 
   async search(q: SearchQuery): Promise<readonly SearchResult[]> {
@@ -1189,6 +1337,17 @@ const NODE_COLUMNS: readonly string[] = [
   "partial_fingerprint",
   "baseline_state",
   "suppressed_json",
+  // Repo (AC-M6-1). Append-only so existing VALUES (?, ?, ...) slot
+  // ordering stays stable.
+  "origin_url",
+  "repo_uri",
+  "default_branch",
+  "commit_sha",
+  "index_time",
+  "repo_group",
+  "visibility",
+  "indexer",
+  "language_stats_json",
 ];
 
 /**
@@ -1297,7 +1456,52 @@ function nodeToRow(node: GraphNode): readonly (SqlParam | readonly string[])[] {
     stringOrNull(n["partialFingerprint"]),
     stringOrNull(n["baselineState"]),
     stringOrNull(n["suppressedJson"]),
+    // Repo (AC-M6-1). Each column is populated only when `node.kind === "Repo"`
+    // and stays NULL for every other kind. `originUrl` / `defaultBranch` /
+    // `group` are nullable on the interface and use `stringOrNullLiteralNull`
+    // so the write preserves a deliberate `null` without coercing to empty.
+    repoStringOrNull(n, "originUrl"),
+    stringOrNull(n["repoUri"]),
+    repoStringOrNull(n, "defaultBranch"),
+    stringOrNull(n["commitSha"]),
+    stringOrNull(n["indexTime"]),
+    repoStringOrNull(n, "group"),
+    stringOrNull(n["visibility"]),
+    stringOrNull(n["indexer"]),
+    // languageStats is a Record<string, number>. Use canonicalJson so keys
+    // are sorted — mirrors the byte-stable serialization used in graphHash.
+    languageStatsJsonOrNull(n["languageStats"]),
   ];
+}
+
+/**
+ * Resolve a RepoNode field whose interface-level type is `string | null`.
+ *
+ * `stringOrNull` coerces `null` and empty strings alike to NULL, which loses
+ * the signal that `originUrl` / `defaultBranch` / `group` were *explicitly*
+ * null vs simply absent. For the Repo columns that distinction doesn't
+ * matter at the storage layer (both round-trip to SQL NULL and the reader
+ * reconstructs a `null` field), so we collapse to `stringOrNull`'s behaviour
+ * but name the helper so the intent is explicit at call sites.
+ */
+function repoStringOrNull(n: Record<string, unknown>, key: string): string | null {
+  const v = n[key];
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.length > 0) return v;
+  return null;
+}
+
+/**
+ * Serialize `RepoNode.languageStats` (`Record<string, number>`) to byte-stable
+ * JSON. Returns `null` for non-object / empty inputs so the column stays NULL
+ * for non-Repo rows.
+ */
+function languageStatsJsonOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "object" || Array.isArray(v)) return null;
+  if (Object.keys(v as object).length === 0) return null;
+  // canonicalJson sorts object keys deterministically, matching graphHash.
+  return canonicalJson(v);
 }
 
 /**
@@ -1466,6 +1670,290 @@ function normalizeRows(rows: readonly unknown[]): readonly Record<string, unknow
 }
 
 /**
+ * Clamp a number to a non-negative integer, returning `undefined` for
+ * unset / non-finite / negative inputs. Used by listNodes() to gate the
+ * optional LIMIT / OFFSET parameters — callers that pass `0` get a real
+ * `0` (semantically valid) while `undefined` / `-1` / `NaN` skip the
+ * clause entirely.
+ */
+function clampNonNegativeInt(v: number | undefined): number | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  if (v < 0) return undefined;
+  return Math.floor(v);
+}
+
+/**
+ * Rehydrate a row from the polymorphic `nodes` table into a typed
+ * {@link GraphNode}. The inverse of {@link nodeToRow}: every column it
+ * writes is read back here, and every kind-specific field aliasing
+ * (Operation `http_method`/`http_path` → `method`/`path`) is reversed.
+ *
+ * Returns `undefined` when the row is missing the load-bearing
+ * primary-key columns (`id`, `kind`, `name`, `file_path`) so a corrupt
+ * row never poisons the caller's array.
+ *
+ * Field-population strategy: every property on the result is set
+ * conditionally — fields whose underlying column is NULL are LEFT OFF
+ * the object so `Object.keys(result)` matches the original GraphNode
+ * shape (modulo the documented round-trip subset). This keeps
+ * `canonicalJson` / `graphHash` stable when callers serialise the
+ * output.
+ */
+function rowToGraphNode(row: Record<string, unknown>): GraphNode | undefined {
+  const id = row["id"];
+  const kindVal = row["kind"];
+  const name = row["name"];
+  const filePath = row["file_path"];
+  if (
+    typeof id !== "string" ||
+    typeof kindVal !== "string" ||
+    typeof name !== "string" ||
+    typeof filePath !== "string"
+  ) {
+    return undefined;
+  }
+  const isOperation = kindVal === "Operation";
+
+  const out: Record<string, unknown> = {
+    id,
+    kind: kindVal,
+    name,
+    filePath,
+  };
+
+  // Scalar columns — written as primitives by `nodeToRow`. Each branch
+  // skips when the column is NULL/undefined so the resulting object's
+  // key set mirrors the original GraphNode (e.g. a Function with no
+  // `signature` field comes back without a `signature` key, not with
+  // `signature: null`).
+  setStringField(out, "signature", row["signature"]);
+  setNumberField(out, "startLine", row["start_line"]);
+  setNumberField(out, "endLine", row["end_line"]);
+  setBooleanField(out, "isExported", row["is_exported"]);
+  setNumberField(out, "parameterCount", row["parameter_count"]);
+  setStringField(out, "returnType", row["return_type"]);
+  setStringField(out, "declaredType", row["declared_type"]);
+  setStringField(out, "owner", row["owner"]);
+  setStringField(out, "url", row["url"]);
+  // Route.method comes from the `method` column; Operation.method comes
+  // from the `http_method` column. Both write back to `node.method` on
+  // their respective kinds.
+  if (isOperation) {
+    setStringField(out, "method", row["http_method"]);
+    setStringField(out, "path", row["http_path"]);
+  } else {
+    setStringField(out, "method", row["method"]);
+  }
+  setStringField(out, "toolName", row["tool_name"]);
+  setStringField(out, "content", row["content"]);
+  setStringField(out, "contentHash", row["content_hash"]);
+  setStringField(out, "inferredLabel", row["inferred_label"]);
+  setNumberField(out, "symbolCount", row["symbol_count"]);
+  setNumberField(out, "cohesion", row["cohesion"]);
+  setStringArrayField(out, "keywords", row["keywords"]);
+  setStringField(out, "entryPointId", row["entry_point_id"]);
+  setNumberField(out, "stepCount", row["step_count"]);
+  setNumberField(out, "level", row["level"]);
+  setStringArrayField(out, "responseKeys", row["response_keys"]);
+  setStringField(out, "description", row["description"]);
+  // Finding (SARIF).
+  setStringField(out, "severity", row["severity"]);
+  setStringField(out, "ruleId", row["rule_id"]);
+  setStringField(out, "scannerId", row["scanner_id"]);
+  setStringField(out, "message", row["message"]);
+  setJsonObjectField(out, "propertiesBag", row["properties_bag"]);
+  // Dependency.
+  setStringField(out, "version", row["version"]);
+  setStringField(out, "license", row["license"]);
+  setStringField(out, "lockfileSource", row["lockfile_source"]);
+  setStringField(out, "ecosystem", row["ecosystem"]);
+  // Operation.summary / .operationId — these don't collide with anything else.
+  setStringField(out, "summary", row["summary"]);
+  setStringField(out, "operationId", row["operation_id"]);
+  // Contributor.
+  setStringField(out, "emailHash", row["email_hash"]);
+  setStringField(out, "emailPlain", row["email_plain"]);
+  // ProjectProfile (JSON-encoded array fields).
+  setJsonArrayField(out, "languages", row["languages_json"]);
+  // `frameworks_json` carries either the legacy flat-string-array shape
+  // or the v2 `{flat, detected}` envelope. Tease out both fields when the
+  // envelope is present so consumers that read either surface get the
+  // expected types.
+  applyFrameworksJsonReadback(out, row["frameworks_json"]);
+  setJsonArrayField(out, "iacTypes", row["iac_types_json"]);
+  setJsonArrayField(out, "apiContracts", row["api_contracts_json"]);
+  setJsonArrayField(out, "manifests", row["manifests_json"]);
+  setJsonArrayField(out, "srcDirs", row["src_dirs_json"]);
+  // File / Community ownership.
+  setStringField(out, "orphanGrade", row["orphan_grade"]);
+  setBooleanField(out, "isOrphan", row["is_orphan"]);
+  setNumberField(out, "truckFactor", row["truck_factor"]);
+  setNumberField(out, "ownershipDrift30d", row["ownership_drift_30d"]);
+  setNumberField(out, "ownershipDrift90d", row["ownership_drift_90d"]);
+  setNumberField(out, "ownershipDrift365d", row["ownership_drift_365d"]);
+  // v1.2 extensions.
+  setStringField(out, "deadness", denormalizeDeadness(row["deadness"]));
+  setNumberField(out, "coveragePercent", row["coverage_percent"]);
+  setStringField(out, "coveredLinesJson", row["covered_lines_json"]);
+  setNumberField(out, "cyclomaticComplexity", row["cyclomatic_complexity"]);
+  setNumberField(out, "nestingDepth", row["nesting_depth"]);
+  setNumberField(out, "nloc", row["nloc"]);
+  setNumberField(out, "halsteadVolume", row["halstead_volume"]);
+  setStringField(out, "inputSchemaJson", row["input_schema_json"]);
+  setStringField(out, "partialFingerprint", row["partial_fingerprint"]);
+  setStringField(out, "baselineState", row["baseline_state"]);
+  setStringField(out, "suppressedJson", row["suppressed_json"]);
+  // Repo (AC-M6-1). The interface marks `originUrl` / `defaultBranch` /
+  // `group` as `string | null` so the round-trip preserves an explicit
+  // null when the column is NULL. Other Repo fields are populated only
+  // when `kind === "Repo"`; for non-Repo rows the columns stay NULL and
+  // the field is left off entirely.
+  if (kindVal === "Repo") {
+    out["originUrl"] = readNullableString(row["origin_url"]);
+    setStringField(out, "repoUri", row["repo_uri"]);
+    out["defaultBranch"] = readNullableString(row["default_branch"]);
+    setStringField(out, "commitSha", row["commit_sha"]);
+    setStringField(out, "indexTime", row["index_time"]);
+    out["group"] = readNullableString(row["repo_group"]);
+    setStringField(out, "visibility", row["visibility"]);
+    setStringField(out, "indexer", row["indexer"]);
+    out["languageStats"] = readLanguageStats(row["language_stats_json"]);
+  }
+  return out as unknown as GraphNode;
+}
+
+function setStringField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v === "string" && v.length > 0) out[key] = v;
+}
+
+function setNumberField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (v === null || v === undefined) return;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    out[key] = v;
+    return;
+  }
+  if (typeof v === "bigint") {
+    out[key] = Number(v);
+    return;
+  }
+  // DuckDB occasionally returns numeric-typed columns as strings when the
+  // underlying type is DECIMAL — coerce defensively. Only digits / dot /
+  // sign survive the parse.
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v)) {
+    const n = Number(v);
+    if (Number.isFinite(n)) out[key] = n;
+  }
+}
+
+function setBooleanField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v === "boolean") out[key] = v;
+}
+
+function setStringArrayField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (!Array.isArray(v)) return;
+  const arr: string[] = [];
+  for (const item of v) {
+    if (typeof item === "string") arr.push(item);
+  }
+  if (arr.length > 0) out[key] = arr;
+}
+
+function setJsonArrayField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (Array.isArray(parsed)) out[key] = parsed;
+  } catch {
+    /* row stored a non-JSON string for this column — skip the field. */
+  }
+}
+
+function setJsonObjectField(out: Record<string, unknown>, key: string, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      out[key] = parsed;
+    }
+  } catch {
+    /* skip */
+  }
+}
+
+/**
+ * Read the polymorphic `frameworks_json` column. Two on-disk shapes:
+ *   - Legacy v1.0: a flat `string[]`.
+ *   - v2.0: `{ flat: string[], detected: FrameworkDetection[] }`.
+ *
+ * Both populate `frameworks` (the flat-string list); v2 additionally
+ * populates `frameworksDetected`. Skipped silently when the column is
+ * NULL or holds non-JSON.
+ */
+function applyFrameworksJsonReadback(out: Record<string, unknown>, v: unknown): void {
+  if (typeof v !== "string" || v.length === 0) return;
+  try {
+    const parsed = JSON.parse(v);
+    if (Array.isArray(parsed)) {
+      out["frameworks"] = parsed;
+      return;
+    }
+    if (parsed && typeof parsed === "object") {
+      const env = parsed as { flat?: unknown; detected?: unknown };
+      if (Array.isArray(env.flat)) out["frameworks"] = env.flat;
+      if (Array.isArray(env.detected) && env.detected.length > 0) {
+        out["frameworksDetected"] = env.detected;
+      }
+    }
+  } catch {
+    /* skip on parse failure */
+  }
+}
+
+/**
+ * Reverse of `normalizeDeadness` in the writer. Stored as the underscored
+ * form `unreachable_export`; expose the hyphenated `unreachable-export`
+ * the dead-code phase emits. Pass through `live` / `dead` unchanged.
+ */
+function denormalizeDeadness(v: unknown): unknown {
+  if (v === "unreachable_export") return "unreachable-export";
+  return v;
+}
+
+/**
+ * Resolve a Repo nullable-string column. The interface declares these as
+ * `string | null` (not `string | undefined`), so missing columns must
+ * round-trip as an explicit `null` rather than leaving the key off.
+ */
+function readNullableString(v: unknown): string | null {
+  if (typeof v === "string" && v.length > 0) return v;
+  return null;
+}
+
+/**
+ * Reconstruct `RepoNode.languageStats` from the canonical-JSON column.
+ * Returns an empty object when the column is NULL / unparsable so the
+ * field is always present (the interface requires it; node serialization
+ * relies on `Object.keys(...)` to be deterministic).
+ */
+function readLanguageStats(v: unknown): Readonly<Record<string, number>> {
+  if (typeof v !== "string" || v.length === 0) return {};
+  try {
+    const parsed = JSON.parse(v);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out: Record<string, number> = {};
+      for (const [k, val] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof val === "number" && Number.isFinite(val)) out[k] = val;
+      }
+      return out;
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return {};
+}
+
+/**
  * Convert a DuckDB row from the `cochanges` table back into a {@link CochangeRow}.
  * The timestamp column arrives as either a DuckDB value object carrying a
  * `micros` BigInt (when returned over the native bindings) or a string; both
@@ -1547,4 +2035,18 @@ function normalizeValue(v: unknown): unknown {
     }
   }
   return v;
+}
+
+/**
+ * Conservative absolute-path validator used by `exportEmbeddingsParquet`
+ * to inline a destination path into a `COPY ... TO '<path>' ...` SQL
+ * statement. DuckDB's prepared-statement parser does not bind COPY
+ * destinations, so the path is concatenated; allow only POSIX absolute
+ * paths over a safe character class so single-quote injection is
+ * structurally impossible.
+ */
+function isSafeAbsolutePath(p: string): boolean {
+  if (typeof p !== "string" || p.length === 0) return false;
+  if (!p.startsWith("/")) return false;
+  return /^[A-Za-z0-9/_\-.]+$/.test(p);
 }

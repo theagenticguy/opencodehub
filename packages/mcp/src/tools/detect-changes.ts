@@ -10,6 +10,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -26,20 +27,21 @@ const DetectChangesInput = {
     .string()
     .optional()
     .describe("Git ref to compare against (only used when scope='compare')."),
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
 };
 
 interface DetectChangesArgs {
   readonly scope: "unstaged" | "staged" | "all" | "compare";
   readonly compareRef?: string | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runDetectChanges(
   ctx: ToolContext,
   args: DetectChangesArgs,
 ): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const q: {
         scope: "unstaged" | "staged" | "all" | "compare";

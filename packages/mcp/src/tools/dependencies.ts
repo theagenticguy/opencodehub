@@ -23,6 +23,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -30,10 +31,7 @@ import {
 } from "./shared.js";
 
 const DependenciesInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe("Registered repo name. Omit to use the single registered repo."),
+  ...repoArgShape,
   filePath: z
     .string()
     .optional()
@@ -66,6 +64,7 @@ interface DependencyRow {
 
 interface DependenciesArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly filePath?: string | undefined;
   readonly ecosystem?: "npm" | "pypi" | "go" | "cargo" | "maven" | "nuget" | undefined;
   readonly limit?: number | undefined;
@@ -76,7 +75,7 @@ export async function runDependencies(
   args: DependenciesArgs,
 ): Promise<ToolResult> {
   const limit = args.limit ?? 500;
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       // The storage layer has dedicated columns for Dependency
       // nodes: `version`, `license`, `lockfile_source`, `ecosystem`.

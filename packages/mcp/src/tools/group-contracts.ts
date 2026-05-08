@@ -28,6 +28,7 @@ import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { readGroup } from "../group-resolver.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { readRegistry } from "../repo-resolver.js";
+import { repoUriForEntry } from "../repo-uri-for-entry.js";
 import { resolveGroupContractsPath } from "./group-sync.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
 
@@ -39,8 +40,12 @@ const GroupContractsInput = {
 
 interface ContractRow {
   readonly consumerRepo: string;
+  /** Additive per AC-M6-4 — cross-repo handle for the consumer repo. */
+  readonly consumerRepoUri: string;
   readonly consumerSymbol: string;
   readonly producerRepo: string;
+  /** Additive per AC-M6-4 — cross-repo handle for the producer repo. */
+  readonly producerRepoUri: string;
   readonly producerRoute: string;
   readonly method: string;
   readonly path: string;
@@ -138,6 +143,9 @@ export async function runGroupContracts(
     const missing: string[] = [];
     const consumersByRepo = new Map<string, readonly ConsumerEdgeRow[]>();
     const producersByRepo = new Map<string, readonly RouteRow[]>();
+    // AC-M6-4: resolve `repo_uri` for every registered member so every
+    // ContractRow carries `consumerRepoUri` / `producerRepoUri` additively.
+    const repoUriByName = new Map<string, string>();
 
     for (const repo of sortedRepos) {
       const hit = registry[repo.name];
@@ -145,6 +153,7 @@ export async function runGroupContracts(
         missing.push(repo.name);
         continue;
       }
+      repoUriByName.set(repo.name, await repoUriForEntry(hit, ctx.pool));
       const repoPath = resolve(hit.path);
       const dbPath = resolveDbPath(repoPath);
       const store = await ctx.pool.acquire(repoPath, dbPath).catch((err: unknown) => {
@@ -173,10 +182,18 @@ export async function runGroupContracts(
           for (const route of producers) {
             if (route.method !== consumer.method) continue;
             if (normalizePath(route.url) !== consumer.path) continue;
+            // Both sides must be registered members (consumers/producers
+            // were only populated for registered repos), so the uri map
+            // has a hit — but guard with an empty-string fallback to
+            // keep the type `string` not `string | undefined`.
+            const consumerRepoUri = repoUriByName.get(consumerRepo) ?? "";
+            const producerRepoUri = repoUriByName.get(producerRepo) ?? "";
             contracts.push({
               consumerRepo,
+              consumerRepoUri,
               consumerSymbol: consumer.consumerSymbol,
               producerRepo,
+              producerRepoUri,
               producerRoute: route.nodeId,
               method: consumer.method,
               path: consumer.path,

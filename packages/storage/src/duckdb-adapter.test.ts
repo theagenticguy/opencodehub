@@ -933,6 +933,99 @@ test("bulkLoad stores Finding / Dependency / Operation / Contributor / ProjectPr
   }
 });
 
+test("bulkLoad stores Repo columns (AC-M6-1 first-class repo node)", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const repoId = makeNodeId("Repo", "", "repo");
+    g.addNode({
+      id: repoId,
+      kind: "Repo",
+      name: "github.com/acme/example",
+      filePath: "",
+      originUrl: "https://github.com/acme/example.git",
+      repoUri: "github.com/acme/example",
+      defaultBranch: "main",
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      indexTime: "2026-05-06T12:34:56Z",
+      group: "acme",
+      visibility: "internal",
+      indexer: "opencodehub@0.1.0",
+      languageStats: { ts: 0.83, py: 0.14, md: 0.03 },
+    } as unknown as GraphNode);
+    await store.bulkLoad(g);
+
+    const rRow = await store.query(
+      `SELECT origin_url, repo_uri, default_branch, commit_sha, index_time,
+              repo_group, visibility, indexer, language_stats_json
+       FROM nodes WHERE id = ?`,
+      [repoId],
+    );
+    const rr = rRow[0];
+    assert.ok(rr);
+    assert.equal(rr["origin_url"], "https://github.com/acme/example.git");
+    assert.equal(rr["repo_uri"], "github.com/acme/example");
+    assert.equal(rr["default_branch"], "main");
+    assert.equal(rr["commit_sha"], "0123456789abcdef0123456789abcdef01234567");
+    assert.equal(rr["index_time"], "2026-05-06T12:34:56Z");
+    assert.equal(rr["repo_group"], "acme");
+    assert.equal(rr["visibility"], "internal");
+    assert.equal(rr["indexer"], "opencodehub@0.1.0");
+    // canonicalJson sorts keys — the stored JSON must match the sorted form.
+    assert.equal(rr["language_stats_json"], '{"md":0.03,"py":0.14,"ts":0.83}');
+  } finally {
+    await store.close();
+  }
+});
+
+test("bulkLoad stores Repo columns with explicit-null nullable fields (S-M6-1)", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = new KnowledgeGraph();
+    const repoId = makeNodeId("Repo", "", "repo");
+    g.addNode({
+      id: repoId,
+      kind: "Repo",
+      name: "local:abcdef012345",
+      filePath: "",
+      originUrl: null,
+      repoUri: "local:abcdef012345",
+      defaultBranch: null,
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      indexTime: "2026-05-06T12:34:56Z",
+      group: null,
+      visibility: "private",
+      indexer: "opencodehub@0.1.0",
+      languageStats: {},
+    } as unknown as GraphNode);
+    await store.bulkLoad(g);
+
+    const rRow = await store.query(
+      `SELECT origin_url, default_branch, repo_group, language_stats_json
+       FROM nodes WHERE id = ?`,
+      [repoId],
+    );
+    const rr = rRow[0];
+    assert.ok(rr);
+    // Nullable interface fields ({origin_url, default_branch, repo_group})
+    // round-trip to SQL NULL when the source node carries `null`.
+    assert.equal(rr["origin_url"], null);
+    assert.equal(rr["default_branch"], null);
+    assert.equal(rr["repo_group"], null);
+    // Empty languageStats collapses to NULL on the wire — the read path
+    // reconstructs `{}` so graph-hash parity holds.
+    assert.equal(rr["language_stats_json"], null);
+  } finally {
+    await store.close();
+  }
+});
+
 test("bulkLoad stores FOUND_IN / DEPENDS_ON / OWNED_BY relation types", async () => {
   const dbPath = await scratchDbPath();
   const store = new DuckDbStore(dbPath);
@@ -1732,4 +1825,320 @@ test("v1.2: graphHash stays deterministic when reserved fields are populated", a
   const h2 = graphHash(g1);
   assert.equal(h1, h2);
   assert.ok(/^[0-9a-f]{64}$/.test(h1), "graphHash must be a 64-char hex sha256");
+});
+
+// ---------------------------------------------------------------------------
+// listNodes — kind filter, determinism, limit/offset
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a heterogenous graph that exercises every column family `listNodes`
+ * is expected to round-trip: File / Function / Class / Method (the basic
+ * shapes), plus Dependency (the wider columns lesson — `version`,
+ * `license`, `lockfile_source`, `ecosystem`), Operation (column aliasing
+ * `http_method`/`http_path` ↔ `method`/`path`), and Repo (M6 nullable
+ * fields + canonical-JSON `languageStats`).
+ *
+ * Reused by the cross-adapter parity test below.
+ */
+function buildListNodesFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const fileA = makeNodeId("File", "src/a.ts", "a.ts");
+  const fileB = makeNodeId("File", "src/b.ts", "b.ts");
+  g.addNode({ id: fileA, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+  g.addNode({ id: fileB, kind: "File", name: "b.ts", filePath: "src/b.ts" });
+
+  for (let i = 0; i < 3; i += 1) {
+    const id = makeNodeId("Function", "src/a.ts", `fn_${i}`, { parameterCount: i });
+    g.addNode({
+      id,
+      kind: "Function",
+      name: `fn_${i}`,
+      filePath: "src/a.ts",
+      startLine: 10 + i,
+      endLine: 20 + i,
+      signature: `function fn_${i}()`,
+      parameterCount: i,
+      isExported: i === 0,
+    });
+  }
+
+  const cls = makeNodeId("Class", "src/b.ts", "Service");
+  g.addNode({
+    id: cls,
+    kind: "Class",
+    name: "Service",
+    filePath: "src/b.ts",
+    isExported: true,
+    startLine: 1,
+    endLine: 30,
+  });
+  g.addNode({
+    id: makeNodeId("Method", "src/b.ts", "Service.greet"),
+    kind: "Method",
+    name: "greet",
+    filePath: "src/b.ts",
+    startLine: 5,
+    endLine: 9,
+    parameterCount: 1,
+  });
+
+  // Dependency rows exercise the wider polymorphic columns. Two ecosystems
+  // so the kind-filter test sees more than one row per kind.
+  g.addNode({
+    id: makeNodeId("Dependency", "package.json", "lodash@4.17.21"),
+    kind: "Dependency",
+    name: "lodash",
+    filePath: "package.json",
+    version: "4.17.21",
+    ecosystem: "npm",
+    lockfileSource: "pnpm-lock.yaml",
+    license: "MIT",
+  });
+  g.addNode({
+    id: makeNodeId("Dependency", "requirements.txt", "requests@2.31.0"),
+    kind: "Dependency",
+    name: "requests",
+    filePath: "requirements.txt",
+    version: "2.31.0",
+    ecosystem: "pypi",
+    lockfileSource: "requirements.txt",
+  });
+
+  // Operation kind exercises the http_method/http_path → method/path column
+  // aliasing.
+  g.addNode({
+    id: makeNodeId("Operation", "openapi.yaml", "GET /v1/users"),
+    kind: "Operation",
+    name: "listUsers",
+    filePath: "openapi.yaml",
+    method: "GET",
+    path: "/v1/users",
+    operationId: "listUsers",
+  });
+
+  // Repo kind exercises the M6 nullable fields + canonical-JSON languageStats.
+  g.addNode({
+    id: makeNodeId("Repo", "", "repo"),
+    kind: "Repo",
+    name: "test-repo",
+    filePath: ".",
+    originUrl: "https://github.com/example/test-repo",
+    repoUri: "github.com/example/test-repo",
+    defaultBranch: "main",
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-07T00:00:00Z",
+    group: null,
+    visibility: "public",
+    indexer: "och-test/0.1.0",
+    languageStats: { ts: 0.7, py: 0.3 },
+  });
+
+  return g;
+}
+
+test("listNodes() returns every kind when no filter is supplied", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = buildListNodesFixture();
+    await store.bulkLoad(g);
+
+    const all = await store.listNodes();
+    assert.equal(all.length, g.nodeCount());
+
+    // Spot-check the kind distribution: 2 Files, 3 Functions, 1 Class, 1
+    // Method, 2 Dependencies, 1 Operation, 1 Repo.
+    const byKind = new Map<string, number>();
+    for (const n of all) byKind.set(n.kind, (byKind.get(n.kind) ?? 0) + 1);
+    assert.equal(byKind.get("File"), 2);
+    assert.equal(byKind.get("Function"), 3);
+    assert.equal(byKind.get("Class"), 1);
+    assert.equal(byKind.get("Method"), 1);
+    assert.equal(byKind.get("Dependency"), 2);
+    assert.equal(byKind.get("Operation"), 1);
+    assert.equal(byKind.get("Repo"), 1);
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() filters by kind and returns wider columns for Dependency rows", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const deps = await store.listNodes({ kinds: ["Dependency"] });
+    assert.equal(deps.length, 2);
+    for (const dep of deps) {
+      assert.equal(dep.kind, "Dependency");
+      // Wider columns must round-trip — the whole reason listNodes exists
+      // (vs `query("SELECT id, name FROM nodes WHERE kind = ?")`).
+      const d = dep as GraphNode & {
+        version: string;
+        ecosystem: string;
+        lockfileSource: string;
+      };
+      assert.equal(typeof d.version, "string");
+      assert.equal(typeof d.ecosystem, "string");
+      assert.equal(typeof d.lockfileSource, "string");
+    }
+    const lodash = deps.find((d) => d.name === "lodash");
+    assert.ok(lodash);
+    assert.equal((lodash as GraphNode & { license: string }).license, "MIT");
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() with multiple kinds OR-filters", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const both = await store.listNodes({ kinds: ["Function", "Class"] });
+    const kindSet = new Set(both.map((n) => n.kind));
+    assert.deepEqual([...kindSet].sort(), ["Class", "Function"]);
+    assert.equal(both.length, 4); // 3 Functions + 1 Class
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() with an empty kinds array returns no rows", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const empty = await store.listNodes({ kinds: [] });
+    assert.deepEqual(empty, []);
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() ORDER BY id ASC is deterministic across two writes", async () => {
+  const g = buildListNodesFixture();
+  // Same fixture, two independent stores. The IDs are content-derived so
+  // both runs produce identical ID strings — listNodes must therefore yield
+  // the exact same ordered list of ids.
+  const pathA = await scratchDbPath();
+  const storeA = new DuckDbStore(pathA);
+  await storeA.open();
+  await storeA.createSchema();
+  await storeA.bulkLoad(g);
+  const idsA = (await storeA.listNodes()).map((n) => n.id);
+  await storeA.close();
+
+  const pathB = await scratchDbPath();
+  const storeB = new DuckDbStore(pathB);
+  await storeB.open();
+  await storeB.createSchema();
+  await storeB.bulkLoad(g);
+  const idsB = (await storeB.listNodes()).map((n) => n.id);
+  await storeB.close();
+
+  assert.deepEqual(idsA, idsB);
+  // Verify the order is actually sorted (sanity: not just "same junk ordering twice").
+  const sorted = [...idsA].sort();
+  assert.deepEqual(idsA, sorted);
+});
+
+test("listNodes() applies limit + offset against the sorted result", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const all = await store.listNodes();
+    const total = all.length;
+    assert.ok(total >= 4, "fixture should have at least 4 nodes for paging");
+
+    const firstPage = await store.listNodes({ limit: 2 });
+    const secondPage = await store.listNodes({ limit: 2, offset: 2 });
+    assert.equal(firstPage.length, 2);
+    assert.equal(secondPage.length, 2);
+    assert.deepEqual(
+      firstPage.map((n) => n.id),
+      all.slice(0, 2).map((n) => n.id),
+    );
+    assert.deepEqual(
+      secondPage.map((n) => n.id),
+      all.slice(2, 4).map((n) => n.id),
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() rehydrates Operation http_method / http_path back to method / path", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const ops = await store.listNodes({ kinds: ["Operation"] });
+    assert.equal(ops.length, 1);
+    const op = ops[0] as GraphNode & { method: string; path: string };
+    assert.equal(op.method, "GET");
+    assert.equal(op.path, "/v1/users");
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() preserves Repo nullable fields and languageStats", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const repos = await store.listNodes({ kinds: ["Repo"] });
+    assert.equal(repos.length, 1);
+    const repo = repos[0] as GraphNode & {
+      originUrl: string | null;
+      defaultBranch: string | null;
+      group: string | null;
+      languageStats: Readonly<Record<string, number>>;
+    };
+    assert.equal(repo.originUrl, "https://github.com/example/test-repo");
+    assert.equal(repo.defaultBranch, "main");
+    // The fixture sets `group: null`; that must round-trip explicitly.
+    assert.equal(repo.group, null);
+    assert.deepEqual(repo.languageStats, { ts: 0.7, py: 0.3 });
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() returns [] from an unknown kind", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const none = await store.listNodes({ kinds: ["DoesNotExist"] });
+    assert.deepEqual(none, []);
+  } finally {
+    await store.close();
+  }
 });

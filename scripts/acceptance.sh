@@ -24,19 +24,20 @@
 #  13.  sarif-validation            (zod schema vs emitted SARIF)   [NEW v1.0]
 #  14.  license-audit-smoke         (analyze + license_audit tool)  [NEW v1.0]
 #  15.  verdict-smoke               (2-commit fixture → tier)       [NEW v1.0]
+#  16.  pack-determinism            (code-pack ×2 → diff -r, U2)    [NEW v1.0]
 #
-# Gates 10-15 MUST degrade gracefully: when their dependency binary is not
-# available (semgrep, embedder weights, codehub verdict command), they print
-# `[SKIP]` with a reason and do not change the exit code. This lets the
-# acceptance run complete on any developer laptop and in CI, while still
-# enforcing gates when those dependencies are present.
+# Gates 10-16 MUST degrade gracefully: when their dependency binary is not
+# available (semgrep, embedder weights, codehub verdict command, populated
+# DuckStore), they print `[SKIP]` with a reason and do not change the exit
+# code. This lets the acceptance run complete on any developer laptop and
+# in CI, while still enforcing gates when those dependencies are present.
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-TOTAL_GATES=15
+TOTAL_GATES=16
 
 FAIL=0
 pass() { echo "  [PASS] $1"; }
@@ -544,6 +545,27 @@ for line in sys.stdin:
       fail "verdict-smoke: did not return a known 5-tier value (got '${TIER:-<empty>}')"
       ;;
   esac
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 16. Pack determinism: `codehub code-pack` ×2 → `diff -r` (U2 / E-M5-3)
+# ---------------------------------------------------------------------------
+echo "16/${TOTAL_GATES}: pack-determinism (code-pack ×2 → diff -r)"
+# The audit script SKIPs cleanly when the CLI isn't built or the repo lacks
+# a populated `.codehub/duck.db` graph (worktree native-binding lesson). Pipe
+# its output through and translate PASS/SKIP/FAIL into our gate vocabulary.
+PACK_LOG="$tmpdir/pack-determinism.log"
+if bash "$ROOT/scripts/pack-determinism-audit.sh" > "$PACK_LOG" 2>&1; then
+  PACK_LINE=$(head -1 "$PACK_LOG" || true)
+  case "${PACK_LINE:-}" in
+    PASS:*) pass "pack-determinism: ${PACK_LINE#PASS: }" ;;
+    SKIP:*) skip "pack-determinism: ${PACK_LINE#SKIP: }" ;;
+    *)      pass "pack-determinism: ${PACK_LINE:-byte-identical}" ;;
+  esac
+else
+  fail "pack-determinism: audit script reported a divergence"
+  tail -20 "$PACK_LOG"
 fi
 echo
 

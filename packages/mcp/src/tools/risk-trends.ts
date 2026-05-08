@@ -10,12 +10,12 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { computeRiskTrends, loadSnapshots } from "@opencodehub/analysis";
-import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -23,15 +23,16 @@ import {
 } from "./shared.js";
 
 const RiskTrendsInput = {
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
 };
 
 interface RiskTrendsArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runRiskTrends(ctx: ToolContext, args: RiskTrendsArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (_store, resolved) => {
+  const call = await withStore(ctx, args, async (_store, resolved) => {
     try {
       const snapshots = await loadSnapshots(resolved.repoPath);
       const trends = computeRiskTrends(snapshots);

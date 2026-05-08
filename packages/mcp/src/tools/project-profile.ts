@@ -20,12 +20,12 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { FrameworkDetection } from "@opencodehub/core-types";
-import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -33,12 +33,7 @@ import {
 } from "./shared.js";
 
 const ProjectProfileInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
 };
 
 interface ProjectProfilePayload {
@@ -109,13 +104,14 @@ function parseFrameworksJson(raw: unknown): {
 
 interface ProjectProfileArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runProjectProfile(
   ctx: ToolContext,
   args: ProjectProfileArgs,
 ): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const rows = (await store.query(
         `SELECT languages_json, frameworks_json, iac_types_json,

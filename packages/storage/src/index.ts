@@ -19,6 +19,7 @@ export type {
   EmbeddingGranularity,
   EmbeddingRow,
   IGraphStore,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,

@@ -268,7 +268,35 @@ const NODE_COLUMN_MAP: readonly (readonly [string, string, "number" | "string" |
   ["content_hash", "contentHash", "string"],
   ["email_hash", "emailHash", "string"],
   ["email_plain", "emailPlain", "string"],
+  // Repo (AC-M6-1). See graph-hash-parity.test.ts for the parallel mapping.
+  ["origin_url", "originUrl", "string"],
+  ["repo_uri", "repoUri", "string"],
+  ["default_branch", "defaultBranch", "string"],
+  ["commit_sha", "commitSha", "string"],
+  ["index_time", "indexTime", "string"],
+  ["repo_group", "group", "string"],
+  ["visibility", "visibility", "string"],
+  ["indexer", "indexer", "string"],
 ];
+
+/** Repo-specific nullable-field / languageStats reconstruction. */
+function applyRepoNullables(rec: Record<string, unknown>, base: Record<string, unknown>): void {
+  if (base["kind"] !== "Repo") return;
+  for (const [col, key] of [
+    ["origin_url", "originUrl"],
+    ["default_branch", "defaultBranch"],
+    ["repo_group", "group"],
+  ] as const) {
+    const v = rec[col];
+    if (v === null || v === undefined) base[key] = null;
+  }
+  const statsRaw = rec["language_stats_json"];
+  if (typeof statsRaw === "string" && statsRaw.length > 0) {
+    base["languageStats"] = JSON.parse(statsRaw);
+  } else {
+    base["languageStats"] = {};
+  }
+}
 
 async function rebuildGraphFromStore(store: GraphDbStore): Promise<KnowledgeGraph> {
   // One MATCH per CodeNode column set we care about. Ordering by id
@@ -282,7 +310,12 @@ async function rebuildGraphFromStore(store: GraphDbStore): Promise<KnowledgeGrap
       `n.parameter_count AS parameter_count, n.return_type AS return_type, ` +
       `n.declared_type AS declared_type, n.owner AS owner, ` +
       `n.content_hash AS content_hash, n.email_hash AS email_hash, ` +
-      `n.email_plain AS email_plain ` +
+      `n.email_plain AS email_plain, ` +
+      `n.origin_url AS origin_url, n.repo_uri AS repo_uri, ` +
+      `n.default_branch AS default_branch, n.commit_sha AS commit_sha, ` +
+      `n.index_time AS index_time, n.repo_group AS repo_group, ` +
+      `n.visibility AS visibility, n.indexer AS indexer, ` +
+      `n.language_stats_json AS language_stats_json ` +
       `ORDER BY n.id`,
   );
 
@@ -302,6 +335,7 @@ async function rebuildGraphFromStore(store: GraphDbStore): Promise<KnowledgeGrap
       else if (ty === "boolean") base[key] = Boolean(v);
       else base[key] = String(v);
     }
+    applyRepoNullables(rec, base);
     g.addNode(base as unknown as GraphNode);
   }
 
@@ -427,6 +461,65 @@ test("every declared edge kind round-trips at least one row", async () => {
   }
   const { original, rebuilt } = await runRoundTrip(g);
   assert.equal(rebuilt, original, "graphHash parity broken for all-kinds fixture");
+});
+
+test("round-trip parity: RepoNode fixture (AC-M6-1 first-class repo entity)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping round-trip");
+    return;
+  }
+  const g = new KnowledgeGraph();
+  const repoId = makeNodeId("Repo", "", "repo");
+  g.addNode({
+    id: repoId,
+    kind: "Repo",
+    name: "github.com/acme/example",
+    filePath: "",
+    originUrl: "https://github.com/acme/example.git",
+    repoUri: "github.com/acme/example",
+    defaultBranch: "main",
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-06T12:34:56Z",
+    group: "acme",
+    visibility: "internal",
+    indexer: "opencodehub@0.1.0",
+    languageStats: { go: 0.5, ts: 0.3, rs: 0.2 },
+  } as unknown as GraphNode);
+  // Include a File so the existing columns coexist with the new ones.
+  const fileA = makeNodeId("File", "src/a.ts", "a.ts");
+  g.addNode({ id: fileA, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+  const { original, rebuilt } = await runRoundTrip(g);
+  assert.equal(rebuilt, original, "graphHash parity broken for RepoNode fixture");
+});
+
+test("round-trip parity: RepoNode with explicit-null origin / branch / group (S-M6-1)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping round-trip");
+    return;
+  }
+  const g = new KnowledgeGraph();
+  const repoId = makeNodeId("Repo", "", "repo");
+  g.addNode({
+    id: repoId,
+    kind: "Repo",
+    name: "local:abcdef012345",
+    filePath: "",
+    originUrl: null,
+    repoUri: "local:abcdef012345",
+    defaultBranch: null,
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-06T12:34:56Z",
+    group: null,
+    visibility: "private",
+    indexer: "opencodehub@0.1.0",
+    languageStats: {},
+  } as unknown as GraphNode);
+  const { original, rebuilt } = await runRoundTrip(g);
+  assert.equal(
+    rebuilt,
+    original,
+    "graphHash parity broken for RepoNode no-remote fixture (S-M6-1)",
+  );
 });
 
 test("round-trip is deterministic across independent writes of the same graph", async () => {

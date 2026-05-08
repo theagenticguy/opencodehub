@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.12.0",
+    "@opencodehub/analysis": "workspace:*",
     "@opencodehub/core-types": "workspace:*"
   },
   "devDependencies": {

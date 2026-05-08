@@ -12,6 +12,7 @@
     { "path": "../search" },
     { "path": "../embedder" },
     { "path": "../analysis" },
+    { "path": "../pack" },
     { "path": "../sarif" },
     { "path": "../scanners" }
   ]

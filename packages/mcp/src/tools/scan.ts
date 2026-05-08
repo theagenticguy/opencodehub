@@ -33,6 +33,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -40,12 +41,7 @@ import {
 } from "./shared.js";
 
 const ScanInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   scanners: z
     .array(z.string())
     .optional()
@@ -69,12 +65,13 @@ interface ScanSummary {
 
 interface ScanArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly scanners?: readonly string[] | undefined;
   readonly timeoutMs?: number | undefined;
 }
 
 export async function runScan(ctx: ToolContext, args: ScanArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const specs = await selectScanners(store, args.scanners);
       if (specs.length === 0) {

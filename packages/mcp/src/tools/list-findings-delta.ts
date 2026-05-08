@@ -42,6 +42,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -49,12 +50,7 @@ import {
 } from "./shared.js";
 
 const ListFindingsDeltaInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   baseline: z
     .string()
     .optional()
@@ -99,6 +95,7 @@ const EMPTY_SARIF_LOG: SarifLog = {
 
 interface ListFindingsDeltaArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly baseline?: string | undefined;
 }
 
@@ -106,7 +103,7 @@ export async function runListFindingsDelta(
   ctx: ToolContext,
   args: ListFindingsDeltaArgs,
 ): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (_store, resolved) => {
+  const call = await withStore(ctx, args, async (_store, resolved) => {
     try {
       const metaDir = resolveRepoMetaDir(resolved.repoPath);
       const currentPath = resolve(`${metaDir}/scan.sarif`);

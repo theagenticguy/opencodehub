@@ -41,6 +41,9 @@ describe("runIngestion (end-to-end)", () => {
         "incremental-scope",
         "profile",
         "dependencies",
+        // `repo-node` (AC-M6-1) depends on `profile` only, so the topological
+        // alphabetic tiebreak lands it after `dependencies` and before `sbom`.
+        "repo-node",
         "sbom",
         "structure",
         "markdown",

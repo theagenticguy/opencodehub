@@ -27,6 +27,7 @@ import { stalenessFromMeta } from "../staleness.js";
 import { computeConfidenceBreakdown } from "./confidence.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -84,7 +85,7 @@ const ImpactInput = {
     .describe(
       "When true, test-file dependents are counted. Default false — test nodes are filtered out.",
     ),
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
 };
 
 interface ImpactArgs {
@@ -98,10 +99,11 @@ interface ImpactArgs {
   readonly relationTypes?: readonly string[] | undefined;
   readonly includeTests?: boolean | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const direction = args.direction ?? "upstream";
       const q: {
