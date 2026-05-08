@@ -39,3 +39,23 @@ This repo ships a Claude Code plugin at `plugins/opencodehub/` — it
 provides `/probe`, `/verdict`, `/owners`, `/audit-deps`, `/rename` slash
 commands plus a `code-analyst` subagent and 10 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
+
+## Parse runtime — WASM default, native opt-in
+
+`@opencodehub/ingestion` defaults to the `web-tree-sitter` (WASM) runtime
+on both Node 22 and Node 24. To opt into the faster native `tree-sitter`
+N-API addon on Node 22 dev boxes, set `OCH_NATIVE_PARSER=1` or pass
+`--native-parser` to the `codehub` CLI. Native is not supported on
+Node 24 until `node-tree-sitter@0.25.1` lands on npm
+(tree-sitter/node-tree-sitter#276).
+
+Kotlin, Swift, and Dart grammars use `.wasm` blobs vendored at
+`packages/ingestion/vendor/wasms/` (built from the same grammar sources
+pinned in `package.json`). Rebuild via `bash scripts/build-vendor-wasms.sh`
+after bumping any of those grammars — requires docker, podman, finch
+(aliased as docker), or a local emcc install.
+
+The complexity phase (`packages/ingestion/src/pipeline/phases/complexity.ts`)
+still uses native tree-sitter for cyclomatic-complexity metrics. On Node 24
+or Node 22 without the opt-in, complexity extraction degrades with a
+one-shot stderr warning; all other parsing continues via WASM.

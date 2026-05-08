@@ -64,8 +64,8 @@ program
     "After analyze, emit one SKILL.md per Community (symbolCount >= 5) under .codehub/skills/",
   )
   .option(
-    "--wasm-only",
-    "Force the web-tree-sitter WASM runtime even when the native binding is available (useful for deterministic CI across platforms)",
+    "--native-parser",
+    "Opt into the native tree-sitter (N-API) runtime. Default is web-tree-sitter (WASM) for deterministic cross-platform behavior; pass --native-parser on Node 22 dev boxes where native parsing is measurably faster.",
   )
   .option(
     "--strict-detectors",
@@ -77,10 +77,11 @@ program
   )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
-    // `--wasm-only` is honored by the parse worker via the `OCH_WASM_ONLY`
-    // env var; set it here before the worker pool spawns.
-    if (opts["wasmOnly"] === true) {
-      process.env["OCH_WASM_ONLY"] = "1";
+    // `--native-parser` is honored by the parse worker via the
+    // `OCH_NATIVE_PARSER` env var; set it here before the worker pool
+    // spawns. WASM is the default runtime — native is opt-in.
+    if (opts["nativeParser"] === true) {
+      process.env["OCH_NATIVE_PARSER"] = "1";
     }
     // Pass the raw flag straight through to `runAnalyze`. The env
     // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) is re-checked inside

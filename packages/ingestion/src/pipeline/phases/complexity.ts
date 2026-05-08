@@ -105,6 +105,7 @@ interface TsModule {
 
 const parserCache = new Map<LanguageId, TsParser>();
 let tsModuleCached: TsModule | undefined;
+let warnedComplexityDegraded = false;
 
 function getTsModule(): TsModule | undefined {
   if (tsModuleCached !== undefined) return tsModuleCached;
@@ -112,6 +113,12 @@ function getTsModule(): TsModule | undefined {
     tsModuleCached = requireFn("tree-sitter") as TsModule;
     return tsModuleCached;
   } catch {
+    if (!warnedComplexityDegraded) {
+      warnedComplexityDegraded = true;
+      process.stderr.write(
+        "[complexity] tree-sitter unavailable — complexity metrics degraded (set OCH_NATIVE_PARSER=1 on Node 22 to enable)\n",
+      );
+    }
     return undefined;
   }
 }
