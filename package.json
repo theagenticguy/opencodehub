@@ -54,7 +54,9 @@
       "tmp@<0.2.4": "0.2.4",
       "dompurify@<3.4.0": "3.4.0",
       "hono@<4.12.16": "4.12.16",
-      "ip-address@<10.1.1": "10.1.1"
+      "ip-address@<10.1.1": "10.1.1",
+      "fast-uri@<3.1.2": "3.1.2",
+      "fast-xml-builder@<1.1.7": "1.1.7"
     },
     "onlyBuiltDependencies": [
       "@duckdb/node-api",

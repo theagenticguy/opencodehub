@@ -36,16 +36,20 @@ const parserCache = new Map<LanguageId, unknown>();
 const queryCache = new Map<LanguageId, unknown>();
 const wasmParserCache = new Map<LanguageId, WasmParserHandle | null>();
 
-let warnedWasm = false;
+let warnedRuntime = false;
 
 /**
- * Read the `--wasm-only` force-flag. Set either via env (`OCH_WASM_ONLY=1`)
- * or via argv pass-through when the worker boots inside a process
- * launched with the flag. The worker itself cannot read the CLI argv
- * directly (piscina starts workers afresh) so env is the primary carrier.
+ * Read the `--native-parser` opt-in flag. Set either via env
+ * (`OCH_NATIVE_PARSER=1`) or via argv pass-through when the worker boots
+ * inside a process launched with the flag. The worker itself cannot read
+ * the CLI argv directly (piscina starts workers afresh) so env is the
+ * primary carrier.
+ *
+ * WASM is the default runtime as of Node 24 / M5 — the native tree-sitter
+ * N-API binding is opt-in for developer speed on Node 22 dev boxes.
  */
-function forceWasmOnly(): boolean {
-  const v = process.env["OCH_WASM_ONLY"];
+function forceNativeOpt(): boolean {
+  const v = process.env["OCH_NATIVE_PARSER"];
   return v === "1" || v === "true";
 }
 
@@ -53,11 +57,24 @@ function forceWasmOnly(): boolean {
  * Piscina task entry. Default export is the function piscina invokes.
  */
 export default async function parseBatch(batch: ParseBatch): Promise<ParseResult[]> {
-  // Warn once per worker if we're forced onto WASM (native unavailable,
-  // or `--wasm-only` forced).
-  if ((!isNativeAvailable() || forceWasmOnly()) && !warnedWasm) {
-    warnedWasm = true;
-    process.stderr.write("[parse-worker] using web-tree-sitter (WASM) runtime\n");
+  // Emit a one-shot startup warning naming the runtime we actually landed
+  // on. Both paths are logged so the runtime choice is never silent — a
+  // user debugging a parse difference can see "native" vs "WASM" on the
+  // first worker invocation.
+  if (!warnedRuntime) {
+    warnedRuntime = true;
+    const usingNative = forceNativeOpt() && isNativeAvailable();
+    if (usingNative) {
+      process.stderr.write("[parse-worker] using tree-sitter native (N-API) runtime\n");
+    } else if (forceNativeOpt() && !isNativeAvailable()) {
+      // Opt-in requested but native could not load — fall back to WASM
+      // with an explicit callout so the user notices the mismatch.
+      process.stderr.write(
+        "[parse-worker] OCH_NATIVE_PARSER=1 set but native tree-sitter unavailable; falling back to web-tree-sitter (WASM) runtime\n",
+      );
+    } else {
+      process.stderr.write("[parse-worker] using web-tree-sitter (WASM) runtime\n");
+    }
   }
 
   const results: ParseResult[] = [];
@@ -128,11 +145,15 @@ async function runParse(language: LanguageId, content: Buffer): Promise<readonly
   // offsets, so positions remain correct.)
   const source = content.toString("utf8");
 
-  // Prefer native unless explicitly forced into WASM or native is
-  // unavailable. The WASM path returns captures with exactly the same
-  // coordinate semantics (1-indexed rows, 0-indexed columns) so
-  // downstream consumers see byte-identical output.
-  if (!forceWasmOnly() && isNativeAvailable()) {
+  // WASM is the default runtime. Native tree-sitter is opt-in via
+  // `OCH_NATIVE_PARSER=1` (or `--native-parser` on the CLI) and still
+  // requires the N-API binding to load cleanly; if the opt-in is set but
+  // native is unavailable, we fall back to WASM (the startup warning in
+  // parseBatch already flagged the mismatch). The two paths produce
+  // semantically equivalent captures — the (tag, text) multiset is
+  // asserted identical by wasm-parity.test.ts, though coordinate values
+  // and internal node types may differ at the margins across grammars.
+  if (forceNativeOpt() && isNativeAvailable()) {
     return runNative(language, source);
   }
   return runWasm(language, source);
