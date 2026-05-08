@@ -22,6 +22,9 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [llms-txt config strings quietly anchor doc accuracy](solutions/conventions/llms-txt-as-ground-truth.md) — in a Starlight site with `starlight-llms-txt`, `astro.config.mjs` is more load-bearing than prose READMEs; audit it first in doc-sync sweeps.
 - [tsconfig project references go stale on package removal](solutions/conventions/tsconfig-project-references-stale-on-package-removal.md) — root tsconfig `references` drift is invisible until a root-scoped tsc invocation hits; clean up in the same commit as the package delete.
 - [Astro NODE_ENV in CI — set it at script scope, not step scope](solutions/conventions/astro-node-env-in-ci-script-scope.md) — mise-action + pnpm + astro chain loses CI-level NODE_ENV overrides; hard-code in package.json `build` script.
+- [tree-sitter-wasms catalog is unusable with web-tree-sitter 0.26+](solutions/architecture-patterns/tree-sitter-wasms-catalog-incompat.md) — 0.1.13 artifacts use legacy `dylink` section, web-tree-sitter hard-requires `dylink.0`. Build your own WASMs and commit them.
+- [pnpm install hangs on EFS workdir](solutions/best-practices/pnpm-install-on-efs.md) — 8+ min → 4.6s with `store-dir=/home/...` in `~/.npmrc` + `UV_USE_IO_URING=0`. Two stacked causes: cross-fs store and AL2023 io_uring bug.
+- [Finch as docker shim via PATH for CLIs that shell out to `docker`](solutions/best-practices/finch-as-docker-shim.md) — 3-line shim unlocks `tree-sitter build --wasm -d` and similar tools on Amazon AL2023 devboxes.
 
 ## Specs
 
