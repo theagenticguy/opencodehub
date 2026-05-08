@@ -20,6 +20,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -27,12 +28,7 @@ import {
 } from "./shared.js";
 
 const ListDeadCodeInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   includeUnreachableExports: z
     .boolean()
     .optional()
@@ -54,6 +50,7 @@ const ListDeadCodeInput = {
 
 interface ListDeadCodeArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly includeUnreachableExports?: boolean | undefined;
   readonly limit?: number | undefined;
   readonly filePathPattern?: string | undefined;
@@ -67,7 +64,7 @@ export async function runListDeadCode(
   const includeUnreachable = args.includeUnreachableExports ?? false;
   const pattern = args.filePathPattern;
 
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const result = await classifyDeadness(store);
 

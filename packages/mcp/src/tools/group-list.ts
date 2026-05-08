@@ -8,12 +8,25 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { listGroups } from "../group-resolver.js";
 import { withNextSteps } from "../next-step-hints.js";
+import { deriveRepoUri, type RegistryEntry, readRegistry } from "../repo-resolver.js";
+import { repoUriForEntry } from "../repo-uri-for-entry.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
+
+/**
+ * One repo entry as surfaced by `group_list`. `repo_uri` is additive per
+ * AC-M6-4 and is the authoritative cross-repo handle going forward; the
+ * legacy `name` field stays through M7 so existing consumers keep working.
+ */
+interface GroupRepoSummary {
+  readonly name: string;
+  readonly path: string;
+  readonly repo_uri: string;
+}
 
 interface GroupSummary {
   readonly name: string;
   readonly createdAt: string;
-  readonly repos: readonly { readonly name: string; readonly path: string }[];
+  readonly repos: readonly GroupRepoSummary[];
   readonly description?: string;
 }
 
@@ -21,12 +34,34 @@ export async function runGroupList(ctx: ToolContext): Promise<ToolResult> {
   try {
     const opts = ctx.home !== undefined ? { home: ctx.home } : {};
     const raw = await listGroups(opts);
-    const groups: GroupSummary[] = raw.map((g) => ({
-      name: g.name,
-      createdAt: g.createdAt,
-      repos: g.repos.map((r) => ({ name: r.name, path: r.path })),
-      ...(g.description !== undefined ? { description: g.description } : {}),
-    }));
+    const registry = await readRegistry(opts);
+    const groups: GroupSummary[] = [];
+    for (const g of raw) {
+      const repos: GroupRepoSummary[] = [];
+      for (const r of g.repos) {
+        const entry: RegistryEntry | undefined = registry[r.name];
+        // Prefer the graph-backed RepoNode.repoUri (AC-M6-1) when the repo
+        // is registered; otherwise fall back to deriveRepoUri against a
+        // synthetic entry built from the group record so orphan references
+        // still receive a stable `local:<hash>`.
+        const repo_uri = entry
+          ? await repoUriForEntry(entry, ctx.pool)
+          : deriveRepoUri({
+              name: r.name,
+              path: r.path,
+              indexedAt: "",
+              nodeCount: 0,
+              edgeCount: 0,
+            });
+        repos.push({ name: r.name, path: r.path, repo_uri });
+      }
+      groups.push({
+        name: g.name,
+        createdAt: g.createdAt,
+        repos,
+        ...(g.description !== undefined ? { description: g.description } : {}),
+      });
+    }
     const header = `Groups (${groups.length}):`;
     const body =
       groups.length === 0

@@ -14,6 +14,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -39,7 +40,7 @@ const RenameInput = {
     .string()
     .optional()
     .describe("File path suffix to narrow the rename to a specific definition."),
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
 };
 
 interface RenameArgs {
@@ -48,11 +49,12 @@ interface RenameArgs {
   readonly dry_run?: boolean | undefined;
   readonly file?: string | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runRename(ctx: ToolContext, args: RenameArgs): Promise<ToolResult> {
   const dryRun = args.dry_run ?? true;
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const q: {
         symbolName: string;

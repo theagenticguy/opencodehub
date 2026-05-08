@@ -295,6 +295,64 @@ program
   });
 
 program
+  .command("code-pack [path]")
+  .description(
+    "Produce the deterministic 9-item code-pack BOM (manifest + skeleton + file-tree + deps + " +
+      "ast-chunks + xrefs + findings + licenses + readme + optional embeddings.parquet) at " +
+      "<repo>/.codehub/packs/<packHash>/. Default engine is the new @opencodehub/pack BOM; " +
+      "--engine repomix opts into the legacy single-file snapshot (drop deferred to M7).",
+  )
+  .option("--budget <n>", "AST-chunker token budget (default 100000)", (v) =>
+    Number.parseInt(v, 10),
+  )
+  .option(
+    "--tokenizer <id>",
+    'Tokenizer pin "<vendor>:<name>@<pin>" (default openai:o200k_base@tiktoken-0.8.0)',
+  )
+  .option(
+    "--out-dir <dir>",
+    "Override the .codehub/packs/<packHash>/ default output directory (the directory still " +
+      "contains the manifest + BOM bodies; supplying this flag lets you put the artifacts " +
+      "under a non-standard path, e.g. /tmp/my-pack)",
+  )
+  .option(
+    "--engine <engine>",
+    "Engine: pack (default — 9-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
+    "pack",
+  )
+  .action(async (path: string | undefined, opts: Record<string, unknown>) => {
+    const mod = await import("./commands/code-pack.js");
+    const rawEngine = typeof opts["engine"] === "string" ? opts["engine"] : "pack";
+    const engine: "pack" | "repomix" =
+      rawEngine === "repomix" ? "repomix" : rawEngine === "pack" ? "pack" : "pack";
+    if (rawEngine !== engine && rawEngine !== "pack") {
+      throw new Error(`Unknown --engine value: "${rawEngine}". Expected one of: pack, repomix`);
+    }
+    const budget =
+      typeof opts["budget"] === "number" && Number.isFinite(opts["budget"])
+        ? opts["budget"]
+        : undefined;
+    const result = await mod.runCodePack({
+      ...(path !== undefined ? { repo: path } : {}),
+      ...(budget !== undefined ? { budget } : {}),
+      ...(typeof opts["tokenizer"] === "string" ? { tokenizer: opts["tokenizer"] } : {}),
+      ...(typeof opts["outDir"] === "string" ? { outDir: opts["outDir"] } : {}),
+      engine,
+    });
+    if (result.engine === "pack") {
+      console.warn(
+        `codehub code-pack: wrote ${result.bomItemCount} BOM items to ${result.outDir} ` +
+          `(packHash=${result.packHash.slice(0, 12)})`,
+      );
+    } else {
+      console.warn(
+        `codehub code-pack: wrote repomix snapshot to ${result.repomixOutputPath ?? result.outDir} ` +
+          `(packHash=${result.packHash.slice(0, 12)})`,
+      );
+    }
+  });
+
+program
   .command("query <text>")
   .description("Direct hybrid search against a repo's graph")
   .option("--limit <n>", "Max results", (v) => Number.parseInt(v, 10), 10)

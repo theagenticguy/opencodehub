@@ -6,7 +6,7 @@
  * primary forward-compatible candidate) can slot in behind the same seam.
  */
 
-import type { KnowledgeGraph } from "@opencodehub/core-types";
+import type { GraphNode, KnowledgeGraph } from "@opencodehub/core-types";
 
 export interface IGraphStore extends CochangeStore, SymbolSummaryStore {
   /** Open (or create) the underlying database file. Idempotent. */
@@ -49,6 +49,29 @@ export interface IGraphStore extends CochangeStore, SymbolSummaryStore {
     params?: readonly SqlParam[],
     opts?: { readonly timeoutMs?: number },
   ): Promise<readonly Record<string, unknown>[]>;
+  /**
+   * Enumerate fully-rehydrated graph nodes by kind, with deterministic
+   * ordering. Backs the M5 BOM bodies (skeleton, file-tree, deps, xrefs)
+   * and any caller that wants typed kind-filtered iteration without
+   * scattering raw `query("SELECT ... FROM nodes")` calls.
+   *
+   * Semantics:
+   *   - `kinds` undefined → return every kind.
+   *   - `kinds: []`        → return an empty array (no fan-out).
+   *   - `kinds: [...]`     → filter by exact match against the `kind`
+   *                          discriminator. Unknown kinds yield 0 rows.
+   *   - Results are ORDER BY id ASC at the storage layer for cross-adapter
+   *     determinism. Adapters apply a lex-stable JS-side tiebreak so the
+   *     output matches byte-for-byte across DuckStore and GraphDbStore.
+   *   - Wider polymorphic columns (Dependency `version`/`license`/
+   *     `lockfile_source`/`ecosystem`, ProjectProfile JSON arrays, Repo
+   *     fields, etc.) are mapped back onto the typed shape via per-kind
+   *     rehydration. Returned objects satisfy {@link GraphNode}.
+   *
+   * `limit`/`offset` apply post-filter / post-order so paging is stable.
+   * Negative or non-finite values are clamped to 0.
+   */
+  listNodes(opts?: ListNodesOptions): Promise<readonly GraphNode[]>;
   /** Full-text search over symbol name / signature / description via BM25. */
   search(q: SearchQuery): Promise<readonly SearchResult[]>;
   /** Filter-aware HNSW vector search. */
@@ -183,6 +206,23 @@ export interface SymbolSummaryStore {
 
 /** JS types that can safely round-trip as DuckDB query parameters at MVP. */
 export type SqlParam = string | number | bigint | boolean | null;
+
+/**
+ * Options for {@link IGraphStore.listNodes}. All fields are optional —
+ * absent `kinds` returns every kind; absent `limit` returns the full
+ * filtered set; absent `offset` starts at 0.
+ */
+export interface ListNodesOptions {
+  /**
+   * Restrict to one or more {@link GraphNode.kind} values. An empty array
+   * is a no-op that returns `[]` (matches the "kinds: [] → empty" contract).
+   */
+  readonly kinds?: readonly string[];
+  /** Maximum number of rows to return after filter + sort. */
+  readonly limit?: number;
+  /** Number of rows to skip after filter + sort. */
+  readonly offset?: number;
+}
 
 export interface BulkLoadStats {
   readonly nodeCount: number;

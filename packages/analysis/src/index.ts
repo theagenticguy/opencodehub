@@ -40,10 +40,14 @@ export {
 } from "./git.js";
 // Cross-repo group contract extractors (HTTP, gRPC, topic) + sync.
 export type {
+  ComputeCrossRepoLinksOpts,
   Contract,
   ContractRegistry,
   ContractType,
   CrossLink,
+  CrossRepoLink,
+  CrossRepoRelation,
+  DocPathScheme,
   GrpcClientExtractOptions,
   GrpcProtoExtractOptions,
   HttpExtractOptions,
@@ -57,6 +61,7 @@ export type {
 export {
   buildManifestLinks,
   buildRegistry,
+  computeCrossRepoLinks,
   contractFamily,
   extractGrpcClientContracts,
   extractGrpcProtoContracts,
@@ -71,6 +76,15 @@ export {
   runGroupSync,
 } from "./group/index.js";
 export { runImpact } from "./impact.js";
+export type {
+  DependencyRef,
+  LicenseAuditFlagged,
+  LicenseAuditResult,
+  LicenseTier,
+} from "./license-classify.js";
+export { classifyDependencies } from "./license-classify.js";
+export type { Adjacency, EdgeLike } from "./page-rank.js";
+export { buildAdjacency, pageRank } from "./page-rank.js";
 export { runRename } from "./rename.js";
 export type { OrphanGrade } from "./risk.js";
 export {

@@ -9,12 +9,14 @@
  * spinning up DuckDB.
  */
 
+import type { GraphNode } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
   CochangeLookupOptions,
   CochangeRow,
   EmbeddingRow,
   IGraphStore,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -134,6 +136,25 @@ export class FakeStore implements IGraphStore {
     const trimmed = sql.replace(/\s+/g, " ").trim();
     const rows = this.dispatch(trimmed, params);
     return Promise.resolve(rows);
+  }
+
+  listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
+    // FakeStore models only a subset of fields per node. The shared listNodes
+    // tests live in @opencodehub/storage; this stub returns the in-memory
+    // nodes with the subset of fields we model, sorted by id ASC.
+    const kinds = opts.kinds;
+    if (kinds !== undefined && kinds.length === 0) return Promise.resolve([]);
+    const filtered =
+      kinds && kinds.length > 0
+        ? this.nodes.filter((n) => kinds.includes(n.kind))
+        : [...this.nodes];
+    const sorted = filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
+    const sliced =
+      limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
+    return Promise.resolve(sliced as unknown as readonly GraphNode[]);
   }
 
   traverse(q: TraverseQuery): Promise<readonly TraverseResult[]> {

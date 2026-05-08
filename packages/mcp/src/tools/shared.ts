@@ -13,8 +13,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FsAbstraction } from "@opencodehub/analysis";
 import type { Embedder } from "@opencodehub/embedder";
 import type { DuckDbStore } from "@opencodehub/storage";
+import { z } from "zod";
 import type { ConnectionPool } from "../connection-pool.js";
-import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
+import { toolAmbiguousRepoError, toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { RepoResolveError, type ResolvedRepo, resolveRepo } from "../repo-resolver.js";
 
 /**
@@ -91,23 +92,68 @@ export function fromToolResult(r: ToolResult): CallToolResult {
 }
 
 /**
+ * Shared zod shape for `{ repo, repo_uri }` — every per-repo MCP tool
+ * spreads this into its `inputSchema` so callers can pass either the
+ * registry name (`repo`) or a Sourcegraph-style URI (`repo_uri`). When
+ * both are provided, `repo_uri` wins at the resolver. See AC-M6-2 §5.
+ */
+export const repoArgShape = {
+  repo: z
+    .string()
+    .optional()
+    .describe(
+      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is. Prefer `repo_uri` for cross-host portability.",
+    ),
+  repo_uri: z
+    .string()
+    .optional()
+    .describe(
+      "Sourcegraph-style repo URI (e.g. `github.com/org/repo`, or `local:<hash>` for unpublished repos). Accepted as an alias for `repo`; wins when both are provided.",
+    ),
+} as const;
+
+/**
+ * Shape of the `{ repo, repo_uri }` arg pair accepted by tool handlers.
+ *
+ * Permits explicit `undefined` values so tool-handler arg types (which
+ * declare `repo?: string | undefined` under `exactOptionalPropertyTypes`)
+ * are structurally assignable without wrapping.
+ */
+export interface RepoArgs {
+  readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
+}
+
+/**
  * Acquire a store for the given repo argument, invoke `fn`, and release
  * the handle unconditionally. Errors from repo resolution become
  * structured NO_INDEX/NOT_FOUND envelopes; DuckDB errors become DB_ERROR.
  * The inner function always returns a CallToolResult so the surface of
  * this helper is the same type.
+ *
+ * `arg` accepts either a bare registry name (back-compat with pre-M6
+ * callers), an `undefined` (single-repo defaulting), or the full
+ * `{ repo?, repo_uri? }` object. The resolver handles the alias logic.
  */
 export async function withStore(
   ctx: ToolContext,
-  repoName: string | undefined,
+  arg: RepoArgs | string | undefined,
   fn: (store: DuckDbStore, resolved: ResolvedRepo) => Promise<CallToolResult>,
 ): Promise<CallToolResult> {
   let resolved: ResolvedRepo;
   try {
     const opts = ctx.home !== undefined ? { home: ctx.home } : {};
-    resolved = await resolveRepo(repoName, opts);
+    resolved = await resolveRepo(arg, opts);
   } catch (err) {
     if (err instanceof RepoResolveError) {
+      if (err.code === "AMBIGUOUS_REPO" && err.ambiguous !== undefined) {
+        return toolAmbiguousRepoError({
+          message: err.message,
+          hint: err.hint,
+          choices: err.ambiguous.choices,
+          totalMatches: err.ambiguous.totalMatches,
+        });
+      }
       return toolError(err.code, err.message, err.hint);
     }
     return toolErrorFromUnknown(err);

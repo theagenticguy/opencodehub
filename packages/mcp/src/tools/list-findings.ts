@@ -22,6 +22,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -29,12 +30,7 @@ import {
 } from "./shared.js";
 
 const ListFindingsInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   severity: z
     .enum(["error", "warning", "note", "none"])
     .optional()
@@ -71,6 +67,7 @@ interface FindingRow {
 
 interface ListFindingsArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly severity?: "error" | "warning" | "note" | "none" | undefined;
   readonly scanner?: string | undefined;
   readonly ruleId?: string | undefined;
@@ -83,7 +80,7 @@ export async function runListFindings(
   args: ListFindingsArgs,
 ): Promise<ToolResult> {
   const limit = args.limit ?? 500;
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const clauses: string[] = ["kind = 'Finding'"];
       const params: (string | number)[] = [];

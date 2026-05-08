@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
+import { type GraphNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
 import { assertReadOnlyCypher } from "./cypher-guard.js";
 import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
 import { openStore, resolveStoreBackend } from "./index.js";
@@ -816,5 +816,305 @@ test("vectorSearch returns nearest row after upsertEmbeddings", async () => {
     );
   } finally {
     await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// listNodes — kind filter, determinism, limit/offset, cross-adapter parity
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the same heterogenous fixture as the DuckStore tests so both
+ * adapters can be compared apples-to-apples. Covers File / Function /
+ * Class / Method / Dependency (wider columns) / Operation (column
+ * aliasing) / Repo (M6 nullable fields + languageStats).
+ */
+function buildListNodesFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const fileA = makeNodeId("File", "src/a.ts", "a.ts");
+  const fileB = makeNodeId("File", "src/b.ts", "b.ts");
+  g.addNode({ id: fileA, kind: "File", name: "a.ts", filePath: "src/a.ts" });
+  g.addNode({ id: fileB, kind: "File", name: "b.ts", filePath: "src/b.ts" });
+
+  for (let i = 0; i < 3; i += 1) {
+    const id = makeNodeId("Function", "src/a.ts", `fn_${i}`, { parameterCount: i });
+    g.addNode({
+      id,
+      kind: "Function",
+      name: `fn_${i}`,
+      filePath: "src/a.ts",
+      startLine: 10 + i,
+      endLine: 20 + i,
+      signature: `function fn_${i}()`,
+      parameterCount: i,
+      isExported: i === 0,
+    });
+  }
+
+  const cls = makeNodeId("Class", "src/b.ts", "Service");
+  g.addNode({
+    id: cls,
+    kind: "Class",
+    name: "Service",
+    filePath: "src/b.ts",
+    isExported: true,
+    startLine: 1,
+    endLine: 30,
+  });
+  g.addNode({
+    id: makeNodeId("Method", "src/b.ts", "Service.greet"),
+    kind: "Method",
+    name: "greet",
+    filePath: "src/b.ts",
+    startLine: 5,
+    endLine: 9,
+    parameterCount: 1,
+  });
+
+  g.addNode({
+    id: makeNodeId("Dependency", "package.json", "lodash@4.17.21"),
+    kind: "Dependency",
+    name: "lodash",
+    filePath: "package.json",
+    version: "4.17.21",
+    ecosystem: "npm",
+    lockfileSource: "pnpm-lock.yaml",
+    license: "MIT",
+  });
+  g.addNode({
+    id: makeNodeId("Dependency", "requirements.txt", "requests@2.31.0"),
+    kind: "Dependency",
+    name: "requests",
+    filePath: "requirements.txt",
+    version: "2.31.0",
+    ecosystem: "pypi",
+    lockfileSource: "requirements.txt",
+  });
+
+  g.addNode({
+    id: makeNodeId("Operation", "openapi.yaml", "GET /v1/users"),
+    kind: "Operation",
+    name: "listUsers",
+    filePath: "openapi.yaml",
+    method: "GET",
+    path: "/v1/users",
+    operationId: "listUsers",
+  });
+
+  g.addNode({
+    id: makeNodeId("Repo", "", "repo"),
+    kind: "Repo",
+    name: "test-repo",
+    filePath: ".",
+    originUrl: "https://github.com/example/test-repo",
+    repoUri: "github.com/example/test-repo",
+    defaultBranch: "main",
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+    indexTime: "2026-05-07T00:00:00Z",
+    group: null,
+    visibility: "public",
+    indexer: "och-test/0.1.0",
+    languageStats: { ts: 0.7, py: 0.3 },
+  });
+
+  return g;
+}
+
+test("listNodes() returns every kind when no filter is supplied (graph-db)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    const g = buildListNodesFixture();
+    await store.bulkLoad(g);
+
+    const all = await store.listNodes();
+    assert.equal(all.length, g.nodeCount());
+    const byKind = new Map<string, number>();
+    for (const n of all) byKind.set(n.kind, (byKind.get(n.kind) ?? 0) + 1);
+    assert.equal(byKind.get("Dependency"), 2);
+    assert.equal(byKind.get("Function"), 3);
+    assert.equal(byKind.get("Repo"), 1);
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() filters by kind and surfaces wider Dependency columns (graph-db)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const deps = await store.listNodes({ kinds: ["Dependency"] });
+    assert.equal(deps.length, 2);
+    for (const dep of deps) {
+      assert.equal(dep.kind, "Dependency");
+      const d = dep as GraphNode & {
+        version: string;
+        ecosystem: string;
+        lockfileSource: string;
+      };
+      assert.equal(typeof d.version, "string");
+      assert.equal(typeof d.ecosystem, "string");
+      assert.equal(typeof d.lockfileSource, "string");
+    }
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() empty kinds returns [] without hitting the engine (graph-db)", async () => {
+  // Pure JS short-circuit — runs even without the native binding.
+  const store = new GraphDbStore("/tmp/listnodes-empty.db");
+  // No open() — the empty-kinds branch should return before the pool guard.
+  const result = await store.listNodes({ kinds: [] });
+  assert.deepEqual(result, []);
+});
+
+test("listNodes() ORDER BY id ASC is deterministic across two writes (graph-db)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const g = buildListNodesFixture();
+  const storeA = new GraphDbStore(await scratchDbPath());
+  await storeA.open();
+  await storeA.createSchema();
+  await storeA.bulkLoad(g);
+  const idsA = (await storeA.listNodes()).map((n) => n.id);
+  await storeA.close();
+
+  const storeB = new GraphDbStore(await scratchDbPath());
+  await storeB.open();
+  await storeB.createSchema();
+  await storeB.bulkLoad(g);
+  const idsB = (await storeB.listNodes()).map((n) => n.id);
+  await storeB.close();
+
+  assert.deepEqual(idsA, idsB);
+  const sorted = [...idsA].sort();
+  assert.deepEqual(idsA, sorted);
+});
+
+test("listNodes() applies limit + offset on the sorted result (graph-db)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+
+    const all = await store.listNodes();
+    assert.ok(all.length >= 4, "fixture should have at least 4 nodes");
+
+    const firstPage = await store.listNodes({ limit: 2 });
+    const secondPage = await store.listNodes({ limit: 2, offset: 2 });
+    assert.equal(firstPage.length, 2);
+    assert.equal(secondPage.length, 2);
+    assert.deepEqual(
+      firstPage.map((n) => n.id),
+      all.slice(0, 2).map((n) => n.id),
+    );
+    assert.deepEqual(
+      secondPage.map((n) => n.id),
+      all.slice(2, 4).map((n) => n.id),
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("listNodes() rehydrates Operation method/path symmetrically (graph-db)", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+    await store.bulkLoad(buildListNodesFixture());
+    const ops = await store.listNodes({ kinds: ["Operation"] });
+    assert.equal(ops.length, 1);
+    const op = ops[0] as GraphNode & { method: string; path: string };
+    assert.equal(op.method, "GET");
+    assert.equal(op.path, "/v1/users");
+  } finally {
+    await store.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cross-adapter parity — DuckStore + GraphDbStore must agree byte-for-byte
+// on the same fixture. This is the M5 BOM safety net: if listNodes
+// diverges, downstream packHash diverges, and reproducible builds break.
+// ---------------------------------------------------------------------------
+
+test("listNodes() cross-adapter parity: DuckStore ≡ GraphDbStore on the shared fixture", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping cross-adapter parity");
+    return;
+  }
+  // Lazy-import DuckDbStore so the suite still loads on graph-db-only builds
+  // (e.g. when the storage package is consumed by a slim runtime that
+  // pruned @duckdb/node-api). The native binding for DuckDB is already a
+  // peer dependency of this package so the import always resolves in CI.
+  const { DuckDbStore } = await import("./duckdb-adapter.js");
+  const { canonicalJson } = await import("@opencodehub/core-types");
+
+  const fixture = buildListNodesFixture();
+
+  const duckPath = join(
+    await mkdtemp(join(tmpdir(), "och-listnodes-parity-duck-")),
+    "graph.duckdb",
+  );
+  const duck = new DuckDbStore(duckPath);
+  await duck.open();
+  await duck.createSchema();
+  await duck.bulkLoad(fixture);
+  const duckNodes = await duck.listNodes();
+  await duck.close();
+
+  const graphdb = new GraphDbStore(await scratchDbPath());
+  await graphdb.open();
+  await graphdb.createSchema();
+  await graphdb.bulkLoad(fixture);
+  const graphNodes = await graphdb.listNodes();
+  await graphdb.close();
+
+  // Both backends must return the same number of rows in the same order.
+  assert.equal(graphNodes.length, duckNodes.length, "row count parity");
+  assert.deepEqual(
+    graphNodes.map((n) => n.id),
+    duckNodes.map((n) => n.id),
+    "id ordering parity",
+  );
+
+  // Every kind+id pair must match, plus the load-bearing wider columns
+  // for Dependency / Repo / Operation. Compare via canonicalJson so key
+  // ordering / undefined drops are consistent.
+  for (let i = 0; i < duckNodes.length; i += 1) {
+    const duckNode = duckNodes[i] as GraphNode;
+    const graphNode = graphNodes[i] as GraphNode;
+    assert.equal(graphNode.id, duckNode.id, `id parity at index ${i}`);
+    assert.equal(graphNode.kind, duckNode.kind, `kind parity at ${duckNode.id}`);
+    assert.equal(
+      canonicalJson(graphNode),
+      canonicalJson(duckNode),
+      `byte parity at ${duckNode.id}`,
+    );
   }
 });

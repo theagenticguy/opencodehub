@@ -30,6 +30,7 @@ import { stalenessFromMeta } from "../staleness.js";
 import { classifyShape } from "./shape-check.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -37,7 +38,7 @@ import {
 } from "./shared.js";
 
 const ApiImpactInput = {
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
   route: z.string().optional().describe("Substring match against Route.url."),
   file: z.string().optional().describe("Substring match against Route.filePath."),
 };
@@ -60,12 +61,13 @@ export interface ApiImpactRow {
 
 interface ApiImpactArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly route?: string | undefined;
   readonly file?: string | undefined;
 }
 
 export async function runApiImpact(ctx: ToolContext, args: ApiImpactArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const rows = await analyzeApiImpact(store, args.route, args.file);
 

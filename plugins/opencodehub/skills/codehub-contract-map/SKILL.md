@@ -32,7 +32,7 @@ Default output path:
 1. Run the preconditions. Refuse on missing/unknown group.
 2. `mcp__opencodehub__group_list` — confirm `<group-name>` exists; read member list.
 3. `mcp__opencodehub__group_status({group})` — confirm freshness per member. Abort with named stale repos otherwise.
-4. `mcp__opencodehub__group_contracts({group})` — the spine. Returns `{producer_repo, consumer_repo, path, method, shape}`.
+4. `mcp__opencodehub__group_contracts({group})` — the spine. Returns `{consumerRepo, consumerRepoUri, consumerSymbol, producerRepo, producerRepoUri, producerRoute, method, path}` per row (legacy `consumerRepo`/`producerRepo` are the registry names; the `*RepoUri` siblings are the Sourcegraph-style cross-repo handle added in AC-M6-4 and are the preferred handle going forward).
 5. If `group_contracts` returns `[]` (zero inter-repo contracts): still write the artifact with a `No inter-repo contracts detected` banner and an empty matrix. Do not error. (Spec 001 AC-5-5.)
 6. `mcp__opencodehub__group_query({group, text: "api handlers"})` — disambiguate producer-side locations.
 7. For each member repo: `mcp__opencodehub__route_map({repo})` for handler-path citations.

@@ -15,8 +15,7 @@
 
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type { DependencyRef } from "./license-audit.js";
-import { classifyDependencies } from "./license-audit.js";
+import { classifyDependencies, type DependencyRef } from "@opencodehub/analysis";
 
 function dep(name: string, license: string): DependencyRef {
   return {

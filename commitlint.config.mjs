@@ -39,6 +39,7 @@ export default {
         "frameworks",
         "ingestion",
         "mcp",
+        "pack",
         "policy",
         "sarif",
         "scanners",

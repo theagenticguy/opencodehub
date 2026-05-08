@@ -29,6 +29,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -50,7 +51,7 @@ const SqlInput = {
     .describe(
       "Read-only Cypher statement (graph-db backend; requires `CODEHUB_STORE=lbug`). CREATE/DELETE/SET/MERGE/REMOVE/DROP are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
     ),
-  repo: z.string().optional().describe("Registered repo name."),
+  ...repoArgShape,
   timeout_ms: z
     .number()
     .int()
@@ -70,6 +71,7 @@ interface SqlArgs {
   readonly sql?: string | undefined;
   readonly cypher?: string | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly timeout_ms?: number | undefined;
 }
 
@@ -123,7 +125,7 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
   const statement = hasCypher ? (args.cypher as string) : (args.sql as string);
   const isCypher = hasCypher;
 
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       // Apply the guard BEFORE the store.query() call so the rejection
       // message carries the guard's own context (SqlGuardError /

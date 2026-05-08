@@ -5,6 +5,13 @@ export {
   isProducer,
   resolveCrossLinks,
 } from "./contracts.js";
+export type {
+  ComputeCrossRepoLinksOpts,
+  CrossRepoLink,
+  CrossRepoRelation,
+  DocPathScheme,
+} from "./cross-repo-links.js";
+export { computeCrossRepoLinks } from "./cross-repo-links.js";
 export type { GrpcClientExtractOptions, GrpcProtoExtractOptions } from "./grpc-patterns.js";
 export {
   extractGrpcClientContracts,

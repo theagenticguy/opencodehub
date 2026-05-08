@@ -21,6 +21,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -28,12 +29,7 @@ import {
 } from "./shared.js";
 
 const RouteMapInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
   route: z.string().optional().describe("Substring match against Route.url (e.g. '/api/users')."),
   method: z.string().optional().describe("Exact match against Route.method (e.g. 'GET')."),
   framework: z
@@ -54,13 +50,14 @@ interface RouteRow {
 
 interface RouteMapArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly route?: string | undefined;
   readonly method?: string | undefined;
   readonly framework?: string | undefined;
 }
 
 export async function runRouteMap(ctx: ToolContext, args: RouteMapArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const clauses: string[] = ["kind = 'Route'"];
       const params: (string | number)[] = [];

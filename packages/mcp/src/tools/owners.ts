@@ -18,6 +18,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -31,10 +32,7 @@ const OwnersInput = {
     .describe(
       "Node id of a File, Symbol, or Community to query for ownership. Must be a fully-qualified node id (e.g. 'File:src/app.ts:src/app.ts').",
     ),
-  repo: z
-    .string()
-    .optional()
-    .describe("Registered repo name; defaults to the only indexed repo if omitted."),
+  ...repoArgShape,
   limit: z
     .number()
     .int()
@@ -54,12 +52,13 @@ interface OwnerRow {
 interface OwnersArgs {
   readonly target: string;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
   readonly limit?: number | undefined;
 }
 
 export async function runOwners(ctx: ToolContext, args: OwnersArgs): Promise<ToolResult> {
   const limit = args.limit ?? 20;
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const rows = (await store.query(
         `SELECT c.email_hash AS email_hash,

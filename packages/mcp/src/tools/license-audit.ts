@@ -25,12 +25,13 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import { classifyDependencies, type DependencyRef } from "@opencodehub/analysis";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -38,93 +39,19 @@ import {
 } from "./shared.js";
 
 const LicenseAuditInput = {
-  repo: z
-    .string()
-    .optional()
-    .describe(
-      "Registered repo name. Required when ≥ 2 repos are registered; optional when exactly one is.",
-    ),
+  ...repoArgShape,
 };
-
-/**
- * Copyleft license prefix matcher. Upper-cased inputs only — callers must
- * normalise. The regex is anchored so `LGPL-3.0` does NOT match `^GPL`
- * (LGPL is weak copyleft → classified as UNKNOWN/WARN for v1.0, upgraded
- * in a follow-up task).
- */
-const COPYLEFT_PATTERN = /^(GPL|AGPL|SSPL|EUPL|CPAL|OSL|RPL)/;
-
-export interface DependencyRef {
-  readonly id: string;
-  readonly name: string;
-  readonly version: string;
-  readonly ecosystem: string;
-  readonly license: string;
-  readonly lockfileSource: string;
-}
-
-export type LicenseTier = "OK" | "WARN" | "BLOCK";
-
-export interface LicenseAuditFlagged {
-  readonly copyleft: readonly DependencyRef[];
-  readonly unknown: readonly DependencyRef[];
-  readonly proprietary: readonly DependencyRef[];
-}
-
-export interface LicenseAuditResult {
-  readonly tier: LicenseTier;
-  readonly flagged: LicenseAuditFlagged;
-  readonly summary: {
-    readonly total: number;
-    readonly okCount: number;
-    readonly flaggedCount: number;
-  };
-}
-
-/**
- * Pure classification. Exposed so unit tests can assert tier logic
- * without touching the MCP server scaffolding.
- */
-export function classifyDependencies(deps: readonly DependencyRef[]): LicenseAuditResult {
-  const copyleft: DependencyRef[] = [];
-  const unknown: DependencyRef[] = [];
-  const proprietary: DependencyRef[] = [];
-
-  for (const d of deps) {
-    const normalised = d.license.trim().toUpperCase();
-    if (normalised === "" || normalised === "UNKNOWN") {
-      unknown.push(d);
-    } else if (normalised === "PROPRIETARY") {
-      proprietary.push(d);
-    } else if (COPYLEFT_PATTERN.test(normalised)) {
-      copyleft.push(d);
-    }
-  }
-
-  const flaggedCount = copyleft.length + unknown.length + proprietary.length;
-  const hasBlocking = copyleft.length > 0 || proprietary.length > 0;
-  const tier: LicenseTier = hasBlocking ? "BLOCK" : unknown.length > 0 ? "WARN" : "OK";
-
-  return {
-    tier,
-    flagged: { copyleft, unknown, proprietary },
-    summary: {
-      total: deps.length,
-      okCount: deps.length - flaggedCount,
-      flaggedCount,
-    },
-  };
-}
 
 interface LicenseAuditArgs {
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runLicenseAudit(
   ctx: ToolContext,
   args: LicenseAuditArgs,
 ): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       const rows = (await store.query(
         `SELECT id, name, version, license, lockfile_source, ecosystem, file_path

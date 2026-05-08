@@ -31,6 +31,7 @@ import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
   fromToolResult,
+  repoArgShape,
   type ToolContext,
   type ToolResult,
   toToolResult,
@@ -56,7 +57,7 @@ const SignatureInput = {
     .string()
     .optional()
     .describe("Optional NodeKind to disambiguate (e.g. 'Class' vs 'Function')."),
-  repo: z.string().optional().describe("Registered repo name; defaults to the only indexed repo."),
+  ...repoArgShape,
 };
 
 interface NodeRow {
@@ -98,10 +99,11 @@ interface SignatureArgs {
   readonly filePath?: string | undefined;
   readonly kind?: string | undefined;
   readonly repo?: string | undefined;
+  readonly repo_uri?: string | undefined;
 }
 
 export async function runSignature(ctx: ToolContext, args: SignatureArgs): Promise<ToolResult> {
-  const call = await withStore(ctx, args.repo, async (store, resolved) => {
+  const call = await withStore(ctx, args, async (store, resolved) => {
     try {
       if (args.name === undefined && args.uid === undefined) {
         return withNextSteps(

@@ -44,6 +44,7 @@ export type {
   ProjectProfileNode,
   PropertyNode,
   RecordNode,
+  RepoNode,
   RouteNode,
   SectionNode,
   StaticNode,

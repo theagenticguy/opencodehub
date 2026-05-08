@@ -26,7 +26,48 @@ full inventory, use the `/opencodehub-guide` skill.
 ## AMBIGUOUS_REPO
 
 When two or more repos are indexed on this machine, per-repo tools require
-an explicit `repo:` argument and return `AMBIGUOUS_REPO` otherwise.
+an explicit `repo:` (or the `repo_uri:` alias — a Sourcegraph-style URI
+such as `github.com/org/repo`, or `local:<hash>` for unpublished repos)
+and return `AMBIGUOUS_REPO` otherwise. The error envelope carries a
+structured `_meta` payload on `structuredContent.error`:
+`{ error_code: "AMBIGUOUS_REPO", jsonrpc_code: -32602, choices: [ { repo_uri, default_branch, group } ] (capped at 10), total_matches, hint }` —
+so the calling agent can retry deterministically with a single `repo_uri`
+from `choices`. When `total_matches > choices.length`, the caller knows
+the list was truncated.
+
+See ADR 0012 (`docs/adr/0012-repo-as-first-class-node.md`) for the
+rationale behind `repo_uri` as a first-class node attribute. The
+`repo_uri` shape was promoted to a typed graph attribute by AC-M6-1
+(`packages/core-types/src/nodes.ts:524-552`). `group_cross_repo_links`
+(the AC-M6-3-reframed MCP tool) and the `group_*` family (AC-M6-4) all
+emit `repo_uri` in the same canonical form, so a caller can use any of
+those tools' `repo_uri` outputs as input to `AMBIGUOUS_REPO.choices`
+retries.
+
+Worked example — error envelope, then retry:
+
+```jsonc
+// Error envelope returned by a per-repo tool when two repos are indexed
+{
+  "structuredContent": {
+    "error": {
+      "error_code": "AMBIGUOUS_REPO",
+      "jsonrpc_code": -32602,
+      "choices": [
+        { "repo_uri": "github.com/org/api-svc", "default_branch": "main", "group": "platform" },
+        { "repo_uri": "github.com/org/billing-svc", "default_branch": "main", "group": "platform" }
+      ],
+      "total_matches": 2,
+      "hint": "Retry with repo_uri=<one of above>"
+    }
+  }
+}
+```
+
+```jsonc
+// Retry — pick the first choice deterministically
+{ "tool": "context", "args": { "repo_uri": "github.com/org/api-svc", "symbol": "..." } }
+```
 
 ## Durable lessons
 

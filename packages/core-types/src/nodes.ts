@@ -36,7 +36,8 @@ export type NodeKind =
   | "Dependency"
   | "Operation"
   | "Contributor"
-  | "ProjectProfile";
+  | "ProjectProfile"
+  | "Repo";
 
 // Insertion order is load-bearing: any reorder of NODE_KINDS changes the serialized
 // payload hashed by graphHash. New kinds must be APPENDED at the end to preserve
@@ -78,6 +79,7 @@ export const NODE_KINDS: readonly NodeKind[] = [
   "Operation",
   "Contributor",
   "ProjectProfile",
+  "Repo",
 ] as const;
 
 interface NodeBase {
@@ -505,6 +507,50 @@ export interface ProjectProfileNode extends NodeBase {
   readonly srcDirs: readonly string[];
 }
 
+/**
+ * First-class repo entity. One per indexed repository.
+ *
+ * Synthesizes the Sourcegraph-style repository URI scheme with SCIP
+ * `Metadata.toolInfo`: a stable cross-repo handle (`repoUri`) plus the
+ * indexer name + version that produced this graph.
+ *
+ * Singleton per graph — constructed via `makeNodeId("Repo", "", "repo")` so
+ * the id stays stable across clones of the same repo on different absolute
+ * paths (mirroring ProjectProfileNode). The 9 attributes below match spec
+ * 005 AC-M6-1 E-M6-1 exactly; `indexTime` is deliberately kept OUT of
+ * `pack_hash` / `graphHash` inputs (it serializes as a node field but does
+ * not feed determinism-sensitive pipelines).
+ */
+export interface RepoNode extends NodeBase {
+  readonly kind: "Repo";
+  /** Canonical remote URL; null when no git remote exists. */
+  readonly originUrl: string | null;
+  /**
+   * Sourcegraph-style host-path key. Example: `github.com/org/repo`.
+   *
+   * When `originUrl` is null, this is `local:<sha256(absolute-path)[:12]>`
+   * so the handle remains deterministic and distinguishable per S-M6-1.
+   */
+  readonly repoUri: string;
+  /** Default branch at index time. Example: `main`. Null when detached or unknown. */
+  readonly defaultBranch: string | null;
+  /** 40-char commit SHA the index was built against. */
+  readonly commitSha: string;
+  /** RFC-3339 UTC. Kept OUT of pack_hash / graphHash determinism inputs. */
+  readonly indexTime: string;
+  /** Federation-group tag. Null when the repo isn't in a group. */
+  readonly group: string | null;
+  /** Visibility for MCP gating. Defaults to `private`. */
+  readonly visibility: "private" | "internal" | "public";
+  /** Name+version of the indexer, per SCIP `Metadata.toolInfo`. */
+  readonly indexer: string;
+  /**
+   * Language distribution by fraction. Example: `{ ts: 0.83, py: 0.14 }`.
+   * Sum is bounded at 1.0. Keys sorted for byte-stable serialization.
+   */
+  readonly languageStats: Readonly<Record<string, number>>;
+}
+
 export type GraphNode =
   | FileNode
   | FolderNode
@@ -541,7 +587,8 @@ export type GraphNode =
   | DependencyNode
   | OperationNode
   | ContributorNode
-  | ProjectProfileNode;
+  | ProjectProfileNode
+  | RepoNode;
 
 export interface Embedding {
   readonly id: string;

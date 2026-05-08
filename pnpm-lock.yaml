@@ -108,6 +108,9 @@ importers:
       '@opencodehub/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@opencodehub/pack':
+        specifier: workspace:*
+        version: link:../pack
       '@opencodehub/policy':
         specifier: workspace:*
         version: link:../policy
@@ -372,6 +375,9 @@ importers:
       '@opencodehub/embedder':
         specifier: workspace:*
         version: link:../embedder
+      '@opencodehub/pack':
+        specifier: workspace:*
+        version: link:../pack
       '@opencodehub/sarif':
         specifier: workspace:*
         version: link:../sarif
@@ -390,6 +396,34 @@ importers:
       zod:
         specifier: 4.4.3
         version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: 25.6.0
+        version: 25.6.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/pack:
+    dependencies:
+      '@chonkiejs/core':
+        specifier: ^0.0.9
+        version: 0.0.9(@types/emscripten@1.41.5)
+      '@opencodehub/analysis':
+        specifier: workspace:*
+        version: link:../analysis
+      '@opencodehub/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+      '@opencodehub/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion
+      '@opencodehub/sarif':
+        specifier: workspace:*
+        version: link:../sarif
+      '@opencodehub/storage':
+        specifier: workspace:*
+        version: link:../storage
     devDependencies:
       '@types/node':
         specifier: 25.6.0
@@ -451,6 +485,9 @@ importers:
       '@bufbuild/protobuf':
         specifier: 2.12.0
         version: 2.12.0
+      '@opencodehub/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@opencodehub/core-types':
         specifier: workspace:*
         version: link:../core-types
@@ -782,6 +819,12 @@ packages:
 
   '@bufbuild/protobuf@2.12.0':
     resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
+
+  '@chonkiejs/chunk@0.9.3':
+    resolution: {integrity: sha512-uUOeoFGY3s6kzAoKskI50weZN0zvW3oLwUijA1uX7Wxuy9yZStF2IvGuXRigMgP2g/L85lsotYGkjpBMLjQnrg==}
+
+  '@chonkiejs/core@0.0.9':
+    resolution: {integrity: sha512-kcESzmeF4k+m11stJDEbXCf4BAFt0Wl+9R4vkcjrdLOLSSScsHIYDSmQp3Q03+Kay89qSg7v2gTfBZj2c5SEFA==}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -3950,6 +3993,14 @@ packages:
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
 
+  web-tree-sitter@0.25.10:
+    resolution: {integrity: sha512-Y09sF44/13XvgVKgO2cNDw5rGk6s26MgoZPXLESvMXeefBf7i6/73eFurre0IsTW6E14Y0ArIzhUMmjoc7xyzA==}
+    peerDependencies:
+      '@types/emscripten': ^1.40.0
+    peerDependenciesMeta:
+      '@types/emscripten':
+        optional: true
+
   web-tree-sitter@0.26.8:
     resolution: {integrity: sha512-4sUwi7ZyOrIk5KLgYLkc2A/F0LFMQnBhfb+2Cdl7ik4ePJ6JD+fk4ofI2sA5eGawBKBaK4Vntt7Ww5KcEsay4A==}
 
@@ -4583,6 +4634,15 @@ snapshots:
     optional: true
 
   '@bufbuild/protobuf@2.12.0': {}
+
+  '@chonkiejs/chunk@0.9.3': {}
+
+  '@chonkiejs/core@0.0.9(@types/emscripten@1.41.5)':
+    dependencies:
+      '@chonkiejs/chunk': 0.9.3
+      web-tree-sitter: 0.25.10(@types/emscripten@1.41.5)
+    transitivePeerDependencies:
+      - '@types/emscripten'
 
   '@colors/colors@1.5.0':
     optional: true
@@ -7897,6 +7957,10 @@ snapshots:
   wcwidth@1.0.1:
     dependencies:
       defaults: 1.0.4
+
+  web-tree-sitter@0.25.10(@types/emscripten@1.41.5):
+    optionalDependencies:
+      '@types/emscripten': 1.41.5
 
   web-tree-sitter@0.26.8: {}
 
