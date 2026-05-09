@@ -921,4 +921,15 @@ export interface StoreMeta {
   readonly cacheSizeBytes?: number;
   /** ISO-8601 timestamp of the last parse-cache compaction pass. */
   readonly lastCompaction?: string;
+  /**
+   * Embedder model identifier used to populate the `embeddings` table
+   * during the most recent index run. Populated from
+   * {@link Embedder.modelId}. The query path compares this to the
+   * currently-active embedder's modelId; a mismatch returns exit 2 with
+   * a remediation hint unless `--force-backend-mismatch` is set.
+   * Optional so legacy stores keep round-tripping; the open-time
+   * backfill attributes pre-existing NULL rows to the currently-active
+   * embedder with a one-shot stderr warning.
+   */
+  readonly embedderModelId?: string;
 }

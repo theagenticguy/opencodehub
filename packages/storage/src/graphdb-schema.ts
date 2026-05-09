@@ -67,6 +67,7 @@ const RELATION_KINDS: readonly string[] = [
   "FOUND_IN",
   "DEPENDS_ON",
   "OWNED_BY",
+  "TYPE_OF",
 ];
 
 /**
@@ -198,6 +199,7 @@ export function generateSchemaDdl(opts: GraphDbSchemaOptions = {}): string {
   cache_hit_ratio DOUBLE,
   cache_size_bytes INT64,
   last_compaction STRING,
+  embedder_model_id STRING,
   PRIMARY KEY (id)
 )`);
 

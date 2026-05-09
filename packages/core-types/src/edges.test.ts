@@ -5,17 +5,22 @@ import { KnowledgeGraph } from "./graph.js";
 import { makeNodeId } from "./id.js";
 import type { GraphNode } from "./nodes.js";
 
-test("RELATION_TYPES: length is 24 after COCHANGES extraction (21 MVP + 3 new)", () => {
-  assert.equal(RELATION_TYPES.length, 24);
+test("RELATION_TYPES: length is 25 after TYPE_OF append", () => {
+  assert.equal(RELATION_TYPES.length, 25);
 });
 
-test("RELATION_TYPES: contains the three remaining v1.0 additions (append-only)", () => {
-  for (const t of ["FOUND_IN", "DEPENDS_ON", "OWNED_BY"] as const) {
+test("RELATION_TYPES: contains the v1.0 additions in append order", () => {
+  for (const t of ["FOUND_IN", "DEPENDS_ON", "OWNED_BY", "TYPE_OF"] as const) {
     assert.ok(RELATION_TYPES.includes(t), `RELATION_TYPES missing ${t}`);
   }
   const firstNewIdx = RELATION_TYPES.indexOf("FOUND_IN");
   assert.equal(RELATION_TYPES[firstNewIdx - 1], "REFERENCES");
-  assert.deepEqual(RELATION_TYPES.slice(firstNewIdx), ["FOUND_IN", "DEPENDS_ON", "OWNED_BY"]);
+  assert.deepEqual(RELATION_TYPES.slice(firstNewIdx), [
+    "FOUND_IN",
+    "DEPENDS_ON",
+    "OWNED_BY",
+    "TYPE_OF",
+  ]);
 });
 
 test("RELATION_TYPES: COCHANGES is NOT a relation type (moved to cochanges table)", () => {
@@ -48,6 +53,7 @@ test("type-level exhaustiveness: every RelationType appears in RELATION_TYPES", 
     FOUND_IN: true,
     DEPENDS_ON: true,
     OWNED_BY: true,
+    TYPE_OF: true,
   };
   for (const t of RELATION_TYPES) {
     assert.equal(flags[t], true, `RELATION_TYPES contains ${t} but type-check map does not`);

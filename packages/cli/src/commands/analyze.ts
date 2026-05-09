@@ -731,13 +731,20 @@ function boolField(r: Record<string, unknown>, col: string): boolean | undefined
 }
 
 function stringArrayField(r: Record<string, unknown>, col: string): readonly string[] | undefined {
+  // Preserve `[]` distinct from absent. The DuckDB TEXT[] binder returns
+  // a 0-length JS array for an empty SQL array literal and `null` for
+  // SQL NULL; mirror the storage adapter's `setStringArrayField` and
+  // return the array verbatim so a Community / Route node written as
+  // `{keywords: []}` (or `{responseKeys: []}`) survives the carry-forward
+  // load with its empty array intact — required so canonical-JSON /
+  // graphHash byte-identity holds across the incremental re-index.
   const v = r[col];
   if (!Array.isArray(v)) return undefined;
   const out: string[] = [];
   for (const item of v) {
     if (typeof item === "string") out.push(item);
   }
-  return out.length > 0 ? out : undefined;
+  return out;
 }
 
 function parseJsonStringArrayField(

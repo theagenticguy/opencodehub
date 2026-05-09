@@ -129,8 +129,10 @@ export function deriveCacheKey(
  *
  * The grammarSha/pipelineVersion suffix ensures two simultaneous entries
  * for the same content (e.g. before/after a grammar bump) cannot clobber
- * each other — older entries simply become unreachable and are cleaned up
- * lazily by a future eviction pass.
+ * each other — older entries simply become unreachable and are reclaimed
+ * by the LRU sweep in {@link evictIfOverCap}, which runs after every
+ * `writeCacheEntry` when `CODEHUB_PARSE_CACHE_MAX_BYTES` (default `1GiB`)
+ * is non-zero.
  */
 export function cacheFilePath(cacheDir: string, key: CacheKey): string {
   const shard = key.contentSha.slice(0, SHARD_PREFIX_LEN);
@@ -172,8 +174,21 @@ export async function readCacheEntry(cacheDir: string, key: CacheKey): Promise<C
 }
 
 /**
+ * Default cap when `CODEHUB_PARSE_CACHE_MAX_BYTES` is unset. 1 GiB keeps a
+ * generous headroom on a typical dev box while preventing the cache from
+ * growing without bound on long-lived analyzer hosts. Set the env var to
+ * `0` to disable eviction entirely (useful for ephemeral CI runners).
+ */
+const DEFAULT_CACHE_CAP = "1GiB";
+
+/**
  * Write a cache entry atomically. Creates the shard directory if missing.
  * Never throws on `mkdir EEXIST`; other IO failures propagate to the caller.
+ *
+ * After a successful write, runs {@link evictIfOverCap} against the cap
+ * sourced from `CODEHUB_PARSE_CACHE_MAX_BYTES` (default `1GiB`; `0`
+ * disables). Eviction errors are swallowed — a cache-eviction failure
+ * is never fatal to the pipeline.
  */
 export async function writeCacheEntry(
   cacheDir: string,
@@ -186,6 +201,122 @@ export async function writeCacheEntry(
   await fs.mkdir(parentDir, { recursive: true });
   const payload = `${JSON.stringify(entry, null, 2)}\n`;
   await writeFileAtomicAsync(filePath, payload);
+  // Post-write LRU sweep — gated on env, errors swallowed.
+  const cap = parseHumanSizeBytes(
+    process.env["CODEHUB_PARSE_CACHE_MAX_BYTES"] ?? DEFAULT_CACHE_CAP,
+  );
+  if (cap > 0) {
+    try {
+      await evictIfOverCap(cacheDir, cap);
+    } catch {
+      // Cache-eviction failure is never fatal; caller still got their write.
+    }
+  }
+}
+
+/**
+ * Parse a human-readable size string (e.g. `"1GiB"`, `"500MB"`, `"0"`) into
+ * bytes. Numeric inputs pass through clamped to non-negative. Unknown
+ * units, malformed input, or negative numbers all yield `0` (which the
+ * eviction code treats as "disabled"). Both decimal (KB/MB/GB/TB) and
+ * binary (KiB/MiB/GiB/TiB) prefixes are supported.
+ */
+export function parseHumanSizeBytes(input: string | number): number {
+  if (typeof input === "number") return Number.isFinite(input) ? Math.max(0, Math.floor(input)) : 0;
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([KMGT]i?B?|B)?\s*$/i.exec(input);
+  if (!m) return 0;
+  const n = Number.parseFloat(m[1] ?? "0");
+  if (!Number.isFinite(n) || n < 0) return 0;
+  const unit = (m[2] ?? "").toUpperCase();
+  const mult: Record<string, number> = {
+    "": 1,
+    B: 1,
+    KB: 1_000,
+    KIB: 1024,
+    MB: 1_000_000,
+    MIB: 1024 ** 2,
+    GB: 1_000_000_000,
+    GIB: 1024 ** 3,
+    TB: 1_000_000_000_000,
+    TIB: 1024 ** 4,
+  };
+  return Math.floor(n * (mult[unit] ?? 1));
+}
+
+/**
+ * LRU-evict cache entries until total on-disk bytes ≤ `0.9 × capBytes`.
+ *
+ * Walks the same shard layout as {@link computeCacheSize}: each top-level
+ * directory under `cacheDir` is treated as a shard, and every regular
+ * file inside it is a candidate. Entries are sorted by mtime ascending,
+ * then unlinked in oldest-first order until the running total reaches
+ * the 90 % water-mark — the headroom prevents thrash where each new
+ * write evicts exactly one older entry.
+ *
+ * Behavior:
+ *   - `capBytes <= 0` short-circuits (eviction disabled).
+ *   - Missing `cacheDir` is a no-op.
+ *   - Per-file errors during stat or unlink are swallowed (skipped).
+ *   - Total under cap → no work done.
+ *
+ * Cache layout reminder: `<cacheDir>/<shard:2>/<contentSha>-<grammar:6>-<pipelineVersion>.json`.
+ */
+export async function evictIfOverCap(cacheDir: string, capBytes: number): Promise<void> {
+  if (capBytes <= 0) return;
+
+  interface Candidate {
+    readonly path: string;
+    readonly size: number;
+    readonly mtimeMs: number;
+  }
+  const candidates: Candidate[] = [];
+  let total = 0;
+
+  let shards: import("node:fs").Dirent[];
+  try {
+    shards = await fs.readdir(cacheDir, { withFileTypes: true });
+  } catch {
+    return; // Missing cache dir → nothing to evict.
+  }
+  // Deterministic shard order matches computeCacheSize.
+  shards.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const shard of shards) {
+    if (!shard.isDirectory()) continue;
+    const shardPath = path.join(cacheDir, shard.name);
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(shardPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const e of entries) {
+      if (!e.isFile()) continue;
+      const entryPath = path.join(shardPath, e.name);
+      try {
+        const s = await fs.stat(entryPath);
+        candidates.push({ path: entryPath, size: s.size, mtimeMs: s.mtimeMs });
+        total += s.size;
+      } catch {
+        // File vanished mid-traversal; skip.
+      }
+    }
+  }
+
+  if (total <= capBytes) return;
+
+  const target = Math.floor(0.9 * capBytes);
+  // Oldest first → LRU eviction order.
+  candidates.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  for (const c of candidates) {
+    if (total <= target) break;
+    try {
+      await fs.unlink(c.path);
+      total -= c.size;
+    } catch {
+      // Concurrent unlink, EACCES, etc. — keep going; over-cap is recoverable.
+    }
+  }
 }
 
 /**

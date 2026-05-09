@@ -16,6 +16,30 @@ import { writeCanonicalJson } from "./hash.js";
  * inputs small enough for the all-in-memory path to succeed. The determinism
  * tests in `graph-hash.test.ts` cover cross-permutation stability; the
  * upstream tests must not change hex output for fixture-sized graphs.
+ *
+ * **Empty-collection contract:** `canonicalJson` (in `./hash.ts`)
+ * treats an empty array `[]` and an empty object `{}` as DISTINCT from an
+ * absent / `undefined` field. A node written as `{keywords: []}` emits
+ * `{"keywords":[]}` in the canonical JSON projection, while the same node
+ * with the `keywords` key absent emits no key at all — the two
+ * canonical-JSON byte streams differ, so their SHA-256 graph hashes
+ * differ. Storage adapters preserve this distinction at the writer +
+ * reader boundary: see
+ * `packages/storage/src/column-encode.ts:stringArrayOrNull`,
+ * `packages/storage/src/duckdb-adapter.ts:setStringArrayField`,
+ * `packages/storage/src/graphdb-adapter.ts:setStringArrayFieldGd`, and
+ * `packages/cli/src/commands/analyze.ts:stringArrayField`. The contract
+ * is exercised end-to-end by the
+ * `graphHash parity: medium-with-empty-keywords` fixture in
+ * `packages/storage/src/graph-hash-parity.test.ts`, which asserts both
+ * (a) cross-adapter parity for `{keywords: []}` and (b) the resulting
+ * hash differs from the equivalent fixture without the `keywords` key.
+ *
+ * The same `[]`-vs-absent semantics apply to `responseKeys` on RouteNode.
+ * Empty `Record<string, number>` (`languageStats: {}`) goes through a
+ * separate sentinel path — see `coerceLanguageStats` in
+ * `column-encode.ts` — because that column is JSON-encoded TEXT, not a
+ * native typed array.
  */
 export function graphHash(graph: KnowledgeGraph): string {
   const hasher = createHash("sha256");

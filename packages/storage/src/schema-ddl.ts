@@ -170,17 +170,22 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
     `CREATE INDEX IF NOT EXISTS idx_embeddings_granularity ON embeddings (granularity)`,
 
     `CREATE TABLE IF NOT EXISTS store_meta (
-      id                INTEGER PRIMARY KEY,
-      schema_version    TEXT NOT NULL,
-      last_commit       TEXT,
-      indexed_at        TEXT NOT NULL,
-      node_count        INTEGER NOT NULL,
-      edge_count        INTEGER NOT NULL,
-      stats_json        TEXT,
-      cache_hit_ratio   DOUBLE,
-      cache_size_bytes  BIGINT,
-      last_compaction   TEXT
+      id                  INTEGER PRIMARY KEY,
+      schema_version      TEXT NOT NULL,
+      last_commit         TEXT,
+      indexed_at          TEXT NOT NULL,
+      node_count          INTEGER NOT NULL,
+      edge_count          INTEGER NOT NULL,
+      stats_json          TEXT,
+      cache_hit_ratio     DOUBLE,
+      cache_size_bytes    BIGINT,
+      last_compaction     TEXT,
+      embedder_model_id   TEXT
     )`,
+    // Older stores without the embedder fingerprint column get it
+    // here; pre-existing rows stay NULL so the open-time backfill can
+    // attribute them to the currently-active embedder with a one-shot warning.
+    `ALTER TABLE store_meta ADD COLUMN IF NOT EXISTS embedder_model_id TEXT`,
 
     // File-level co-change table. Separate from `relations` because the signal
     // is statistical (not deterministic), file-granular, and rewrites on every

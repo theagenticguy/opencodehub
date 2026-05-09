@@ -36,7 +36,11 @@ import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createNodeFs, type FsAbstraction } from "@opencodehub/analysis";
 import type { GraphNode } from "@opencodehub/core-types";
-import type { Embedder } from "@opencodehub/embedder";
+import {
+  assertEmbedderCompatible,
+  type Embedder,
+  openDefaultEmbedder,
+} from "@opencodehub/embedder";
 import type { FusedHit, SymbolHit } from "@opencodehub/search";
 import {
   bm25Search,
@@ -46,7 +50,7 @@ import {
 } from "@opencodehub/search";
 import type { IGraphStore, ITemporalStore, SymbolSummaryRow } from "@opencodehub/storage";
 import { z } from "zod";
-import { toolErrorFromUnknown } from "../error-envelope.js";
+import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
 import { stalenessFromMeta } from "../staleness.js";
 import {
@@ -131,6 +135,12 @@ const QueryInput = {
     .max(50)
     .optional()
     .describe("How many files to shortlist at the coarse step when `mode=zoom`. Default 10."),
+  force_backend_mismatch: z
+    .boolean()
+    .optional()
+    .describe(
+      "Bypass the embedder fingerprint check. Lets the query proceed against an `embeddings` table populated by a different embedder than the one currently active. Vectors may be stale; results may misrank. Default false.",
+    ),
 };
 
 /** Row shape returned to the MCP client. Stable across BM25-only + hybrid. */
@@ -431,31 +441,6 @@ function fusedAsRanked(
 }
 
 /**
- * Default production factory — lazy-imports `@opencodehub/embedder` so the
- * ONNX runtime native binding only loads when the tool actually needs it.
- * Tests replace this via `ctx.openEmbedder` so they don't have to stage
- * gte-modernbert-base weight files on disk.
- *
- * Priority:
- *   1. If `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` are set, route
- *      through the HTTP embedder. The query tool runs inside the MCP stdio
- *      server which never runs in offline mode, so the HTTP path is
- *      available whenever the env is configured.
- *   2. Otherwise, open the local ONNX embedder. The existing graceful
- *      fallback (`EMBEDDER_NOT_SETUP` → BM25-only) continues to apply.
- *
- * Any dim mismatch between the remote model and the stored vectors surfaces
- * as an error on the first `embed()` call, which `tryOpenEmbedder` catches
- * and degrades to BM25-only with a clear warning.
- */
-async function defaultOpenEmbedder(): Promise<Embedder> {
-  const mod = await import("@opencodehub/embedder");
-  const httpEmbedder = mod.tryOpenHttpEmbedder();
-  if (httpEmbedder !== null) return httpEmbedder;
-  return mod.openOnnxEmbedder();
-}
-
-/**
  * Walk PROCESS_STEP edges backwards from each top-K hit to find containing
  * Process nodes, then walk PROCESS_STEP edges forward from each matched
  * Process's entry point to enumerate its ordered member symbols. All of
@@ -621,13 +606,22 @@ interface QueryArgs {
   readonly mode?: "flat" | "zoom";
   /** Coarse file-tier fanout when mode=zoom. */
   readonly zoom_fanout?: number;
+  /**
+   * Bypass the embedder fingerprint refusal. When `true`, the query
+   * proceeds against an `embeddings` table populated by a different
+   * embedder than the one currently active. Vectors may be stale;
+   * results may misrank. Default `false`.
+   */
+  readonly force_backend_mismatch?: boolean;
 }
 
 export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolResult> {
   const limit = args.limit ?? 10;
   const maxSymbols = args.max_symbols ?? DEFAULT_MAX_SYMBOLS;
   const includeContent = args.include_content === true;
-  const openEmbedder = ctx.openEmbedder ?? defaultOpenEmbedder;
+  // Shared HTTP-priority + ONNX-fallback factory. ONNX binding only loads
+  // on the fallback branch, so plain (non-dynamic) import is fine here.
+  const openEmbedder = ctx.openEmbedder ?? (() => openDefaultEmbedder());
   const fsFactory = ctx.fsFactory ?? createNodeFs;
   // `searchText` is what goes to BM25 + the embedder. When `task_context`
   // or `goal` are present, they get prefixed so the ranker sees the broader
@@ -654,6 +648,24 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
         const embedder = await tryOpenEmbedder<Embedder>(openEmbedder, "[mcp:query]");
         if (embedder) {
           try {
+            // Refuse when the persisted embedder modelId differs from
+            // the current one. Same-dim vectors from different embedders
+            // silently corrupt ranking. `force_backend_mismatch` lets
+            // the caller override.
+            const meta = await graph.getMeta();
+            const compat = assertEmbedderCompatible(
+              meta?.embedderModelId,
+              embedder.modelId,
+              args.force_backend_mismatch === true,
+            );
+            if (!compat.ok) {
+              return toolError(
+                "EMBEDDER_MISMATCH",
+                `Embedder mismatch: store was indexed with '${compat.persistedModelId}', ` +
+                  `current embedder is '${compat.currentModelId}'.`,
+                compat.hint,
+              );
+            }
             const fused = await hybridSearch(
               graph,
               {
@@ -840,6 +852,9 @@ export function registerQueryTool(server: McpServer, ctx: ToolContext): void {
         ...(args.granularity !== undefined ? { granularity: args.granularity } : {}),
         ...(args.mode !== undefined ? { mode: args.mode } : {}),
         ...(args.zoom_fanout !== undefined ? { zoom_fanout: args.zoom_fanout } : {}),
+        ...(args.force_backend_mismatch !== undefined
+          ? { force_backend_mismatch: args.force_backend_mismatch }
+          : {}),
       };
       return fromToolResult(await runQuery(ctx, typed));
     },

@@ -85,17 +85,24 @@ test("booleanOrNull: booleans pass through; everything else → null", () => {
 // stringArrayOrNull
 // ---------------------------------------------------------------------------
 
-test("stringArrayOrNull: arrays of strings pass through (Track C-2: empty → null)", () => {
+test("stringArrayOrNull: preserves [] vs absent for round-trip symmetry", () => {
   assert.deepEqual(stringArrayOrNull(["a", "b"]), ["a", "b"]);
-  // Track C-2 caveat — empty array collapses to null.
-  assert.equal(stringArrayOrNull([]), null);
+  // Explicit empty array survives the writer side as a typed 0-length
+  // array (NOT null) so the native TEXT[] / STRING[] column can
+  // distinguish `keywords: []` from absent. The symmetric reader is in
+  // duckdb-adapter.ts:setStringArrayField + analyze.ts:stringArrayField.
+  assert.deepEqual(stringArrayOrNull([]), []);
   assert.equal(stringArrayOrNull("a"), null);
   assert.equal(stringArrayOrNull(null), null);
   assert.equal(stringArrayOrNull(undefined), null);
   // Non-string elements are filtered silently; mixed arrays keep the strings.
   assert.deepEqual(stringArrayOrNull(["a", 1, null, "b"]), ["a", "b"]);
-  // Filtering out everything yields null.
-  assert.equal(stringArrayOrNull([1, null, undefined]), null);
+  // Filtering out every element yields an empty array — NOT null. The
+  // input was an array (= author intent: collection), just one whose
+  // elements all violated the contract. The reader will rebuild this as
+  // `[]` rather than dropping the field entirely; that's intentional —
+  // it preserves the array-vs-absent signal even after element coercion.
+  assert.deepEqual(stringArrayOrNull([1, null, undefined]), []);
 });
 
 // ---------------------------------------------------------------------------
