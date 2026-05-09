@@ -472,14 +472,14 @@ describe("embeddingsPhase — hierarchical tiers (P03)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// T-M1-3 content-hash skip: integration-style tests that run the phase twice
-// against the same graph and verify the second run short-circuits on every
-// chunk whose prior hash matches. Uses the same HTTP-embedder stub as the P03
-// tier tests above (fetch stub installed there would already be torn down, so
-// we install a fresh one scoped to this describe block).
+// Content-hash skip: integration-style tests that run the phase twice against
+// the same graph and verify the second run short-circuits on every chunk
+// whose prior hash matches. Uses the same HTTP-embedder stub as the P03 tier
+// tests above (fetch stub installed there would already be torn down, so we
+// install a fresh one scoped to this describe block).
 // ---------------------------------------------------------------------------
 
-describe("embeddingsPhase — content-hash skip (T-M1-3)", () => {
+describe("embeddingsPhase — content-hash skip", () => {
   const originalUrl = process.env["CODEHUB_EMBEDDING_URL"];
   const originalModel = process.env["CODEHUB_EMBEDDING_MODEL"];
   const originalDims = process.env["CODEHUB_EMBEDDING_DIMS"];

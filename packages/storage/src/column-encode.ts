@@ -5,7 +5,7 @@
  * (`./graphdb-adapter.ts`) write a 73-column row per node where every column
  * matches the canonical {@link NODE_COLUMNS} order. The two adapters used to
  * carry duplicate `nodeToRow` / `nodeToParams` / `*OrNull` / `dedupeLastById`
- * helpers; per AC-A-2 they now consume one canonical implementation here.
+ * helpers; both now consume one canonical implementation here.
  *
  * The module is `internal-only` — it is NOT re-exported from
  * `packages/storage/src/index.ts`. Adapters import directly from
@@ -41,8 +41,8 @@
  * `{keywords: []}` round-trips byte-identically to itself instead of
  * collapsing to `{}` (canonical-JSON / graphHash distinction preserved).
  *
- * **`frameworks_json` unification note (AC-A-2)** — before the hoist, the
- * DuckDB adapter wrote the v2.0 polymorphic shape via `frameworksJsonOrNull`
+ * **`frameworks_json` unification** — before the hoist, the DuckDB
+ * adapter wrote the v2.0 polymorphic shape via `frameworksJsonOrNull`
  * while the graph-db adapter wrote the legacy flat shape via
  * `jsonArrayOrNull`. Both adapters' readers already support both shapes
  * (`applyFrameworksJsonReadback`, `applyFrameworksJsonReadbackGd`). The
@@ -145,7 +145,7 @@ export const NODE_COLUMNS: readonly string[] = [
   "partial_fingerprint",
   "baseline_state",
   "suppressed_json",
-  // Repo (AC-M6-1).
+  // Repo.
   "origin_url",
   "repo_uri",
   "default_branch",
@@ -251,8 +251,8 @@ export function nodeToColumns(node: GraphNode): Record<string, unknown> {
     partial_fingerprint: stringOrNull(n["partialFingerprint"]),
     baseline_state: stringOrNull(n["baselineState"]),
     suppressed_json: stringOrNull(n["suppressedJson"]),
-    // Repo (AC-M6-1). Each column is populated only when
-    // `node.kind === "Repo"` and stays NULL for every other kind.
+    // Repo. Each column is populated only when `node.kind === "Repo"`
+    // and stays NULL for every other kind.
     // `originUrl` / `defaultBranch` / `group` are nullable on the interface
     // — `repoStringOrNull` collapses null and missing alike to SQL NULL.
     origin_url: repoStringOrNull(n, "originUrl"),
@@ -435,16 +435,16 @@ export function normalizeDeadness(v: unknown): unknown {
  * version bump. The read side in `packages/mcp/src/tools/project-profile.ts`
  * sniffs the shape.
  *
- * Both adapters now call this function (AC-A-2). The graph-db writer
- * previously emitted only the legacy flat shape; with the unification it
- * gains the v2.0 envelope when callers populate `frameworksDetected`. The
- * legacy path is byte-identical to the old graph-db output, so existing
- * graphs keep round-tripping unchanged.
+ * Both adapters call this function. The graph-db writer previously
+ * emitted only the legacy flat shape; with the unification it gains the
+ * v2.0 envelope when callers populate `frameworksDetected`. The legacy
+ * path is byte-identical to the old graph-db output, so existing graphs
+ * keep round-tripping unchanged.
  *
- * **AC-A-7 fix:** when both `flat` is absent / non-array AND `detected` is
- * empty, return `null` so the column stays NULL for nodes that never
- * declared a `frameworks` field (every node kind except ProjectProfile,
- * in practice). Previously this branch returned `"[]"` for every node,
+ * When both `flat` is absent / non-array AND `detected` is empty,
+ * return `null` so the column stays NULL for nodes that never declared
+ * a `frameworks` field (every node kind except ProjectProfile, in
+ * practice). Previously this branch returned `"[]"` for every node,
  * which polluted the polymorphic column and — once the public-interface
  * parity harness landed — broke graphHash byte-identity (the rebuilder
  * would re-attach `frameworks: []` on every rebuilt node). Callers that

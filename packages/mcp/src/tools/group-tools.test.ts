@@ -33,7 +33,7 @@ interface FakeRepoData {
   /**
    * Optional: the graph-backed `RepoNode.repoUri`. When set, the typed
    * `getRepoNode("Repo::::repo")` finder returns this URI; otherwise
-   * `repoUriForEntry` falls back to `deriveRepoUri` (AC-M6-4).
+   * `repoUriForEntry` falls back to `deriveRepoUri`.
    */
   readonly repoNodeUri?: string;
   /** Optional seed for FETCHES edges returned by group_contracts. */
@@ -119,9 +119,9 @@ interface RepoFixture {
   readonly edgeCount: number;
   readonly searchResults: readonly SearchResult[];
   /**
-   * Optional: graph-backed `RepoNode.repoUri` for AC-M6-4 assertions.
-   * When set, the typed `getRepoNode` finder surfaces the URI; otherwise
-   * the tool falls back to `deriveRepoUri`.
+   * Optional: graph-backed `RepoNode.repoUri`. When set, the typed
+   * `getRepoNode` finder surfaces the URI; otherwise the tool falls
+   * back to `deriveRepoUri`.
    */
   readonly repoNodeUri?: string;
   readonly fetchesEdges?: readonly {
@@ -632,7 +632,7 @@ test("query without repo arg returns AMBIGUOUS_REPO when >1 repo registered", as
       error: {
         code: string;
         hint?: string;
-        // AC-M6-2: structured disambiguation payload.
+        // Structured disambiguation payload.
         error_code?: string;
         jsonrpc_code?: number;
         total_matches?: number;
@@ -648,7 +648,7 @@ test("query without repo arg returns AMBIGUOUS_REPO when >1 repo registered", as
     // Hint names both registered repos so the agent can retry.
     assert.ok(sc.error.hint?.includes("alpha"));
     assert.ok(sc.error.hint?.includes("bravo"));
-    // New structured contract (AC-M6-2).
+    // Structured contract — error_code + jsonrpc_code + counts.
     assert.equal(sc.error.error_code, "AMBIGUOUS_REPO");
     assert.equal(sc.error.jsonrpc_code, -32602);
     assert.equal(sc.error.total_matches, 2);
@@ -717,12 +717,12 @@ test("group_query is deterministic across 3 successive runs (byte-equal structur
 });
 
 // ---------------------------------------------------------------------------
-// AC-M6-4 — additive `repo_uri` across group_* tool responses.
-// Legacy fields (`name`, `_repo`, `consumerRepo`, `producerRepo`) stay
-// byte-for-byte; the new fields augment them without altering ordering.
+// Additive `repo_uri` across group_* tool responses. Legacy fields
+// (`name`, `_repo`, `consumerRepo`, `producerRepo`) stay byte-for-byte;
+// the new fields augment them without altering ordering.
 // ---------------------------------------------------------------------------
 
-test("group_list emits repo_uri derived from deriveRepoUri when no RepoNode exists (AC-M6-4)", async () => {
+test("group_list emits repo_uri derived from deriveRepoUri when no RepoNode exists", async () => {
   await withTestHarness(
     [
       { name: "alpha", nodeCount: 1, edgeCount: 0, searchResults: [] },
@@ -759,7 +759,7 @@ test("group_list emits repo_uri derived from deriveRepoUri when no RepoNode exis
   );
 });
 
-test("group_list emits repo_uri from RepoNode.repoUri when the graph has one (AC-M6-4)", async () => {
+test("group_list emits repo_uri from RepoNode.repoUri when the graph has one", async () => {
   await withTestHarness(
     [
       {
@@ -800,7 +800,7 @@ test("group_list emits repo_uri from RepoNode.repoUri when the graph has one (AC
   );
 });
 
-test("group_status per-member row carries both name and repo_uri (AC-M6-4)", async () => {
+test("group_status per-member row carries both name and repo_uri", async () => {
   await withTestHarness(
     [
       {
@@ -841,7 +841,7 @@ test("group_status per-member row carries both name and repo_uri (AC-M6-4)", asy
   );
 });
 
-test("group_status emits repo_uri for orphan references (not in registry) (AC-M6-4)", async () => {
+test("group_status emits repo_uri for orphan references (not in registry)", async () => {
   await withTestHarness(
     [{ name: "alpha", nodeCount: 1, edgeCount: 0, searchResults: [] }],
     [{ name: "mixed", repos: ["alpha", "ghost"] }],
@@ -874,7 +874,7 @@ test("group_status emits repo_uri for orphan references (not in registry) (AC-M6
   );
 });
 
-test("group_query result row carries both _repo and _repo_uri (AC-M6-4)", async () => {
+test("group_query result row carries both _repo and _repo_uri", async () => {
   await withTestHarness(
     [
       {
@@ -926,7 +926,7 @@ test("group_query result row carries both _repo and _repo_uri (AC-M6-4)", async 
   );
 });
 
-test("group_contracts ContractRow carries both legacy and *RepoUri fields (AC-M6-4)", async () => {
+test("group_contracts ContractRow carries both legacy and *RepoUri fields", async () => {
   await withTestHarness(
     [
       {
@@ -981,7 +981,7 @@ test("group_contracts ContractRow carries both legacy and *RepoUri fields (AC-M6
   );
 });
 
-test("group_sync structuredContent carries reposWithUri {name, repo_uri} additively (AC-M6-4)", async () => {
+test("group_sync structuredContent carries reposWithUri {name, repo_uri} additively", async () => {
   await withTestHarness(
     [
       {
@@ -1016,7 +1016,7 @@ test("group_sync structuredContent carries reposWithUri {name, repo_uri} additiv
   );
 });
 
-test("group_list repo_uri for bare names is byte-equal to deriveRepoUri (AC-M6-4)", async () => {
+test("group_list repo_uri for bare names is byte-equal to deriveRepoUri", async () => {
   await withTestHarness(
     [{ name: "solo", nodeCount: 1, edgeCount: 0, searchResults: [] }],
     [{ name: "only", repos: ["solo"] }],

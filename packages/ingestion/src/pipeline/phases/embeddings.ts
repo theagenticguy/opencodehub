@@ -216,7 +216,7 @@ export interface EmbedderPhaseOutput {
    */
   readonly summaryFused: boolean;
   /**
-   * Chunks short-circuited by the content-hash skip (T-M1-3). Counts
+   * Chunks short-circuited by the content-hash skip. Counts
    * chunks whose `(granularity, node_id, chunk_index)` had a prior row
    * with identical `content_hash` in the store — so the phase neither
    * embedded them nor emitted a row. `0` when `options.force === true`,
@@ -566,14 +566,15 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       community: 0,
     };
 
-    // Prior-hash cache (T-M1-3). When the CLI plugs an adapter AND the caller
+    // Prior-hash cache. When the CLI plugs an adapter AND the caller
     // did not pass `force: true`, we load every prior `content_hash` from the
     // `embeddings` table in a single round-trip. Chunks whose
     // `(granularity, nodeId, chunkIndex)` key maps to an identical freshly-
     // computed hash skip both `embedder.embed()` and the upsert batch —
     // unchanged source reduces a full re-analyze to a no-op for the
     // embeddings phase. Under `force`, or with no adapter installed, the map
-    // is empty and the phase behaves exactly as it did pre-M1-3.
+    // is empty and the phase behaves exactly as it did before the
+    // content-hash skip landed.
     const forceFlag = ctx.options.force === true;
     const hashCache = resolveEmbeddingHashCacheAdapter(ctx);
     const priorHashes: Map<string, string> =
@@ -651,7 +652,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += chunks.length;
-        // Content-hash skip (T-M1-3). A symbol can emit multiple chunks
+        // Content-hash skip. A symbol can emit multiple chunks
         // (long signature+summary+body). We only skip when *every* fresh
         // chunk hash matches its prior row — otherwise one mismatched chunk
         // would leave the tier partially updated with stale neighbours.
@@ -718,7 +719,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
-        // Content-hash skip (T-M1-3). Single-chunk tier — the compare is
+        // Content-hash skip. Single-chunk tier — the compare is
         // straightforward: if the prior row's hash equals the fresh hash,
         // bail before queuing work.
         const contentHash = hashText("file", firstChunk);
@@ -791,7 +792,7 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
           continue;
         }
         chunksTotal += 1;
-        // Content-hash skip (T-M1-3). Community tier is also single-chunk.
+        // Content-hash skip. Community tier is also single-chunk.
         const contentHash = hashText("community", firstChunk);
         if (
           priorHashes.size > 0 &&

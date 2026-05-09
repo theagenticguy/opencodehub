@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Non-blocking docs-staleness hook — fires after codehub auto-reindex.
-# Per spec 001 AC-2-8: when .codehub/docs/.docmeta.json exists and the
-# graph_hash in the manifest disagrees with the live hash, emit a
-# systemMessage suggesting /codehub-document --refresh. Never regenerates
-# automatically — regeneration spends LLM credits and requires consent.
+# When .codehub/docs/.docmeta.json exists and the graph_hash in the
+# manifest disagrees with the live hash, emit a systemMessage suggesting
+# /codehub-document --refresh. Never regenerates automatically —
+# regeneration spends LLM credits and requires consent.
 
 set -uo pipefail
 

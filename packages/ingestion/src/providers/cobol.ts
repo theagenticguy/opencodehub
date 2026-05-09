@@ -4,7 +4,7 @@
  * COBOL has no tree-sitter grammar, so the parse pipeline does NOT route
  * `.cbl` / `.cob` / `.cpy` files through the worker pool or this provider's
  * extract methods. Instead, `packages/ingestion/src/parse/cobol-regex.ts`
- * emits `CodeElement` graph nodes directly from a regex pass; see T-M4-5.
+ * emits `CodeElement` graph nodes directly from a regex pass.
  *
  * This stub exists solely to satisfy the compile-time
  * `satisfies Record<LanguageId, LanguageProvider>` constraint in

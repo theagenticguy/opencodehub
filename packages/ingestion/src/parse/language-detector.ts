@@ -48,7 +48,7 @@ const EXTENSION_MAP: ReadonlyMap<string, LanguageId> = new Map([
   [".dart", "dart"],
   // --- COBOL (regex hot path; see parse/cobol-regex.ts). Fixed-format .cbl /
   //     .cob programs and .cpy copybooks. Free-format COBOL is NOT handled
-  //     in v1 — that's T-M4-6 (ProLeap deep-parse). ---
+  //     in v1 — the ProLeap deep-parse path will own that AST when wired in. ---
   [".cbl", "cobol"],
   [".cob", "cobol"],
   [".cpy", "cobol"],

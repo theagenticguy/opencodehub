@@ -84,7 +84,7 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
   const maxTotalFiles = ctx.options.maxTotalFiles ?? DEFAULT_MAX_TOTAL_FILES;
 
   // Layered gitignore chain — nested `.gitignore` files stack from repo
-  // root downward; deeper layers override shallower ones (DET-E-004).
+  // root downward; deeper layers override shallower ones.
   const chain = await loadGitignoreChain(ctx.repoPath);
 
   const hardcoded = new Set<string>(HARDCODED_IGNORES);

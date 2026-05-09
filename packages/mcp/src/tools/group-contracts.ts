@@ -40,11 +40,11 @@ const GroupContractsInput = {
 
 interface ContractRow {
   readonly consumerRepo: string;
-  /** Additive per AC-M6-4 — cross-repo handle for the consumer repo. */
+  /** Cross-repo handle for the consumer repo. */
   readonly consumerRepoUri: string;
   readonly consumerSymbol: string;
   readonly producerRepo: string;
-  /** Additive per AC-M6-4 — cross-repo handle for the producer repo. */
+  /** Cross-repo handle for the producer repo. */
   readonly producerRepoUri: string;
   readonly producerRoute: string;
   readonly method: string;
@@ -141,8 +141,8 @@ export async function runGroupContracts(
     const missing: string[] = [];
     const consumersByRepo = new Map<string, readonly ConsumerEdgeRow[]>();
     const producersByRepo = new Map<string, readonly RouteRow[]>();
-    // AC-M6-4: resolve `repo_uri` for every registered member so every
-    // ContractRow carries `consumerRepoUri` / `producerRepoUri` additively.
+    // Resolve `repo_uri` for every registered member so every
+    // ContractRow carries `consumerRepoUri` / `producerRepoUri`.
     const repoUriByName = new Map<string, string>();
 
     for (const repo of sortedRepos) {

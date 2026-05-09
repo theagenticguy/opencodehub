@@ -24,10 +24,10 @@
  * concurrent setup is out of scope — the atomic-rename still means no half-
  * written binary ever appears at the final path.
  *
- * Placeholder SHA256 handling: AC-M4-0 ships with all-zero placeholder hashes
- * in `scip-pins.ts`. We refuse to verify against placeholder hashes at
- * runtime. The adapter first-install smoke tests (AC-M4-1..4) pass
- * `allowPlaceholder: true` so they can compute the real hash and substitute
+ * Placeholder SHA256 handling: some pins ship with all-zero placeholder
+ * hashes in `scip-pins.ts`. We refuse to verify against placeholder hashes
+ * at runtime. Each adapter's first-install smoke test passes
+ * `allowPlaceholder: true` so it can compute the real hash and substitute
  * it back into the pin file.
  */
 
@@ -161,8 +161,8 @@ export class PlaceholderHashError extends Error {
   constructor(tool: ScipTool) {
     super(
       `scip-${tool} pin still carries placeholder SHA256 digests. ` +
-        `The real hash is computed by AC-M4-1..4 at adapter first-install time. ` +
-        `Pass allowPlaceholder: true from a smoke test, or wait for the adapter PR.`,
+        `The real hash is computed at adapter first-install time. ` +
+        `Pass allowPlaceholder: true from a smoke test, or wait for the adapter to land.`,
     );
     this.name = "PlaceholderHashError";
     this.tool = tool;

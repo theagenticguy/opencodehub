@@ -1,7 +1,7 @@
 /**
  * loadPolicy — read opencodehub.policy.yaml, parse, Zod-validate.
  *
- * Behavior (hard-pinned by T-M2-4's EARS requirements):
+ * Behavior:
  *
  * - File missing on disk → resolve to `undefined`. `codehub verdict` must
  *   skip the policy step entirely in this state.

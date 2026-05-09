@@ -1,11 +1,10 @@
 /**
- * ITemporalStore parity gate (architecture-revised.md §AC-A-3).
+ * ITemporalStore parity gate.
  *
- * After AC-A-1 split the storage interface into {@link IGraphStore}
- * (graph-only) and {@link ITemporalStore} (tabular-only), AC-A-3 deleted
- * the residual cochange + symbol-summary methods from {@link GraphDbStore}
- * — those rows now live exclusively on the DuckDB-backed temporal view
- * regardless of which graph backend the caller picked.
+ * The storage interface is split into {@link IGraphStore} (graph-only)
+ * and {@link ITemporalStore} (tabular-only). Cochange + symbol-summary
+ * rows live exclusively on the DuckDB-backed temporal view regardless
+ * of which graph backend the caller picked.
  *
  * This file is the parity tripwire for that contract:
  *
@@ -237,9 +236,9 @@ test("temporal-parity: openStore composes identical temporal snapshots across ba
 });
 
 test("openStore({backend:'lbug'}) splits artifacts into graph.lbug + temporal.duckdb siblings", async () => {
-  // AC-A-3 §4 — the temporal store lives at <dir>/temporal.duckdb, the
-  // graph store at <dir>/graph.lbug, regardless of the legacy filename
-  // the caller passes through.
+  // The temporal store lives at <dir>/temporal.duckdb, the graph store
+  // at <dir>/graph.lbug, regardless of the legacy filename the caller
+  // passes through.
   const dbPath = await scratchDbPath("och-temporal-parity-paths-");
   const store = await openStore({ path: dbPath, backend: "lbug" });
   try {

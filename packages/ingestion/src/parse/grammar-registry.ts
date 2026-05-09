@@ -18,7 +18,7 @@
  *
  * This module abstracts those differences behind {@link loadGrammar}.
  *
- * ## Regex-provider escape hatch (T-M4-5)
+ * ## Regex-provider escape hatch
  *
  * Some languages — COBOL is the first — have no maintained tree-sitter
  * grammar and ship via a pure-regex extractor instead. The registry encodes

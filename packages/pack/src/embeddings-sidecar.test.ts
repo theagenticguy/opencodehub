@@ -1,8 +1,8 @@
 /**
- * Tests for the Parquet embeddings sidecar (AC-M5-6 + AC-A-4 relocation).
+ * Tests for the Parquet embeddings sidecar.
  *
- * AC-A-4 moved sidecar emission OUT of `@opencodehub/storage` and INTO
- * pack/. The sidecar now consumes embeddings via the portable
+ * Sidecar emission lives in pack/, not in `@opencodehub/storage`. The
+ * sidecar consumes embeddings via the portable
  * {@link IGraphStore.listEmbeddings} stream and writes Parquet via
  * DuckDB COPY. Tests cover three tiers:
  *
@@ -10,14 +10,14 @@
  *      - Duck-path fake exposing the @internal `exportEmbeddingsParquet`
  *        helper → `written: true`, `writerBackend: "duck-copy"`.
  *      - Duck-path fake reporting `rowCount: 0` → `written: false`,
- *        `writerBackend: "absent"`, `determinismClass: "strict"` (S-M5-3).
+ *        `writerBackend: "absent"`, `determinismClass: "strict"`.
  *      - lbug-path fake → `written: false`, `writerBackend: "absent"`,
- *        `determinismClass: "degraded"` when embeddings exist (v1
- *        deferred — AC-A-4 anti-goal §10).
+ *        `determinismClass: "degraded"` when embeddings exist (v1 defers
+ *        Parquet emission on lbug-only deployments).
  *
  *   2. Real-DuckDB byte-identity test (skipped when `@duckdb/node-api`
- *      native binding fails to load — the worktree native-binding
- *      lesson from `T-W3-1.md §11`). When it runs:
+ *      native binding fails to load — worktree native bindings may not
+ *      always rebuild cleanly). When it runs:
  *      - 100 row × 384-dim Float32Array fixture.
  *      - Two consecutive `writeEmbeddingsSidecar` runs against the same
  *        store produce byte-identical Parquet files.
@@ -51,7 +51,7 @@ function makeMockGraph(rows: readonly EmbeddingRow[] = []): IGraphStore {
 
 /**
  * Wrap a graph store + optional COPY helper into the {@link Store} shape
- * the AC-A-4 sidecar consumes. `backend` is the dispatch axis the sidecar
+ * the sidecar consumes. `backend` is the dispatch axis the sidecar
  * narrows on; `temporal` is unused on the duck path so we cast the graph
  * stand-in into temporal-shape when the caller wants the duck-typed COPY
  * helper attached to the graph view.
@@ -92,7 +92,7 @@ async function tempDir(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 describe("writeEmbeddingsSidecar — duck-path dispatch (mock)", () => {
-  it("returns written=false, writerBackend=absent when COPY reports rowCount=0 (S-M5-3)", async () => {
+  it("returns written=false, writerBackend=absent when COPY reports rowCount=0", async () => {
     const dir = await tempDir();
     try {
       let calls = 0;
@@ -177,7 +177,7 @@ describe("writeEmbeddingsSidecar — lbug-path degraded stamp (mock)", () => {
       assert.equal(
         result.determinismClass,
         "degraded",
-        "lbug + non-empty embeddings must stamp degraded (AC-A-4 §10 v1)",
+        "lbug + non-empty embeddings must stamp degraded for v1",
       );
       assert.equal(result.rowCount, 2);
       assert.equal(result.bytesWritten, 0);
@@ -206,9 +206,9 @@ describe("writeEmbeddingsSidecar — lbug-path degraded stamp (mock)", () => {
 // ---------------------------------------------------------------------------
 // Byte-identity test against a real DuckDbStore. The native binding may
 // fail to rebuild in worktrees — wrap the entire test in a try/catch and
-// skip with a logged note when DuckDB cannot be loaded. This follows the
-// worktree native-binding lesson in T-W3-1.md §11; the orchestrator's
-// main checkout re-validates with bindings present.
+// skip with a logged note when DuckDB cannot be loaded. The main
+// checkout re-validates with bindings present so any divergence still
+// gets caught upstream.
 // ---------------------------------------------------------------------------
 
 test("writeEmbeddingsSidecar — populated duck path is byte-identical across two runs", async () => {
@@ -234,7 +234,8 @@ test("writeEmbeddingsSidecar — populated duck path is byte-identical across tw
     store = new DuckDbStore(dbPath, { embeddingDim: 384 });
     await store.open();
   } catch (err) {
-    // Native binding load failure — log and skip per worktree lesson.
+    // Native binding load failure — log and skip; worktree bindings
+    // may not always rebuild cleanly.
     await rm(dir, { recursive: true, force: true });
     assert.ok(
       true,
@@ -322,7 +323,7 @@ test("writeEmbeddingsSidecar — populated duck path is byte-identical across tw
 /**
  * Generate a deterministic Float32 vector. Uses a simple LCG seeded by
  * `(rowIndex, dimIndex)` so the same call returns the same vector across
- * runs — matches the AC-M5-6 byte-identity contract without dragging in a
+ * runs — matches the byte-identity contract without dragging in a
  * crypto-grade RNG.
  */
 function deterministicVector(rowIndex: number, dim: number): Float32Array {

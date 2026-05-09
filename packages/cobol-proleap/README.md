@@ -19,7 +19,7 @@ const result = await parseCobolDeep(["a.cbl", "b.cob"], {
 
 Returns `{ elements, diagnostics, fellBackToRegex }`. On a JVM crash or malformed
 JSON, every input file is silently reparsed through the regex hot path so a
-single bad file never aborts the run (spec AC-M4-6 success criterion #3).
+single bad file never aborts the run.
 
 ## Install
 
@@ -63,7 +63,7 @@ design.
 
 If `java --version` reports < 17, both `codehub setup --cobol-proleap` and
 `codehub analyze --allow-build-scripts=proleap` refuse to run with a clear
-install hint (spec S-M4-2).
+install hint.
 
 ## Anti-goals
 

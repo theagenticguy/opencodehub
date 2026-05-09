@@ -2,8 +2,8 @@
 /**
  * Shared MCP test fixtures.
  *
- * After AC-A-6c the production tools/resources call typed finders on
- * `IGraphStore` (`listNodes`, `listNodesByKind`, `listEdges`,
+ * The production tools/resources call typed finders on `IGraphStore`
+ * (`listNodes`, `listNodesByKind`, `listEdges`,
  * `listEdgesByType`, `listFindings`, `listRoutes`, `getRepoNode`,
  * `traverseAncestors`, `listEmbeddingHashes`, etc.) rather than raw
  * `query(<sql>)`. This file gives every mcp test a small, composable
@@ -65,13 +65,13 @@ import { ConnectionPool } from "./connection-pool.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Store wrapper — composes the IGraphStore-shaped fake into the OpenStoreResult
-// shape the connection pool returns post AC-A-6c.
+// shape the connection pool returns.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
- * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * (`OpenStoreResult`) that the connection pool returns. The same
+ * instance backs both `graph` and `temporal` because DuckDbStore
  * implements both interfaces over a single connection in production.
  */
 export function wrapAsStore(fake: unknown): Store {

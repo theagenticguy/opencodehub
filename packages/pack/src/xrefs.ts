@@ -1,5 +1,5 @@
 /**
- * BOM body item: SCIP-grounded cross-references (AC-M5-5 — item 6/9).
+ * BOM body item: SCIP-grounded cross-references (item 6/9).
  *
  * Two-shape union row stream:
  *   - `community` rows expose architectural clusters (`Community` nodes).
@@ -10,15 +10,14 @@
  *   - Call rows follow, sorted `(from ASC, to ASC, id ASC)` — the id is
  *     the deterministic last-resort tiebreak when the same callsite has
  *     two relation rows (e.g. duplicate CALLS edges across SCIP indexes).
- *   - The CALLS edge stream comes from `IGraphStore.listEdgesByType('CALLS')`
- *     (AC-A-6a). Result rows are typed `CodeRelation` and ordered
- *     `(from_id, to_id, type)` by the storage layer; this module re-sorts to
- *     the BOM contract `(from, to, id)` so the wire form stays byte-stable
+ *   - The CALLS edge stream comes from `IGraphStore.listEdgesByType('CALLS')`.
+ *     Result rows are typed `CodeRelation` and ordered `(from_id, to_id,
+ *     type)` by the storage layer; this module re-sorts to the BOM
+ *     contract `(from, to, id)` so the wire form stays byte-stable
  *     regardless of which finder ordering the adapter chose.
  *   - PageRank is NOT used here; this is a pure relations-table slice
- *     plus a Community-node enumeration. W-M5-3 (no tolerance-based
- *     convergence) is therefore not in scope but worth flagging for the
- *     reader.
+ *     plus a Community-node enumeration (so the no-tolerance-based-
+ *     convergence rule that governs the skeleton is not in scope).
  *
  * Confidence column: chonkie / SCIP indexes typically emit `1.0` for
  * resolved CALLS edges. We surface it raw so downstream tools can filter

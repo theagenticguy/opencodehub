@@ -1,7 +1,7 @@
 /**
  * Storage abstractions for OpenCodeHub knowledge graphs.
  *
- * AC-A-1 split this surface into two cohesive interfaces:
+ * The surface is split into two cohesive interfaces:
  *
  *   1. {@link IGraphStore} — graph-tier, pure graph operations only:
  *      nodes, edges, traversals, BM25 search, vector search, embeddings.
@@ -21,7 +21,7 @@
  * file when DuckDB is the only backend). The graph-db adapter (via
  * `@ladybugdb/core`) is graph-only and pairs with a DuckDB temporal store.
  *
- * ## Sentinel rules (AC-A-2)
+ * ## Sentinel rules
  *
  * Every adapter that implements {@link IGraphStore} MUST honour four
  * sentinel coercions so the cross-adapter `graphHash` parity invariant
@@ -112,8 +112,8 @@ export type GraphDialect = "cypher" | "none";
  *
  * `assertIGraphStoreConformance(name, factory)` from
  * `@opencodehub/storage/test-utils` is the formal v1.0 conformance test
- * suite for community adapters (architecture-revised.md §AC-A-11). A
- * third-party adapter author imports it from their own test file:
+ * suite for community adapters. A third-party adapter author imports it
+ * from their own test file:
  *
  * ```ts
  * import { test } from "node:test";
@@ -497,9 +497,9 @@ export interface OpenStoreOptions {
    *   - `"duck"` — single DuckDB file backs BOTH graph and temporal views.
    *   - `"lbug"` — graph-db backend (`@ladybugdb/core`) for graph; a paired
    *     DuckDB file at `<path>.temporal.duckdb` for temporal.
-   *   - `"auto"` — read the `CODEHUB_STORE` env var (AC-A-9 will flip the
-   *     default once binding-availability detection lands). For now
-   *     `"auto"` resolves to the legacy default.
+   *   - `"auto"` — read the `CODEHUB_STORE` env var; when unset, probe
+   *     `@ladybugdb/core` and prefer the graph backend on success, else
+   *     fall back to DuckDB.
    */
   readonly backend?: BackendKind | "auto";
   readonly readOnly?: boolean;
@@ -552,8 +552,8 @@ export interface CochangeLookupOptions {
 }
 
 /**
- * @deprecated AC-A-1 folded the cochange surface into {@link ITemporalStore}.
- * The named alias is retained for one AC cycle so test fakes that satisfy
+ * @deprecated The cochange surface is folded into {@link ITemporalStore}.
+ * The named alias is retained transiently so test fakes that satisfy
  * the older shape keep compiling. New code consumes `ITemporalStore`
  * directly via {@link OpenStoreResult.temporal}.
  */
@@ -605,10 +605,10 @@ export interface SymbolSummaryRow {
 }
 
 /**
- * @deprecated AC-A-1 folded the symbol-summary surface into
- * {@link ITemporalStore}. The named alias is retained for one AC cycle so
- * test fakes that satisfy the older shape keep compiling. New code consumes
- * `ITemporalStore` directly via {@link OpenStoreResult.temporal}.
+ * @deprecated The symbol-summary surface is folded into {@link ITemporalStore}.
+ * The named alias is retained transiently so test fakes that satisfy
+ * the older shape keep compiling. New code consumes `ITemporalStore`
+ * directly via {@link OpenStoreResult.temporal}.
  */
 export interface SymbolSummaryStore {
   bulkLoadSymbolSummaries(rows: readonly SymbolSummaryRow[]): Promise<void>;
@@ -867,10 +867,10 @@ export interface VectorQuery {
    * to `nodes` (aliased `n`). Example: `n.kind = ?`. Use `?` placeholders and
    * supply values via `params`.
    *
-   * NOTE — Layer-2 leak (architecture-revised §AC-A-6). This raw SQL
-   * predicate is a temporary surface; AC-A-6 replaces it with typed
-   * finder shapes (`kindFilter`, `confidenceFloor`, etc.). Do not add
-   * new callers that depend on raw SQL here.
+   * NOTE — Layer-2 leak. This raw SQL predicate is a temporary surface
+   * to be replaced with typed finder shapes (`kindFilter`,
+   * `confidenceFloor`, etc.). Do not add new callers that depend on raw
+   * SQL here.
    */
   readonly whereClause?: string;
   readonly params?: readonly SqlParam[];

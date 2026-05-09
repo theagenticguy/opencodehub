@@ -20,8 +20,8 @@ const ALL_LANGUAGES: readonly LanguageId[] = [
   "swift",
   "php",
   "dart",
-  // --- Regex-provider languages (T-M4-5). The cobol provider is a stub; the
-  //     regex hot path in `parse/cobol-regex.ts` owns the actual extraction.
+  // --- Regex-provider languages. The cobol provider is a stub; the regex
+  //     hot path in `parse/cobol-regex.ts` owns the actual extraction.
   "cobol",
 ];
 

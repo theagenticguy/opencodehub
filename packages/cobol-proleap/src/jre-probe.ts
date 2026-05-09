@@ -1,7 +1,7 @@
 /**
  * JRE probe — spawns `java --version` and parses the major version from
  * stdout/stderr. The ProLeap wrapper compiles against Java 17 source/target,
- * so any JRE < 17 refuses to run with a clear install hint (spec S-M4-2).
+ * so any JRE < 17 refuses to run with a clear install hint.
  *
  * `java --version` historically printed to stderr on some distributions
  * and stdout on others; we concatenate both for robust matching. The

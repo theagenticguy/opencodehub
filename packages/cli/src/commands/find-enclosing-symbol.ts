@@ -36,11 +36,10 @@ export type NodesByFile = ReadonlyMap<string, readonly NodeRow[]>;
 
 /**
  * Code-kind allow set used when resolving SARIF findings back to an
- * enclosing symbol. Matches the set enumerated in the T-M1-4 packet
- * conventions (Function, Method, Constructor, Class, Interface, Struct,
- * Enum, Trait) and is a strict superset of `SCIP_SYMBOL_KINDS` — we
- * additionally allow `Constructor` here because SARIF tooling routinely
- * emits findings inside constructor bodies.
+ * enclosing symbol. Covers Function, Method, Constructor, Class,
+ * Interface, Struct, Enum, and Trait — a strict superset of
+ * `SCIP_SYMBOL_KINDS`; we additionally allow `Constructor` here because
+ * SARIF tooling routinely emits findings inside constructor bodies.
  */
 export const ENCLOSING_SYMBOL_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
   "Function",

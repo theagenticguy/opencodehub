@@ -19,7 +19,7 @@ import { parseCobolFile } from "./cobol-regex.js";
 const HELLO_CBL = [
   "000100 IDENTIFICATION DIVISION.",
   "000200 PROGRAM-ID. HELLO-WORLD.",
-  "000300 AUTHOR. T-M4-5.",
+  "000300 AUTHOR. INGESTION-FIXTURE.",
   "000400*> Minimal hello-world program for the regex hot path fixture suite.",
   "000500 ENVIRONMENT DIVISION.",
   "000600 DATA DIVISION.",
@@ -298,7 +298,7 @@ describe("parseCobolFile — performance", () => {
   it("p50 parse time ≤ 2 ms on a 1000-line fixture", () => {
     // Tile the accounts fixture up to ~1000 lines for a realistic workload.
     // The fixture is 28 lines; 40 repeats + tail = 1120 lines, which covers
-    // the "1000-line fixture" invariant from the T-M4-5 success criteria.
+    // the 1000-line-fixture performance invariant for COBOL regex parsing.
     //
     // Budget is 2ms (not 1ms) to survive concurrent test-runner contention on
     // CI and shared devboxes. Isolated runs stay at ~0.5ms p50; the 2ms

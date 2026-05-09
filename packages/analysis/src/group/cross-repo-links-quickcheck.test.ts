@@ -1,5 +1,5 @@
 /**
- * Quickcheck — populated-case 2-repo fixture (AC-M6-5).
+ * Quickcheck — populated-case 2-repo fixture.
  *
  * The existing `cross-repo-links.test.ts` covers the empty + alpha-sort
  * + dedup + skip + error paths. This file pins the populated-case

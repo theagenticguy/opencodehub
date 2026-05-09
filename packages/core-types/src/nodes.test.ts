@@ -24,7 +24,7 @@ test("NODE_KINDS: contains all v1.0 + M6 additions (append-only)", () => {
   // Appended, not inserted: the original last MVP kind stays at its prior slot.
   const firstNewIdx = NODE_KINDS.indexOf("Finding");
   assert.equal(NODE_KINDS[firstNewIdx - 1], "Section");
-  // Appended in the spec order. AC-M6-1 adds `Repo` at the tail.
+  // Appended in order; `Repo` is the most recent addition at the tail.
   assert.deepEqual(NODE_KINDS.slice(firstNewIdx), [
     "Finding",
     "Dependency",

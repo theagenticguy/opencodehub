@@ -1,11 +1,11 @@
 /**
- * BOM body item: PageRank-ranked symbol skeleton (AC-M5-4 — item 2/9).
+ * BOM body item: PageRank-ranked symbol skeleton (item 2/9).
  *
  * The skeleton is the deterministic "what matters here?" view of a repo,
  * built from `Function`/`Class`/`Method` nodes ranked by call-graph
  * PageRank. The output is a flat row stream that downstream tooling
- * (the pack writer in T-W2-5; the future `code_skeleton` MCP surface)
- * consumes as a strictly-ordered table.
+ * (the pack writer; the future `code_skeleton` MCP surface) consumes as
+ * a strictly-ordered table.
  *
  * Algorithm:
  *   1. `store.listNodes({ kinds: ["Function","Class","Method"] })`
@@ -13,18 +13,16 @@
  *   2. Pull every `CALLS` edge via `IGraphStore.listEdgesByType('CALLS')`
  *      (typed `CodeRelation`) and feed `EdgeLike[]` into
  *      `buildAdjacency` from `@opencodehub/analysis`.
- *   3. Run `pageRank(adj, 0.85, 50)` — fixed iterations + damping per
- *      W-M5-3 (no tolerance-based convergence; numerical drift would
- *      break the byte-identity guarantee that `pack_hash` and the
- *      future `graphHash` both depend on).
+ *   3. Run `pageRank(adj, 0.85, 50)` — fixed iterations + damping (no
+ *      tolerance-based convergence; numerical drift would break the
+ *      byte-identity guarantee that `pack_hash` and the future
+ *      `graphHash` both depend on).
  *   4. Sort rows by `score DESC` with `id ASC` as the lex-stable
- *      tiebreak. Per the BM25-over-node-id stub-pollution lesson
- *      (`.erpaval/solutions/conventions/bm25-over-node-id-favors-stubs.md`)
- *      the packet flags this as a known consideration: stub
- *      re-export nodes can outrank real call-targets when the call
- *      graph is sparse. For now we surface every callable kind and
- *      let downstream consumers filter; refining the kind set is a
- *      future-work item, not an AC-M5-4 deliverable.
+ *      tiebreak. Stub re-export nodes can outrank real call-targets
+ *      when the call graph is sparse (a known BM25-over-node-id
+ *      stub-pollution caveat); for now we surface every callable kind
+ *      and let downstream consumers filter — refining the kind set is
+ *      future work.
  *
  * Determinism contract — non-negotiable:
  *   - Output ordering is the result of `Array.prototype.sort` over a

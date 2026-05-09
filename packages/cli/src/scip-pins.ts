@@ -11,16 +11,16 @@
  *                    digest, and (optionally) the binary's executable name on
  *                    disk.
  *
- * AC-M4-0 shipped PLACEHOLDER SHA256 hashes (64 zeros) for the standalone
- * binaries. Each AC-M4-1..4 adapter PR computes and substitutes the real
- * digest against the upstream release asset. The `placeholder: true` flag is
- * the canonical "do NOT trust this hash at runtime" marker — `installScipTool()`
- * refuses to run when the selected pin has `placeholder: true` unless the
- * caller sets `opts.allowPlaceholder` (reserved for adapter first-install
- * smoke tests).
+ * Some pins ship PLACEHOLDER SHA256 hashes (64 zeros) for standalone
+ * binaries until each adapter's first-install smoke test computes and
+ * substitutes the real digest against the upstream release asset. The
+ * `placeholder: true` flag is the canonical "do NOT trust this hash at
+ * runtime" marker — `installScipTool()` refuses to run when the selected pin
+ * has `placeholder: true` unless the caller sets `opts.allowPlaceholder`
+ * (reserved for adapter first-install smoke tests).
  *
- * As of AC-M4-4 (2026-05-05), `scip-kotlin` is the first pin promoted to real
- * digests: upstream ships the plugin as a Maven Central JAR
+ * `scip-kotlin` ships a real SHA256 computed against Maven Central: upstream
+ * publishes the plugin as a Maven Central JAR
  * (`com.sourcegraph:semanticdb-kotlinc:0.6.0`) whose SHA256 is stable and
  * publicly verifiable — no first-install smoke test needed.
  *
@@ -231,7 +231,7 @@ const SCIP_DOTNET_PIN: ScipToolPin = {
  * `binName` is the JAR filename inside `~/.codehub/bin/` — the adapter
  * references it by absolute path when invoking `kotlinc -Xplugin=<path>`.
  *
- * SHA256 computed against Maven Central at implementation time (AC-M4-4).
+ * SHA256 computed against Maven Central at implementation time.
  */
 const SCIP_KOTLIN_JAR_SHA256 = "bd6abb49d95a909c48dbf1bc2ce27f5ebcd871952f2f5683edb72a806db9b8ba";
 const SCIP_KOTLIN_JAR_URL =

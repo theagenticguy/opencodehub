@@ -1,5 +1,5 @@
 /**
- * BOM body item: salient SARIF findings (AC-M5-5 — item 8/9).
+ * BOM body item: salient SARIF findings (item 8/9).
  *
  * Groups `Finding` nodes by `(severity, ruleId)`. Severity is the SARIF
  * 2.1.0 `level` enum ONLY: `error | warning | note | none`. The typed

@@ -2,8 +2,10 @@
  * Top-20 framework detection catalog.
  *
  * A typed, declarative table of `FrameworkRule` entries covering the
- * 20 frameworks enumerated in
- * `.erpaval/sessions/2026-04-24-v1-backlog-and-framework-detection/research/frameworks-top20.md`.
+ * top-20 framework set OpenCodeHub recognizes today (React, Next.js, Vue,
+ * Angular, Svelte, Express, FastAPI, Django, Flask, Spring Boot, Ruby on
+ * Rails, Laravel, .NET, Gin, Fiber, NestJS, Astro, Remix, SolidStart, and
+ * Nuxt).
  *
  * Each rule is self-describing: category + tier + manifest fingerprint +
  * optional file / regex / variant markers + optional `parent` for wrapping

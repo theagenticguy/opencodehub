@@ -1,11 +1,11 @@
 /**
- * Tests for the cobol-proleap gating logic added in T-M4-6.
+ * Tests for the cobol-proleap gating logic.
  *
  * We cannot spawn a JVM in CI, so these tests exercise the gating surface:
  *   - Without `--allow-build-scripts=proleap` the runner skips with a
- *     clear "falling back to regex" reason (spec W-M4-1).
+ *     clear "falling back to regex" reason.
  *   - With the flag but no JAR installed, the runner skips with the
- *     missing-jar hint (spec S-M4-3).
+ *     missing-jar hint pointing at `codehub setup --cobol-proleap`.
  *   - With flag + JAR present, the runner activates (skipped=false).
  *
  * The scip-java / rust / python / go branches are already covered by the

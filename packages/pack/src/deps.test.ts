@@ -1,5 +1,5 @@
 /**
- * Tests for the dependency BOM body (AC-M5-4 — item 4/9).
+ * Tests for the dependency BOM body (item 4/9).
  *
  * Covers:
  *   - A. Determinism: two consecutive calls return deep-equal output.

@@ -31,14 +31,14 @@
  *   - properties.opencodehub.is_verified = boolean
  *   - partialFingerprints.detect_secrets_sha1 = hashed_secret
  *
- * We do NOT advertise hashed_secret as a cryptographic fingerprint
- * (W-B-1) — SHA-1 is not collision-resistant. The
+ * We do NOT advertise hashed_secret as a cryptographic fingerprint —
+ * SHA-1 is not collision-resistant. The
  * `partialFingerprints.detect_secrets_sha1` slot is documented as a
  * plugin-defined identifier per SARIF §3.27.18, not a security claim.
  *
  * Overlapping findings (KeywordDetector + AWSKeyDetector on the same
- * line) are NOT deduplicated here (W-B-2) — both pass through and rely
- * on OCH's downstream SARIF dedupe at merge time.
+ * line) are NOT deduplicated here — both pass through and rely on
+ * OCH's downstream SARIF dedupe at merge time.
  *
  * The output is validated against `SarifLogSchema` from @opencodehub/sarif
  * before being returned, so malformed emissions never leak downstream.

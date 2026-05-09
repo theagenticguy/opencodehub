@@ -147,7 +147,7 @@ test("resolveRepo throws NOT_FOUND for unknown name", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-M6-2 — repo_uri alias + structured AMBIGUOUS_REPO payload.
+// repo_uri alias + structured AMBIGUOUS_REPO payload.
 // ---------------------------------------------------------------------------
 
 test("deriveRepoUri passes through URI-shaped names and hashes local-only paths", () => {

@@ -1,16 +1,16 @@
 /**
- * BOM body item #7: Parquet embeddings sidecar (AC-M5-6, AC-A-4 relocation).
+ * BOM body item #7: Parquet embeddings sidecar.
  *
- * AC-A-4 moved sidecar emission OUT of `@opencodehub/storage` and into the
- * pack layer. The sidecar is now a packaging concern: it consumes
- * embeddings via {@link IGraphStore.listEmbeddings} (a portable graph-side
- * method shipped by both adapters in AC-A-6a) and writes Parquet via the
- * temporal store's DuckDB `COPY ... TO ... (FORMAT PARQUET, COMPRESSION
- * ZSTD)`. Third-party graph adapters (AGE, Memgraph, Neo4j, Neptune)
- * therefore do NOT implement Parquet emission themselves — pack handles
- * it from the deterministic row stream.
+ * Sidecar emission lives in the pack layer, not in `@opencodehub/storage`.
+ * The sidecar is a packaging concern: it consumes embeddings via the
+ * portable {@link IGraphStore.listEmbeddings} method shipped by every
+ * adapter and writes Parquet via the temporal store's DuckDB
+ * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Third-party
+ * graph adapters (AGE, Memgraph, Neo4j, Neptune) therefore do NOT
+ * implement Parquet emission themselves — pack handles it from the
+ * deterministic row stream.
  *
- * Backend dispatch (per architecture-revised.md §AC-A-4):
+ * Backend dispatch:
  *
  *   - `backend === "duck"`: temporal IS the same DuckDB connection that
  *     owns the `embeddings` table. We call the @internal helper
@@ -21,11 +21,10 @@
  *   - `backend === "lbug"`: graph rows live in `@ladybugdb/core`; the paired
  *     temporal DuckDB has no embeddings table. v1 stamps
  *     `determinismClass: "degraded"`, `writerBackend: "absent"` and emits
- *     no file. AC-A-4 anti-goal §10 explicitly permits this:
- *     "accept `determinism_class: degraded` on lbug-only deployments for
- *     v1". A future iteration can stage rows into the temporal store
- *     before COPY (or fall back to `@dsnp/parquetjs`) once the dep
- *     footprint is acceptable.
+ *     no file — lbug-only deployments accept `determinism_class:
+ *     degraded` for v1. A future iteration can stage rows into the
+ *     temporal store before COPY (or fall back to `@dsnp/parquetjs`)
+ *     once the dep footprint is acceptable.
  *
  * Determinism contract — non-negotiable, mirrored by the byte-identity
  * test in `embeddings-sidecar.test.ts` for the duck path:
@@ -48,7 +47,7 @@ import { readFile } from "node:fs/promises";
 import { DuckDbStore, type IGraphStore, type Store } from "@opencodehub/storage";
 
 /**
- * Inputs to {@link writeEmbeddingsSidecar}. AC-A-4 takes a composed
+ * Inputs to {@link writeEmbeddingsSidecar}. Takes a composed
  * {@link Store} (= `OpenStoreResult`) so the sidecar can dispatch on
  * backend and route through whichever adapter owns the embeddings.
  */
@@ -123,7 +122,7 @@ interface ParquetCopyCapableStore {
  *
  * Returns `{ written: false, rowCount: 0, writerBackend: "absent", ... }`
  * when:
- *   - the `embeddings` table is empty (S-M5-3 — pack omits the BomItem);
+ *   - the `embeddings` table is empty (pack omits the BomItem);
  *   - the backend is `lbug` (v1 degraded path — no temporal embeddings
  *     table to COPY from).
  *
@@ -165,8 +164,8 @@ export async function writeEmbeddingsSidecar(opts: SidecarOptions): Promise<Side
   const { rowCount, duckdbVersion } = await copyHelper.exportEmbeddingsParquet(outPath);
 
   if (rowCount === 0) {
-    // S-M5-3 — empty embeddings means NO file on disk and no manifest
-    // entry. `determinismClass: "strict"` because absence is itself a
+    // Empty embeddings means NO file on disk and no manifest entry.
+    // `determinismClass: "strict"` because absence is itself a
     // deterministic outcome on the duck path.
     return {
       written: false,
@@ -199,7 +198,7 @@ export async function writeEmbeddingsSidecar(opts: SidecarOptions): Promise<Side
 /**
  * Return the @internal DuckDB COPY helper if the store exposes one.
  *
- * Lookup order (matches AC-A-4 dispatch §AC-A-4):
+ * Lookup order:
  *   1. `store.graph` is a `DuckDbStore` (backend === "duck"). The graph
  *      view IS the embedding-owning DuckDB connection.
  *   2. `store.temporal` is a `DuckDbStore` AND its file holds the
@@ -240,14 +239,13 @@ function hasParquetCopy(store: unknown): store is ParquetCopyCapableStore {
  * Count rows in the embeddings stream so the degraded-path result still
  * carries an honest `rowCount`. Drains the iterator (which is the only
  * portable surface across both adapters) — a pure COUNT(*) shortcut isn't
- * on `IGraphStore` and adding one would widen the interface, against the
- * AC-A-4 anti-goal "DO NOT change `IGraphStore.listEmbeddings` signature".
+ * on `IGraphStore` and adding one would widen the interface, which we
+ * deliberately keep frozen at the `listEmbeddings` signature.
  *
  * Tolerant of test fakes that don't implement `listEmbeddings`: when the
  * method is missing we treat that as zero embeddings (the fake clearly
  * doesn't model the embeddings table). Real adapters always implement
- * it (AC-A-6a shipped both adapters) so this guard never trips in
- * production.
+ * it, so this guard never trips in production.
  */
 async function countEmbeddings(
   graph: IGraphStore,

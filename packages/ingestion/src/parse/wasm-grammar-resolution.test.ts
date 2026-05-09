@@ -16,7 +16,7 @@
  *     (verifies the commit + build-script loop landed correctly).
  *   - A known per-grammar-package entry (python) still resolves — the
  *     refactor must not regress the 11-entry primary mapping.
- *   - PHP resolves to the `php_only` variant (AC-4 invariant).
+ *   - PHP resolves to the `php_only` variant.
  */
 
 import { strict as assert } from "node:assert";
@@ -57,7 +57,7 @@ describe("resolveGrammarWasmPath — per-grammar package path unchanged", () => 
     );
   });
 
-  it("php resolves to php_only.wasm (AC-4 invariant)", () => {
+  it("php resolves to php_only.wasm", () => {
     const wasmPath = _resolveGrammarWasmPathForTests("php");
     assert.ok(wasmPath !== undefined);
     assert.ok(

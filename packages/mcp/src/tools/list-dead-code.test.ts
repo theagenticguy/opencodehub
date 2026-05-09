@@ -42,8 +42,8 @@ import type { ToolContext } from "./shared.js";
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
- * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * (`OpenStoreResult`) that the connection pool returns. The same
+ * instance backs both `graph` and `temporal` because DuckDbStore
  * implements both interfaces over a single connection in production.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
@@ -78,9 +78,9 @@ interface FakeEdge {
 
 /**
  * In-memory fake of the typed-finder surface `classifyDeadness` consumes:
- * `listNodes`, `listEdges`, `listEdgesByType`. AC-A-6b dropped the SQL-regex
- * dispatcher from the production code path; the fake mirrors the same
- * filtering semantics directly against the seeded `nodes` / `edges` arrays.
+ * `listNodes`, `listEdges`, `listEdgesByType`. The fake mirrors the same
+ * filtering semantics directly against the seeded `nodes` / `edges`
+ * arrays.
  */
 function makeFakeStore(nodes: readonly FakeNode[], edges: readonly FakeEdge[]): DuckDbStore {
   const nodeAsGraphNode = (n: FakeNode): GraphNode => n as unknown as GraphNode;

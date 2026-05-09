@@ -1,5 +1,5 @@
 /**
- * Concurrency regression suite for {@link GraphDbPool} (spec 004 §AC-M3-2).
+ * Concurrency regression suite for {@link GraphDbPool}.
  *
  * Every test injects a fake `NativeBinding` into the pool so the suite
  * runs without touching the native binding. That lets us drive exact

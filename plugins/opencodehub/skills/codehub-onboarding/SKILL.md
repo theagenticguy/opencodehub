@@ -14,7 +14,7 @@ Produces a single ONBOARDING.md with a ranked reading order drawn from graph cen
 ## Preconditions
 
 1. `mcp__opencodehub__list_repos` returns the target. If not, emit `Run codehub analyze first — repo <name> is not indexed.` and stop.
-2. `codehub status` is fresh. If stale, emit `Run 'codehub analyze' first — index is stale` and stop. (Spec 001 AC-3-1.)
+2. `codehub status` is fresh. If stale, emit `Run 'codehub analyze' first — index is stale` and stop.
 
 ## Arguments
 

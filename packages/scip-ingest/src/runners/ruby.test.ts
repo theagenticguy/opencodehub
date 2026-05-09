@@ -3,9 +3,8 @@
  *
  * These tests assert on the shell plan + skip semantics without spawning the
  * real `scip-ruby` binary. A missing-binary skip test exercises `runIndexer`
- * with a bogus `$PATH` so `spawn` returns ENOENT, validating the S-M4-1
- * state requirement: when the indexer binary is absent, analyze must skip
- * cleanly with a setup hint.
+ * with a bogus `$PATH` so `spawn` returns ENOENT, validating that when the
+ * indexer binary is absent, analyze skips cleanly with a setup hint.
  */
 
 import { strict as assert } from "node:assert";

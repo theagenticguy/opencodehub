@@ -1,5 +1,5 @@
 /**
- * Tests for the BOM README renderer (AC-M5-5 — item 9 partial).
+ * Tests for the BOM README renderer (item 9 partial).
  *
  * Covers:
  *   - A. Pure-function determinism: same inputs → same bytes.

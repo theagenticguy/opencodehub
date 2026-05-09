@@ -9,7 +9,7 @@
  *   - The `graphFile` for any in-tree backend (currently `duck` →
  *     `graph.duckdb`, `lbug` → `graph.lbug`). Filenames come from the
  *     storage `describeArtifacts` helper so two-store deployments share a
- *     single source of truth (see AC-A-8).
+ *     single source of truth.
  *
  * Returns a plain boolean — UI surfaces (e.g. `codehub list`) want to
  * render a single column without leaking which backend produced the

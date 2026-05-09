@@ -1,5 +1,5 @@
 /**
- * BOM body item: dependency graph / lockfile slice (AC-M5-4 — item 4/9).
+ * BOM body item: dependency graph / lockfile slice (item 4/9).
  *
  * Reads `Dependency` nodes via `IGraphStore.listNodes()` and projects
  * each onto a flat `DepRow`. Mirrors the shape of the MCP `dependencies`
@@ -32,7 +32,7 @@ export interface DepRow {
    * Resolved package version. The `DependencyNode` schema defines
    * `version: string` (non-optional), but we keep the row shape lenient
    * so future graphs that allow optional version (e.g. workspace `*`
-   * pins) round-trip without coercion. See AC-M5-4 anti-goals.
+   * pins) round-trip without coercion.
    */
   readonly version: string;
   /** Ecosystem — `npm` / `pypi` / `go` / `cargo` / `maven` / `nuget`. */

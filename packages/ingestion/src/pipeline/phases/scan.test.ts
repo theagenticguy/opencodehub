@@ -130,7 +130,7 @@ describe("scanPhase", () => {
   });
 });
 
-describe("scanPhase — submodule enumeration (ING-E-002, ING-S-001)", () => {
+describe("scanPhase — submodule enumeration", () => {
   let outerRepo: string;
   let innerRepo: string;
 

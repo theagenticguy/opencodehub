@@ -1,11 +1,10 @@
 /**
  * Request-time PageRank kernel for `@opencodehub/analysis`.
  *
- * Lifted verbatim from `packages/scip-ingest/src/materialize.ts`
- * (AC-M5-2). The algorithm uses fixed iterations + fixed damping —
- * tolerance-based convergence is banned by W-M5-3, because any
- * numerical drift breaks the byte-identity guarantee that the
- * AC-M5-4 skeleton BOM item + future graphHash depend on.
+ * The algorithm uses fixed iterations + fixed damping —
+ * tolerance-based convergence is forbidden because any numerical drift
+ * breaks the byte-identity guarantee that the skeleton BOM item +
+ * future graphHash depend on.
  *
  * The kernel operates on an adjacency-list snapshot built from a
  * stream of directed edges. scip-ingest's `DerivedEdge` is a
@@ -35,9 +34,8 @@ export interface Adjacency {
  * preserves the edge iteration order within each outgoing row so the
  * PageRank fold across `outAdj[u]` is reproducible.
  *
- * Preserves the byte-identity of the pre-lift implementation (see
- * `packages/scip-ingest/src/materialize.ts@<lift-commit>` before
- * AC-M5-2).
+ * Preserves the byte-identity of the implementation that originally
+ * lived in `packages/scip-ingest/src/materialize.ts`.
  */
 export function buildAdjacency(edges: readonly EdgeLike[]): Adjacency {
   const nodeSet = new Set<string>();
@@ -81,7 +79,7 @@ export function buildAdjacency(edges: readonly EdgeLike[]): Adjacency {
  * Compute PageRank over a directed, weighted adjacency.
  *
  * Fixed iterations (default 50) and fixed damping (default 0.85) —
- * NO tolerance-based convergence (W-M5-3). Returns a Float64Array
+ * NO tolerance-based convergence — fixed iterations only. Returns a Float64Array
  * indexed by `adj.nodes` order.
  *
  * Dangling-mass distribution: at every iteration, mass held on

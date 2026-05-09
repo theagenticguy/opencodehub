@@ -104,10 +104,10 @@ export function generateSchemaDDL(opts: SchemaOptions): readonly string[] {
       partial_fingerprint  TEXT,
       baseline_state       TEXT,
       suppressed_json      TEXT,
-      -- Repo (AC-M6-1). One row per indexed repository. The "group" field
-      -- is a reserved SQL keyword, so the column is named repo_group. The
-      -- index_time field is node-level metadata that is kept out of
-      -- graphHash determinism inputs per E-M6-1 / W-M6-1.
+      -- Repo. One row per indexed repository. The "group" field is a
+      -- reserved SQL keyword, so the column is named repo_group. The
+      -- index_time field is node-level metadata that is deliberately
+      -- excluded from graphHash determinism inputs.
       origin_url           TEXT,
       repo_uri             TEXT,
       default_branch       TEXT,

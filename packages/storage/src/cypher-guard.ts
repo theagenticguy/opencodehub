@@ -8,7 +8,7 @@
  * typed rejection earlier in the stack plus a consistent user-facing
  * message regardless of backend.
  *
- * Scope (AC-M3-5):
+ * Scope:
  *   - Allowlist of reader clauses: MATCH, RETURN, WITH, WHERE, ORDER BY,
  *     LIMIT, SKIP, UNWIND.
  *   - `CALL` is rejected unless the invocation is exactly one of the two

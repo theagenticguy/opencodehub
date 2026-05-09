@@ -12,14 +12,14 @@
  *   - `pack` (DEFAULT) — `@opencodehub/pack`'s `generatePack`. Opens a
  *     read-only graph store via `openStore({ readOnly: true })` and walks
  *     the indexed graph to produce the 8 mandatory BOM items + manifest +
- *     optional Parquet embeddings sidecar. AC-A-4 relocated the sidecar
- *     emitter into pack/; cli/ passes the composed `Store` and pack
+ *     optional Parquet embeddings sidecar. The sidecar emitter lives in
+ *     `@opencodehub/pack`; cli/ passes the composed `Store` and pack
  *     dispatches on `store.backend` (DuckDB COPY for `duck`, degraded
  *     stamp for `lbug` v1).
  *   - `repomix` — legacy single-file snapshot via `npx repomix`. Retained
- *     under an opt-in flag for one milestone (drop deferred to M7 per
- *     spec 005 Q-DELTA-6). Internally delegates to `runPack` so the
- *     repomix shell-out is implemented exactly once.
+ *     under an opt-in flag for one milestone before removal. Internally
+ *     delegates to `runPack` so the repomix shell-out is implemented
+ *     exactly once.
  *
  * The CLI surface is:
  *
@@ -143,12 +143,13 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         return composed;
       })()
     : undefined;
-  // generatePack consumes `Store` (= `OpenStoreResult`) so AC-A-4's
-  // sidecar can dispatch on `store.backend`. Tests historically passed an
-  // `IGraphStore` stub via `_store`; route that through the
-  // `internal.graphOnly` seam which auto-wraps it into a no-op-temporal
-  // Store with `backend: "duck"` (the sidecar then resolves to absent
-  // unless the stub duck-types `exportEmbeddingsParquet` itself).
+  // generatePack consumes `Store` (= `OpenStoreResult`) so the
+  // embeddings sidecar can dispatch on `store.backend`. Tests
+  // historically passed an `IGraphStore` stub via `_store`; route that
+  // through the `internal.graphOnly` seam which auto-wraps it into a
+  // no-op-temporal Store with `backend: "duck"` (the sidecar then
+  // resolves to absent unless the stub duck-types
+  // `exportEmbeddingsParquet` itself).
   const composedStore: Store | undefined = isStoreShape(args._store)
     ? args._store
     : (owned ?? undefined);
@@ -251,8 +252,8 @@ export function statSizeOrZero(path: string): number {
  * {@link IGraphStore} stub. Tests historically passed a flat IGraphStore
  * via `_store`; production passes the full Store envelope from
  * {@link openStore}. We detect the envelope shape by the presence of
- * `graph` + `temporal` + `backend` so both paths flow through the new
- * AC-A-4 sidecar dispatch correctly.
+ * `graph` + `temporal` + `backend` so both paths flow through the
+ * sidecar dispatch correctly.
  */
 function isStoreShape(s: Store | IGraphStore | undefined): s is Store {
   if (s === undefined) return false;

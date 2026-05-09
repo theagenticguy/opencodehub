@@ -241,10 +241,11 @@ async function renderLlmOverviewPage(
  * by kind priority then name. Used by the LLM overview page to feed key
  * symbols into each summarizer prompt.
  *
- * Implementation: walk MEMBER_OF edges via `listEdgesByType` (post-AC-A-6a),
- * lift the typed Class/Function/Method node lists via `listNodesByKind`,
- * then JS-side join the edge endpoints to the symbol nodes. Sort by the
- * (kind-priority, name ASC) key the SQL formerly applied via `CASE n.kind`.
+ * Implementation: walk MEMBER_OF edges via `listEdgesByType`, lift the
+ * typed Class/Function/Method node lists via `listNodesByKind`, then
+ * JS-side join the edge endpoints to the symbol nodes. Sort by the
+ * (kind-priority, name ASC) key the SQL formerly applied via
+ * `CASE n.kind`.
  */
 async function loadCommunityTopSymbols(
   store: IGraphStore,

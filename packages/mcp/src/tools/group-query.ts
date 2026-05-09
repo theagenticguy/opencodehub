@@ -67,7 +67,7 @@ const GroupQueryInput = {
 interface ResultRow {
   readonly _repo: string;
   /**
-   * Additive per AC-M6-4. Authoritative cross-repo handle alongside the
+   * Additive — the authoritative cross-repo handle alongside the
    * legacy `_repo` (registry name). Derived from the graph-backed
    * `RepoNode.repoUri` when available, otherwise `deriveRepoUri`.
    */
@@ -155,8 +155,8 @@ export async function runGroupQuery(ctx: ToolContext, args: GroupQueryArgs): Pro
         );
         continue;
       }
-      // AC-M6-4 additive field — resolve once per repo so every result row
-      // from this repo receives the same `_repo_uri`. Best-effort: the
+      // Additive field — resolve once per repo so every result row from
+      // this repo receives the same `_repo_uri`. Best-effort: the
       // helper falls back to `deriveRepoUri` on any DB failure.
       const repoUri = await repoUriForEntry(hit, ctx.pool);
       const repoPath = resolve(hit.path);

@@ -4,9 +4,9 @@
  * rejects any mutation, and a per-statement JS timer interrupts long
  * queries.
  *
- * Per AC-A-6e: routes through `store.temporal.exec()` rather than the
- * graph-tier escape hatch — `--sql` is the one CLI surface that consumes
- * the tabular view directly. Graph-only commands stay on
+ * Routes through `store.temporal.exec()` rather than the graph-tier
+ * escape hatch — `--sql` is the one CLI surface that consumes the
+ * tabular view directly. Graph-only commands stay on
  * `store.graph.<finder>()`.
  */
 

@@ -79,8 +79,7 @@ import { describeArtifacts } from "./paths.js";
  * superset of the spec-level {@link ApiOpenStoreOptions}: keeps the
  * `duckOptions` / `graphDbOptions` adapter-specific bag so existing
  * callers (analyze CLI, ingestion harness) can continue passing through
- * the precise per-backend tuning while AC-A-9 finishes the auto-detect
- * resolver.
+ * the precise per-backend tuning alongside the auto-detect resolver.
  */
 export interface OpenStoreOptions extends ApiOpenStoreOptions {
   readonly duckOptions?: DuckDbStoreOptions;
@@ -104,7 +103,7 @@ type ResolvedBackend = "duck" | "lbug";
  *       - `CODEHUB_STORE=lbug` → `"lbug"`.
  *       - any other value → throw.
  *
- * The async sibling {@link resolveStoreBackendAsync} adds the AC-A-9
+ * The async sibling {@link resolveStoreBackendAsync} adds the
  * binding-availability probe: when env is unset, it calls
  * `import("@ladybugdb/core")` and prefers `"lbug"` on success. The sync
  * resolver here intentionally returns `"duck"` for `auto+unset` because
@@ -185,9 +184,9 @@ function shouldEmitAdvisory(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
- * Async backend resolver — the AC-A-9 default-flip entry point. Honors
- * the explicit env var first, then probes `@ladybugdb/core` when the
- * caller asked for `"auto"` and `CODEHUB_STORE` is unset.
+ * Async backend resolver — the graph-default entry point. Honors the
+ * explicit env var first, then probes `@ladybugdb/core` when the caller
+ * asked for `"auto"` and `CODEHUB_STORE` is unset.
  *
  * The probe runs at most once per process via {@link probeLbugBinding};
  * subsequent calls hit the cached result. On binding failure the resolver
@@ -312,7 +311,6 @@ function composeArtifactPaths(
 
 /**
  * Factory that returns a composed graph + temporal {@link OpenStoreResult}.
- * Per AC-A-3 (architecture-revised.md §AC-A-3):
  *
  *   - `backend: "duck"` → a single `DuckDbStore` instance is returned as
  *     BOTH the `graph` and `temporal` views over the same connection.
@@ -331,9 +329,9 @@ function composeArtifactPaths(
  * lifecycle cleanup symmetry.
  */
 export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult> {
-  // AC-A-9: async resolver — runs the cached `@ladybugdb/core` probe
-  // when the caller asked for `"auto"` and `CODEHUB_STORE` is unset.
-  // Explicit backend / env var paths skip the probe.
+  // Async resolver — runs the cached `@ladybugdb/core` probe when the
+  // caller asked for `"auto"` and `CODEHUB_STORE` is unset. Explicit
+  // backend / env var paths skip the probe.
   const initialBackend: ResolvedBackend = await resolveStoreBackendAsync(opts.backend);
   // Compose the canonical artifact paths for the initial backend, then
   // run dual-artifact detection. When both `graph.duckdb` and

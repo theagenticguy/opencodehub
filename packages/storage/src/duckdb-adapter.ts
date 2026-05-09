@@ -1,11 +1,11 @@
 /**
  * DuckDB-backed adapter for the storage interfaces.
  *
- * Per AC-A-1, this class implements BOTH {@link IGraphStore} and
- * {@link ITemporalStore} over a single `DuckDBConnection`. The legacy
- * `DuckDbStore` class export is retained as the bridge type for the
- * 41 type-pin call sites that AC-A-5 will migrate gradually — its
- * instances satisfy the union of both surfaces.
+ * This class implements BOTH {@link IGraphStore} and {@link ITemporalStore}
+ * over a single `DuckDBConnection`. The legacy `DuckDbStore` class export
+ * is retained as the bridge type for the type-pin call sites that still
+ * consume the merged surface — its instances satisfy the union of both
+ * surfaces.
  *
  * When a caller composes a {@link OpenStoreResult} with `backend: "duck"`,
  * the same `DuckDbStore` instance is returned as both the `graph` view
@@ -138,16 +138,17 @@ const DEFAULT_COCHANGE_MIN_LIFT = 1.0;
 /**
  * Concrete adapter that satisfies both {@link IGraphStore} (graph-tier)
  * and {@link ITemporalStore} (tabular-tier) over a single DuckDB
- * connection. The class export remains the legacy bridge type that the
- * 41 AC-A-5 type-pin sites continue to consume; new code should call
- * `openStore(...)` and route through `OpenStoreResult.graph` /
- * `OpenStoreResult.temporal` rather than reaching for the concrete class.
+ * connection. The class export remains the legacy bridge type that
+ * existing type-pin sites consume; new code should call `openStore(...)`
+ * and route through `OpenStoreResult.graph` / `OpenStoreResult.temporal`
+ * rather than reaching for the concrete class.
  */
 export class DuckDbStore implements IGraphStore, ITemporalStore {
   /**
    * DuckDB exposes no public Cypher entry point — typed finders cover the
-   * graph reads. Stamped as `"none"` for the {@link IGraphStore.dialect}
-   * marker introduced in AC-A-1.
+   * graph reads. Stamped as `"none"` on the {@link IGraphStore.dialect}
+   * marker so callers can branch between Cypher-aware and Cypher-free
+   * adapters.
    */
   readonly dialect: GraphDialect = "none";
   private readonly path: string;
@@ -487,13 +488,13 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
   /**
    * @internal
    * Stream the `embeddings` table to a Parquet file via DuckDB's built-in
-   * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Backs the M5 BOM
-   * item #7 (Parquet sidecar) for `@opencodehub/pack`.
+   * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Backs the
+   * Parquet sidecar BOM item for `@opencodehub/pack`.
    *
-   * **NOT part of the public storage surface.** AC-A-4 reframed the
-   * embeddings sidecar as a packaging concern, owned by `@opencodehub/pack`.
-   * This method survives as a DuckDB-only helper that pack's
-   * `writeEmbeddingsSidecar` invokes after narrowing `store.temporal` (or
+   * **NOT part of the public storage surface.** The embeddings sidecar is
+   * a packaging concern owned by `@opencodehub/pack`. This method survives
+   * as a DuckDB-only helper that pack's `writeEmbeddingsSidecar` invokes
+   * after narrowing `store.temporal` (or
    * `store.graph` when `backend === "duck"`) to a {@link DuckDbStore}.
    * Third-party {@link IGraphStore} / {@link ITemporalStore} implementations
    * MUST NOT implement it — pack stamps `determinismClass: "degraded"`
@@ -513,8 +514,8 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
    *     surface that string to the caller via `duckdbVersion` and the pack
    *     manifest pins it (`PackPins.duckdbVersion`).
    *
-   * When the embeddings table is empty, NO file is written (S-M5-3 contract
-   * for the pack BOM); the caller is expected to skip the BomItem entirely.
+   * When the embeddings table is empty, NO file is written; the caller
+   * is expected to skip the BomItem entirely.
    *
    * Caller MUST pass an absolute path. Path is interpolated into the SQL
    * statement after a strict format check (alphanumerics + `/_-.` only and
@@ -580,7 +581,7 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
    * Load every prior `content_hash` from the `embeddings` table keyed by the
    * composite `(granularity, node_id, chunk_index)` tuple. Used by the
    * ingestion embeddings phase to skip re-embedding chunks whose source
-   * text is unchanged across runs (T-M1-3).
+   * text is unchanged across runs.
    *
    * A single `SELECT` round-trip is cheaper than per-chunk lookups and
    * keeps the API surface narrow: the caller gets a `Map` it owns.
@@ -905,10 +906,9 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
 
   /**
    * {@link ITemporalStore.exec} implementation — delegates to {@link query}.
-   * AC-A-1 introduced this name on the temporal interface so callers that
-   * route through `OpenStoreResult.temporal` use the new vocabulary; the
-   * original `query()` method stays for the 41 type-pin sites AC-A-5 will
-   * migrate.
+   * Callers that route through `OpenStoreResult.temporal` use this name;
+   * the original `query()` method stays for legacy type-pin sites that
+   * still consume the merged surface.
    */
   async exec(
     sql: string,
@@ -1007,12 +1007,12 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
   }
 
   // --------------------------------------------------------------------------
-  // Typed finders — AC-A-6 service-layer foundation
+  // Typed finders — service-layer foundation
   // --------------------------------------------------------------------------
   //
-  // Every method below replaces a pattern-matched raw-SQL site identified in
-  // architecture-revised.md §5. SQL strings stay LOCAL to this file — they are
-  // never exported from the package surface so consumers cannot reach for the
+  // Every method below replaces a raw-SQL pattern that consumers used to
+  // reach for. SQL strings stay LOCAL to this file — they are never
+  // exported from the package surface so consumers cannot reach for the
   // dialect directly.
   //
   // Determinism contract: every finder returns rows in deterministic order so
@@ -1530,8 +1530,8 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
    *
    * Repo membership is resolved by walking the `Repo` row whose `id` is
    * the prefix of the consumer/producer node ids. The current ingestion
-   * stamps `repo_uri` directly on every node via the AC-M6-1 column —
-   * we read it inline rather than re-traversing the graph.
+   * stamps `repo_uri` directly on every node via the persisted Repo
+   * column — we read it inline rather than re-traversing the graph.
    */
   async listConsumerProducerEdges(
     opts: { readonly repoUris?: readonly string[] } = {},
@@ -1640,9 +1640,9 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
       for (const r of rows) {
         const row = r as Record<string, unknown>;
         const stepVal = row["step"];
-        // Match the AC-A-2 step-zero sentinel: DuckDB stores `INT NOT NULL
-        // DEFAULT 0` for absent step values; collapse 0 to "field absent"
-        // so the wire shape matches the source `CodeRelation`.
+        // Step-zero sentinel: DuckDB stores `INT NOT NULL DEFAULT 0`
+        // for absent step values; collapse 0 to "field absent" so the
+        // wire shape matches the source `CodeRelation`.
         const step =
           stepVal === null || stepVal === undefined || Number(stepVal) === 0
             ? undefined
@@ -2264,7 +2264,7 @@ function rowToGraphNode(row: Record<string, unknown>): GraphNode | undefined {
   setStringField(out, "partialFingerprint", row["partial_fingerprint"]);
   setStringField(out, "baselineState", row["baseline_state"]);
   setStringField(out, "suppressedJson", row["suppressed_json"]);
-  // Repo (AC-M6-1). The interface marks `originUrl` / `defaultBranch` /
+  // Repo. The interface marks `originUrl` / `defaultBranch` /
   // `group` as `string | null` so the round-trip preserves an explicit
   // null when the column is NULL. Other Repo fields are populated only
   // when `kind === "Repo"`; for non-Repo rows the columns stay NULL and
