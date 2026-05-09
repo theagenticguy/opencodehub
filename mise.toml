@@ -144,8 +144,8 @@ description = "Full local CI: lint + typecheck + test + banned-strings"
 depends = ["lint", "typecheck", "test", "banned-strings"]
 
 [tasks."check:full"]
-description = "Everything check does, plus licenses and OSV"
-depends = ["check", "licenses", "osv"]
+description = "Everything check does, plus licenses, OSV, and pack determinism"
+depends = ["check", "licenses", "osv", "pack:determinism"]
 
 # ---------------------------------------------------------------------------
 # Release / acceptance / smoke
@@ -194,3 +194,36 @@ run = "node packages/cli/dist/index.js status"
 description = "Start the codehub MCP server (stdio)"
 depends = ["build:cli"]
 run = "node packages/cli/dist/index.js mcp"
+
+# ---------------------------------------------------------------------------
+# Dogfood: run the codehub CLI against this repo
+# ---------------------------------------------------------------------------
+# Use `pnpm exec node packages/cli/dist/index.js` rather than the linked
+# `codehub` binary because `pnpm link --global` was removed in pnpm 11.x.
+# This invocation matches scripts/pack-determinism-audit.sh and is
+# forward-compatible with future pnpm upgrades.
+
+[tasks."pack:determinism"]
+description = "Verify codehub code-pack output is byte-identical across runs"
+depends = ["build:cli"]
+run = "bash scripts/pack-determinism-audit.sh"
+
+[tasks."och:self-analyze"]
+description = "Dogfood: run codehub analyze on this repo"
+depends = ["build:cli"]
+run = "pnpm exec node packages/cli/dist/index.js analyze ."
+
+[tasks."och:self-scan"]
+description = "Dogfood: run codehub scan on this repo"
+depends = ["build:cli"]
+run = "pnpm exec node packages/cli/dist/index.js scan ."
+
+[tasks."och:self-verdict"]
+description = "Dogfood: run codehub verdict against origin/main..HEAD"
+depends = ["build:cli"]
+run = "pnpm exec node packages/cli/dist/index.js verdict --base origin/main --head HEAD --exit-code"
+
+[tasks."och:self-pack"]
+description = "Dogfood: produce a deterministic code-pack of this repo"
+depends = ["build:cli"]
+run = "pnpm exec node packages/cli/dist/index.js code-pack . --budget 100000 --tokenizer 'openai:o200k_base@tiktoken-0.8.0' --out-dir .codehub/code-pack"
