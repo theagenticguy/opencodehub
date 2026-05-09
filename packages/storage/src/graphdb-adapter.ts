@@ -1330,7 +1330,8 @@ export class GraphDbStore implements IGraphStore {
         `m.last_commit AS last_commit, m.indexed_at AS indexed_at, ` +
         `m.node_count AS node_count, m.edge_count AS edge_count, ` +
         `m.stats_json AS stats_json, m.cache_hit_ratio AS cache_hit_ratio, ` +
-        `m.cache_size_bytes AS cache_size_bytes, m.last_compaction AS last_compaction ` +
+        `m.cache_size_bytes AS cache_size_bytes, m.last_compaction AS last_compaction, ` +
+        `m.embedder_model_id AS embedder_model_id ` +
         `LIMIT 1`,
     );
     const first = rows[0];
@@ -1345,6 +1346,7 @@ export class GraphDbStore implements IGraphStore {
     const cacheHitRatio = row["cache_hit_ratio"];
     const cacheSizeBytes = row["cache_size_bytes"];
     const lastCompaction = row["last_compaction"];
+    const embedderModelId = row["embedder_model_id"];
     return {
       schemaVersion: String(row["schema_version"]),
       ...(lastCommit !== null && lastCommit !== undefined
@@ -1363,6 +1365,9 @@ export class GraphDbStore implements IGraphStore {
       ...(lastCompaction !== null && lastCompaction !== undefined
         ? { lastCompaction: String(lastCompaction) }
         : {}),
+      ...(embedderModelId !== null && embedderModelId !== undefined
+        ? { embedderModelId: String(embedderModelId) }
+        : {}),
     };
   }
 
@@ -1375,7 +1380,8 @@ export class GraphDbStore implements IGraphStore {
       `MERGE (m:StoreMeta {id: 1}) ` +
         `SET m.schema_version = $p1, m.last_commit = $p2, m.indexed_at = $p3, ` +
         `m.node_count = $p4, m.edge_count = $p5, m.stats_json = $p6, ` +
-        `m.cache_hit_ratio = $p7, m.cache_size_bytes = $p8, m.last_compaction = $p9`,
+        `m.cache_hit_ratio = $p7, m.cache_size_bytes = $p8, m.last_compaction = $p9, ` +
+        `m.embedder_model_id = $p10`,
       [
         meta.schemaVersion,
         meta.lastCommit ?? null,
@@ -1386,6 +1392,7 @@ export class GraphDbStore implements IGraphStore {
         meta.cacheHitRatio ?? null,
         meta.cacheSizeBytes ?? null,
         meta.lastCompaction ?? null,
+        meta.embedderModelId ?? null,
       ],
     );
   }
@@ -1749,10 +1756,15 @@ function setBooleanFieldGd(out: Record<string, unknown>, key: string, v: unknown
 }
 
 function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
+  // Preserve `[]` distinct from absent. The graph-db STRING[] binder
+  // returns a 0-length JS array for an empty array literal and `null`
+  // for an absent column — matching DuckDB's TEXT[] semantics. Re-attach
+  // the array verbatim so canonical-JSON / graphHash parity holds across
+  // backends for `{keywords: []}` round-trips.
   if (!Array.isArray(v)) return;
   const arr: string[] = [];
   for (const item of v) if (typeof item === "string") arr.push(item);
-  if (arr.length > 0) out[key] = arr;
+  out[key] = arr;
 }
 
 function setJsonArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {

@@ -111,6 +111,11 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
       }
       return out;
     },
+    // The query path reads `getMeta()` to compare the persisted embedder
+    // modelId against the currently-active embedder. Returning `undefined`
+    // makes every fake store look like a legacy / pre-tag store, so the
+    // compatibility check passes without any test having to set a model id.
+    getMeta: async () => undefined,
   };
 
   // The temporal-tier surface the query path touches is just

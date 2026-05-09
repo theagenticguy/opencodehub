@@ -27,7 +27,11 @@
 
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import type { Embedder } from "@opencodehub/embedder";
+import {
+  assertEmbedderCompatible,
+  type Embedder,
+  openDefaultEmbedder,
+} from "@opencodehub/embedder";
 import {
   bm25Search,
   DEFAULT_RRF_TOP_K,
@@ -93,6 +97,13 @@ export interface QueryOptions {
    * queries that should land on Community nodes.
    */
   readonly granularity?: "symbol" | "file" | "community";
+  /**
+   * `--force-backend-mismatch` — bypass the embedder fingerprint refusal.
+   * Lets a query proceed against an `embeddings` table that was populated
+   * by a different embedder than the one currently active. The vectors
+   * may be stale; results may misrank. Default `false`.
+   */
+  readonly forceBackendMismatch?: boolean;
 }
 
 /**
@@ -113,19 +124,6 @@ interface QueryRow {
   readonly signatureSummary?: string;
 }
 
-/**
- * Default production factory — lazy-imports `@opencodehub/embedder` so the
- * ONNX runtime native binding only loads when the command actually needs
- * it. Priority mirrors the MCP tool: HTTP env vars first, ONNX weights
- * second, graceful `tryOpenEmbedder` fallback on any failure.
- */
-async function defaultOpenEmbedder(): Promise<Embedder> {
-  const mod = await import("@opencodehub/embedder");
-  const httpEmbedder = mod.tryOpenHttpEmbedder();
-  if (httpEmbedder !== null) return httpEmbedder;
-  return mod.openOnnxEmbedder();
-}
-
 export async function runQuery(
   text: string,
   opts: QueryOptions = {},
@@ -134,7 +132,9 @@ export async function runQuery(
   const limit = opts.limit ?? 10;
   const rerankTopK = opts.rerankTopK ?? DEFAULT_RRF_TOP_K;
   const openStore = hooks.openStore ?? openStoreForCommand;
-  const openEmbedder = hooks.openEmbedder ?? defaultOpenEmbedder;
+  // Shared HTTP-priority + ONNX-fallback factory. ONNX binding only loads
+  // on the fallback branch, so plain (non-dynamic) import is fine here.
+  const openEmbedder = hooks.openEmbedder ?? (() => openDefaultEmbedder());
   const { store, repoPath } = await openStore(opts);
   const graph = store.graph;
   try {
@@ -151,6 +151,24 @@ export async function runQuery(
       const embedder = await tryOpenEmbedder<Embedder>(openEmbedder, "[cli:query]");
       if (embedder !== null) {
         try {
+          // Refuse the hybrid path when the persisted embedder modelId
+          // differs from the current one. Same-dim vectors from different
+          // embedders silently corrupt ranking. `--force-backend-mismatch`
+          // lets the operator override; legacy stores have
+          // `embedderModelId === undefined` and the check passes.
+          const meta = await store.graph.getMeta();
+          const compat = assertEmbedderCompatible(
+            meta?.embedderModelId,
+            embedder.modelId,
+            opts.forceBackendMismatch === true,
+          );
+          if (!compat.ok) {
+            process.stderr.write(
+              `Embedder mismatch: store was indexed with '${compat.persistedModelId}', ` +
+                `current embedder is '${compat.currentModelId}'.\n${compat.hint}\n`,
+            );
+            process.exit(2);
+          }
           const fused = await hybridSearch(
             graph,
             {

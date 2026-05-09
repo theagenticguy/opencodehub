@@ -37,7 +37,9 @@ import {
   DuckDBInstance,
   type DuckDBPreparedStatement,
   FLOAT,
+  LIST,
   listValue,
+  VARCHAR,
 } from "@duckdb/node-api";
 import {
   type CodeRelation,
@@ -127,6 +129,7 @@ const ALL_RELATION_TYPES: readonly string[] = [
   "FOUND_IN",
   "DEPENDS_ON",
   "OWNED_BY",
+  "TYPE_OF",
 ];
 
 const DEFAULT_COCHANGE_LOOKUP_LIMIT = 10;
@@ -1912,7 +1915,8 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
     const c = this.requireConn();
     const reader = await c.runAndReadAll(
       `SELECT schema_version, last_commit, indexed_at, node_count, edge_count,
-              stats_json, cache_hit_ratio, cache_size_bytes, last_compaction
+              stats_json, cache_hit_ratio, cache_size_bytes, last_compaction,
+              embedder_model_id
        FROM store_meta WHERE id = 1`,
     );
     const rows = reader.getRowObjects();
@@ -1926,6 +1930,7 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
     const cacheHitRatio = row["cache_hit_ratio"];
     const cacheSizeBytes = row["cache_size_bytes"];
     const lastCompaction = row["last_compaction"];
+    const embedderModelId = row["embedder_model_id"];
     return {
       schemaVersion: String(row["schema_version"]),
       ...(lastCommit !== null && lastCommit !== undefined
@@ -1944,6 +1949,9 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
       ...(lastCompaction !== null && lastCompaction !== undefined
         ? { lastCompaction: String(lastCompaction) }
         : {}),
+      ...(embedderModelId !== null && embedderModelId !== undefined
+        ? { embedderModelId: String(embedderModelId) }
+        : {}),
     };
   }
 
@@ -1956,8 +1964,9 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
     const stmt = await c.prepare(
       `INSERT INTO store_meta (
         id, schema_version, last_commit, indexed_at, node_count, edge_count,
-        stats_json, cache_hit_ratio, cache_size_bytes, last_compaction
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        stats_json, cache_hit_ratio, cache_size_bytes, last_compaction,
+        embedder_model_id
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     try {
       bindParam(stmt, 1, meta.schemaVersion);
@@ -1969,6 +1978,7 @@ export class DuckDbStore implements IGraphStore, ITemporalStore {
       bindParam(stmt, 7, meta.cacheHitRatio ?? null);
       bindParam(stmt, 8, meta.cacheSizeBytes ?? null);
       bindParam(stmt, 9, meta.lastCompaction ?? null);
+      bindParam(stmt, 10, meta.embedderModelId ?? null);
       await stmt.run();
     } finally {
       stmt.destroySync();
@@ -2069,7 +2079,13 @@ function bindParam(
   if (Array.isArray(value)) {
     // DuckDB TEXT[] → bind as a list of varchar values. Use bindList (VARIABLE
     // length), not bindArray (FIXED length) — `TEXT[]` in the DDL is a LIST.
-    stmt.bindList(index, listValue([...(value as readonly string[])]));
+    //
+    // Pass the explicit `LIST(VARCHAR)` type so an empty array (`[]`,
+    // written intentionally to preserve the `keywords: []` vs absent
+    // distinction) binds as `LIST<VARCHAR>` rather than `LIST<ANY>`.
+    // Without the type hint DuckDB rejects empty lists with
+    // "Cannot create lists with item type of ANY".
+    stmt.bindList(index, listValue([...(value as readonly string[])]), LIST(VARCHAR));
     return;
   }
   switch (typeof value) {
@@ -2295,12 +2311,17 @@ function setBooleanField(out: Record<string, unknown>, key: string, v: unknown):
 }
 
 function setStringArrayField(out: Record<string, unknown>, key: string, v: unknown): void {
+  // Preserve `[]` distinct from absent. The DuckDB TEXT[] binder returns
+  // a 0-length JS array for an empty SQL array literal and `null` for SQL
+  // NULL. Re-attach the array verbatim so a node written as
+  // `{keywords: []}` round-trips with `keywords: []` (not coalesced away)
+  // — required for canonical-JSON / graphHash byte-identity.
   if (!Array.isArray(v)) return;
   const arr: string[] = [];
   for (const item of v) {
     if (typeof item === "string") arr.push(item);
   }
-  if (arr.length > 0) out[key] = arr;
+  out[key] = arr;
 }
 
 function setJsonArrayField(out: Record<string, unknown>, key: string, v: unknown): void {

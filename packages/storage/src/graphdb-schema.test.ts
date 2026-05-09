@@ -7,7 +7,7 @@ import { generateSchemaDdl, getAllRelationTypes } from "./graphdb-schema.js";
 // code over the spec text — the DDL must cover every kind the v1.1 DuckDB
 // schema knows. If a kind is added to `ALL_RELATION_TYPES` upstream, bump
 // this constant alongside the new entry in `graphdb-schema.ts`.
-const EXPECTED_RELATION_COUNT = 24;
+const EXPECTED_RELATION_COUNT = 25;
 
 // Banned-literal probes are built at runtime so this test file does not
 // itself trip `scripts/check-banned-strings.sh`. Each entry is a list of
@@ -111,9 +111,9 @@ test("generateSchemaDdl rejects invalid embedding dimensions", () => {
 test("getAllRelationTypes returns every OCH edge kind in canonical order", () => {
   const kinds = getAllRelationTypes();
   assert.equal(kinds.length, EXPECTED_RELATION_COUNT);
-  // Spot-check ordering invariants: first kind is CONTAINS, last is OWNED_BY.
+  // Spot-check ordering invariants: first kind is CONTAINS, last is TYPE_OF.
   assert.equal(kinds[0], "CONTAINS");
-  assert.equal(kinds[kinds.length - 1], "OWNED_BY");
+  assert.equal(kinds[kinds.length - 1], "TYPE_OF");
 });
 
 test("statements are semicolon-terminated", () => {

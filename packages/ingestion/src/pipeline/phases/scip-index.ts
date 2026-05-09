@@ -34,6 +34,7 @@ import { join } from "node:path";
 import type { GraphNode, NodeId } from "@opencodehub/core-types";
 import type {
   DerivedEdge,
+  DerivedRelation,
   IndexerKind,
   IndexerResult,
   ScipIndexerName,
@@ -242,7 +243,7 @@ async function runScipIndex(
       result.version || index.tool.version || "unknown",
     );
 
-    const { added, upgraded } = emitEdges(
+    const { added: edgeAdded, upgraded: edgeUpgraded } = emitEdges(
       ctx,
       nodesByFile,
       derived.edges,
@@ -250,6 +251,16 @@ async function runScipIndex(
       reason,
       existingEdgeKeys,
     );
+    const { added: relAdded, upgraded: relUpgraded } = emitRelations(
+      ctx,
+      nodesByFile,
+      derived.relations,
+      symbolDef,
+      reason,
+      existingEdgeKeys,
+    );
+    const added = edgeAdded + relAdded;
+    const upgraded = edgeUpgraded + relUpgraded;
     totalAdded += added;
     totalUpgraded += upgraded;
     perLang.push({
@@ -475,6 +486,9 @@ function emitEdges(
   // disambiguated even when multiple in-repo symbols share a display
   // name. Symbols without a DEFINITION occurrence are external
   // (stdlib / vendored / absent typings) and their edges are dropped.
+  // Each edge carries its own `kind` (CALLS or REFERENCES) so this loop
+  // routes both function-call and read-side reference fanout through the
+  // same caller→callee join shape.
   for (const e of edges) {
     const fromId = findEnclosingNodeId(nodesByFile, e.document, e.callLine + 1);
     if (!fromId) continue;
@@ -484,13 +498,64 @@ function emitEdges(
     if (!toId) continue;
     if (fromId === toId) continue;
 
-    const key = edgeKey(fromId, "CALLS", toId);
+    const key = edgeKey(fromId, e.kind, toId);
     const priorExists = existingKeys.has(key);
 
     ctx.graph.addEdge({
       from: fromId,
       to: toId,
-      type: "CALLS",
+      type: e.kind,
+      confidence: SCIP_CONFIDENCE,
+      reason,
+    });
+
+    existingKeys.add(key);
+    if (priorExists) upgraded += 1;
+    else added += 1;
+  }
+  return { added, upgraded };
+}
+
+/**
+ * Emit IMPLEMENTS / TYPE_OF graph edges from `derived.relations`.
+ *
+ * `collectRels` in `@opencodehub/scip-ingest/derive.ts` translates the
+ * SCIP `Relationship` message (`is_implementation`, `is_type_definition`)
+ * into structural relations between two SCIP symbols. Both ends need to
+ * resolve to OCH nodes via `symbolDef` — a relation whose source or
+ * target has no DEFINITION anywhere in the index is dropped (the
+ * relation lives entirely outside the indexed corpus). Otherwise the
+ * lookup uses the same `+1` boundary translation as `emitEdges` because
+ * SCIP `range.startLine` is 0-indexed and OCH graph nodes are 1-indexed.
+ */
+function emitRelations(
+  ctx: PipelineContext,
+  nodesByFile: NodesByFile,
+  relations: readonly DerivedRelation[],
+  symbolDef: ReadonlyMap<string, { file: string; line: number }>,
+  reason: string,
+  existingKeys: Set<string>,
+): { added: number; upgraded: number } {
+  let added = 0;
+  let upgraded = 0;
+  for (const r of relations) {
+    const fromDef = symbolDef.get(r.from);
+    if (!fromDef) continue;
+    const toDef = symbolDef.get(r.to);
+    if (!toDef) continue;
+    const fromId = findEnclosingNodeId(nodesByFile, fromDef.file, fromDef.line + 1);
+    if (!fromId) continue;
+    const toId = findEnclosingNodeId(nodesByFile, toDef.file, toDef.line + 1);
+    if (!toId) continue;
+    if (fromId === toId) continue;
+
+    const key = edgeKey(fromId, r.kind, toId);
+    const priorExists = existingKeys.has(key);
+
+    ctx.graph.addEdge({
+      from: fromId,
+      to: toId,
+      type: r.kind,
       confidence: SCIP_CONFIDENCE,
       reason,
     });

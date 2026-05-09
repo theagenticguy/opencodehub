@@ -31,6 +31,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Replace raw-SQL escape hatches with typed finders on the storage interface](solutions/architecture-patterns/typed-finders-replace-raw-sql-in-consumers.md) — 108 raw-SQL sites collapse into 15 named finders. Adapters internalize dialect; consumers stay backend-agnostic. Liskov-clean parity harness via public-method rebuilder.
 - [Parallel Act subagents on a shared git tree — interleaving + cherry-pick discipline](solutions/best-practices/parallel-act-subagents-with-shared-git-tree.md) — verify branch state, spawn on non-overlapping packages, watch for stale dist + phantom test counts, watch the test-fixup tail.
 - [Squash-merge masks pre-existing repo-wide debt](solutions/best-practices/squash-merge-masks-pre-existing-debt.md) — first action on a fresh branch from main is `mise run check` BEFORE starting work; lint rules / transitive deps / cross-package test assertions drift across squash boundaries even when per-commit gating was green inside the prior PR.
+- [No spec-coordinate leakage into source](solutions/best-practices/no-spec-coordinate-leakage-into-source.md) — ERPAVal `AC-*`, `M-*`, `W-*`, `CL-*` prefixes belong in commits, PR bodies, ADR refs sections — NOT in JSDoc, inline comments, CLI flag help, MCP tool descriptions, or test names. Sweep `rg -n "AC-[A-Z]-[0-9]" packages/` before every PR-open; LLM clients pick up the leakage and start citing it back.
 
 ## Specs
 

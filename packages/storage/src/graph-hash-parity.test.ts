@@ -44,6 +44,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  graphHash,
   KnowledgeGraph,
   makeNodeId,
   type NodeId,
@@ -307,6 +308,102 @@ function buildLargeFixture(): KnowledgeGraph {
 }
 
 /**
+ * Empty-collection fixture: medium graph plus a Community node carrying
+ * an explicitly-empty `keywords: []` and a Route node carrying an
+ * explicitly-empty `responseKeys: []`. Asserts:
+ *
+ *   1. (parity)     The DuckDb and GraphDb hashes match each other and
+ *                   the original fixture hash — i.e. `[]` round-trips
+ *                   byte-identically across both backends through the
+ *                   native TEXT[] / STRING[] columns.
+ *   2. (difference) The hash of this fixture differs from the hash of
+ *                   the equivalent fixture without the `keywords` /
+ *                   `responseKeys` keys — i.e. `[]` is not silently
+ *                   equivalent to absent. That assertion runs in the
+ *                   accompanying "absent-keys" test below.
+ *
+ * This is the graphHash content-shape change tripwire: writer + reader
+ * on both adapters must preserve the `[]` vs `undefined` distinction
+ * or one of the two assertions will fail.
+ */
+function buildMediumWithEmptyKeywordsFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const file = makeNodeId("File", "src/api.ts", "api.ts");
+  g.addNode({ id: file, kind: "File", name: "api.ts", filePath: "src/api.ts" });
+
+  // Community node with explicit empty `keywords`. The two ownership-drift
+  // / truck-factor fields are intentionally absent so canonical-JSON only
+  // has to carry `keywords: []` as the load-bearing distinguisher.
+  const communityId = makeNodeId("Community", "<global>", "auth-community");
+  g.addNode({
+    id: communityId,
+    kind: "Community",
+    name: "auth-community",
+    filePath: "<global>",
+    inferredLabel: "auth",
+    symbolCount: 0,
+    cohesion: 1.0,
+    keywords: [],
+  });
+
+  // Route node with explicit empty `responseKeys`.
+  const routeId = makeNodeId("Route", "src/api.ts", "GET /health");
+  g.addNode({
+    id: routeId,
+    kind: "Route",
+    name: "GET /health",
+    filePath: "src/api.ts",
+    url: "/health",
+    method: "GET",
+    responseKeys: [],
+  });
+
+  g.addEdge({ from: file, to: routeId, type: "DEFINES", confidence: 1.0 });
+  return g;
+}
+
+/**
+ * Companion fixture for the empty-collection difference assertion.
+ * Identical to {@link buildMediumWithEmptyKeywordsFixture} except both
+ * `keywords` and `responseKeys` are absent (not `[]`). The accompanying
+ * test below asserts the resulting `graphHash` differs from the
+ * empty-array variant — proving the writer + readers preserve the
+ * `[]`-vs-absent distinction end-to-end (rather than silently coalescing
+ * both to absent).
+ */
+function buildMediumWithoutKeywordsFixture(): KnowledgeGraph {
+  const g = new KnowledgeGraph();
+  const file = makeNodeId("File", "src/api.ts", "api.ts");
+  g.addNode({ id: file, kind: "File", name: "api.ts", filePath: "src/api.ts" });
+
+  const communityId = makeNodeId("Community", "<global>", "auth-community");
+  g.addNode({
+    id: communityId,
+    kind: "Community",
+    name: "auth-community",
+    filePath: "<global>",
+    inferredLabel: "auth",
+    symbolCount: 0,
+    cohesion: 1.0,
+    // keywords intentionally absent.
+  });
+
+  const routeId = makeNodeId("Route", "src/api.ts", "GET /health");
+  g.addNode({
+    id: routeId,
+    kind: "Route",
+    name: "GET /health",
+    filePath: "src/api.ts",
+    url: "/health",
+    method: "GET",
+    // responseKeys intentionally absent.
+  });
+
+  g.addEdge({ from: file, to: routeId, type: "DEFINES", confidence: 1.0 });
+  return g;
+}
+
+/**
  * AC-M6-1 fixture: a RepoNode exercising every field — populated +
  * explicit-null variants of `originUrl` / `defaultBranch` / `group`, and
  * a non-empty `languageStats` record. The fixture must round-trip
@@ -416,7 +513,7 @@ test("graphHash parity: medium fixture (mixed node kinds + OWNED_BY edges)", asy
   await runParity({ name: "medium", fixture: buildMediumFixture() });
 });
 
-test("graphHash parity: large fixture (≥500 nodes, 24-edge-kind sweep)", async () => {
+test("graphHash parity: large fixture (≥500 nodes, 25-edge-kind sweep)", async () => {
   await runParity({ name: "large", fixture: buildLargeFixture() });
 });
 
@@ -426,4 +523,28 @@ test("graphHash parity: repo fixture (RepoNode with all attributes populated)", 
 
 test("graphHash parity: repo fixture with explicit-null origin / branch / group", async () => {
   await runParity({ name: "repo-null", fixture: buildRepoNullFixture() });
+});
+
+test("graphHash parity: medium-with-empty-keywords ([] vs absent)", async () => {
+  await runParity({
+    name: "medium-with-empty-keywords",
+    fixture: buildMediumWithEmptyKeywordsFixture(),
+  });
+});
+
+test("graphHash({keywords: []}) differs from graphHash({} — keywords absent)", async () => {
+  // Difference assertion — proves the writer + readers actually preserve
+  // the `[]`-vs-absent distinction. If a future regression silently
+  // coalesces `[]` back to absent, this test fires before the
+  // medium-with-empty-keywords parity test would (parity could mask the
+  // bug if BOTH adapters dropped `[]` symmetrically).
+  const withEmpty = graphHash(buildMediumWithEmptyKeywordsFixture());
+  const without = graphHash(buildMediumWithoutKeywordsFixture());
+  if (withEmpty === without) {
+    throw new Error(
+      "Regression: graphHash treats `keywords: []` and absent `keywords` as equivalent. " +
+        "Check `stringArrayOrNull` in column-encode.ts and the symmetric readers in " +
+        "duckdb-adapter.ts / graphdb-adapter.ts / analyze.ts.",
+    );
+  }
 });

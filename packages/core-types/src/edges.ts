@@ -24,7 +24,8 @@ export type RelationType =
   | "REFERENCES"
   | "FOUND_IN"
   | "DEPENDS_ON"
-  | "OWNED_BY";
+  | "OWNED_BY"
+  | "TYPE_OF";
 
 // Insertion order is load-bearing: graphHash serializes edges ordered by
 // (from, type, to, step) but the RELATION_TYPES runtime array is referenced by
@@ -55,6 +56,7 @@ export const RELATION_TYPES: readonly RelationType[] = [
   "FOUND_IN",
   "DEPENDS_ON",
   "OWNED_BY",
+  "TYPE_OF",
 ] as const;
 
 /**
