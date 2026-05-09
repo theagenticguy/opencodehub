@@ -30,6 +30,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Segregate graph-only and tabular-only stores at the interface boundary](solutions/architecture-patterns/igraphstore-itemporalstore-segregation.md) — when one type extends multiple sub-interfaces and a concrete implementor can't honestly satisfy all, segregate at the interface, not the class. `IGraphStore` + `ITemporalStore` + `openStore()` composition factory.
 - [Replace raw-SQL escape hatches with typed finders on the storage interface](solutions/architecture-patterns/typed-finders-replace-raw-sql-in-consumers.md) — 108 raw-SQL sites collapse into 15 named finders. Adapters internalize dialect; consumers stay backend-agnostic. Liskov-clean parity harness via public-method rebuilder.
 - [Parallel Act subagents on a shared git tree — interleaving + cherry-pick discipline](solutions/best-practices/parallel-act-subagents-with-shared-git-tree.md) — verify branch state, spawn on non-overlapping packages, watch for stale dist + phantom test counts, watch the test-fixup tail.
+- [Squash-merge masks pre-existing repo-wide debt](solutions/best-practices/squash-merge-masks-pre-existing-debt.md) — first action on a fresh branch from main is `mise run check` BEFORE starting work; lint rules / transitive deps / cross-package test assertions drift across squash boundaries even when per-commit gating was green inside the prior PR.
 
 ## Specs
 

@@ -64,7 +64,6 @@ class StubStore implements IGraphStore {
   async listEmbeddingHashes(): Promise<Map<string, string>> {
     return new Map();
   }
-  // biome-ignore lint/correctness/useYield: empty async iterable, no rows to yield
   async *listEmbeddings(): AsyncIterable<EmbeddingRow> {}
   async listNodes(): Promise<readonly GraphNode[]> {
     return [];

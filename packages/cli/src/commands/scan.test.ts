@@ -13,7 +13,7 @@ test("selectScanners: empty profile yields only polyglot P1 scanners", () => {
   const ids = selectScanners({}, {})
     .map((s) => s.id)
     .sort();
-  assert.deepEqual(ids, ["betterleaks", "grype", "osv-scanner", "semgrep"]);
+  assert.deepEqual(ids, ["betterleaks", "detect-secrets", "grype", "osv-scanner", "semgrep"]);
 });
 
 test("selectScanners: iacTypes=['terraform'] enables tflint + trivy + checkov", () => {
@@ -24,6 +24,7 @@ test("selectScanners: iacTypes=['terraform'] enables tflint + trivy + checkov", 
   assert.deepEqual(ids, [
     "betterleaks",
     "checkov",
+    "detect-secrets",
     "grype",
     "osv-scanner",
     "semgrep",

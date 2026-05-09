@@ -16,6 +16,7 @@ test("P1_SPECS contains the Priority-1 scanners in stable order", () => {
     "betterleaks",
     "osv-scanner",
     "bandit",
+    "detect-secrets",
     "biome",
     "pip-audit",
     "npm-audit",
@@ -40,8 +41,8 @@ test("P2_SPECS contains the Priority-2 scanners in stable order", () => {
   ]);
 });
 
-test("ALL_SPECS has 19 entries ( expansion)", () => {
-  assert.equal(ALL_SPECS.length, 19);
+test("ALL_SPECS has 20 entries (constraint-10 met)", () => {
+  assert.equal(ALL_SPECS.length, 20);
 });
 
 test("ty is flagged beta and clamav is optIn", () => {
@@ -92,10 +93,11 @@ test("every P2 spec is marked priority 2", () => {
 test("filterSpecsByLanguages keeps polyglot scanners and language-matching ones", () => {
   const pythonOnly = filterSpecsByLanguages(P1_SPECS, ["python"]);
   const ids = pythonOnly.map((s) => s.id).sort();
-  // semgrep/betterleaks/osv-scanner/grype polyglot; bandit/pip-audit/ruff/vulture match python.
+  // semgrep/betterleaks/osv-scanner/detect-secrets/grype polyglot; bandit/pip-audit/ruff/vulture match python.
   assert.deepEqual(ids, [
     "bandit",
     "betterleaks",
+    "detect-secrets",
     "grype",
     "osv-scanner",
     "pip-audit",
@@ -108,20 +110,28 @@ test("filterSpecsByLanguages keeps polyglot scanners and language-matching ones"
 test("filterSpecsByLanguages returns only polyglot scanners for empty input", () => {
   const empty = filterSpecsByLanguages(P1_SPECS, []);
   const ids = empty.map((s) => s.id).sort();
-  assert.deepEqual(ids, ["betterleaks", "grype", "osv-scanner", "semgrep"]);
+  assert.deepEqual(ids, ["betterleaks", "detect-secrets", "grype", "osv-scanner", "semgrep"]);
 });
 
 test("filterSpecsByLanguages includes biome + npm-audit for TypeScript projects", () => {
   const ts = filterSpecsByLanguages(P1_SPECS, ["typescript"]);
   const ids = ts.map((s) => s.id).sort();
-  assert.deepEqual(ids, ["betterleaks", "biome", "grype", "npm-audit", "osv-scanner", "semgrep"]);
+  assert.deepEqual(ids, [
+    "betterleaks",
+    "biome",
+    "detect-secrets",
+    "grype",
+    "npm-audit",
+    "osv-scanner",
+    "semgrep",
+  ]);
 });
 
 test("filterSpecsByProfile: empty profile yields polyglot P1 scanners", () => {
   const ids = filterSpecsByProfile(ALL_SPECS, {})
     .map((s) => s.id)
     .sort();
-  assert.deepEqual(ids, ["betterleaks", "grype", "osv-scanner", "semgrep"]);
+  assert.deepEqual(ids, ["betterleaks", "detect-secrets", "grype", "osv-scanner", "semgrep"]);
 });
 
 test("filterSpecsByProfile: Python + Terraform project enables python + IaC scanners", () => {
@@ -136,6 +146,7 @@ test("filterSpecsByProfile: Python + Terraform project enables python + IaC scan
     "bandit",
     "betterleaks",
     "checkov",
+    "detect-secrets",
     "grype",
     "osv-scanner",
     "pip-audit",
@@ -160,6 +171,7 @@ test("filterSpecsByProfile: Docker-only project enables hadolint + trivy + check
   assert.deepEqual(ids, [
     "betterleaks",
     "checkov",
+    "detect-secrets",
     "grype",
     "hadolint",
     "osv-scanner",

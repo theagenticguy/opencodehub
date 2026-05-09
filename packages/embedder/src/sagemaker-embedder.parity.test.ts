@@ -34,6 +34,7 @@ const COSINE_FLOOR = 0.99;
 /** Compact set of code-shaped fixtures — realistic embedder inputs. */
 const FIXTURES: readonly string[] = [
   "function add(a: number, b: number): number { return a + b; }",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: fixture string literally embeds a TS template-literal sample for the embedder
   "class Foo { constructor(public name: string) {} greet() { return `hi ${this.name}`; } }",
   "const result = await fetch(url).then(r => r.json());",
   "SELECT id, name FROM users WHERE active = true ORDER BY created_at DESC LIMIT 10;",
@@ -98,7 +99,7 @@ describe("SageMaker vs local ONNX — cosine parity", { skip: skipReason ?? unde
 
       const failures: string[] = [];
       let minCos = 1;
-      let sumCos = 0;
+      let _sumCos = 0;
 
       for (let i = 0; i < FIXTURES.length; i++) {
         const lv = localVecs[i];
@@ -109,19 +110,13 @@ describe("SageMaker vs local ONNX — cosine parity", { skip: skipReason ?? unde
         }
         const c = cosine(lv, rv);
         minCos = Math.min(minCos, c);
-        sumCos += c;
+        _sumCos += c;
         if (c < COSINE_FLOOR) {
           failures.push(
             `row ${i}: cosine=${c.toFixed(4)} < ${COSINE_FLOOR}; text="${FIXTURES[i]?.slice(0, 60)}..."`,
           );
         }
       }
-
-      // eslint-disable-next-line no-console
-      console.log(
-        `[parity] ${FIXTURES.length} fixtures · min=${minCos.toFixed(4)} · ` +
-          `mean=${(sumCos / FIXTURES.length).toFixed(4)}`,
-      );
       ok(failures.length === 0, `parity violations:\n  ${failures.join("\n  ")}`);
     } finally {
       await remote.close();

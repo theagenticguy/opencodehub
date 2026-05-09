@@ -11,11 +11,12 @@
  *     `filterSpecsByProfile`, `findSpec`.
  *   - Runner: `runScanners(path, wrappers, opts)` — concurrent runner.
  *   - P1 wrappers: createSemgrepWrapper / createBetterleaksWrapper /
- *     createOsvScannerWrapper / createBanditWrapper / createBiomeWrapper /
- *     createPipAuditWrapper / createNpmAuditWrapper.
+ *     createOsvScannerWrapper / createBanditWrapper / createDetectSecretsWrapper /
+ *     createBiomeWrapper / createPipAuditWrapper / createNpmAuditWrapper.
  *   - P2 wrappers: createTrivyWrapper / createCheckovWrapper /
  *     createHadolintWrapper / createTflintWrapper / createSpectralWrapper.
- *   - Converters: pipAuditJsonToSarif / npmAuditJsonToSarif.
+ *   - Converters: pipAuditJsonToSarif / npmAuditJsonToSarif /
+ *     detectSecretsJsonToSarif.
  *   - `createDefaultWrappers(specs, deps?, ctx?)` — materialize wrappers
  *     from specs for the runner.
  */
@@ -29,6 +30,7 @@ export {
   CHECKOV_DOCKER_COMPOSE_SPEC,
   CHECKOV_SPEC,
   CLAMAV_SPEC,
+  DETECT_SECRETS_SPEC,
   filterSpecsByLanguages,
   filterSpecsByProfile,
   findSpec,
@@ -48,6 +50,7 @@ export {
   TY_SPEC,
   VULTURE_SPEC,
 } from "./catalog.js";
+export { detectSecretsJsonToSarif } from "./converters/detect-secrets-to-sarif.js";
 export type { NpmAuditConvertOptions } from "./converters/npm-audit-to-sarif.js";
 export { npmAuditJsonToSarif } from "./converters/npm-audit-to-sarif.js";
 export type { PipAuditConvertOptions } from "./converters/pip-audit-to-sarif.js";
@@ -72,6 +75,7 @@ export { createBiomeWrapper } from "./wrappers/biome.js";
 export type { CheckovWrapperOptions } from "./wrappers/checkov.js";
 export { createCheckovWrapper } from "./wrappers/checkov.js";
 export { createClamAvWrapper } from "./wrappers/clamav.js";
+export { createDetectSecretsWrapper } from "./wrappers/detect-secrets.js";
 export type { CheckovDockerComposeWrapperOptions } from "./wrappers/docker-compose.js";
 export { createCheckovDockerComposeWrapper } from "./wrappers/docker-compose.js";
 export { createGrypeWrapper } from "./wrappers/grype.js";
@@ -99,6 +103,7 @@ import {
   CHECKOV_DOCKER_COMPOSE_SPEC,
   CHECKOV_SPEC,
   CLAMAV_SPEC,
+  DETECT_SECRETS_SPEC,
   GRYPE_SPEC,
   HADOLINT_SPEC,
   NPM_AUDIT_SPEC,
@@ -119,6 +124,7 @@ import { createBetterleaksWrapper } from "./wrappers/betterleaks.js";
 import { createBiomeWrapper } from "./wrappers/biome.js";
 import { type CheckovWrapperOptions, createCheckovWrapper } from "./wrappers/checkov.js";
 import { createClamAvWrapper } from "./wrappers/clamav.js";
+import { createDetectSecretsWrapper } from "./wrappers/detect-secrets.js";
 import {
   type CheckovDockerComposeWrapperOptions,
   createCheckovDockerComposeWrapper,
@@ -194,6 +200,8 @@ function createWrapperFor(
       return deps ? createOsvScannerWrapper(deps) : createOsvScannerWrapper();
     case BANDIT_SPEC.id:
       return deps ? createBanditWrapper(deps) : createBanditWrapper();
+    case DETECT_SECRETS_SPEC.id:
+      return deps ? createDetectSecretsWrapper(deps) : createDetectSecretsWrapper();
     case BIOME_SPEC.id:
       return deps ? createBiomeWrapper(deps) : createBiomeWrapper();
     case PIP_AUDIT_SPEC.id:
