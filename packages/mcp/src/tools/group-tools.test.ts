@@ -6,22 +6,17 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
+import type { SearchQuery, SearchResult, VectorQuery, VectorResult } from "@opencodehub/storage";
 import { ConnectionPool } from "../connection-pool.js";
 import { deriveRepoUri } from "../repo-resolver.js";
+import {
+  type FakeEdgeLike,
+  type FakeNodeLike,
+  type FakeRepo,
+  type FakeRoute,
+  makeFakeGraphStore,
+  wrapAsStore,
+} from "../test-utils.js";
 import { registerGroupContractsTool } from "./group-contracts.js";
 import { registerGroupListTool } from "./group-list.js";
 import { registerGroupQueryTool } from "./group-query.js";
@@ -30,15 +25,15 @@ import { registerGroupSyncTool } from "./group-sync.js";
 import { registerQueryTool } from "./query.js";
 import type { ToolContext } from "./shared.js";
 
-// --- Fake store -----------------------------------------------------------
+// --- Per-repo fake assembly ----------------------------------------------
 
 interface FakeRepoData {
   readonly name: string;
   readonly searchResults: readonly SearchResult[];
   /**
-   * Optional: the graph-backed `RepoNode.repoUri` the fake DB exposes via
-   * `SELECT repo_uri FROM nodes WHERE id = ?`. When omitted, the query
-   * returns zero rows and the tool falls back to `deriveRepoUri` (AC-M6-4).
+   * Optional: the graph-backed `RepoNode.repoUri`. When set, the typed
+   * `getRepoNode("Repo::::repo")` finder returns this URI; otherwise
+   * `repoUriForEntry` falls back to `deriveRepoUri` (AC-M6-4).
    */
   readonly repoNodeUri?: string;
   /** Optional seed for FETCHES edges returned by group_contracts. */
@@ -55,79 +50,65 @@ interface FakeRepoData {
   }[];
 }
 
-function makeFakeStore(data: FakeRepoData): DuckDbStore {
-  const byId = new Map<string, SearchResult>();
-  for (const r of data.searchResults) byId.set(r.nodeId, r);
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      p: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const normalized = sql.replace(/\s+/g, " ").trim();
-      // AC-M6-4: RepoNode lookup (`repo-uri-for-entry.ts`).
-      if (normalized.startsWith("SELECT repo_uri FROM nodes WHERE id =")) {
-        if (data.repoNodeUri === undefined) return [];
-        return [{ repo_uri: data.repoNodeUri }];
-      }
-      // group_contracts: FETCHES edges (consumers).
-      if (normalized.startsWith("SELECT from_id, to_id FROM relations WHERE type = 'FETCHES'")) {
-        const edges = data.fetchesEdges ?? [];
-        return edges.map((e) => ({
-          from_id: e.fromId,
-          to_id: `fetches:unresolved:${e.method}:${e.path}`,
-        }));
-      }
-      // group_contracts: Route nodes (producers).
-      if (normalized.startsWith("SELECT id, method, url FROM nodes WHERE kind = 'Route'")) {
-        const routes = data.routes ?? [];
-        return routes.map((r) => ({ id: r.id, method: r.method, url: r.url }));
-      }
-      // query tool's node hydration — return minimal rows so enrichWithContext
-      // can keep fused hits in place. Snippet extraction will be null because
-      // the fake filesystem does not serve any source files.
-      if (
-        normalized.startsWith(
-          "SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE id IN",
-        )
-      ) {
-        const idSet = new Set(p.map((x) => String(x)));
-        const out: Record<string, unknown>[] = [];
-        for (const id of idSet) {
-          const r = byId.get(id);
-          if (!r) continue;
-          out.push({
-            id: r.nodeId,
-            name: r.name,
-            kind: r.kind,
-            file_path: r.filePath,
-            start_line: null,
-            end_line: null,
-          });
-        }
-        return out;
-      }
-      return [];
+function buildRepoStore(data: FakeRepoData): {
+  store: import("@opencodehub/storage").Store;
+  observe: { kinds?: readonly string[] | undefined };
+} {
+  const observe: { kinds?: readonly string[] | undefined } = {};
+  const repoNodes: FakeRepo[] = [];
+  if (data.repoNodeUri !== undefined) {
+    // `repo-uri-for-entry.ts` calls `getRepoNode(makeNodeId("Repo", "", "repo"))`
+    // which yields the canonical id `Repo::repo` (kind:filePath:qualifiedName,
+    // both empty filePath and bare qualifiedName).
+    repoNodes.push({
+      id: "Repo::repo",
+      kind: "Repo",
+      name: data.name,
+      repoUri: data.repoNodeUri,
+      originUrl: null,
+      defaultBranch: null,
+      group: null,
+    });
+  }
+  // FETCHES edges with `to` = `fetches:unresolved:<METHOD>:<PATH>` are the
+  // raw shape group-contracts.ts emits when consumer FETCHES haven't yet
+  // resolved to a producer Route.
+  const edges: FakeEdgeLike[] = (data.fetchesEdges ?? []).map((e) => ({
+    type: "FETCHES",
+    fromId: e.fromId,
+    toId: `fetches:unresolved:${e.method}:${e.path}`,
+  }));
+  const routes: FakeRoute[] = (data.routes ?? []).map((r) => ({
+    id: r.id,
+    kind: "Route" as const,
+    name: `${r.method} ${r.url}`,
+    filePath: "",
+    url: r.url,
+    method: r.method,
+    responseKeys: [],
+  }));
+  // Also surface SearchResult nodeIds as nodes so any post-search node
+  // hydration finds matching rows.
+  const nodes: FakeNodeLike[] = data.searchResults.map((r) => ({
+    id: r.nodeId,
+    kind: r.kind,
+    name: r.name,
+    filePath: r.filePath,
+  }));
+  const store = makeFakeGraphStore(
+    { nodes, edges, routes, repoNodes },
+    {
+      // Capture kinds passed into BM25 so the kinds-threading test can assert.
+      search: async (q: SearchQuery): Promise<readonly SearchResult[]> => {
+        observe.kinds = q.kinds;
+        return data.searchResults
+          .filter((r) => r.name.toLowerCase().includes(q.text.toLowerCase()))
+          .slice(0, q.limit ?? 50);
+      },
+      vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
     },
-    search: async (q: SearchQuery): Promise<readonly SearchResult[]> =>
-      data.searchResults
-        .filter((r) => r.name.toLowerCase().includes(q.text.toLowerCase()))
-        .slice(0, q.limit ?? 50),
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
-  return api;
+  );
+  return { store: wrapAsStore(store), observe };
 }
 
 // --- Harness --------------------------------------------------------------
@@ -139,9 +120,8 @@ interface RepoFixture {
   readonly searchResults: readonly SearchResult[];
   /**
    * Optional: graph-backed `RepoNode.repoUri` for AC-M6-4 assertions.
-   * When set, the fake DB returns it for the `SELECT repo_uri FROM nodes
-   * WHERE id = 'Repo::::repo'` probe; otherwise the tool falls back to
-   * `deriveRepoUri`.
+   * When set, the typed `getRepoNode` finder surfaces the URI; otherwise
+   * the tool falls back to `deriveRepoUri`.
    */
   readonly repoNodeUri?: string;
   readonly fetchesEdges?: readonly {
@@ -215,7 +195,7 @@ async function withTestHarness(
             ...(r.fetchesEdges !== undefined ? { fetchesEdges: r.fetchesEdges } : {}),
             ...(r.routes !== undefined ? { routes: r.routes } : {}),
           };
-          return makeFakeStore(fakeArgs);
+          return buildRepoStore(fakeArgs).store;
         }
       }
       throw new Error(`no fake store wired for ${dbPath}`);
@@ -486,22 +466,26 @@ test("group_query kinds filter is threaded into per-repo BM25", async () => {
     ],
     [{ name: "solo", repos: ["alpha"] }],
     async (ctx, server) => {
-      // The fake store ignores kinds; we rewire it inline so we can assert
-      // the filter is actually delivered.
+      // Capture kinds delivered to BM25 by wrapping the pool factory: the
+      // graph fake's `search` records `q.kinds` on `observe`, but the only
+      // thing we have direct handle on here is the pool — so wrap the
+      // factory to intercept the search the way the original test did.
       // biome-ignore lint/suspicious/noExplicitAny: SDK internal for test wiring
       const anyCtx = ctx as any;
       const originalFactory = anyCtx.pool.factory as (dbPath: string) => Promise<unknown>;
       let observedKinds: readonly string[] | undefined;
       anyCtx.pool.factory = async (dbPath: string) => {
         const store = (await originalFactory(dbPath)) as {
-          search: (q: {
-            text: string;
-            kinds?: readonly string[];
-            limit?: number;
-          }) => Promise<unknown>;
+          graph: {
+            search: (q: {
+              text: string;
+              kinds?: readonly string[];
+              limit?: number;
+            }) => Promise<unknown>;
+          };
         };
-        const originalSearch = store.search.bind(store);
-        store.search = async (q) => {
+        const originalSearch = store.graph.search.bind(store.graph);
+        store.graph.search = async (q) => {
           observedKinds = q.kinds;
           return originalSearch(q);
         };

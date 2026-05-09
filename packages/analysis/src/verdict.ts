@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import toml from "@iarna/toml";
+import type { CommunityNode, FindingNode } from "@opencodehub/core-types";
 import { isSuppressed, type SarifResult } from "@opencodehub/sarif";
 import type { IGraphStore } from "@opencodehub/storage";
 import { runDetectChanges } from "./detect-changes.js";
@@ -516,20 +517,20 @@ async function collectCommunities(
 ): Promise<void> {
   if (symbolIds.length === 0) return;
   try {
-    const placeholders = symbolIds.map(() => "?").join(",");
-    const rows = await store.query(
-      `SELECT r.to_id AS community_id, n.inferred_label AS label
-         FROM relations r
-         LEFT JOIN nodes n ON n.id = r.to_id
-        WHERE r.type = 'MEMBER_OF' AND r.from_id IN (${placeholders})`,
-      symbolIds,
-    );
-    for (const row of rows) {
-      const id = stringField(row, "community_id");
-      if (id.length === 0) continue;
-      state.communities.add(id);
-      const label = stringField(row, "label");
-      if (label.length > 0) state.communityLabels.add(label);
+    // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+    // `WHERE r.type = 'MEMBER_OF' AND r.from_id IN (...)` raw SELECT. The
+    // community label join becomes a TS-side `listNodes({ids})` lookup.
+    const edges = await store.listEdgesByType("MEMBER_OF", { fromIds: symbolIds });
+    if (edges.length === 0) return;
+    const communityIds = Array.from(new Set(edges.map((e) => e.to))).filter((s) => s.length > 0);
+    for (const id of communityIds) state.communities.add(id);
+    if (communityIds.length === 0) return;
+    const communityNodes = await store.listNodes({ ids: communityIds, kinds: ["Community"] });
+    for (const node of communityNodes) {
+      if (node.kind !== "Community") continue;
+      const community = node as CommunityNode;
+      const label = community.inferredLabel;
+      if (typeof label === "string" && label.length > 0) state.communityLabels.add(label);
     }
   } catch {
     // Graph may not have community nodes yet.
@@ -549,27 +550,26 @@ async function collectFindings(
 
   if (symbolIds.length > 0) {
     try {
-      const placeholders = symbolIds.map(() => "?").join(",");
-      const rows = await store.query(
-        `SELECT DISTINCT n.rule_id AS rule_id,
-                         n.severity AS severity,
-                         n.suppressed_json AS suppressed_json
-           FROM relations r
-           JOIN nodes n ON n.id = r.from_id
-          WHERE r.type = 'FOUND_IN' AND n.kind = 'Finding' AND r.to_id IN (${placeholders})`,
-        symbolIds,
-      );
-      for (const row of rows) {
-        // : skip findings tagged via SARIF suppressions[] (loaded
-        // from .codehub/suppressions.yaml or inline `codehub-suppress:`
-        // comments). They still travel through SARIF + the graph, but do
-        // not count toward blocking verdict signals.
-        if (isRowSuppressed(row)) continue;
-        const severity = stringField(row, "severity");
-        const ruleId = stringField(row, "rule_id");
-        if (ruleId.length > 0) byRule.set(ruleId, (byRule.get(ruleId) ?? 0) + 1);
-        if (severity === "error") errorCount += 1;
-        else if (severity === "warning") warningCount += 1;
+      // AC-A-6b: typed `listEdgesByType("FOUND_IN", {toIds})` replaces a
+      // `WHERE r.type = 'FOUND_IN' AND r.to_id IN (...)` raw SELECT. The
+      // join to `nodes WHERE kind = 'Finding'` becomes a typed
+      // `listFindings()` filtered by id post-fetch.
+      const edges = await store.listEdgesByType("FOUND_IN", { toIds: symbolIds });
+      if (edges.length > 0) {
+        const findingIds = Array.from(new Set(edges.map((e) => e.from)));
+        // listFindings is the typed equivalent of `WHERE kind = 'Finding'`;
+        // we narrow by id with a TS-side filter since the finder doesn't
+        // expose an `ids` option (Finding ids stay bounded by scanner output).
+        const findings = await store.listFindings();
+        const targetSet = new Set(findingIds);
+        for (const f of findings) {
+          if (!targetSet.has(f.id)) continue;
+          if (isFindingSuppressed(f)) continue;
+          const ruleId = f.ruleId ?? "";
+          if (ruleId.length > 0) byRule.set(ruleId, (byRule.get(ruleId) ?? 0) + 1);
+          if (f.severity === "error") errorCount += 1;
+          else if (f.severity === "warning") warningCount += 1;
+        }
       }
     } catch {
       // Finding schema may be absent.
@@ -581,20 +581,20 @@ async function collectFindings(
   // to a specific symbol.
   if (files.length > 0) {
     try {
-      const placeholders = files.map(() => "?").join(",");
-      const rows = await store.query(
-        `SELECT rule_id, severity, suppressed_json FROM nodes
-          WHERE kind = 'Finding' AND file_path IN (${placeholders})`,
-        files,
-      );
-      for (const row of rows) {
-        if (isRowSuppressed(row)) continue;
-        const severity = stringField(row, "severity");
-        const ruleId = stringField(row, "rule_id");
+      // AC-A-6b: typed `listFindings()` replaces a
+      // `WHERE kind = 'Finding' AND file_path IN (...)` raw SELECT. The
+      // file membership filter runs JS-side; finding rows are bounded by the
+      // scanner output (typically O(100s)) so the filter is cheap.
+      const fileSet = new Set(files);
+      const findings = await store.listFindings();
+      for (const f of findings) {
+        if (!fileSet.has(f.filePath)) continue;
+        if (isFindingSuppressed(f)) continue;
+        const ruleId = f.ruleId ?? "";
         if (ruleId.length > 0 && !byRule.has(ruleId)) {
           byRule.set(ruleId, 1);
-          if (severity === "error") errorCount += 1;
-          else if (severity === "warning") warningCount += 1;
+          if (f.severity === "error") errorCount += 1;
+          else if (f.severity === "warning") warningCount += 1;
         }
       }
     } catch {
@@ -606,13 +606,13 @@ async function collectFindings(
 }
 
 /**
- * Bridge between a DuckDB Finding row and SARIF's `isSuppressed` predicate.
- * We rehydrate the persisted `suppressed_json` array into a minimal
- * SarifResult shape and delegate so the "non-empty suppressions[]"
- * definition lives in @opencodehub/sarif.
+ * Bridge between a typed {@link FindingNode} and SARIF's `isSuppressed`
+ * predicate. The node's `suppressedJson` field carries the persisted JSON
+ * array; we rehydrate it into a minimal SarifResult shape and delegate so
+ * the "non-empty suppressions[]" definition lives in @opencodehub/sarif.
  */
-function isRowSuppressed(row: Record<string, unknown>): boolean {
-  const raw = row["suppressed_json"];
+function isFindingSuppressed(finding: FindingNode): boolean {
+  const raw = finding.suppressedJson;
   if (typeof raw !== "string" || raw.length === 0) return false;
   let parsed: unknown;
   try {
@@ -631,59 +631,66 @@ async function collectFileMeta(
 ): Promise<ReadonlyMap<string, FileMeta>> {
   const out = new Map<string, FileMeta>();
   if (files.length === 0) return out;
+  const fileSet = new Set(files);
   try {
-    const placeholders = files.map(() => "?").join(",");
-    const rows = await store.query(
-      `SELECT file_path, orphan_grade, fix_follow_feat_density, coverage_percent
-         FROM nodes
-        WHERE kind = 'File' AND file_path IN (${placeholders})`,
-      files,
-    );
-    for (const row of rows) {
-      const filePath = stringField(row, "file_path");
-      if (filePath.length === 0) continue;
+    // AC-A-6b: typed `listNodesByKind("File")` replaces a
+    // `WHERE kind = 'File' AND file_path IN (...)` raw SELECT. The file
+    // membership filter runs JS-side because `listNodesByKind` exposes a
+    // single-file-path option only.
+    const fileNodes = await store.listNodesByKind("File");
+    for (const node of fileNodes) {
+      if (!fileSet.has(node.filePath)) continue;
+      const fileNode = node as {
+        readonly orphanGrade?: unknown;
+        readonly fixFollowFeatDensity?: unknown;
+        readonly coveragePercent?: unknown;
+      };
       const meta: {
         orphanGrade?: string;
         fixFollowFeatDensity?: number;
         coveragePercent?: number;
         maxCyclomatic?: number;
       } = {};
-      const grade = row["orphan_grade"];
+      const grade = fileNode.orphanGrade;
       if (typeof grade === "string" && grade.length > 0) {
         meta.orphanGrade = grade;
       }
-      const density = row["fix_follow_feat_density"];
+      const density = fileNode.fixFollowFeatDensity;
       if (typeof density === "number" && Number.isFinite(density)) {
         meta.fixFollowFeatDensity = density;
       }
-      const cov = row["coverage_percent"];
+      const cov = fileNode.coveragePercent;
       if (typeof cov === "number" && Number.isFinite(cov)) {
         meta.coveragePercent = cov;
       }
-      out.set(filePath, meta);
+      out.set(node.filePath, meta);
     }
   } catch {
     // Columns may not exist on a pre-H.5 / pre-Q.2 store.
   }
 
   // Max cyclomatic complexity per file, across callable kinds. Emitted as a
-  // separate query because the column is populated on child symbol rows,
-  // not on the File row itself.
+  // separate set of finder calls because `cyclomatic_complexity` is
+  // populated on child symbol rows, not on the File row itself.
+  //
+  // AC-A-6b: typed `listNodesByKind` per callable kind replaces a
+  // `WHERE kind IN ('Function','Method','Constructor') AND file_path IN
+  // (...) GROUP BY file_path MAX(cyclomatic_complexity)` aggregate. The MAX
+  // reduction runs JS-side as a single linear sweep.
   try {
-    const placeholders = files.map(() => "?").join(",");
-    const rows = await store.query(
-      `SELECT file_path, MAX(cyclomatic_complexity) AS max_cyclomatic
-         FROM nodes
-        WHERE kind IN ('Function', 'Method', 'Constructor')
-          AND file_path IN (${placeholders})
-        GROUP BY file_path`,
-      files,
-    );
-    for (const row of rows) {
-      const filePath = stringField(row, "file_path");
-      if (filePath.length === 0) continue;
-      const maxC = row["max_cyclomatic"];
-      if (typeof maxC !== "number" || !Number.isFinite(maxC)) continue;
+    const callableKinds = ["Function", "Method", "Constructor"] as const;
+    const allCallables = (
+      await Promise.all(callableKinds.map((kind) => store.listNodesByKind(kind)))
+    ).flat();
+    const maxByFile = new Map<string, number>();
+    for (const node of allCallables) {
+      if (!fileSet.has(node.filePath)) continue;
+      const cc = (node as { readonly cyclomaticComplexity?: unknown }).cyclomaticComplexity;
+      if (typeof cc !== "number" || !Number.isFinite(cc)) continue;
+      const existing = maxByFile.get(node.filePath);
+      if (existing === undefined || cc > existing) maxByFile.set(node.filePath, cc);
+    }
+    for (const [filePath, maxC] of maxByFile) {
       const existing = out.get(filePath) ?? {};
       out.set(filePath, { ...existing, maxCyclomatic: maxC });
     }
@@ -702,36 +709,59 @@ async function collectReviewers(
   // Build a list of File node ids — the form `File:<path>:<path>`.
   const fileNodeIds = files.map((f) => `File:${f}:${f}`);
   try {
-    const placeholders = fileNodeIds.map(() => "?").join(",");
-    const rows = await store.query(
-      `SELECT c.email_hash AS email_hash,
-              c.email_plain AS email,
-              c.name AS name,
-              SUM(r.confidence) AS total_weight
-         FROM relations r
-         JOIN nodes c ON c.id = r.to_id
-        WHERE r.type = 'OWNED_BY' AND c.kind = 'Contributor' AND r.from_id IN (${placeholders})
-        GROUP BY c.email_hash, c.email_plain, c.name
-        ORDER BY total_weight DESC, c.email_hash ASC
-        LIMIT 10`,
-      fileNodeIds,
-    );
+    // AC-A-6b: typed `listEdgesByType("OWNED_BY", {fromIds})` replaces a
+    // `WHERE r.type = 'OWNED_BY' AND r.from_id IN (...)` raw SELECT. The
+    // SUM(confidence) GROUP BY contributor + JOIN to nodes both run TS-side
+    // — `listNodes({ids})` materializes the contributor metadata.
+    const edges = await store.listEdgesByType("OWNED_BY", { fromIds: fileNodeIds });
+    if (edges.length === 0) return [];
+    const contribByEdge = new Map<string, number>();
+    for (const edge of edges) {
+      contribByEdge.set(edge.to, (contribByEdge.get(edge.to) ?? 0) + edge.confidence);
+    }
+    const contributorIds = [...contribByEdge.keys()];
+    const contribNodes = await store.listNodes({
+      ids: contributorIds,
+      kinds: ["Contributor"],
+    });
+    interface AggregatedRow {
+      readonly email: string;
+      readonly emailHash: string;
+      readonly name: string;
+      readonly weight: number;
+    }
+    const aggregated: AggregatedRow[] = [];
+    for (const node of contribNodes) {
+      if (node.kind !== "Contributor") continue;
+      const contributor = node as {
+        readonly emailHash?: unknown;
+        readonly emailPlain?: unknown;
+      };
+      const emailHash = typeof contributor.emailHash === "string" ? contributor.emailHash : "";
+      const email = typeof contributor.emailPlain === "string" ? contributor.emailPlain : "";
+      const weight = contribByEdge.get(node.id) ?? 0;
+      aggregated.push({
+        email,
+        emailHash,
+        name: node.name,
+        weight: Number.isFinite(weight) ? weight : 0,
+      });
+    }
+    aggregated.sort((a, b) => {
+      if (a.weight !== b.weight) return b.weight - a.weight;
+      return a.emailHash.localeCompare(b.emailHash);
+    });
     const out: RecommendedReviewer[] = [];
-    for (const row of rows) {
-      const email = stringField(row, "email");
-      const emailHash = stringField(row, "email_hash");
-      const name = stringField(row, "name");
-      const weightRaw = row["total_weight"];
-      const weight = typeof weightRaw === "number" && Number.isFinite(weightRaw) ? weightRaw : 0;
+    for (const row of aggregated.slice(0, 10)) {
       if (
         authorEmail !== undefined &&
-        (email.toLowerCase() === authorEmail.toLowerCase() || emailHash === hashEmail(authorEmail))
+        (row.email.toLowerCase() === authorEmail.toLowerCase() ||
+          row.emailHash === hashEmail(authorEmail))
       ) {
         continue;
       }
       if (out.length >= 2) break;
-      // Normalise weights into [0, 1] by the largest observed.
-      out.push({ email, emailHash, name, weight });
+      out.push({ email: row.email, emailHash: row.emailHash, name: row.name, weight: row.weight });
     }
     if (out.length === 0) return [];
     const maxWeight = Math.max(...out.map((o) => o.weight), 1e-9);
@@ -765,13 +795,6 @@ async function discoverAuthorEmail(repoPath: string): Promise<string | undefined
   } catch {
     return undefined;
   }
-}
-
-function stringField(row: Record<string, unknown>, field: string): string {
-  const v = row[field];
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return "";
 }
 
 async function loadTomlConfig(repoPath: string): Promise<Partial<VerdictConfig>> {

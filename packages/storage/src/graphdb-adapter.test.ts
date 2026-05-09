@@ -7,6 +7,7 @@ import { type GraphNode, KnowledgeGraph, makeNodeId, type NodeId } from "@openco
 import { assertReadOnlyCypher } from "./cypher-guard.js";
 import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
 import { openStore, resolveStoreBackend } from "./index.js";
+import { assertIGraphStoreConformance } from "./test-utils/conformance.js";
 
 async function scratchDbPath(): Promise<string> {
   // Per-test temp directory that holds a uniquely-named database file.
@@ -54,39 +55,33 @@ test("GraphDbStore honours option overrides", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Stubbed methods must throw NotImplementedError with a clear message
+// Surface separation (AC-A-1): cochange + symbol-summary methods removed
 // ---------------------------------------------------------------------------
 
-test("stubbed methods throw NotImplementedError tagged with method name", async () => {
+test("GraphDbStore no longer exposes cochange or symbol-summary methods", () => {
+  // Per AC-A-1 the temporal surface (cochanges + symbol summaries) lives
+  // exclusively on `ITemporalStore`; `GraphDbStore` is graph-only and
+  // does not even declare these names. The runtime check guards against
+  // accidental re-introduction of the merged shape.
   const s = new GraphDbStore("/tmp/graph.db");
-  // `query` is wired to the pool in AC-M3-2 and is no longer a stub; when
-  // the pool is not open it throws a generic Error, not NotImplementedError.
-  // `createSchema` and `bulkLoad` were wired in AC-M3-3 Commit 1; both
-  // require an open pool so their before-open behaviour is tested
-  // separately below.
-  // search / vectorSearch / traverse / getMeta / setMeta were wired in
-  // AC-M3-3 Commit 2 and upsertEmbeddings / listEmbeddingHashes in
-  // Commit 3. The remaining stubs are the cochange and symbol-summary
-  // surfaces, which AC-M3-4 lands.
-  const cases: readonly (readonly [string, () => Promise<unknown>])[] = [
-    ["bulkLoadCochanges", () => s.bulkLoadCochanges([])],
-    ["lookupCochangesForFile", () => s.lookupCochangesForFile("a")],
-    ["lookupCochangesBetween", () => s.lookupCochangesBetween("a", "b")],
-    ["bulkLoadSymbolSummaries", () => s.bulkLoadSymbolSummaries([])],
-    ["lookupSymbolSummary", () => s.lookupSymbolSummary("a", "b", "c")],
-    ["lookupSymbolSummariesByNode", () => s.lookupSymbolSummariesByNode([])],
+  const removed: readonly string[] = [
+    "bulkLoadCochanges",
+    "lookupCochangesForFile",
+    "lookupCochangesBetween",
+    "bulkLoadSymbolSummaries",
+    "lookupSymbolSummary",
+    "lookupSymbolSummariesByNode",
   ];
-
-  for (const [name, call] of cases) {
-    await assert.rejects(
-      call,
-      (err: unknown) =>
-        err instanceof NotImplementedError &&
-        (err as Error).message.includes(name) &&
-        (err as Error).message.includes("graph-db"),
-      `${name} should throw NotImplementedError tagged with its name`,
+  for (const name of removed) {
+    assert.equal(
+      typeof (s as unknown as Record<string, unknown>)[name],
+      "undefined",
+      `GraphDbStore must not expose ${name} after AC-A-1`,
     );
   }
+  // NotImplementedError is still exported for adapter-internal use even
+  // though the cochange / summary stubs that originally threw it are gone.
+  assert.equal(typeof NotImplementedError, "function");
 });
 
 test("query before open rejects with a clear error (pool-wired in AC-M3-2)", async () => {
@@ -165,14 +160,31 @@ test("resolveStoreBackend rejects unknown CODEHUB_STORE values", () => {
   );
 });
 
-test("openStore returns DuckDbStore when backend=duck", async () => {
+test("openStore composes a DuckDbStore graph + temporal pair when backend=duck", async () => {
   const store = await openStore({ path: ":memory:", backend: "duck" });
-  assert.equal(store.constructor.name, "DuckDbStore");
+  // AC-A-1: the duck backend wires BOTH views to the same DuckDbStore
+  // instance. Identity check — not just constructor-name — pins the
+  // single-connection invariant.
+  assert.equal(store.backend, "duck");
+  assert.equal(store.graph.constructor.name, "DuckDbStore");
+  assert.equal(store.temporal.constructor.name, "DuckDbStore");
+  assert.equal(store.graph as unknown, store.temporal as unknown);
+  assert.equal(store.graphFile, ":memory:");
+  assert.equal(store.temporalFile, ":memory:");
+  assert.equal(typeof store.close, "function");
 });
 
-test("openStore returns GraphDbStore when backend=lbug", async () => {
-  const store = await openStore({ path: "/tmp/graph.db", backend: "lbug" });
-  assert.equal(store.constructor.name, "GraphDbStore");
+test("openStore composes GraphDbStore + DuckDbStore pair when backend=lbug", async () => {
+  // AC-A-3 tightens the artifact split: the graph file is renamed to
+  // `graph.lbug` and the temporal file is its sibling `temporal.duckdb`
+  // inside the same directory, regardless of the legacy filename the
+  // caller supplies (typically `<repo>/.codehub/graph.duckdb`).
+  const store = await openStore({ path: "/tmp/och-test/graph.duckdb", backend: "lbug" });
+  assert.equal(store.backend, "lbug");
+  assert.equal(store.graph.constructor.name, "GraphDbStore");
+  assert.equal(store.temporal.constructor.name, "DuckDbStore");
+  assert.equal(store.graphFile, "/tmp/och-test/graph.lbug");
+  assert.equal(store.temporalFile, "/tmp/och-test/temporal.duckdb");
 });
 
 // ---------------------------------------------------------------------------
@@ -1118,3 +1130,26 @@ test("listNodes() cross-adapter parity: DuckStore ≡ GraphDbStore on the shared
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// v1.0 community-adapter conformance suite (AC-A-11)
+//
+// GraphDb is graph-only; it MUST satisfy every block of the shared v1.0
+// conformance contract. Binding probe is performed once at module load
+// time so the entire suite is skipped cleanly on platforms where the
+// `@ladybugdb/core` native binary is absent — matching the existing
+// integration-test skip pattern in this file.
+// ---------------------------------------------------------------------------
+
+if (await hasNativeBinding()) {
+  assertIGraphStoreConformance("GraphDb", async () => {
+    const store = new GraphDbStore(await scratchDbPath());
+    await store.open();
+    await store.createSchema();
+    return store;
+  });
+} else {
+  test("[conformance:GraphDb] skipped — @ladybugdb/core native binding unavailable", () => {
+    assert.ok(true, "native binding unavailable; conformance suite skipped");
+  });
+}

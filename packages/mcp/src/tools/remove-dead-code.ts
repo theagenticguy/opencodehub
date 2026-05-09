@@ -106,7 +106,7 @@ export async function runRemoveDeadCode(
         );
       }
 
-      const result = await classifyDeadness(store);
+      const result = await classifyDeadness(store.graph);
       const candidates = result.dead.filter(
         (s) => pattern === undefined || s.filePath.includes(pattern),
       );
@@ -124,7 +124,7 @@ export async function runRemoveDeadCode(
         );
       }
 
-      const enriched = await enrichWithEndLines(store, candidates);
+      const enriched = await enrichWithEndLines(store.graph, candidates);
       const groupedByFile = groupByFile(enriched);
 
       const fsFactory = ctx.fsFactory ?? createNodeFs;
@@ -253,22 +253,17 @@ export function registerRemoveDeadCodeTool(server: McpServer, ctx: RemoveDeadCod
 }
 
 async function enrichWithEndLines(
-  store: IGraphStore,
+  graph: IGraphStore,
   dead: readonly DeadSymbol[],
 ): Promise<EnrichedDead[]> {
   if (dead.length === 0) return [];
   const ids = dead.map((d) => d.id);
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT id, end_line FROM nodes WHERE id IN (${placeholders})`,
-    ids,
-  );
+  const partners = await graph.listNodes({ ids });
   const endById = new Map<string, number>();
-  for (const row of rows) {
-    const id = String(row["id"] ?? "");
-    const raw = row["end_line"];
+  for (const n of partners) {
+    const raw = (n as unknown as Record<string, unknown>)["endLine"];
     const end = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
-    if (id.length > 0) endById.set(id, end);
+    endById.set(n.id, end);
   }
   const out: EnrichedDead[] = [];
   for (const d of dead) {

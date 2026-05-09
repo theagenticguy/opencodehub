@@ -12,6 +12,7 @@
  *      the store.
  */
 
+import type { CommunityNode, GraphNode, ProcessNode } from "@opencodehub/core-types";
 import type { IGraphStore, TraverseQuery, TraverseResult } from "@opencodehub/storage";
 import type {
   AffectedModule,
@@ -80,11 +81,9 @@ async function resolveByName(
   name: string,
   filters: { readonly filePath?: string; readonly kind?: string },
 ): Promise<readonly NodeRef[]> {
-  const rows = await store.query(
-    "SELECT id, name, file_path, kind FROM nodes WHERE name = ? ORDER BY id",
-    [name],
-  );
-  const all = rows.map(rowToNodeRef);
+  // AC-A-6b: typed finder replaces a `WHERE name = ?` raw SELECT.
+  const nodes = await store.listNodesByName(name);
+  const all = nodes.map(nodeToNodeRef);
   // Prefer resolved nodes over unresolved placeholder Property rows when both
   // exist for the same name. Unresolved entries have file_path "<unresolved>"
   // and are parser-emitted stubs — never the intended impact target.
@@ -103,20 +102,18 @@ async function resolveByName(
 }
 
 async function resolveById(store: IGraphStore, id: string): Promise<NodeRef | undefined> {
-  const rows = await store.query(
-    "SELECT id, name, file_path, kind FROM nodes WHERE id = ? LIMIT 1",
-    [id],
-  );
-  const first = rows[0];
-  return first ? rowToNodeRef(first) : undefined;
+  // AC-A-6b: typed `listNodes({ids})` replaces a `WHERE id = ? LIMIT 1` raw SELECT.
+  const nodes = await store.listNodes({ ids: [id], limit: 1 });
+  const first = nodes[0];
+  return first ? nodeToNodeRef(first) : undefined;
 }
 
-function rowToNodeRef(row: Record<string, unknown>): NodeRef {
+function nodeToNodeRef(node: GraphNode): NodeRef {
   return {
-    id: String(row["id"] ?? ""),
-    name: String(row["name"] ?? ""),
-    filePath: String(row["file_path"] ?? ""),
-    kind: String(row["kind"] ?? ""),
+    id: node.id,
+    name: node.name,
+    filePath: node.filePath,
+    kind: node.kind,
   };
 }
 
@@ -127,15 +124,11 @@ async function hydrateNodes(
 ): Promise<ReadonlyMap<string, NodeRef>> {
   const out = new Map<string, NodeRef>();
   if (ids.length === 0) return out;
-  const unique = Array.from(new Set(ids));
-  const placeholders = unique.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT id, name, file_path, kind FROM nodes WHERE id IN (${placeholders})`,
-    unique,
-  );
-  for (const row of rows) {
-    const ref = rowToNodeRef(row);
-    out.set(ref.id, ref);
+  // AC-A-6b: typed `listNodes({ids})` replaces a `WHERE id IN (?,?,...)` raw SELECT.
+  // The adapter de-dupes the input set internally so callers can pass repeats.
+  const nodes = await store.listNodes({ ids });
+  for (const node of nodes) {
+    out.set(node.id, nodeToNodeRef(node));
   }
   return out;
 }
@@ -192,25 +185,22 @@ async function relationsByEdge(
     toIds.add(to);
   }
   if (fromIds.size === 0 || toIds.size === 0) return map;
-  const fromPlaceholders = Array.from(fromIds, () => "?").join(",");
-  const toPlaceholders = Array.from(toIds, () => "?").join(",");
-  const rows = await store.query(
-    `SELECT from_id, to_id, type, confidence, reason FROM relations
-       WHERE from_id IN (${fromPlaceholders}) AND to_id IN (${toPlaceholders})`,
-    [...fromIds, ...toIds],
-  );
-  for (const row of rows) {
-    const from = String(row["from_id"] ?? "");
-    const to = String(row["to_id"] ?? "");
-    const type = String(row["type"] ?? "");
-    const confidence = Number(row["confidence"] ?? 0);
-    const rawReason = row["reason"];
+  // AC-A-6b: typed `listEdges({fromIds, toIds})` replaces a `WHERE from_id IN
+  // (?) AND to_id IN (?)` raw SELECT. The result is filtered down to the
+  // exact predecessor → successor pairs we walked, since `listEdges` returns
+  // every edge whose endpoints fall in the AND-combined sets.
+  const edges = await store.listEdges({
+    fromIds: [...fromIds],
+    toIds: [...toIds],
+  });
+  for (const edge of edges) {
+    const confidence = edge.confidence;
     const record: TraversedEdgeRecord = {
-      type,
+      type: edge.type,
       confidence: Number.isFinite(confidence) ? confidence : 0,
-      ...(typeof rawReason === "string" && rawReason.length > 0 ? { reason: rawReason } : {}),
+      ...(typeof edge.reason === "string" && edge.reason.length > 0 ? { reason: edge.reason } : {}),
     };
-    map.set(`${from}|${to}`, record);
+    map.set(`${edge.from}|${edge.to}`, record);
   }
   for (const h of hits) {
     if (h.path.length < 2) continue;
@@ -248,21 +238,17 @@ async function fetchAffectedModules(
 ): Promise<readonly AffectedModule[]> {
   if (allIds.length === 0) return [];
   const unique = Array.from(new Set(allIds));
-  const placeholders = unique.map(() => "?").join(",");
-  const membership = await store.query(
-    `SELECT from_id AS symbol_id, to_id AS community_id
-       FROM relations
-      WHERE type = 'MEMBER_OF' AND from_id IN (${placeholders})`,
-    unique,
-  );
+  // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+  // `WHERE type = 'MEMBER_OF' AND from_id IN (?)` raw SELECT.
+  const membership = await store.listEdgesByType("MEMBER_OF", { fromIds: unique });
   if (membership.length === 0) return [];
 
   const communityHits = new Map<string, number>();
   const directIdSet = new Set(directIds);
   const directCommunityIds = new Set<string>();
-  for (const row of membership) {
-    const symbolId = String(row["symbol_id"] ?? "");
-    const communityId = String(row["community_id"] ?? "");
+  for (const edge of membership) {
+    const symbolId = edge.from;
+    const communityId = edge.to;
     if (symbolId.length === 0 || communityId.length === 0) continue;
     communityHits.set(communityId, (communityHits.get(communityId) ?? 0) + 1);
     if (directIdSet.has(symbolId)) directCommunityIds.add(communityId);
@@ -270,26 +256,22 @@ async function fetchAffectedModules(
   if (communityHits.size === 0) return [];
 
   const communityIds = [...communityHits.keys()];
-  const cPlaceholders = communityIds.map(() => "?").join(",");
-  const labelRows = await store.query(
-    `SELECT id, name, inferred_label
-       FROM nodes
-      WHERE id IN (${cPlaceholders}) AND kind = 'Community'`,
-    communityIds,
-  );
+  // AC-A-6b: typed `listNodes({ids, kinds:["Community"]})` replaces a raw
+  // SELECT joined to the kind discriminator. We narrow to Community + cast
+  // because the `inferred_label` field lives on CommunityNode only.
+  const labelNodes = await store.listNodes({ ids: communityIds, kinds: ["Community"] });
   const labelById = new Map<string, string>();
-  for (const row of labelRows) {
-    const id = String(row["id"] ?? "");
-    if (id.length === 0) continue;
-    const inferred = row["inferred_label"];
-    const name = row["name"];
+  for (const node of labelNodes) {
+    if (node.kind !== "Community") continue;
+    const community = node as CommunityNode;
+    const inferred = community.inferredLabel;
     const label =
       typeof inferred === "string" && inferred.length > 0
         ? inferred
-        : typeof name === "string" && name.length > 0
-          ? name
-          : id;
-    labelById.set(id, label);
+        : community.name.length > 0
+          ? community.name
+          : community.id;
+    labelById.set(community.id, label);
   }
 
   const out: AffectedModule[] = [];
@@ -318,62 +300,68 @@ async function fetchAffectedProcesses(
   if (symbolIds.length === 0) return [];
   // PROCESS_STEP edges connect Function/Method symbols, not Process nodes.
   // Each Process node carries an entry_point_id pointing at the symbol that
-  // begins the flow. To find processes that involve a target symbol, pick any
-  // PROCESS_STEP edge where the target appears as either endpoint, then match
-  // Process nodes whose entry_point_id equals the containing process's root.
-  // We approximate "containing process" via the step=1 predecessor chain: for
-  // every step-1 edge whose to_id is reachable from target, the from_id is
-  // an entry point. In practice matching any PROCESS_STEP edge touching
-  // target gives the correct Process set because ingestion emits one chain
-  // per process and every step's predecessor traces back to the entry point.
-  const placeholders = symbolIds.map(() => "?").join(",");
-  // Walk PROCESS_STEP edges *backwards* from each target symbol to the
-  // containing Process's entry point. Starting at targets (not every Process)
-  // prunes early. `USING KEY (ancestor_id)` dedupes the recursion frontier
-  // so dense call graphs don't blow up the recursion.
-  const processRows = await store.query(
-    `WITH RECURSIVE member_ancestors(ancestor_id, depth)
-       USING KEY (ancestor_id) AS (
-       SELECT CAST(n.id AS TEXT), 0
-         FROM nodes n
-        WHERE n.id IN (${placeholders})
-       UNION ALL
-       SELECT r.from_id, ma.depth + 1
-         FROM member_ancestors ma
-         JOIN relations r ON r.to_id = ma.ancestor_id AND r.type = 'PROCESS_STEP'
-        WHERE ma.depth < 8
-     )
-     SELECT DISTINCT p.id, p.name, p.entry_point_id
-       FROM nodes p
-       JOIN member_ancestors ma ON ma.ancestor_id = p.entry_point_id
-      WHERE p.kind = 'Process'`,
-    [...symbolIds],
+  // begins the flow. To find processes that involve a target symbol, walk
+  // PROCESS_STEP edges *backwards* from each target to the containing
+  // Process's entry point, then match Process nodes whose `entry_point_id`
+  // equals any reached ancestor (including the target itself).
+  //
+  // AC-A-6b: typed `traverseAncestors` replaces the `WITH RECURSIVE
+  // member_ancestors USING KEY (ancestor_id)` raw query.
+  // `listNodesByEntryPoint(id)` replaces the `WHERE entry_point_id = ?`
+  // join. Each ancestor lookup is an independent traversal, so we run them
+  // in parallel and dedupe the union.
+  const ancestorIds = new Set<string>();
+  for (const sid of symbolIds) ancestorIds.add(sid);
+  // Limit per-target traversal to depth 8 to match the original
+  // `WHERE ma.depth < 8` guard. The original SQL counted depth from 0; the
+  // typed finder excludes the start node so depth 8 yields up to 8 hops
+  // away, matching `< 8` plus the depth-0 start row.
+  const ancestorWalks = await Promise.all(
+    symbolIds.map((startId) =>
+      store.traverseAncestors({
+        fromId: startId,
+        edgeTypes: ["PROCESS_STEP"],
+        maxDepth: 8,
+      }),
+    ),
   );
-  if (processRows.length === 0) return [];
+  for (const walk of ancestorWalks) {
+    for (const r of walk) ancestorIds.add(r.nodeId);
+  }
+  if (ancestorIds.size === 0) return [];
 
-  const entryIds = processRows
-    .map((row) => String(row["entry_point_id"] ?? ""))
+  // Resolve every Process whose entry_point_id is in the ancestor set. The
+  // typed finder is single-id, so we fan out and dedupe by Process id.
+  const processNodes = new Map<string, ProcessNode>();
+  await Promise.all(
+    [...ancestorIds].map(async (entryId) => {
+      const matches = await store.listNodesByEntryPoint(entryId);
+      for (const node of matches) {
+        if (node.kind !== "Process") continue;
+        processNodes.set(node.id, node as ProcessNode);
+      }
+    }),
+  );
+  if (processNodes.size === 0) return [];
+
+  // Bulk hydrate the entry-point file paths so the result row carries
+  // `entryPointFile` exactly as the SARIF / detect-changes consumers expect.
+  const entryIds = [...processNodes.values()]
+    .map((p) => p.entryPointId ?? "")
     .filter((s) => s.length > 0);
   const entryMap = new Map<string, string>();
   if (entryIds.length > 0) {
-    const uniq = Array.from(new Set(entryIds));
-    const ePlaceholders = uniq.map(() => "?").join(",");
-    const entryRows = await store.query(
-      `SELECT id, file_path FROM nodes WHERE id IN (${ePlaceholders})`,
-      uniq,
-    );
-    for (const e of entryRows) {
-      entryMap.set(String(e["id"] ?? ""), String(e["file_path"] ?? ""));
+    const entryNodes = await store.listNodes({ ids: entryIds });
+    for (const node of entryNodes) {
+      entryMap.set(node.id, node.filePath);
     }
   }
 
   const out: AffectedProcess[] = [];
-  for (const row of processRows) {
-    const id = String(row["id"] ?? "");
-    const name = String(row["name"] ?? "");
-    const entryId = String(row["entry_point_id"] ?? "");
-    const entryPointFile = entryMap.get(entryId) ?? "";
-    out.push({ id, name, entryPointFile });
+  for (const proc of processNodes.values()) {
+    const entryId = proc.entryPointId ?? "";
+    const entryPointFile = entryId.length > 0 ? (entryMap.get(entryId) ?? "") : "";
+    out.push({ id: proc.id, name: proc.name, entryPointFile });
   }
   out.sort((a, b) => a.id.localeCompare(b.id));
   return out;

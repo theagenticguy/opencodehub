@@ -1,17 +1,25 @@
 /**
- * graphHash parity gate (spec 004 §AC-M3-4).
+ * graphHash parity gate (architecture-revised.md §AC-A-7).
  *
- * Enforces the v1.0 roadmap's byte-identity invariant (validation constraint
- * #6) across both storage backends: for every fixture graph,
+ * Enforces the v1.0 byte-identity invariant (validation constraint #6)
+ * across every IGraphStore backend: for every fixture graph,
  *
  *   graphHash(graph)
- *     === graphHash(rebuildGraphFromDuckDb(duckStore))
- *     === graphHash(rebuildGraphFromGraphDb(graphDbStore))
+ *     === graphHash(rebuildFromStore(duckGraph))
+ *     === graphHash(rebuildFromStore(graphDbGraph))
  *
  * If these hashes diverge, one of the adapters dropped, reordered, or
  * coerced a field on the round-trip — which would silently break the
- * incremental re-index contract (T-M7-4) and the Reindex parity gate. This
- * file is the CI tripwire.
+ * incremental re-index contract (T-M7-4) and the Reindex parity gate.
+ * This file is the CI tripwire.
+ *
+ * AC-A-7 hoisted the per-backend rebuilders into
+ * `./test-utils/parity-harness.ts`. The parity harness now uses ONLY
+ * `IGraphStore.listNodes({})` + `IGraphStore.listEdges({})` — a third-
+ * party AGE / Memgraph / Neo4j / Neptune adapter can prove conformance
+ * by importing `assertGraphParity` from `@opencodehub/storage/test-utils`
+ * and running it against its own adapter. This test reduces to fixture
+ * builders + a single `assertGraphParity` call per fixture.
  *
  * Three fixtures exercise progressively larger shapes:
  *   - small:  ≤10 nodes, DEFINES + CALLS only (sanity shape).
@@ -21,25 +29,21 @@
  *   - large:  ≥500 nodes built as a long CALLS chain with shortcuts, plus
  *             a companion sweep that emits at least one edge for every
  *             entry in `getAllRelationTypes()` (24 kinds as of AC-M3-3).
+ *   - repo / repo-null: AC-M6-1 RepoNode round-trip — populated AND
+ *             explicit-null variants of `originUrl` / `defaultBranch` /
+ *             `group`.
  *
- * Step-zero contract (per AC-M3-3 work log): the DuckDB column is
- * `INTEGER NOT NULL DEFAULT 0`, while the graph-db column is nullable
- * `INT32`. When an edge's step is explicitly `0`, the two backends disagree
- * on readback (DuckDB returns 0, graph-db returns null). Both readers in
- * this file therefore normalise to the "drop step when it reads back as
- * zero/null" convention — mirroring `duckdb-adapter.test.ts` — so the
- * symmetric round-trip is byte-identical across backends. Fixtures avoid
- * `step: 0` anyway to keep the original-graph comparison clean.
+ * Step-zero contract (AC-M3-3 + AC-A-2): both adapters' read paths drop
+ * `step` when the stored value reads back as 0/null so the rebuilt graph
+ * is byte-identical across backends. Fixtures avoid `step: 0` anyway to
+ * keep the original-graph comparison clean.
  */
 
-import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  type GraphNode,
-  graphHash,
   KnowledgeGraph,
   makeNodeId,
   type NodeId,
@@ -48,6 +52,8 @@ import {
 import { DuckDbStore } from "./duckdb-adapter.js";
 import { GraphDbStore } from "./graphdb-adapter.js";
 import { getAllRelationTypes } from "./graphdb-schema.js";
+import type { IGraphStore } from "./interface.js";
+import { assertGraphParity } from "./test-utils/parity-harness.js";
 
 // ---------------------------------------------------------------------------
 // Scratch path helpers
@@ -78,7 +84,7 @@ async function hasGraphDbBinding(): Promise<boolean> {
 //
 // Fixtures deliberately avoid `step: 0` — when an edge's step is explicitly
 // zero the DuckDB INTEGER NOT NULL column stores 0 while the graph-db
-// nullable INT32 stores 0; both readers below drop step-when-zero so the
+// nullable INT32 stores 0; the adapters drop step-when-zero on read so the
 // rebuilt graph is symmetric, but the ORIGINAL graph would still carry
 // `step: 0` and canonical-JSON would emit it, breaking the original ===
 // rebuilt assertion. Using step ≥ 1 everywhere sidesteps this.
@@ -300,277 +306,12 @@ function buildLargeFixture(): KnowledgeGraph {
   return g;
 }
 
-// ---------------------------------------------------------------------------
-// Read-back helpers — one per backend. Both drop `step` when the stored
-// value is 0 (NOT NULL default in DuckDB, null in graph-db) so the rebuilt
-// graphs hash identically across backends even when an edge carries an
-// explicit zero in the store.
-// ---------------------------------------------------------------------------
-
-const NODE_COLUMN_MAP: readonly (readonly [string, string, "number" | "string" | "boolean"])[] = [
-  ["start_line", "startLine", "number"],
-  ["end_line", "endLine", "number"],
-  ["is_exported", "isExported", "boolean"],
-  ["signature", "signature", "string"],
-  ["parameter_count", "parameterCount", "number"],
-  ["return_type", "returnType", "string"],
-  ["declared_type", "declaredType", "string"],
-  ["owner", "owner", "string"],
-  ["content_hash", "contentHash", "string"],
-  ["email_hash", "emailHash", "string"],
-  ["email_plain", "emailPlain", "string"],
-  // Repo (AC-M6-1) — each string column round-trips verbatim. Nullable
-  // fields on the interface (originUrl / defaultBranch / group) are written
-  // as SQL NULL, so the reconstructed node gets the field re-attached as
-  // `null` below when we see the row is a Repo. Standalone `applyNodeColumns`
-  // skips NULLs here; Repo-specific nullable reconstruction happens in
-  // `applyRepoNullables`.
-  ["origin_url", "originUrl", "string"],
-  ["repo_uri", "repoUri", "string"],
-  ["default_branch", "defaultBranch", "string"],
-  ["commit_sha", "commitSha", "string"],
-  ["index_time", "indexTime", "string"],
-  ["repo_group", "group", "string"],
-  ["visibility", "visibility", "string"],
-  ["indexer", "indexer", "string"],
-];
-
 /**
- * RepoNode carries three nullable-string fields. `applyNodeColumns` drops
- * null/undefined so a Repo row comes back without them, which breaks
- * canonical-JSON parity because the original fixture carries explicit
- * `null`. Re-attach them here for Repo rows only.
- */
-function applyRepoNullables(rec: Record<string, unknown>, base: Record<string, unknown>): void {
-  if (base["kind"] !== "Repo") return;
-  for (const [col, key] of [
-    ["origin_url", "originUrl"],
-    ["default_branch", "defaultBranch"],
-    ["repo_group", "group"],
-  ] as const) {
-    const v = rec[col];
-    if (v === null || v === undefined) base[key] = null;
-  }
-  // languageStats is a JSON object, not a scalar column.
-  const statsRaw = rec["language_stats_json"];
-  if (typeof statsRaw === "string" && statsRaw.length > 0) {
-    base["languageStats"] = JSON.parse(statsRaw);
-  } else {
-    base["languageStats"] = {};
-  }
-}
-
-function applyNodeColumns(
-  rec: Record<string, unknown>,
-  base: Record<string, unknown>,
-): Record<string, unknown> {
-  for (const [col, key, ty] of NODE_COLUMN_MAP) {
-    const v = rec[col];
-    if (v === null || v === undefined) continue;
-    if (ty === "number") base[key] = Number(v);
-    else if (ty === "boolean") base[key] = Boolean(v);
-    else base[key] = String(v);
-  }
-  return base;
-}
-
-async function rebuildFromDuckDb(store: DuckDbStore): Promise<KnowledgeGraph> {
-  const nodeRows = await store.query(
-    `SELECT id, kind, name, file_path, start_line, end_line, is_exported, signature,
-            parameter_count, return_type, declared_type, owner, content_hash,
-            email_hash, email_plain,
-            origin_url, repo_uri, default_branch, commit_sha, index_time,
-            repo_group, visibility, indexer, language_stats_json
-     FROM nodes ORDER BY id`,
-  );
-  const edgeRows = await store.query(
-    "SELECT id, from_id, to_id, type, confidence, reason, step FROM relations ORDER BY id",
-  );
-  const g = new KnowledgeGraph();
-  for (const row of nodeRows) {
-    const rec = row as Record<string, unknown>;
-    const base: Record<string, unknown> = {
-      id: String(rec["id"]),
-      kind: String(rec["kind"]),
-      name: String(rec["name"] ?? ""),
-      filePath: String(rec["file_path"] ?? ""),
-    };
-    applyNodeColumns(rec, base);
-    applyRepoNullables(rec, base);
-    g.addNode(base as unknown as GraphNode);
-  }
-  for (const row of edgeRows) {
-    const step = Number(row["step"] ?? 0);
-    g.addEdge({
-      from: String(row["from_id"]) as NodeId,
-      to: String(row["to_id"]) as NodeId,
-      type: row["type"] as RelationType,
-      confidence: Number(row["confidence"] ?? 0),
-      ...(row["reason"] !== null && row["reason"] !== undefined && row["reason"] !== ""
-        ? { reason: String(row["reason"]) }
-        : {}),
-      ...(step !== 0 ? { step } : {}),
-    });
-  }
-  return g;
-}
-
-async function rebuildFromGraphDb(store: GraphDbStore): Promise<KnowledgeGraph> {
-  const nodeRows = await store.query(
-    `MATCH (n:CodeNode) RETURN n.id AS id, n.kind AS kind, n.name AS name, ` +
-      `n.file_path AS file_path, n.start_line AS start_line, n.end_line AS end_line, ` +
-      `n.is_exported AS is_exported, n.signature AS signature, ` +
-      `n.parameter_count AS parameter_count, n.return_type AS return_type, ` +
-      `n.declared_type AS declared_type, n.owner AS owner, ` +
-      `n.content_hash AS content_hash, n.email_hash AS email_hash, ` +
-      `n.email_plain AS email_plain, ` +
-      `n.origin_url AS origin_url, n.repo_uri AS repo_uri, ` +
-      `n.default_branch AS default_branch, n.commit_sha AS commit_sha, ` +
-      `n.index_time AS index_time, n.repo_group AS repo_group, ` +
-      `n.visibility AS visibility, n.indexer AS indexer, ` +
-      `n.language_stats_json AS language_stats_json ORDER BY n.id`,
-  );
-
-  const g = new KnowledgeGraph();
-  for (const row of nodeRows) {
-    const rec = row as Record<string, unknown>;
-    const base: Record<string, unknown> = {
-      id: String(rec["id"]),
-      kind: String(rec["kind"]),
-      name: String(rec["name"] ?? ""),
-      filePath: String(rec["file_path"] ?? ""),
-    };
-    applyNodeColumns(rec, base);
-    applyRepoNullables(rec, base);
-    g.addNode(base as unknown as GraphNode);
-  }
-
-  // Mirror DuckDB's step-zero drop so the two rebuilt graphs are symmetric
-  // when an edge's stored step is 0/null (AC-M3-3 sentinel contract).
-  for (const kind of getAllRelationTypes()) {
-    const edgeRows = await store.query(
-      `MATCH (a:CodeNode)-[r:${kind}]->(b:CodeNode) ` +
-        `RETURN a.id AS from_id, b.id AS to_id, ` +
-        `r.id AS edge_id, r.confidence AS confidence, ` +
-        `r.reason AS reason, r.step AS step ORDER BY r.id`,
-    );
-    for (const row of edgeRows) {
-      const rec = row as Record<string, unknown>;
-      const reason = rec["reason"];
-      const stepRaw = rec["step"];
-      const step = stepRaw === null || stepRaw === undefined ? 0 : Number(stepRaw);
-      g.addEdge({
-        from: String(rec["from_id"]) as NodeId,
-        to: String(rec["to_id"]) as NodeId,
-        type: kind as RelationType,
-        confidence: Number(rec["confidence"] ?? 0),
-        ...(reason !== null && reason !== undefined && reason !== ""
-          ? { reason: String(reason) }
-          : {}),
-        ...(step !== 0 ? { step } : {}),
-      });
-    }
-  }
-  return g;
-}
-
-// ---------------------------------------------------------------------------
-// Round-trip runners
-// ---------------------------------------------------------------------------
-
-async function duckHash(fixture: KnowledgeGraph): Promise<string> {
-  const store = new DuckDbStore(await scratchDuckPath());
-  await store.open();
-  try {
-    await store.createSchema();
-    await store.bulkLoad(fixture);
-    const rebuilt = await rebuildFromDuckDb(store);
-    return graphHash(rebuilt);
-  } finally {
-    await store.close();
-  }
-}
-
-async function graphDbHash(fixture: KnowledgeGraph): Promise<string> {
-  const store = new GraphDbStore(await scratchGraphDbPath());
-  await store.open();
-  try {
-    await store.createSchema();
-    await store.bulkLoad(fixture);
-    const rebuilt = await rebuildFromGraphDb(store);
-    return graphHash(rebuilt);
-  } finally {
-    await store.close();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Parity assertion
-// ---------------------------------------------------------------------------
-
-interface ParityCheck {
-  readonly name: string;
-  readonly fixture: KnowledgeGraph;
-}
-
-async function assertParity({ name, fixture }: ParityCheck): Promise<void> {
-  const original = graphHash(fixture);
-  const duck = await duckHash(fixture);
-  assert.equal(
-    duck,
-    original,
-    `[${name}] DuckDbStore round-trip broke graphHash\n` +
-      `  original: ${original}\n` +
-      `  duck:     ${duck}`,
-  );
-
-  // Graph-db branch runs only when the native binding is importable — CI
-  // platforms without a prebuilt binary skip cleanly rather than fail.
-  if (!(await hasGraphDbBinding())) {
-    return;
-  }
-
-  const graphDb = await graphDbHash(fixture);
-  assert.equal(
-    graphDb,
-    original,
-    `[${name}] GraphDbStore round-trip broke graphHash\n` +
-      `  original: ${original}\n` +
-      `  graphdb:  ${graphDb}`,
-  );
-  // Transitive check so a future regression surfaces as the parity message
-  // even if one backend happened to match the original by coincidence.
-  assert.equal(
-    graphDb,
-    duck,
-    `[${name}] cross-backend parity broken — DuckDbStore vs GraphDbStore\n` +
-      `  duck:    ${duck}\n` +
-      `  graphdb: ${graphDb}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-test("graphHash parity: small fixture (≤10 nodes, DEFINES + CALLS)", async () => {
-  await assertParity({ name: "small", fixture: buildSmallFixture() });
-});
-
-test("graphHash parity: medium fixture (mixed node kinds + OWNED_BY edges)", async () => {
-  await assertParity({ name: "medium", fixture: buildMediumFixture() });
-});
-
-test("graphHash parity: large fixture (≥500 nodes, 24-edge-kind sweep)", async () => {
-  await assertParity({ name: "large", fixture: buildLargeFixture() });
-});
-
-/**
- * AC-M6-1 addition: a fixture that includes a RepoNode exercising every
- * field — populated + explicit-null variants of `originUrl` / `defaultBranch`
- * / `group`, and a non-empty `languageStats` record. The fixture must
- * round-trip through both stores with matching graphHash, proving the new
- * Repo columns carry their payload losslessly.
+ * AC-M6-1 fixture: a RepoNode exercising every field — populated +
+ * explicit-null variants of `originUrl` / `defaultBranch` / `group`, and
+ * a non-empty `languageStats` record. The fixture must round-trip
+ * through both stores with matching graphHash, proving the new Repo
+ * columns carry their payload losslessly.
  */
 function buildRepoFixture(): KnowledgeGraph {
   const g = new KnowledgeGraph();
@@ -629,10 +370,60 @@ function buildRepoNullFixture(): KnowledgeGraph {
   return g;
 }
 
+// ---------------------------------------------------------------------------
+// Parity runner — opens both stores (skipping graph-db if its native binding
+// is missing) and delegates to the public-interface harness.
+// ---------------------------------------------------------------------------
+
+interface ParityCheck {
+  readonly name: string;
+  readonly fixture: KnowledgeGraph;
+}
+
+async function runParity({ name, fixture }: ParityCheck): Promise<void> {
+  const duck = new DuckDbStore(await scratchDuckPath());
+  await duck.open();
+  await duck.createSchema();
+  const stores: IGraphStore[] = [duck];
+
+  // Graph-db branch runs only when the native binding is importable — CI
+  // platforms without a prebuilt binary skip cleanly rather than fail.
+  let graphDb: GraphDbStore | undefined;
+  if (await hasGraphDbBinding()) {
+    graphDb = new GraphDbStore(await scratchGraphDbPath());
+    await graphDb.open();
+    await graphDb.createSchema();
+    stores.push(graphDb);
+  }
+
+  try {
+    await assertGraphParity(fixture, { stores, label: name });
+  } finally {
+    await duck.close();
+    if (graphDb) await graphDb.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test("graphHash parity: small fixture (≤10 nodes, DEFINES + CALLS)", async () => {
+  await runParity({ name: "small", fixture: buildSmallFixture() });
+});
+
+test("graphHash parity: medium fixture (mixed node kinds + OWNED_BY edges)", async () => {
+  await runParity({ name: "medium", fixture: buildMediumFixture() });
+});
+
+test("graphHash parity: large fixture (≥500 nodes, 24-edge-kind sweep)", async () => {
+  await runParity({ name: "large", fixture: buildLargeFixture() });
+});
+
 test("graphHash parity: repo fixture (RepoNode with all attributes populated)", async () => {
-  await assertParity({ name: "repo", fixture: buildRepoFixture() });
+  await runParity({ name: "repo", fixture: buildRepoFixture() });
 });
 
 test("graphHash parity: repo fixture with explicit-null origin / branch / group", async () => {
-  await assertParity({ name: "repo-null", fixture: buildRepoNullFixture() });
+  await runParity({ name: "repo-null", fixture: buildRepoNullFixture() });
 });

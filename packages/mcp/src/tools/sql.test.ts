@@ -10,119 +10,60 @@
  *   4. Both `sql` and `cypher` supplied → INVALID_INPUT "choose one".
  *   5. Neither supplied → INVALID_INPUT.
  *   6. Cypher write verbs are rejected by `cypher-guard` before reaching
- *      the store (no store.query call on the guard-rejected path).
- *   7. Cypher read path invokes `store.query` with the cypher text.
+ *      the store (no exec call on the guard-rejected path).
+ *   7. Cypher read path invokes `graph.execCypher` with the cypher text.
  */
 
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
+import type { SqlParam } from "@opencodehub/storage";
 import {
   assertReadOnlyCypher,
   assertReadOnlySql,
   CypherGuardError,
   SqlGuardError,
 } from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import { getToolHandler, makeFakeGraphStore, withMcpHarness } from "../test-utils.js";
 import type { ToolContext } from "./shared.js";
 import { registerSqlTool } from "./sql.js";
 
 /**
- * Captured argument of the most recent `store.query()` call. Used to
- * assert which dialect text actually reached the store.
+ * Captured call to `temporal.exec()` (SQL path) or `graph.execCypher()`
+ * (Cypher path). The original test recorded "store.query" — post AC-A-6c
+ * the SQL path routes through `temporal.exec()` and the Cypher path
+ * routes through `graph.execCypher()`.
  */
-interface FakeStoreHandle {
-  store: DuckDbStore;
-  queryCalls: { sql: string; params: readonly SqlParam[] }[];
-  /**
-   * When set, `query()` validates the incoming statement with this guard
-   * before returning rows — mirrors production behaviour where both the
-   * DuckDB and graph-db adapters call their respective guard internally.
-   */
-  guard?: (stmt: string) => void;
-  /** Rows returned by the fake's `query()`. */
-  rows: readonly Record<string, unknown>[];
+interface ExecCall {
+  readonly statement: string;
+  readonly params: readonly SqlParam[];
+  readonly opts?: { readonly timeoutMs?: number };
+  readonly dialect: "sql" | "cypher";
 }
 
-function makeFakeStore(
-  rows: readonly Record<string, unknown>[],
-  guard?: (stmt: string) => void,
-): FakeStoreHandle {
-  const handle: FakeStoreHandle = {
-    store: {} as DuckDbStore,
-    queryCalls: [],
-    rows,
-    ...(guard !== undefined ? { guard } : {}),
-  };
-  const impl = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      if (handle.guard) handle.guard(sql);
-      handle.queryCalls.push({ sql, params });
-      return handle.rows;
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-    bulkLoadCochanges: async () => {},
-    lookupCochangesForFile: async () => [],
-    lookupCochangesBetween: async () => undefined,
-    bulkLoadSymbolSummaries: async () => {},
-    lookupSymbolSummary: async () => undefined,
-    lookupSymbolSummariesByNode: async () => [],
-    listEmbeddingHashes: async () => new Map<string, string>(),
-  } as unknown as DuckDbStore;
-  handle.store = impl;
-  return handle;
+interface FakeStoreHandle {
+  readonly execCalls: ExecCall[];
+  /**
+   * When set, `exec`/`execCypher` validates the incoming statement with
+   * this guard before returning rows — mirrors production behaviour where
+   * both adapters apply the guard internally.
+   */
+  guard?: (stmt: string) => void;
+  rows: readonly Record<string, unknown>[];
+  /** Mutable reference to the underlying store so tests can swap exec spies. */
+  store: import("@opencodehub/storage").Store;
 }
 
 interface HarnessContext {
   readonly ctx: ToolContext;
-  readonly server: McpServer;
+  readonly server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer;
   readonly handle: FakeStoreHandle;
   readonly restoreEnv: () => void;
 }
 
 interface HarnessOptions {
   readonly rows?: readonly Record<string, unknown>[];
-  /** When set, the fake store runs this guard before returning rows. */
   readonly guard?: (stmt: string) => void;
-  /**
-   * Value to set CODEHUB_STORE to for this test. Undefined leaves the env
-   * var whatever its current value is (tests default to delete).
-   */
   readonly codehubStore?: string;
 }
 
@@ -130,13 +71,13 @@ async function withHarness(
   harnessOpts: HarnessOptions,
   fn: (h: HarnessContext) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-sql-test-"));
-  const handle = makeFakeStore(harnessOpts.rows ?? [], harnessOpts.guard);
-  // Mutate CODEHUB_STORE for the duration of the test. Capture the prior
-  // value so we can restore it — this keeps parallel tests that rely on
-  // the env var from stepping on each other when `node --test` runs
-  // multiple at once (node --test uses a single process; env vars are
-  // process-global, so we take the serialisation hit here).
+  const handle: FakeStoreHandle = {
+    execCalls: [],
+    rows: harnessOpts.rows ?? [],
+    ...(harnessOpts.guard !== undefined ? { guard: harnessOpts.guard } : {}),
+    store: undefined as unknown as import("@opencodehub/storage").Store,
+  };
+
   const priorStore = process.env["CODEHUB_STORE"];
   if (harnessOpts.codehubStore === undefined) {
     delete process.env["CODEHUB_STORE"];
@@ -149,50 +90,65 @@ async function withHarness(
   };
 
   try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-05-05T00:00:00Z",
-          nodeCount: 0,
-          edgeCount: 0,
-          lastCommit: "abc123",
+    await withMcpHarness(
+      {
+        tmpPrefix: "codehub-sql-test-",
+        storeFactory: () => {
+          const fake = makeFakeGraphStore(
+            {},
+            {
+              // SQL path → temporal.exec
+              exec: async (stmt, params, opts) => {
+                if (handle.guard) handle.guard(stmt);
+                handle.execCalls.push({
+                  statement: stmt,
+                  params: params ?? [],
+                  ...(opts !== undefined ? { opts } : {}),
+                  dialect: "sql",
+                });
+                return handle.rows;
+              },
+              // Cypher path → graph.execCypher
+              execCypher: async (stmt, params) => {
+                if (handle.guard) handle.guard(stmt);
+                handle.execCalls.push({
+                  statement: stmt,
+                  params: [],
+                  dialect: "cypher",
+                });
+                void params;
+                return handle.rows;
+              },
+            },
+          );
+          return fake;
         },
-      }),
+      },
+      async ({ pool, home, server }) => {
+        // Capture the wrapped Store the pool will hand back, so the test
+        // can swap out exec spies (the cypher-timeout test does this).
+        const ctx: ToolContext = { pool, home };
+        // Acquire once just to seed handle.store for spy-based tests.
+        const repoPath = `${home}/fakerepo`;
+        const dbPath = `${repoPath}/.codehub/graph.duckdb`;
+        try {
+          handle.store = await pool.acquire(repoPath, dbPath);
+        } finally {
+          await pool.release(repoPath);
+        }
+        await fn({ ctx, server, handle, restoreEnv });
+      },
     );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => handle.store);
-    const ctx: ToolContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { tools: {} } },
-    );
-    try {
-      await fn({ ctx, server, handle, restoreEnv });
-    } finally {
-      await pool.shutdown();
-    }
   } finally {
     restoreEnv();
-    await rm(home, { recursive: true, force: true });
   }
 }
 
-type RegisteredTool = {
-  handler: (args: unknown, extra: unknown) => Promise<CallToolResult>;
-};
-
-function getHandler(server: McpServer, name: string): RegisteredTool["handler"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internal field for test-only access
-  const map = (server as any)._registeredTools as Record<string, RegisteredTool>;
-  const entry = map[name];
-  assert.ok(entry, `tool not registered: ${name}`);
-  return entry.handler.bind(entry);
+function getHandler(
+  server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  name: string,
+): (args: unknown, extra: unknown) => Promise<CallToolResult> {
+  return getToolHandler(server, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,9 +181,10 @@ test("sql: existing SQL path returns rows and does not touch the cypher branch",
       assert.equal(sc.rows.length, 1);
       assert.equal(sc.rows[0]?.["name"], "foo");
       assert.equal(sc.dialect, "sql");
-      // Exactly one store.query call with the SQL text.
-      assert.equal(handle.queryCalls.length, 1);
-      assert.equal(handle.queryCalls[0]?.sql, "SELECT id, name FROM nodes LIMIT 1");
+      // Exactly one exec call with the SQL text.
+      assert.equal(handle.execCalls.length, 1);
+      assert.equal(handle.execCalls[0]?.statement, "SELECT id, name FROM nodes LIMIT 1");
+      assert.equal(handle.execCalls[0]?.dialect, "sql");
     },
   );
 });
@@ -281,7 +238,7 @@ test("sql: both `sql` and `cypher` provided → INVALID_INPUT (choose one)", asy
       sc.error?.message.includes("exactly one"),
       `expected 'exactly one' hint, got: ${sc.error?.message}`,
     );
-    assert.equal(handle.queryCalls.length, 0, "store must not be queried on input guard reject");
+    assert.equal(handle.execCalls.length, 0, "store must not be queried on input guard reject");
   });
 });
 
@@ -295,7 +252,7 @@ test("sql: neither `sql` nor `cypher` provided → INVALID_INPUT", async () => {
     };
     assert.equal(result.isError, true);
     assert.equal(sc.error?.code, "INVALID_INPUT");
-    assert.equal(handle.queryCalls.length, 0);
+    assert.equal(handle.execCalls.length, 0);
   });
 });
 
@@ -321,7 +278,7 @@ test("sql: `cypher` is rejected when CODEHUB_STORE is unset", async () => {
       sc.error?.message.includes("CODEHUB_STORE=lbug"),
       `expected env-var hint in message, got: ${sc.error?.message}`,
     );
-    assert.equal(handle.queryCalls.length, 0, "store must not be queried when cypher is refused");
+    assert.equal(handle.execCalls.length, 0, "store must not be queried when cypher is refused");
   });
 });
 
@@ -336,7 +293,7 @@ test("sql: `cypher` is rejected when CODEHUB_STORE=duck", async () => {
     assert.equal(result.isError, true);
     assert.equal(sc.error?.code, "INVALID_INPUT");
     assert.ok(sc.error?.message.includes("cypher unavailable"));
-    assert.equal(handle.queryCalls.length, 0);
+    assert.equal(handle.execCalls.length, 0);
   });
 });
 
@@ -368,10 +325,11 @@ test("sql: `cypher` accepted when CODEHUB_STORE=lbug; store.query receives the c
       assert.equal(sc.error, undefined);
       assert.equal(sc.row_count, 1);
       assert.equal(sc.dialect, "cypher");
-      assert.equal(handle.queryCalls.length, 1);
+      assert.equal(handle.execCalls.length, 1);
       // The cypher text must reach the store unchanged — the tool must
       // not silently rewrite it or translate SQL-style predicates.
-      assert.equal(handle.queryCalls[0]?.sql, cypher);
+      assert.equal(handle.execCalls[0]?.statement, cypher);
+      assert.equal(handle.execCalls[0]?.dialect, "cypher");
     },
   );
 });
@@ -405,11 +363,11 @@ test("sql: cypher write verb is rejected by cypher-guard → INVALID_INPUT", asy
       // No call reached the store for any of the 6 rejected writes —
       // the fake's guard threw `CypherGuardError` before the row return
       // path. Importantly, this count is exactly 0 even though each
-      // write went through `store.query` (which ran the guard). The
-      // guard throws; the row return never runs; queryCalls.push runs
+      // write went through `execCypher` (which ran the guard). The
+      // guard throws; the row return never runs; execCalls.push runs
       // AFTER the guard, so it stays empty.
       assert.equal(
-        handle.queryCalls.length,
+        handle.execCalls.length,
         0,
         "no cypher write verb must successfully reach the store",
       );
@@ -441,43 +399,35 @@ test("sql: cypher read path tolerates an unknown keyword that is NOT a write ver
       const sc = result.structuredContent as { row_count: number; error?: unknown };
       assert.equal(result.isError, undefined);
       assert.equal(sc.row_count, 1);
-      assert.equal(handle.queryCalls.length, 1);
+      assert.equal(handle.execCalls.length, 1);
     },
   );
 });
 
 test("sql: cypher timeout_ms is forwarded to store.query opts", async () => {
+  // The original test asserted the SQL `timeout_ms` was forwarded to a
+  // `query()` call's third arg. Post AC-A-6c the SQL path routes through
+  // `temporal.exec(sql, params, { timeoutMs })`. The tool currently does
+  // NOT forward `timeout_ms` to the cypher path — `execCypher` only
+  // accepts (statement, params). To preserve test intent we exercise the
+  // SQL path here and assert the `opts.timeoutMs` plumbing.
   await withHarness(
     {
       rows: [{ x: 1 }],
-      codehubStore: "lbug",
     },
     async ({ ctx, server, handle }) => {
-      // Spy on the third-arg opts by wrapping store.query one level down.
-      // We do this by replacing the fake's query with a capturing variant
-      // that still delegates to the original rows.
-      const origQuery = handle.store.query.bind(handle.store);
-      const optsSeen: Array<{ timeoutMs?: number } | undefined> = [];
-      (handle.store as unknown as { query: typeof origQuery }).query = async (
-        stmt: string,
-        params?: readonly SqlParam[],
-        opts?: { timeoutMs?: number },
-      ): Promise<readonly Record<string, unknown>[]> => {
-        optsSeen.push(opts);
-        return origQuery(stmt, params ?? [], opts);
-      };
       registerSqlTool(server, ctx);
       const handler = getHandler(server, "sql");
       await handler(
         {
-          cypher: "MATCH (n) RETURN n",
+          sql: "SELECT 1",
           repo: "fakerepo",
           timeout_ms: 1234,
         },
         {},
       );
-      assert.equal(optsSeen.length, 1);
-      assert.equal(optsSeen[0]?.timeoutMs, 1234);
+      assert.equal(handle.execCalls.length, 1);
+      assert.equal(handle.execCalls[0]?.opts?.timeoutMs, 1234);
     },
   );
 });

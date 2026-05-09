@@ -48,27 +48,21 @@ interface ToolMapArgs {
 export async function runToolMap(ctx: ToolContext, args: ToolMapArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const clauses: string[] = ["kind = 'Tool'"];
-      const params: (string | number)[] = [];
+      let listed = await store.graph.listNodesByKind("Tool", { limit: 500 });
       if (args.tool !== undefined && args.tool.length > 0) {
-        clauses.push("name LIKE ?");
-        params.push(`%${args.tool}%`);
+        const sub = args.tool;
+        listed = listed.filter((n) => n.name.includes(sub));
       }
-      // `properties_bag` is a polymorphic JSON column; we read the
-      // `inputSchemaJson` key from it when present. Every Tool node
-      // still exists in the nodes table even if the column is null.
-      const sql = `SELECT id, name, file_path, description, properties_bag FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY name, file_path LIMIT 500`;
-      const raw = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
-
-      const tools: ToolRow[] = raw.map((r) => {
-        const inputSchemaJson = readInputSchemaJson(r["properties_bag"]);
-        return {
-          name: stringOr(r["name"], ""),
-          filePath: stringOr(r["file_path"], ""),
-          description: stringOr(r["description"], ""),
-          inputSchema: parseInputSchema(inputSchemaJson),
-        };
+      const sorted = [...listed].sort((a, b) => {
+        if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+        return a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0;
       });
+      const tools: ToolRow[] = sorted.map((t) => ({
+        name: t.name,
+        filePath: t.filePath,
+        description: t.description ?? "",
+        inputSchema: t.inputSchemaJson ? parseInputSchema(t.inputSchemaJson) : null,
+      }));
 
       const header = `Tools (${tools.length}) for ${resolved.name}${
         args.tool ? ` · name~${args.tool}` : ""
@@ -128,32 +122,6 @@ export function registerToolMapTool(server: McpServer, ctx: ToolContext): void {
 }
 
 /**
- * Pull `inputSchemaJson` out of a `properties_bag` value. The column can
- * be null, a JSON-encoded object, or (for tests) a pre-parsed record.
- */
-function readInputSchemaJson(bag: unknown): string | null {
-  if (bag === null || bag === undefined) return null;
-  if (typeof bag === "string") {
-    if (bag.length === 0) return null;
-    try {
-      const parsed = JSON.parse(bag) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const v = (parsed as Record<string, unknown>)["inputSchemaJson"];
-        return typeof v === "string" ? v : null;
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
-  if (typeof bag === "object" && !Array.isArray(bag)) {
-    const v = (bag as Record<string, unknown>)["inputSchemaJson"];
-    return typeof v === "string" ? v : null;
-  }
-  return null;
-}
-
-/**
  * Parse the embedded JSON string. Returns the parsed value on success,
  * the raw string on parse failure, or null when no schema was present.
  */
@@ -164,10 +132,4 @@ function parseInputSchema(raw: string | null): unknown | null {
   } catch {
     return raw;
   }
-}
-
-function stringOr(v: unknown, fallback: string): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return fallback;
 }

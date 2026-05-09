@@ -117,48 +117,44 @@ export async function buildRiskSnapshot(
 ): Promise<RiskSnapshot> {
   const perCommunityRisk: Record<string, CommunityRiskEntry> = {};
 
-  // Community node rows. We use a left join to COUNT(MEMBER_OF) relations
-  // incoming to each community for the member count.
+  // AC-A-6b: typed `listNodesByKind("Community")` replaces a `WHERE kind =
+  // 'Community'` raw SELECT. The finder rehydrates {@link CommunityNode}
+  // directly so callers consume `inferredLabel`/`symbolCount`/`cohesion` via
+  // typed fields rather than column casts.
   try {
-    const rows = await store.query(
-      `SELECT n.id AS id,
-              n.inferred_label AS label,
-              n.symbol_count AS symbol_count,
-              n.cohesion AS cohesion
-         FROM nodes n
-        WHERE n.kind = 'Community'
-        ORDER BY n.id`,
-    );
-    for (const row of rows) {
-      const id = stringField(row, "id");
-      if (id.length === 0) continue;
-      const symbolCount = numberField(row, "symbol_count");
-      const cohesion = numberField(row, "cohesion");
+    const communities = await store.listNodesByKind("Community");
+    for (const community of communities) {
+      if (community.id.length === 0) continue;
+      const symbolCount = community.symbolCount ?? 0;
+      const cohesion = community.cohesion ?? 0;
       // Heuristic risk: larger community with weaker cohesion is riskier.
       // Normalised so single-member communities land at zero.
       const risk = computeCommunityRisk(symbolCount, cohesion);
-      const label = stringField(row, "label");
-      perCommunityRisk[id] = {
+      const label = community.inferredLabel;
+      perCommunityRisk[community.id] = {
         risk,
         nodeCount: symbolCount,
-        ...(label.length > 0 ? { inferredLabel: label } : {}),
+        ...(typeof label === "string" && label.length > 0 ? { inferredLabel: label } : {}),
       };
     }
   } catch {
     // Community nodes are optional.
   }
 
+  // AC-A-6b: typed `countNodesByKind` aggregates every kind into a single
+  // round-trip; we sum the result to mirror the legacy `COUNT(*) FROM nodes`.
+  // `countEdgesByType` does the same for relations.
   let totalNodeCount = 0;
   let totalEdgeCount = 0;
   try {
-    const nodeRows = await store.query("SELECT COUNT(*) AS c FROM nodes");
-    totalNodeCount = numberField(nodeRows[0] ?? {}, "c");
+    const counts = await store.countNodesByKind();
+    for (const n of counts.values()) totalNodeCount += n;
   } catch {
     totalNodeCount = 0;
   }
   try {
-    const edgeRows = await store.query("SELECT COUNT(*) AS c FROM relations");
-    totalEdgeCount = numberField(edgeRows[0] ?? {}, "c");
+    const counts = await store.countEdgesByType();
+    for (const n of counts.values()) totalEdgeCount += n;
   } catch {
     totalEdgeCount = 0;
   }
@@ -169,14 +165,15 @@ export async function buildRiskSnapshot(
     note: 0,
   };
   try {
-    const rows = await store.query(
-      "SELECT severity, COUNT(*) AS c FROM nodes WHERE kind = 'Finding' GROUP BY severity",
-    );
-    for (const row of rows) {
-      const sev = stringField(row, "severity");
-      const count = numberField(row, "c");
+    // AC-A-6b: typed `listFindings()` replaces the
+    // `WHERE kind = 'Finding' GROUP BY severity` aggregate. The histogram is
+    // built JS-side; the finding row count never blows up because Finding
+    // nodes are bounded by the scanner output (typically O(100s)).
+    const findings = await store.listFindings();
+    for (const finding of findings) {
+      const sev = finding.severity;
       if (sev === "error" || sev === "warning" || sev === "note") {
-        findingsSeverityHistogram[sev] = count;
+        findingsSeverityHistogram[sev] += 1;
       }
     }
   } catch {
@@ -362,22 +359,4 @@ async function rotateSnapshots(dir: string, keep: number): Promise<void> {
       }),
     ),
   );
-}
-
-function stringField(row: Record<string, unknown>, field: string): string {
-  const v = row[field];
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return "";
-}
-
-function numberField(row: Record<string, unknown>, field: string): number {
-  const v = row[field];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "bigint") return Number(v);
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
 }

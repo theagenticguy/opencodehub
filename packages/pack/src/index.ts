@@ -17,14 +17,14 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "@opencodehub/core-types";
-import type { IGraphStore } from "@opencodehub/storage";
+import type { IGraphStore, Store } from "@opencodehub/storage";
 import {
   type AstChunkerInternalOpts,
   type AstChunkerResult,
   buildAstChunks,
 } from "./ast-chunker.js";
 import { buildDeps } from "./deps.js";
-import { buildEmbeddingsSidecar } from "./embeddings-sidecar.js";
+import { writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 import { buildFileTree } from "./file-tree.js";
 import { buildFindings } from "./findings.js";
 import { buildLicenses } from "./licenses.js";
@@ -39,10 +39,12 @@ export { buildAstChunks } from "./ast-chunker.js";
 export type { DepRow, DepsOpts } from "./deps.js";
 export { buildDeps } from "./deps.js";
 export type {
-  EmbeddingsSidecarOpts,
-  EmbeddingsSidecarResult,
+  SidecarDeterminismClass,
+  SidecarOptions,
+  SidecarResult,
+  SidecarWriterBackend,
 } from "./embeddings-sidecar.js";
-export { buildEmbeddingsSidecar } from "./embeddings-sidecar.js";
+export { writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";
 export { buildFileTree } from "./file-tree.js";
 export type { FindingExample, FindingGroup, FindingSeverity, FindingsOpts } from "./findings.js";
@@ -65,9 +67,23 @@ export { buildXrefs } from "./xrefs.js";
  * commit, the repo origin URL, the AST-chunk source files, the chonkie
  * loader). Callers in production never set this; the public `PackOpts`
  * surface is unchanged.
+ *
+ * `store` is the composed {@link Store} (= `OpenStoreResult`) — AC-A-4
+ * widened the seam from `IGraphStore` so the embeddings sidecar can
+ * dispatch on `store.backend` and reach the temporal-tier DuckDB COPY
+ * helper. Tests that only need graph-side reads can pass an
+ * {@link IGraphStore} via the `graphOnly` field; the sidecar then takes
+ * the absent path automatically.
  */
 export interface GeneratePackInternalOpts {
-  readonly store?: IGraphStore;
+  readonly store?: Store;
+  /**
+   * Backwards-compatible escape hatch — tests can supply an
+   * {@link IGraphStore} alone when they don't exercise the sidecar.
+   * Internally wrapped into a minimal {@link Store} that stamps
+   * `backend: "duck"` so the duck-type sidecar probe still works.
+   */
+  readonly graphOnly?: IGraphStore;
   readonly commit?: string;
   readonly repoOriginUrl?: string | null;
   readonly chunkerFiles?: ReadonlyArray<{
@@ -110,19 +126,20 @@ export async function generatePack(
   opts: PackOpts,
   internal: GeneratePackInternalOpts = {},
 ): Promise<PackManifest> {
-  const store = internal.store ?? (await openStoreFromRepoPath(opts.repoPath));
+  const store = await resolveStore(internal, opts.repoPath);
+  const graph = store.graph;
   const commit = internal.commit ?? "";
   const repoOriginUrl = internal.repoOriginUrl !== undefined ? internal.repoOriginUrl : null;
 
   // --- BOM bodies (5 in-graph + chunker on raw files). ---
   const [skeletonRows, fileTreeRows, depsRows, xrefRows, findingGroups, licensesContent] =
     await Promise.all([
-      buildSkeleton({ store }),
-      buildFileTree({ store }),
-      buildDeps({ store }),
-      buildXrefs({ store }),
-      buildFindings({ store }),
-      buildLicenses({ store, repoPath: opts.repoPath }),
+      buildSkeleton({ store: graph }),
+      buildFileTree({ store: graph }),
+      buildDeps({ store: graph }),
+      buildXrefs({ store: graph }),
+      buildFindings({ store: graph }),
+      buildLicenses({ store: graph, repoPath: opts.repoPath }),
     ]);
 
   const chunkerFiles = internal.chunkerFiles ?? [];
@@ -156,19 +173,18 @@ export async function generatePack(
     bomItem("licenses", "licenses.md", licensesBytes),
   ];
 
-  // --- Optional Parquet embeddings sidecar (BOM item #7, AC-M5-6). The
-  //     sidecar writes its `.parquet` file directly via DuckDB COPY, so
-  //     mkdirp the outDir BEFORE invoking it. When the embeddings table is
-  //     empty (or the store does not implement Parquet export), the
-  //     sidecar resolves to `absent: true` and we leave `manifest.files[]`
-  //     unchanged (S-M5-3). When present, the sidecar's runtime
-  //     `SELECT version()` overrides `pins.duckdbVersion` so the manifest
-  //     binds determinism to the engine version that produced the file —
-  //     the parquet `created_by` metadata embeds it. ---
+  // --- Optional Parquet embeddings sidecar (BOM item #7, AC-M5-6 +
+  //     AC-A-4 relocation). The sidecar dispatches on `store.backend`:
+  //     `duck` runs DuckDB COPY directly, `lbug` stamps a degraded
+  //     determinism class for v1 (no temporal embeddings table to COPY
+  //     from). When written, the sidecar's runtime `SELECT version()`
+  //     overrides `pins.duckdbVersion` so the manifest binds determinism
+  //     to the engine version that produced the file — the parquet
+  //     `created_by` metadata embeds it. ---
   await mkdir(opts.outDir, { recursive: true });
   const sidecarPath = path.join(opts.outDir, "embeddings.parquet");
-  const sidecar = await buildEmbeddingsSidecar({ store, outPath: sidecarPath });
-  if (!sidecar.absent && sidecar.fileHash !== undefined) {
+  const sidecar = await writeEmbeddingsSidecar({ store, outPath: sidecarPath });
+  if (sidecar.written && sidecar.fileHash !== undefined) {
     items.push({
       kind: "embeddings-sidecar",
       path: "embeddings.parquet",
@@ -176,8 +192,16 @@ export async function generatePack(
     });
   }
 
-  // --- Resolve the determinism class + pins object. ---
-  const determinismClass = resolveDeterminism(opts.tokenizerId, astResult.determinismClass);
+  // --- Resolve the determinism class + pins object. The sidecar's
+  //     `degraded` stamp (lbug-only path with non-empty embeddings)
+  //     dominates over the chunker's class via the same precedence rule:
+  //     `degraded` always wins over `best_effort`, which wins over
+  //     `strict`. ---
+  const determinismClass = resolveDeterminism(
+    opts.tokenizerId,
+    astResult.determinismClass,
+    sidecar.determinismClass,
+  );
   const pins: PackPins = {
     chonkieVersion: astResult.pinsHint.chonkieVersion ?? "unknown",
     // Prefer the runtime DuckDB engine version reported by the sidecar
@@ -267,24 +291,63 @@ async function writeBytes(p: string, bytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Resolve the determinism class. `degraded` from the chunker dominates;
+ * Resolve the determinism class. `degraded` (from either the chunker
+ * fallback or the AC-A-4 sidecar lbug-path stamp) dominates everything;
  * Anthropic tokenizers downgrade to `best_effort`; otherwise `strict`.
  */
 function resolveDeterminism(
   tokenizerId: string,
   chunkerClass: AstChunkerResult["determinismClass"],
+  sidecarClass: "strict" | "degraded",
 ): DeterminismClass {
-  if (chunkerClass === "degraded") return "degraded";
+  if (chunkerClass === "degraded" || sidecarClass === "degraded") return "degraded";
   if (tokenizerId.startsWith("anthropic:")) return "best_effort";
   return "strict";
 }
 
 /**
+ * Resolve the composed store. AC-A-4 widened the seam from `IGraphStore`
+ * to `Store`; tests that don't exercise the sidecar can still pass an
+ * `IGraphStore` via `internal.graphOnly` and we wrap it into a minimal
+ * `Store` shape that funnels the sidecar to its absent path automatically
+ * (no `temporal` DuckDB → no COPY helper → `writerBackend: "absent"`).
+ */
+async function resolveStore(internal: GeneratePackInternalOpts, repoPath: string): Promise<Store> {
+  if (internal.store !== undefined) return internal.store;
+  if (internal.graphOnly !== undefined) return wrapGraphOnly(internal.graphOnly);
+  return openStoreFromRepoPath(repoPath);
+}
+
+/**
+ * Wrap a graph-only store so the legacy test seam (`internal.graphOnly`)
+ * resolves into the `Store` shape `generatePack` now expects. Stamps
+ * `backend: "duck"` so duck-typed test fakes that attach
+ * `exportEmbeddingsParquet` to the graph view still hit the COPY helper
+ * branch in `writeEmbeddingsSidecar`. The temporal view is the same
+ * graph reference cast to `ITemporalStore`; the sidecar never calls
+ * temporal methods on the duck path (the COPY helper lives on the graph
+ * view in `backend === "duck"` mode), so the cast is safe in tests.
+ */
+function wrapGraphOnly(graph: IGraphStore): Store {
+  return {
+    backend: "duck",
+    graph,
+    temporal: graph as unknown as Store["temporal"],
+    graphFile: ":memory:",
+    temporalFile: ":memory:",
+    close: async () => {
+      // Caller owns the graph lifecycle when passing `graphOnly`.
+    },
+  };
+}
+
+/**
  * Open a store from the repo path. Lazily imports `@opencodehub/storage`
  * to keep the pack package importable in environments where DuckDB
- * native bindings can't load. Tests inject `internal.store` instead.
+ * native bindings can't load. Tests inject `internal.store` (or
+ * `internal.graphOnly`) instead.
  */
-async function openStoreFromRepoPath(_repoPath: string): Promise<IGraphStore> {
+async function openStoreFromRepoPath(_repoPath: string): Promise<Store> {
   // M5 leaves the production lookup wiring to AC-M5-7 (CLI integration).
   // Keep a clear failure mode here so the wiring AC catches it loudly.
   throw new Error(

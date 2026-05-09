@@ -254,7 +254,7 @@ async function callRealPackEngine(args: {
   const { mkdtemp, rename, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join, resolve } = await import("node:path");
-  const { DuckDbStore, resolveDbPath } = await import("@opencodehub/storage");
+  const { openStore, resolveDbPath } = await import("@opencodehub/storage");
   const dbPath = resolveDbPath(args.repo);
   if (!existsSync(dbPath)) {
     throw new Error(
@@ -262,8 +262,7 @@ async function callRealPackEngine(args: {
         "Run `codehub analyze` first to populate the store.",
     );
   }
-  const store = new DuckDbStore(dbPath, { readOnly: true });
-  await store.open();
+  const store = await openStore({ path: dbPath, backend: "duck", readOnly: true });
   const stagingDir = await mkdtemp(join(tmpdir(), "codehub-pack-mcp-"));
   try {
     const manifest = await defaultGeneratePack(

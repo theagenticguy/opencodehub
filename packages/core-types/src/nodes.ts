@@ -590,6 +590,22 @@ export type GraphNode =
   | ProjectProfileNode
   | RepoNode;
 
+/**
+ * Discriminated-union narrow keyed by the node's `kind` discriminator.
+ * Used by typed finders (`IGraphStore.listNodesByKind<K>`) so the result
+ * type is a single concrete node interface rather than the wide
+ * {@link GraphNode} union.
+ *
+ * Example:
+ *   ```ts
+ *   const findings: readonly NodeOfKind<"Finding">[] =
+ *     await store.listNodesByKind("Finding");
+ *   // findings[0].severity is now typed as the FindingNode severity union,
+ *   // not the discriminated GraphNode union.
+ *   ```
+ */
+export type NodeOfKind<K extends NodeKind> = Extract<GraphNode, { kind: K }>;
+
 export interface Embedding {
   readonly id: string;
   readonly nodeId: NodeId;

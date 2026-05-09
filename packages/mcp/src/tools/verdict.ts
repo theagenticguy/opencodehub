@@ -80,7 +80,7 @@ export async function runVerdict(ctx: ToolContext, args: VerdictArgs): Promise<T
         if (args.config.fixFollowFeatThreshold !== undefined)
           config["fixFollowFeatThreshold"] = args.config.fixFollowFeatThreshold;
       }
-      const verdict = await computeVerdict(store, {
+      const verdict = await computeVerdict(store.graph, {
         repoPath: resolved.repoPath,
         ...(args.base !== undefined ? { base: args.base } : {}),
         ...(args.head !== undefined ? { head: args.head } : {}),

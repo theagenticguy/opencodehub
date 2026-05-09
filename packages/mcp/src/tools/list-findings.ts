@@ -82,40 +82,44 @@ export async function runListFindings(
   const limit = args.limit ?? 500;
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const clauses: string[] = ["kind = 'Finding'"];
-      const params: (string | number)[] = [];
-      if (args.severity !== undefined) {
-        clauses.push("severity = ?");
-        params.push(args.severity);
+      // listFindings narrows by severity / ruleId at the storage tier.
+      // scanner / filePath substring are applied in TS post-finder.
+      const findingsOpts: {
+        severity?: readonly ("note" | "warning" | "error")[];
+        ruleId?: string;
+        limit?: number;
+      } = { limit };
+      if (
+        args.severity !== undefined &&
+        (args.severity === "note" || args.severity === "warning" || args.severity === "error")
+      ) {
+        findingsOpts.severity = [args.severity];
       }
-      if (args.scanner !== undefined) {
-        clauses.push("scanner_id = ?");
-        params.push(args.scanner);
-      }
-      if (args.ruleId !== undefined) {
-        clauses.push("rule_id = ?");
-        params.push(args.ruleId);
-      }
-      if (args.filePath !== undefined) {
-        clauses.push("file_path LIKE ?");
-        params.push(`%${args.filePath}%`);
-      }
-      const sql = `SELECT id, scanner_id, rule_id, severity, message, file_path, start_line, end_line, properties_bag FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY id LIMIT ${limit}`;
-      const raw = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
+      if (args.ruleId !== undefined) findingsOpts.ruleId = args.ruleId;
+      const all = await store.graph.listFindings(findingsOpts);
 
-      const rows: FindingRow[] = raw.map((r) => {
-        const startLine = r["start_line"];
-        const endLine = r["end_line"];
+      const filtered = all.filter((f) => {
+        if (args.severity === "none" && f.severity !== "none") return false;
+        if (args.scanner !== undefined && f.scannerId !== args.scanner) return false;
+        if (args.filePath !== undefined && !f.filePath.includes(args.filePath)) return false;
+        return true;
+      });
+
+      const rows: FindingRow[] = filtered.map((f) => {
         const base: FindingRow = {
-          id: String(r["id"]),
-          scanner: stringOr(r["scanner_id"], "unknown"),
-          ruleId: stringOr(r["rule_id"], ""),
-          severity: stringOr(r["severity"], "note"),
-          message: stringOr(r["message"], ""),
-          filePath: stringOr(r["file_path"], ""),
-          properties: parseJsonObject(r["properties_bag"]),
-          ...(typeof startLine === "number" && Number.isFinite(startLine) ? { startLine } : {}),
-          ...(typeof endLine === "number" && Number.isFinite(endLine) ? { endLine } : {}),
+          id: f.id,
+          scanner: stringOr(f.scannerId, "unknown"),
+          ruleId: stringOr(f.ruleId, ""),
+          severity: stringOr(f.severity, "note"),
+          message: stringOr(f.message, ""),
+          filePath: stringOr(f.filePath, ""),
+          properties: f.propertiesBag,
+          ...(typeof f.startLine === "number" && Number.isFinite(f.startLine)
+            ? { startLine: f.startLine }
+            : {}),
+          ...(typeof f.endLine === "number" && Number.isFinite(f.endLine)
+            ? { endLine: f.endLine }
+            : {}),
         };
         return base;
       });
@@ -184,19 +188,4 @@ function stringOr(v: unknown, fallback: string): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   return fallback;
-}
-
-function parseJsonObject(v: unknown): Record<string, unknown> {
-  if (v === null || v === undefined) return {};
-  if (typeof v !== "string") return {};
-  if (v.length === 0) return {};
-  try {
-    const parsed = JSON.parse(v) as unknown;
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return {};
-  } catch {
-    return {};
-  }
 }

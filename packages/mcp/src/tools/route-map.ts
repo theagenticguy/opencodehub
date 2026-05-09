@@ -59,32 +59,45 @@ interface RouteMapArgs {
 export async function runRouteMap(ctx: ToolContext, args: RouteMapArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const clauses: string[] = ["kind = 'Route'"];
-      const params: (string | number)[] = [];
-      if (args.route !== undefined && args.route.length > 0) {
-        clauses.push("url LIKE ?");
-        params.push(`%${args.route}%`);
+      const graph = store.graph;
+      const opts: {
+        pathLike?: string;
+        methods?: readonly ("GET" | "POST" | "PUT" | "DELETE" | "PATCH")[];
+        limit?: number;
+      } = { limit: 500 };
+      if (args.route !== undefined && args.route.length > 0) opts.pathLike = args.route;
+      if (
+        args.method !== undefined &&
+        ["GET", "POST", "PUT", "DELETE", "PATCH"].includes(args.method)
+      ) {
+        opts.methods = [args.method as "GET" | "POST" | "PUT" | "DELETE" | "PATCH"];
       }
-      if (args.method !== undefined && args.method.length > 0) {
-        clauses.push("method = ?");
-        params.push(args.method);
+      let listed = await graph.listRoutes(opts);
+      if (
+        args.method !== undefined &&
+        !["GET", "POST", "PUT", "DELETE", "PATCH"].includes(args.method)
+      ) {
+        listed = listed.filter((r) => r.method === args.method);
       }
-      const sql = `SELECT id, name, method, url, file_path, response_keys FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY url, method LIMIT 500`;
-      const raw = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
+      const sortedRoutes = [...listed].sort((a, b) => {
+        if (a.url !== b.url) return a.url < b.url ? -1 : 1;
+        const am = a.method ?? "";
+        const bm = b.method ?? "";
+        return am < bm ? -1 : am > bm ? 1 : 0;
+      });
 
       const routes: RouteRow[] = [];
-      for (const r of raw) {
-        const routeId = String(r["id"]);
+      for (const r of sortedRoutes) {
         const [handlers, consumers] = await Promise.all([
-          fetchRelationFromIds(store, routeId, "HANDLES_ROUTE"),
-          fetchRelationFromIds(store, routeId, "FETCHES"),
+          fetchRelationFromIds(graph, r.id, "HANDLES_ROUTE"),
+          fetchRelationFromIds(graph, r.id, "FETCHES"),
         ]);
         routes.push({
-          id: routeId,
-          url: stringOr(r["url"], ""),
-          method: stringOr(r["method"], ""),
-          filePath: stringOr(r["file_path"], ""),
-          responseKeys: stringArray(r["response_keys"]),
+          id: r.id,
+          url: stringOr(r.url, ""),
+          method: stringOr(r.method, ""),
+          filePath: stringOr(r.filePath, ""),
+          responseKeys: r.responseKeys ?? [],
           handlers,
           consumers,
         });
@@ -147,28 +160,19 @@ export function registerRouteMapTool(server: McpServer, ctx: ToolContext): void 
 }
 
 async function fetchRelationFromIds(
-  store: import("@opencodehub/storage").DuckDbStore,
+  graph: import("@opencodehub/storage").IGraphStore,
   routeId: string,
-  type: string,
+  type: "HANDLES_ROUTE" | "FETCHES",
 ): Promise<readonly string[]> {
-  const rows = (await store.query(
-    "SELECT from_id FROM relations WHERE to_id = ? AND type = ? ORDER BY from_id",
-    [routeId, type],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => String(r["from_id"] ?? "")).filter((s) => s.length > 0);
+  const edges = await graph.listEdgesByType(type, { toIds: [routeId] });
+  return edges
+    .map((e) => e.from)
+    .filter((s) => s.length > 0)
+    .sort();
 }
 
 function stringOr(v: unknown, fallback: string): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   return fallback;
-}
-
-function stringArray(v: unknown): readonly string[] {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(item);
-  }
-  return out;
 }

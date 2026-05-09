@@ -17,14 +17,21 @@ import { test } from "node:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FsAbstraction } from "@opencodehub/analysis";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  GraphNode,
+  KnowledgeGraph,
+  RelationType,
+} from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
   DuckDbStore,
   EmbeddingRow,
+  ListEdgesByTypeOptions,
+  ListEdgesOptions,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
-  SqlParam,
   StoreMeta,
   TraverseQuery,
   TraverseResult,
@@ -33,6 +40,26 @@ import type {
 } from "@opencodehub/storage";
 import { ConnectionPool } from "../connection-pool.js";
 import { type RemoveDeadCodeContext, registerRemoveDeadCodeTool } from "./remove-dead-code.js";
+
+/**
+ * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
+ * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
+ * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * implements both interfaces over a single connection in production.
+ */
+function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
+  return {
+    backend: "duck" as const,
+    graph: fake as import("@opencodehub/storage").IGraphStore,
+    temporal: fake as import("@opencodehub/storage").ITemporalStore,
+    graphFile: "/in-memory/graph.duckdb",
+    temporalFile: "/in-memory/graph.duckdb",
+    close: async () => {
+      const closer = (fake as { close?: () => Promise<void> }).close;
+      if (typeof closer === "function") await closer.call(fake);
+    },
+  };
+}
 
 interface FakeNode {
   readonly id: string;
@@ -44,7 +71,15 @@ interface FakeNode {
   readonly isExported: boolean;
 }
 
-function makeFakeStore(nodes: FakeNode[]): DuckDbStore {
+/**
+ * In-memory fake of the typed-finder surface that `classifyDeadness` and
+ * `enrichWithEndLines` consume post AC-A-6c: `listNodes`, `listEdges`,
+ * `listEdgesByType`. Edges are absent from these tests (the dead-code path
+ * looks for inbound referrers but we only seed isolated dead candidates).
+ */
+function makeFakeStore(nodes: readonly FakeNode[]): DuckDbStore {
+  const nodeAsGraphNode = (n: FakeNode): GraphNode => n as unknown as GraphNode;
+
   const api = {
     open: async () => {},
     close: async () => {},
@@ -55,49 +90,26 @@ function makeFakeStore(nodes: FakeNode[]): DuckDbStore {
       durationMs: 0,
     }),
     upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-      if (
-        /^SELECT id, name, kind, file_path, start_line, is_exported FROM nodes WHERE kind IN/i.test(
-          text,
-        )
-      ) {
-        const kinds = new Set(params.map((p) => String(p)));
-        return nodes
-          .filter((n) => kinds.has(n.kind))
-          .map((n) => ({
-            id: n.id,
-            name: n.name,
-            kind: n.kind,
-            file_path: n.filePath,
-            start_line: n.startLine,
-            is_exported: n.isExported,
-          }));
-      }
-      if (
-        /^SELECT r\.to_id AS target_id, n\.file_path AS source_file FROM relations r JOIN nodes n ON n\.id = r\.from_id WHERE r\.to_id IN/i.test(
-          text,
-        )
-      ) {
-        return [];
-      }
-      if (
-        /^SELECT from_id AS symbol_id, to_id AS community_id FROM relations WHERE type = 'MEMBER_OF' AND from_id IN/i.test(
-          text,
-        )
-      ) {
-        return [];
-      }
-      // Remove-dead-code: enrich with end_line.
-      if (/^SELECT id, end_line FROM nodes WHERE id IN/i.test(text)) {
-        const ids = new Set(params.map((p) => String(p)));
-        return nodes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, end_line: n.endLine }));
-      }
-      return [];
+    listNodes: async (opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> => {
+      const kinds = opts.kinds;
+      if (kinds !== undefined && kinds.length === 0) return [];
+      const idsRaw = opts.ids;
+      if (idsRaw !== undefined && idsRaw.length === 0) return [];
+      const kindSet = kinds !== undefined ? new Set<string>(kinds) : undefined;
+      const idSet = idsRaw !== undefined ? new Set(idsRaw) : undefined;
+      return nodes
+        .filter((n) => {
+          if (kindSet !== undefined && !kindSet.has(n.kind)) return false;
+          if (idSet !== undefined && !idSet.has(n.id)) return false;
+          return true;
+        })
+        .map(nodeAsGraphNode);
     },
+    listEdges: async (_opts: ListEdgesOptions = {}): Promise<readonly CodeRelation[]> => [],
+    listEdgesByType: async (
+      _type: RelationType,
+      _opts: ListEdgesByTypeOptions = {},
+    ): Promise<readonly CodeRelation[]> => [],
     search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
     vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
     traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
@@ -165,7 +177,9 @@ async function withHarness(
       seed[join(repoPath, rel)] = content;
     }
     const fs = new FakeFs(seed);
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(nodes));
+    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () =>
+      wrapAsStore(makeFakeStore(nodes)),
+    );
     const ctx: RemoveDeadCodeContext = { pool, home, fsFactory: () => fs };
     const server = new McpServer(
       { name: "test", version: "0.0.0" },

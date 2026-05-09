@@ -67,7 +67,7 @@ export async function runRename(ctx: ToolContext, args: RenameArgs): Promise<Too
         dryRun,
       };
       if (args.file) q.scope = { filePath: args.file };
-      const result = await callRunRename(store, q, resolved.repoPath);
+      const result = await callRunRename(store.graph, q, resolved.repoPath);
 
       if (result.ambiguous) {
         return withNextSteps(

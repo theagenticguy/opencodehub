@@ -1,19 +1,25 @@
 /**
- * Tests for the Parquet embeddings sidecar (AC-M5-6).
+ * Tests for the Parquet embeddings sidecar (AC-M5-6 + AC-A-4 relocation).
  *
- * Two-tier coverage:
+ * AC-A-4 moved sidecar emission OUT of `@opencodehub/storage` and INTO
+ * pack/. The sidecar now consumes embeddings via the portable
+ * {@link IGraphStore.listEmbeddings} stream and writes Parquet via
+ * DuckDB COPY. Tests cover three tiers:
  *
- *   1. Pure-mock absent-case tests (always run, no native bindings):
- *      - Mock store missing `exportEmbeddingsParquet` → `absent: true`,
- *        no file written, no `pinsHint.duckdbVersion`.
- *      - Mock store reporting `rowCount: 0` → `absent: true`, no file
- *        written.
+ *   1. Pure-mock dispatch tests (always run, no native bindings):
+ *      - Duck-path fake exposing the @internal `exportEmbeddingsParquet`
+ *        helper → `written: true`, `writerBackend: "duck-copy"`.
+ *      - Duck-path fake reporting `rowCount: 0` → `written: false`,
+ *        `writerBackend: "absent"`, `determinismClass: "strict"` (S-M5-3).
+ *      - lbug-path fake → `written: false`, `writerBackend: "absent"`,
+ *        `determinismClass: "degraded"` when embeddings exist (v1
+ *        deferred — AC-A-4 anti-goal §10).
  *
- *   2. Real-DuckDB byte-identity test (skipped when the `@duckdb/node-api`
- *      native binding fails to load — the worktree native-binding lesson
- *      from `T-W3-1.md §11`). When it runs:
+ *   2. Real-DuckDB byte-identity test (skipped when `@duckdb/node-api`
+ *      native binding fails to load — the worktree native-binding
+ *      lesson from `T-W3-1.md §11`). When it runs:
  *      - 100 row × 384-dim Float32Array fixture.
- *      - Two consecutive `buildEmbeddingsSidecar` runs against the same
+ *      - Two consecutive `writeEmbeddingsSidecar` runs against the same
  *        store produce byte-identical Parquet files.
  *      - `pinsHint.duckdbVersion` is populated and non-empty.
  */
@@ -24,99 +30,173 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, test } from "node:test";
-import type { IGraphStore } from "@opencodehub/storage";
-import { buildEmbeddingsSidecar } from "./embeddings-sidecar.js";
+import type { EmbeddingRow, IGraphStore, ITemporalStore, Store } from "@opencodehub/storage";
+import { writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 
 // ---------------------------------------------------------------------------
-// Pure-mock tests — exercise every code path that does not touch DuckDB.
+// Pure-mock helpers — exercise every code path that does not touch DuckDB.
 // ---------------------------------------------------------------------------
 
 /**
- * Build a mock IGraphStore. Every method throws by default — tests opt in
- * to specific surfaces. Using `as unknown as IGraphStore` so we don't
- * have to stub 20 methods we never touch.
+ * Build a mock {@link IGraphStore}. Only `listEmbeddings` is wired (the
+ * surface the sidecar actually reads); other finders throw if invoked.
  */
-function makeMockStore(overrides: Partial<Record<string, unknown>> = {}): IGraphStore {
+function makeMockGraph(rows: readonly EmbeddingRow[] = []): IGraphStore {
   return {
-    exportEmbeddingsParquet: undefined,
-    ...overrides,
+    listEmbeddings: async function* () {
+      for (const r of rows) yield r;
+    },
   } as unknown as IGraphStore;
+}
+
+/**
+ * Wrap a graph store + optional COPY helper into the {@link Store} shape
+ * the AC-A-4 sidecar consumes. `backend` is the dispatch axis the sidecar
+ * narrows on; `temporal` is unused on the duck path so we cast the graph
+ * stand-in into temporal-shape when the caller wants the duck-typed COPY
+ * helper attached to the graph view.
+ */
+function makeMockStore(opts: {
+  backend: "duck" | "lbug";
+  graph?: IGraphStore;
+  copyHelper?: (
+    absPath: string,
+  ) => Promise<{ readonly rowCount: number; readonly duckdbVersion: string }>;
+  rows?: readonly EmbeddingRow[];
+}): Store {
+  const graphBase = opts.graph ?? makeMockGraph(opts.rows ?? []);
+  const graphWithHelper =
+    opts.copyHelper !== undefined
+      ? Object.assign(Object.create(null) as object, graphBase, {
+          exportEmbeddingsParquet: opts.copyHelper,
+        })
+      : graphBase;
+  return {
+    backend: opts.backend,
+    graph: graphWithHelper as IGraphStore,
+    temporal: graphWithHelper as unknown as ITemporalStore,
+    graphFile: ":memory:",
+    temporalFile: ":memory:",
+    close: async () => {
+      /* no-op */
+    },
+  };
 }
 
 async function tempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "sidecar-"));
 }
 
-describe("buildEmbeddingsSidecar — absent-case (mock store)", () => {
-  it("returns absent=true when store has no exportEmbeddingsParquet method", async () => {
-    const dir = await tempDir();
-    try {
-      const store = makeMockStore();
-      const outPath = path.join(dir, "embeddings.parquet");
-      const result = await buildEmbeddingsSidecar({ store, outPath });
-      assert.equal(result.absent, true);
-      assert.equal(result.bytesWritten, 0);
-      assert.equal(result.rowCount, 0);
-      assert.equal(result.fileHash, undefined);
-      assert.equal(result.pinsHint.duckdbVersion, undefined);
-      assert.equal(existsSync(outPath), false, "sidecar must not write a file when absent");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+// ---------------------------------------------------------------------------
+// Pure-mock dispatch tests
+// ---------------------------------------------------------------------------
 
-  it("returns absent=true when store reports rowCount=0 (S-M5-3)", async () => {
+describe("writeEmbeddingsSidecar — duck-path dispatch (mock)", () => {
+  it("returns written=false, writerBackend=absent when COPY reports rowCount=0 (S-M5-3)", async () => {
     const dir = await tempDir();
     try {
       let calls = 0;
       const store = makeMockStore({
-        exportEmbeddingsParquet: async () => {
+        backend: "duck",
+        copyHelper: async () => {
           calls += 1;
           return { rowCount: 0, duckdbVersion: "1.4.0" };
         },
       });
       const outPath = path.join(dir, "embeddings.parquet");
-      const result = await buildEmbeddingsSidecar({ store, outPath });
-      assert.equal(calls, 1, "store.exportEmbeddingsParquet must be invoked");
-      assert.equal(result.absent, true);
-      assert.equal(result.bytesWritten, 0);
+      const result = await writeEmbeddingsSidecar({ store, outPath });
+      assert.equal(calls, 1, "duck-path must invoke the COPY helper");
+      assert.equal(result.written, false);
+      assert.equal(result.writerBackend, "absent");
+      assert.equal(result.determinismClass, "strict");
       assert.equal(result.rowCount, 0);
+      assert.equal(result.bytesWritten, 0);
       assert.equal(result.fileHash, undefined);
-      // duckdbVersion is intentionally undefined when absent — the manifest
-      // pin only carries a runtime engine version when a file was written.
       assert.equal(result.pinsHint.duckdbVersion, undefined);
-      assert.equal(existsSync(outPath), false, "no file when rowCount=0 (S-M5-3)");
+      assert.equal(existsSync(outPath), false, "no file when rowCount=0");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("returns absent=false with hash + size when store writes a file", async () => {
-    // Stand in for the DuckDB COPY: write a fixed byte sequence to the
-    // outPath so the sidecar's stat + read + hash path is exercised
-    // without the native binding.
+  it("returns written=true with hash + size when the duck COPY helper writes a file", async () => {
     const dir = await tempDir();
     try {
       const fixtureBytes = new Uint8Array([0x50, 0x41, 0x52, 0x31]); // "PAR1" magic.
       const store = makeMockStore({
-        exportEmbeddingsParquet: async (absPath: string) => {
+        backend: "duck",
+        copyHelper: async (absPath: string) => {
           await writeFile(absPath, fixtureBytes);
           return { rowCount: 7, duckdbVersion: "v1.3.2" };
         },
       });
       const outPath = path.join(dir, "embeddings.parquet");
-      const result = await buildEmbeddingsSidecar({ store, outPath });
-      assert.equal(result.absent, false);
+      const result = await writeEmbeddingsSidecar({ store, outPath });
+      assert.equal(result.written, true);
+      assert.equal(result.writerBackend, "duck-copy");
+      assert.equal(result.determinismClass, "strict");
       assert.equal(result.rowCount, 7);
       assert.equal(result.bytesWritten, fixtureBytes.byteLength);
       assert.equal(result.pinsHint.duckdbVersion, "v1.3.2");
-      // sha256("PAR1") = 5d29… — verify the hash is computed from on-disk
-      // bytes by re-hashing the fixture and comparing.
       const onDisk = await readFile(outPath);
       const expected = await import("node:crypto").then((c) =>
         c.createHash("sha256").update(onDisk).digest("hex"),
       );
       assert.equal(result.fileHash, expected);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("writeEmbeddingsSidecar — lbug-path degraded stamp (mock)", () => {
+  it("stamps determinismClass=degraded when graph has rows but no COPY helper is reachable", async () => {
+    const dir = await tempDir();
+    try {
+      const rows: EmbeddingRow[] = [
+        {
+          nodeId: "fn:a",
+          granularity: "symbol",
+          chunkIndex: 0,
+          vector: Float32Array.from([0.1, 0.2, 0.3]),
+          contentHash: "h1",
+        },
+        {
+          nodeId: "fn:b",
+          granularity: "symbol",
+          chunkIndex: 0,
+          vector: Float32Array.from([0.4, 0.5, 0.6]),
+          contentHash: "h2",
+        },
+      ];
+      const store = makeMockStore({ backend: "lbug", rows });
+      const outPath = path.join(dir, "embeddings.parquet");
+      const result = await writeEmbeddingsSidecar({ store, outPath });
+      assert.equal(result.written, false);
+      assert.equal(result.writerBackend, "absent");
+      assert.equal(
+        result.determinismClass,
+        "degraded",
+        "lbug + non-empty embeddings must stamp degraded (AC-A-4 §10 v1)",
+      );
+      assert.equal(result.rowCount, 2);
+      assert.equal(result.bytesWritten, 0);
+      assert.equal(existsSync(outPath), false, "no file on lbug v1");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps determinismClass=strict on lbug when there are zero embeddings (absence is deterministic)", async () => {
+    const dir = await tempDir();
+    try {
+      const store = makeMockStore({ backend: "lbug", rows: [] });
+      const outPath = path.join(dir, "embeddings.parquet");
+      const result = await writeEmbeddingsSidecar({ store, outPath });
+      assert.equal(result.written, false);
+      assert.equal(result.writerBackend, "absent");
+      assert.equal(result.determinismClass, "strict");
+      assert.equal(result.rowCount, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -131,7 +211,7 @@ describe("buildEmbeddingsSidecar — absent-case (mock store)", () => {
 // main checkout re-validates with bindings present.
 // ---------------------------------------------------------------------------
 
-test("buildEmbeddingsSidecar — populated case is byte-identical across two runs", async () => {
+test("writeEmbeddingsSidecar — populated duck path is byte-identical across two runs", async () => {
   let DuckDbStore: typeof import("@opencodehub/storage").DuckDbStore;
   try {
     ({ DuckDbStore } = await import("@opencodehub/storage"));
@@ -195,11 +275,28 @@ test("buildEmbeddingsSidecar — populated case is byte-identical across two run
     }));
     await store.upsertEmbeddings(rows);
 
-    const r1 = await buildEmbeddingsSidecar({ store, outPath: outA });
-    const r2 = await buildEmbeddingsSidecar({ store, outPath: outB });
+    // Build a duck-shape Store wrapping the real DuckDbStore on both
+    // graph and temporal slots — this matches what `openStore({backend:
+    // "duck"})` returns in production.
+    const composed: Store = {
+      backend: "duck",
+      graph: store,
+      temporal: store,
+      graphFile: dbPath,
+      temporalFile: dbPath,
+      close: async () => {
+        /* test owns store lifecycle */
+      },
+    };
 
-    assert.equal(r1.absent, false);
-    assert.equal(r2.absent, false);
+    const r1 = await writeEmbeddingsSidecar({ store: composed, outPath: outA });
+    const r2 = await writeEmbeddingsSidecar({ store: composed, outPath: outB });
+
+    assert.equal(r1.written, true);
+    assert.equal(r2.written, true);
+    assert.equal(r1.writerBackend, "duck-copy");
+    assert.equal(r2.writerBackend, "duck-copy");
+    assert.equal(r1.determinismClass, "strict");
     assert.equal(r1.rowCount, 100);
     assert.equal(r2.rowCount, 100);
     assert.ok(

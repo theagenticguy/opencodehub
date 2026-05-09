@@ -45,7 +45,7 @@ export async function runDetectChangesCmd(opts: DetectChangesOptions = {}): Prom
       compareRef?: string;
     } = { scope, repoPath };
     if (opts.compareRef !== undefined) q.compareRef = opts.compareRef;
-    const result = await runDetectChanges(store, q);
+    const result = await runDetectChanges(store.graph, q);
 
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));

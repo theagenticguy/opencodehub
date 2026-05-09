@@ -170,29 +170,31 @@ async function zoomVectorSearch(
 /**
  * Resolve a batch of File-node ids to their `file_path` strings. Missing
  * rows are silently dropped; duplicate paths are de-duplicated while
- * preserving order. Any query failure returns `[]` so the caller falls
- * back to an unfiltered symbol query rather than crashing.
+ * preserving order. Any failure returns `[]` so the caller falls back to
+ * an unfiltered symbol query rather than crashing.
+ *
+ * Implementation: `listNodesByKind('File')` returns typed `FileNode`
+ * rows; we JS-filter by the input id set and reuse the caller's id
+ * order to carry the ANN ranking through. The fileNodeIds set is
+ * bounded by `zoomFanout` (default 10) so the filter cost is bounded by
+ * the number of File nodes in the graph.
  */
 async function resolveFilePaths(
   store: IGraphStore,
   fileNodeIds: readonly string[],
 ): Promise<readonly string[]> {
   if (fileNodeIds.length === 0) return [];
-  const placeholders = fileNodeIds.map(() => "?").join(",");
   try {
-    const rows = await store.query(
-      `SELECT id, file_path FROM nodes WHERE id IN (${placeholders})`,
-      fileNodeIds,
-    );
+    const wantedIds = new Set(fileNodeIds);
+    const fileNodes = await store.listNodesByKind("File");
+    const byId = new Map<string, string>();
+    for (const n of fileNodes) {
+      if (!wantedIds.has(n.id)) continue;
+      if (typeof n.filePath !== "string" || n.filePath.length === 0) continue;
+      byId.set(n.id, n.filePath);
+    }
     const seen = new Set<string>();
     const out: string[] = [];
-    // Preserve the caller's id order so the ann ranking carries over.
-    const byId = new Map<string, string>();
-    for (const r of rows) {
-      const id = String(r["id"] ?? "");
-      const fp = String(r["file_path"] ?? "");
-      if (id !== "" && fp !== "") byId.set(id, fp);
-    }
     for (const id of fileNodeIds) {
       const fp = byId.get(id);
       if (fp === undefined) continue;

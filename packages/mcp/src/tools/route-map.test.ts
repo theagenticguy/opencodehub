@@ -1,26 +1,13 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeEdgeLike,
+  type FakeRoute,
+  getToolHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "../test-utils.js";
 import { registerRouteMapTool } from "./route-map.js";
 import type { ToolContext } from "./shared.js";
 
@@ -43,107 +30,40 @@ interface Fixture {
   readonly relations: readonly RelFixture[];
 }
 
-function makeFakeStore(data: Fixture): DuckDbStore {
-  return {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-      if (text.includes("kind = 'Route'")) {
-        let out = [...data.routes];
-        let pi = 0;
-        if (text.includes("url LIKE ?")) {
-          const v = String(params[pi++] ?? "").replace(/%/g, "");
-          out = out.filter((r) => r.url.includes(v));
-        }
-        if (text.includes("method = ?")) {
-          const v = params[pi++];
-          out = out.filter((r) => r.method === v);
-        }
-        return out.map((r) => ({
-          id: r.id,
-          name: `${r.method} ${r.url}`,
-          method: r.method,
-          url: r.url,
-          file_path: r.filePath,
-          response_keys: [...r.responseKeys],
-        }));
-      }
-      if (text.startsWith("SELECT from_id FROM relations")) {
-        const to = params[0];
-        const type = params[1];
-        return data.relations
-          .filter((r) => r.toId === to && r.type === type)
-          .map((r) => ({ from_id: r.fromId }));
-      }
-      return [];
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
+function toRouteNodes(routes: readonly RouteFixture[]): FakeRoute[] {
+  return routes.map((r) => ({
+    id: r.id,
+    kind: "Route" as const,
+    name: `${r.method} ${r.url}`,
+    filePath: r.filePath,
+    url: r.url,
+    method: r.method,
+    responseKeys: [...r.responseKeys],
+  }));
 }
 
 async function withHarness(
   data: Fixture,
-  fn: (ctx: ToolContext, server: McpServer) => Promise<void>,
+  fn: (
+    ctx: ToolContext,
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-route-map-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: 0,
-          edgeCount: 0,
-          lastCommit: "abc",
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(data));
-    const ctx: ToolContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { tools: {} } },
-    );
-    try {
+  const edges: FakeEdgeLike[] = data.relations.map((r) => ({
+    type: r.type,
+    fromId: r.fromId,
+    toId: r.toId,
+  }));
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-mcp-route-map-",
+      storeFactory: () => makeFakeGraphStore({ routes: toRouteNodes(data.routes), edges }),
+    },
+    async ({ server, pool, home }) => {
+      const ctx: ToolContext = { pool, home };
       await fn(ctx, server);
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-}
-
-type RegisteredTool = { handler: (args: unknown, extra: unknown) => Promise<CallToolResult> };
-
-function getHandler(server: McpServer, name: string) {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internal field for test-only access
-  const map = (server as any)._registeredTools as Record<string, RegisteredTool>;
-  const entry = map[name];
-  assert.ok(entry, `tool not registered: ${name}`);
-  return entry.handler.bind(entry);
+    },
+  );
 }
 
 test("route_map returns routes with joined handlers and consumers", async () => {
@@ -172,7 +92,7 @@ test("route_map returns routes with joined handlers and consumers", async () => 
   };
   await withHarness(data, async (ctx, server) => {
     registerRouteMapTool(server, ctx);
-    const handler = getHandler(server, "route_map");
+    const handler = getToolHandler(server, "route_map");
     const result = await handler({ repo: "fakerepo" }, {});
     const sc = result.structuredContent as {
       routes: Array<{
@@ -213,7 +133,7 @@ test("route_map filters by method", async () => {
   };
   await withHarness(data, async (ctx, server) => {
     registerRouteMapTool(server, ctx);
-    const handler = getHandler(server, "route_map");
+    const handler = getToolHandler(server, "route_map");
     const result = await handler({ repo: "fakerepo", method: "POST" }, {});
     const sc = result.structuredContent as {
       routes: Array<{ method: string; url: string }>;
@@ -228,7 +148,7 @@ test("route_map filters by method", async () => {
 test("route_map returns empty list with remediation when no routes match", async () => {
   await withHarness({ routes: [], relations: [] }, async (ctx, server) => {
     registerRouteMapTool(server, ctx);
-    const handler = getHandler(server, "route_map");
+    const handler = getToolHandler(server, "route_map");
     const result = await handler({ repo: "fakerepo" }, {});
     const sc = result.structuredContent as {
       routes: unknown[];

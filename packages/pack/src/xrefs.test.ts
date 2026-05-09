@@ -5,8 +5,8 @@
  *   - A. Determinism across two consecutive calls.
  *   - B. Community rows lead the output, alpha-sorted by id.
  *   - C. Call rows trail community rows, sorted (from, to, id).
- *   - D. Non-CALLS relations are excluded by the SQL `WHERE type = 'CALLS'`
- *        clause — verified by the mock SQL pattern-match.
+ *   - D. Non-CALLS relations are excluded by `listEdgesByType('CALLS')`
+ *        on the storage layer — the mock honours the type filter directly.
  *   - E. Empty graph produces `[]`.
  *   - F. Community node optional fields round-trip (`inferredLabel`,
  *        `memberCount` from `symbolCount`).
@@ -15,42 +15,23 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import type { GraphNode } from "@opencodehub/core-types";
+import type { CodeRelation, CommunityNode, GraphNode } from "@opencodehub/core-types";
 import { canonicalJson } from "@opencodehub/core-types";
-import type { IGraphStore, ListNodesOptions } from "@opencodehub/storage";
+import type { IGraphStore } from "@opencodehub/storage";
 import { buildXrefs, type XrefRow } from "./xrefs.js";
 
-interface RawRelation {
-  readonly id: string;
-  readonly from_id: string;
-  readonly to_id: string;
-  readonly type: string;
-  readonly confidence?: number | string;
-}
-
-function makeStore(nodes: readonly GraphNode[], rels: readonly RawRelation[] = []): IGraphStore {
+function makeStore(nodes: readonly GraphNode[], rels: readonly CodeRelation[] = []): IGraphStore {
   return {
-    listNodes: async (opts: ListNodesOptions = {}) => {
-      const kinds = opts.kinds;
-      if (kinds !== undefined && kinds.length === 0) return [];
-      const set = kinds === undefined ? undefined : new Set(kinds);
-      const filtered = set === undefined ? [...nodes] : nodes.filter((n) => set.has(n.kind));
+    listNodesByKind: async (kind: string) => {
+      const filtered = nodes.filter((n) => n.kind === kind);
       filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-      return filtered;
+      return filtered as readonly CommunityNode[];
     },
-    query: async (sql: string) => {
-      if (!/from\s+relations\s+where\s+type\s*=\s*'CALLS'/i.test(sql)) {
-        throw new Error(`unexpected SQL in xrefs mock: ${sql}`);
-      }
+    listEdgesByType: async (type: string) => {
       return rels
-        .filter((r) => r.type === "CALLS")
-        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        .map((r) => ({
-          id: r.id,
-          from_id: r.from_id,
-          to_id: r.to_id,
-          confidence: r.confidence ?? 1,
-        }));
+        .filter((r) => r.type === type)
+        .slice()
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     },
   } as unknown as IGraphStore;
 }
@@ -74,14 +55,44 @@ const COMMUNITIES: readonly GraphNode[] = [
   },
 ];
 
-const CALLS: readonly RawRelation[] = [
-  { id: "rel:2", from_id: "fn:a", to_id: "fn:c", type: "CALLS", confidence: 1 },
-  { id: "rel:1", from_id: "fn:a", to_id: "fn:b", type: "CALLS", confidence: 1 },
-  // Non-CALLS edge that must be filtered by the SQL.
-  { id: "rel:3", from_id: "fn:a", to_id: "cls:S", type: "REFERENCES", confidence: 1 },
+const CALLS: readonly CodeRelation[] = [
+  {
+    id: "rel:2" as CodeRelation["id"],
+    from: "fn:a" as CodeRelation["from"],
+    to: "fn:c" as CodeRelation["to"],
+    type: "CALLS",
+    confidence: 1,
+  },
+  {
+    id: "rel:1" as CodeRelation["id"],
+    from: "fn:a" as CodeRelation["from"],
+    to: "fn:b" as CodeRelation["to"],
+    type: "CALLS",
+    confidence: 1,
+  },
+  // Non-CALLS edge filtered by `listEdgesByType('CALLS')`.
+  {
+    id: "rel:3" as CodeRelation["id"],
+    from: "fn:a" as CodeRelation["from"],
+    to: "cls:S" as CodeRelation["to"],
+    type: "REFERENCES",
+    confidence: 1,
+  },
   // Tiebreak — same (from, to), different id. Lower id should come first.
-  { id: "rel:5", from_id: "fn:b", to_id: "fn:c", type: "CALLS", confidence: 1 },
-  { id: "rel:4", from_id: "fn:b", to_id: "fn:c", type: "CALLS", confidence: 1 },
+  {
+    id: "rel:5" as CodeRelation["id"],
+    from: "fn:b" as CodeRelation["from"],
+    to: "fn:c" as CodeRelation["to"],
+    type: "CALLS",
+    confidence: 1,
+  },
+  {
+    id: "rel:4" as CodeRelation["id"],
+    from: "fn:b" as CodeRelation["from"],
+    to: "fn:c" as CodeRelation["to"],
+    type: "CALLS",
+    confidence: 1,
+  },
 ];
 
 test("A. buildXrefs is deterministic across two consecutive calls", async () => {
@@ -114,7 +125,7 @@ test("C. call rows trail communities, sorted by (from, to, id)", async () => {
   assert.equal(callRows[3]?.id, "rel:5");
 });
 
-test("D. non-CALLS relations are filtered by the SQL", async () => {
+test("D. non-CALLS relations are filtered by listEdgesByType", async () => {
   const store = makeStore(COMMUNITIES, CALLS);
   const rows = await buildXrefs({ store });
   // No row should reference cls:S — that edge was REFERENCES.
@@ -143,10 +154,15 @@ test("F. Community optional fields round-trip", async () => {
   assert.equal(a.memberCount, 5);
 });
 
-test("G. missing/non-numeric confidence coerces to 0", async () => {
-  const rels: readonly RawRelation[] = [
-    // Omit `confidence` entirely — the mock backfills it as 1.
-    { id: "rel:1", from_id: "fn:a", to_id: "fn:b", type: "CALLS" },
+test("G. NaN confidence coerces to 0", async () => {
+  const rels: readonly CodeRelation[] = [
+    {
+      id: "rel:1" as CodeRelation["id"],
+      from: "fn:a" as CodeRelation["from"],
+      to: "fn:b" as CodeRelation["to"],
+      type: "CALLS",
+      confidence: Number.NaN,
+    },
   ];
   const store = makeStore([], rels);
   const rows = await buildXrefs({ store });
@@ -154,8 +170,8 @@ test("G. missing/non-numeric confidence coerces to 0", async () => {
   const call = rows[0] as Extract<XrefRow, { kind: "call" }> | undefined;
   assert.ok(call !== undefined);
   assert.equal(call.kind, "call");
-  // The mock backfills missing `confidence` with 1, so this round-trips as 1.
-  assert.equal(call.confidence, 1);
+  // Non-finite confidence coerces to 0 by the buildXrefs guard.
+  assert.equal(call.confidence, 0);
 });
 
 test("H. only Community nodes seed community rows", async () => {

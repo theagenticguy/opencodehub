@@ -17,7 +17,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { GraphNode, ProcessNode } from "@opencodehub/core-types";
+import type { IGraphStore } from "@opencodehub/storage";
 import { readRegistry } from "../repo-resolver.js";
 import { rankCandidates } from "./repo-cluster.js";
 import type { ResourceContext } from "./repos.js";
@@ -66,39 +67,28 @@ export function registerRepoProcessResource(server: McpServer, ctx: ResourceCont
       if (ctx.pool !== undefined) resourceOpts.pool = ctx.pool;
 
       return withResourceStore(uri.href, repoName, resourceOpts, async (store, resolvedRepo) => {
-        const matchRows = (await store.query(
-          `SELECT id, name, inferred_label, entry_point_id, step_count, file_path
-           FROM nodes
-           WHERE kind = 'Process' AND (name = ? OR inferred_label = ?)
-           ORDER BY id ASC
-           LIMIT 1`,
-          [processName, processName],
-        )) as readonly Record<string, unknown>[];
+        const graph = store.graph;
+        const processes = (await graph.listNodesByKind("Process")) as readonly ProcessNode[];
+        const hit = processes.find(
+          (p) => p.name === processName || p.inferredLabel === processName,
+        );
 
-        if (matchRows.length === 0) {
-          return buildNotFound(uri.href, resolvedRepo, processName, store);
+        if (hit === undefined) {
+          return buildNotFound(uri.href, resolvedRepo, processName, processes);
         }
-        const hit = matchRows[0];
-        if (!hit) {
-          return buildNotFound(uri.href, resolvedRepo, processName, store);
-        }
-        const processId = String(hit["id"] ?? "");
-        const processRowName = String(hit["name"] ?? "");
+        const processId = hit.id;
+        const processRowName = hit.name;
         const processLabel =
-          typeof hit["inferred_label"] === "string" && hit["inferred_label"].length > 0
-            ? String(hit["inferred_label"])
+          typeof hit.inferredLabel === "string" && hit.inferredLabel.length > 0
+            ? hit.inferredLabel
             : null;
         const entryPointId =
-          typeof hit["entry_point_id"] === "string" && hit["entry_point_id"].length > 0
-            ? String(hit["entry_point_id"])
+          typeof hit.entryPointId === "string" && hit.entryPointId.length > 0
+            ? hit.entryPointId
             : null;
-        const processFilePath = String(hit["file_path"] ?? "");
+        const processFilePath = hit.filePath;
 
-        // Gather every symbol reached by PROCESS_STEP edges rooted at the
-        // entry point. The phase emits steps between callable symbols; we
-        // union from_id + to_id so the entry point itself (which is only
-        // ever a `from_id` at step 1) appears in the trace at step 0.
-        const traceRows = entryPointId ? await walkProcessTrace(store, entryPointId) : [];
+        const traceRows = entryPointId ? await walkProcessTrace(graph, entryPointId) : [];
 
         const lines: string[] = [];
         lines.push(`repo: ${yamlScalar(resolvedRepo)}`);
@@ -155,61 +145,59 @@ interface TraceRow {
  * surfaced as step 0; PROCESS_STEP rows populate the subsequent steps.
  */
 async function walkProcessTrace(
-  store: DuckDbStore,
+  graph: IGraphStore,
   entryPointId: string,
 ): Promise<readonly TraceRow[]> {
-  // Seed with the entry-point node at step 0.
-  const entryRows = (await store.query(
-    `SELECT id, name, kind, file_path FROM nodes WHERE id = ? LIMIT 1`,
-    [entryPointId],
-  )) as readonly Record<string, unknown>[];
-  const out: TraceRow[] = [];
-  const seen = new Set<string>();
-  if (entryRows.length > 0) {
-    const r = entryRows[0];
-    if (r) {
-      out.push({
-        step: 0,
-        id: String(r["id"] ?? ""),
-        name: String(r["name"] ?? ""),
-        kind: String(r["kind"] ?? ""),
-        filePath: String(r["file_path"] ?? ""),
-      });
-      seen.add(String(r["id"] ?? ""));
-    }
+  // Snapshot all nodes once for partner metadata lookup.
+  const allNodes = await graph.listNodes();
+  const byId = new Map<string, GraphNode>();
+  for (const n of allNodes) byId.set(n.id, n);
+  const allEdges = await graph.listEdgesByType("PROCESS_STEP");
+  const adj = new Map<string, { toId: string; step: number }[]>();
+  for (const e of allEdges) {
+    const list = adj.get(e.from) ?? [];
+    list.push({ toId: e.to, step: e.step ?? 0 });
+    adj.set(e.from, list);
+  }
+  for (const list of adj.values()) {
+    list.sort((a, b) => {
+      if (a.step !== b.step) return a.step - b.step;
+      return a.toId < b.toId ? -1 : a.toId > b.toId ? 1 : 0;
+    });
   }
 
-  // PROCESS_STEP edges share the same (from_id, to_id, step). We walk the
-  // closure reachable from `entryPointId` by any chain of steps — joining
-  // relations to relations via (from_id, to_id) is an expensive recursive
-  // CTE; instead we iterate in application code and rely on the phase's
-  // 30-node cap to bound the walk.
+  const out: TraceRow[] = [];
+  const seen = new Set<string>();
+  const entryNode = byId.get(entryPointId);
+  if (entryNode !== undefined) {
+    out.push({
+      step: 0,
+      id: entryNode.id,
+      name: entryNode.name,
+      kind: entryNode.kind,
+      filePath: entryNode.filePath,
+    });
+    seen.add(entryNode.id);
+  }
+
   const queue: string[] = [entryPointId];
   let guard = 0;
   while (queue.length > 0 && guard < 100) {
     guard += 1;
     const current = queue.shift() as string;
-    const edges = (await store.query(
-      `SELECT r.to_id AS to_id, r.step AS step, n.name AS name, n.kind AS kind, n.file_path AS file_path
-       FROM relations r
-       JOIN nodes n ON n.id = r.to_id
-       WHERE r.type = 'PROCESS_STEP' AND r.from_id = ?
-       ORDER BY r.step ASC, n.id ASC`,
-      [current],
-    )) as readonly Record<string, unknown>[];
-    for (const row of edges) {
-      const toId = String(row["to_id"] ?? "");
-      if (!toId || seen.has(toId)) continue;
-      seen.add(toId);
-      const step = typeof row["step"] === "number" ? row["step"] : Number(row["step"] ?? 0);
+    const outgoing = adj.get(current) ?? [];
+    for (const e of outgoing) {
+      if (seen.has(e.toId)) continue;
+      seen.add(e.toId);
+      const partner = byId.get(e.toId);
       out.push({
-        step,
-        id: toId,
-        name: String(row["name"] ?? ""),
-        kind: String(row["kind"] ?? ""),
-        filePath: String(row["file_path"] ?? ""),
+        step: e.step,
+        id: e.toId,
+        name: partner?.name ?? "",
+        kind: partner?.kind ?? "",
+        filePath: partner?.filePath ?? "",
       });
-      queue.push(toId);
+      queue.push(e.toId);
     }
   }
   out.sort((a, b) => {
@@ -223,21 +211,20 @@ async function buildNotFound(
   uri: string,
   repoName: string,
   processName: string,
-  store: DuckDbStore,
+  processes: readonly ProcessNode[],
 ): Promise<ReadResourceResult> {
-  const allRows = (await store.query(
-    `SELECT name, inferred_label
-     FROM nodes
-     WHERE kind = 'Process'
-     ORDER BY COALESCE(step_count, 0) DESC, id ASC`,
-    [],
-  )) as readonly Record<string, unknown>[];
+  const ordered = [...processes].sort((a, b) => {
+    const ac = a.stepCount ?? 0;
+    const bc = b.stepCount ?? 0;
+    if (ac !== bc) return bc - ac;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
   const candidates = rankCandidates(
     processName,
-    allRows.flatMap((r) => {
+    ordered.flatMap((p) => {
       const out: string[] = [];
-      const n = typeof r["name"] === "string" ? r["name"] : null;
-      const l = typeof r["inferred_label"] === "string" ? r["inferred_label"] : null;
+      const n = typeof p.name === "string" ? p.name : null;
+      const l = typeof p.inferredLabel === "string" ? p.inferredLabel : null;
       if (n) out.push(n);
       if (l && l !== n) out.push(l);
       return out;

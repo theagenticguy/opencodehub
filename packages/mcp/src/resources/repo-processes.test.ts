@@ -11,27 +11,13 @@
  */
 
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeNodeLike,
+  getResourceHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "../test-utils.js";
 import { registerRepoProcessesResource } from "./repo-processes.js";
 import type { ResourceContext } from "./repos.js";
 
@@ -44,108 +30,37 @@ interface FakeProcessRow {
   file_path?: string;
 }
 
-function makeFakeStore(rows: readonly FakeProcessRow[]): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-      if (
-        text.startsWith(
-          "SELECT id, name, inferred_label, step_count, entry_point_id, file_path FROM nodes WHERE kind = 'Process'",
-        )
-      ) {
-        const limit = Number(params[0] ?? 20);
-        const sorted = [...rows].sort((a, b) => {
-          const sc = (b.step_count ?? 0) - (a.step_count ?? 0);
-          if (sc !== 0) return sc;
-          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-        });
-        return sorted.slice(0, limit).map((r) => ({
-          id: r.id,
-          name: r.name,
-          inferred_label: r.inferred_label ?? null,
-          step_count: r.step_count ?? null,
-          entry_point_id: r.entry_point_id ?? null,
-          file_path: r.file_path ?? "",
-        }));
-      }
-      throw new Error(`unsupported sql: ${text}`);
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-    bulkLoadCochanges: async (_rows: readonly unknown[]): Promise<void> => {},
-    lookupCochangesForFile: async () => [],
-    lookupCochangesBetween: async () => undefined,
-  } as unknown as DuckDbStore;
-  return api;
+function processNodes(rows: readonly FakeProcessRow[]): FakeNodeLike[] {
+  return rows.map((r) => ({
+    id: r.id,
+    kind: "Process",
+    name: r.name,
+    filePath: r.file_path ?? "",
+    inferredLabel: r.inferred_label,
+    stepCount: r.step_count ?? 0,
+    entryPointId: r.entry_point_id,
+  }));
 }
 
 async function withHarness(
   rows: readonly FakeProcessRow[],
-  fn: (server: McpServer, ctx: ResourceContext, repoName: string) => Promise<void>,
+  fn: (
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+    ctx: ResourceContext,
+    repoName: string,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-processes-test-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: 0,
-          edgeCount: 0,
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(rows));
-    const ctx: ResourceContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { resources: {} } },
-    );
-    try {
-      await fn(server, ctx, "fakerepo");
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-}
-
-type ResourceRegistry = {
-  readCallback: (
-    uri: URL,
-    vars: Record<string, string>,
-    extra: unknown,
-  ) => Promise<ReadResourceResult>;
-};
-function getResourceHandler(server: McpServer, name: string): ResourceRegistry["readCallback"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internals for test-only access
-  const map = (server as any)._registeredResourceTemplates as Record<string, ResourceRegistry>;
-  const entry = map[name];
-  assert.ok(entry, `resource template not registered: ${name}`);
-  return entry.readCallback.bind(entry);
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-processes-test-",
+      serverCapabilities: { resources: {} },
+      storeFactory: () => makeFakeGraphStore({ nodes: processNodes(rows) }),
+    },
+    async ({ server, pool, home, repoName }) => {
+      const ctx: ResourceContext = { pool, home };
+      await fn(server, ctx, repoName);
+    },
+  );
 }
 
 test("repo-processes: renders Process rows ranked by stepCount DESC", async () => {

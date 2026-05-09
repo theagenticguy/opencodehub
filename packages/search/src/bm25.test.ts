@@ -1,16 +1,25 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type { GraphNode } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  DependencyNode,
+  FindingNode,
+  GraphNode,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
+} from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
-  CochangeRow,
+  ConsumerProducerEdge,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
   SearchQuery,
   SearchResult,
-  SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -23,6 +32,7 @@ interface StubCall {
 }
 
 class StubStore implements IGraphStore {
+  readonly dialect: GraphDialect = "none";
   readonly calls: StubCall[] = [];
   results: SearchResult[] = [];
 
@@ -36,12 +46,43 @@ class StubStore implements IGraphStore {
   async listEmbeddingHashes(): Promise<Map<string, string>> {
     return new Map();
   }
-  async query(
-    _sql: string,
-    _params?: readonly SqlParam[],
-    _opts?: { readonly timeoutMs?: number },
-  ): Promise<readonly Record<string, unknown>[]> {
+  // biome-ignore lint/correctness/useYield: empty async iterable, no rows to yield
+  async *listEmbeddings(): AsyncIterable<EmbeddingRow> {}
+  async listNodes(): Promise<readonly GraphNode[]> {
     return [];
+  }
+  async listNodesByEntryPoint(): Promise<readonly GraphNode[]> {
+    return [];
+  }
+  async listNodesByName(): Promise<readonly GraphNode[]> {
+    return [];
+  }
+  async listNodesByKind<K extends NodeKind>(_kind: K): Promise<readonly NodeOfKind<K>[]> {
+    return [];
+  }
+  async listEdges(): Promise<readonly CodeRelation[]> {
+    return [];
+  }
+  async listEdgesByType(): Promise<readonly CodeRelation[]> {
+    return [];
+  }
+  async listFindings(): Promise<readonly FindingNode[]> {
+    return [];
+  }
+  async listDependencies(): Promise<readonly DependencyNode[]> {
+    return [];
+  }
+  async listRoutes(): Promise<readonly RouteNode[]> {
+    return [];
+  }
+  async getRepoNode(): Promise<RepoNode | undefined> {
+    return undefined;
+  }
+  async countNodesByKind(): Promise<Map<NodeKind, number>> {
+    return new Map();
+  }
+  async countEdgesByType(): Promise<Map<RelationType, number>> {
+    return new Map();
   }
   async search(q: SearchQuery): Promise<readonly SearchResult[]> {
     this.calls.push({ query: q });
@@ -53,29 +94,21 @@ class StubStore implements IGraphStore {
   async traverse(_q: TraverseQuery): Promise<readonly TraverseResult[]> {
     return [];
   }
+  async traverseAncestors(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async traverseDescendants(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async listConsumerProducerEdges(): Promise<readonly ConsumerProducerEdge[]> {
+    return [];
+  }
   async getMeta(): Promise<StoreMeta | undefined> {
     return undefined;
   }
   async setMeta(_meta: StoreMeta): Promise<void> {}
   async healthCheck(): Promise<{ ok: boolean; message?: string }> {
     return { ok: true };
-  }
-  async bulkLoadCochanges(_rows: readonly CochangeRow[]): Promise<void> {}
-  async lookupCochangesForFile(): Promise<readonly CochangeRow[]> {
-    return [];
-  }
-  async lookupCochangesBetween(): Promise<CochangeRow | undefined> {
-    return undefined;
-  }
-  async bulkLoadSymbolSummaries(_rows: readonly SymbolSummaryRow[]): Promise<void> {}
-  async lookupSymbolSummary(): Promise<SymbolSummaryRow | undefined> {
-    return undefined;
-  }
-  async lookupSymbolSummariesByNode(): Promise<readonly SymbolSummaryRow[]> {
-    return [];
-  }
-  async listNodes(): Promise<readonly GraphNode[]> {
-    return [];
   }
 }
 

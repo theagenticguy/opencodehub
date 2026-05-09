@@ -66,7 +66,7 @@ export async function runListDeadCode(
 
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const result = await classifyDeadness(store);
+      const result = await classifyDeadness(store.graph);
 
       const filterByPath = (s: DeadSymbol): boolean =>
         pattern === undefined || s.filePath.includes(pattern);

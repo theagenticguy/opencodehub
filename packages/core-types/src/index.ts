@@ -39,6 +39,7 @@ export type {
   ModuleNode,
   NamespaceNode,
   NodeKind,
+  NodeOfKind,
   OperationNode,
   ProcessNode,
   ProjectProfileNode,

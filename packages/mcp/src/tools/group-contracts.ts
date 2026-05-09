@@ -21,7 +21,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ContractRegistry } from "@opencodehub/analysis";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { IGraphStore } from "@opencodehub/storage";
 import { resolveDbPath } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
@@ -82,18 +82,18 @@ function parseUnresolvedTarget(target: string): { method: string; path: string }
   return { method, path };
 }
 
-async function readConsumerEdges(store: DuckDbStore): Promise<readonly ConsumerEdgeRow[]> {
-  const rows = (await store.query(
-    "SELECT from_id, to_id FROM relations WHERE type = 'FETCHES' ORDER BY from_id, to_id",
-  )) as ReadonlyArray<Record<string, unknown>>;
+async function readConsumerEdges(graph: IGraphStore): Promise<readonly ConsumerEdgeRow[]> {
+  const fetches = await graph.listEdgesByType("FETCHES");
+  const sorted = [...fetches].sort((a, b) => {
+    if (a.from !== b.from) return a.from < b.from ? -1 : 1;
+    return a.to < b.to ? -1 : a.to > b.to ? 1 : 0;
+  });
   const out: ConsumerEdgeRow[] = [];
-  for (const r of rows) {
-    const to = String(r["to_id"] ?? "");
-    const parsed = parseUnresolvedTarget(to);
+  for (const e of sorted) {
+    const parsed = parseUnresolvedTarget(e.to);
     if (parsed === undefined) continue;
-    const from = String(r["from_id"] ?? "");
     out.push({
-      consumerSymbol: from,
+      consumerSymbol: e.from,
       method: parsed.method,
       path: normalizePath(parsed.path),
     });
@@ -101,16 +101,14 @@ async function readConsumerEdges(store: DuckDbStore): Promise<readonly ConsumerE
   return out;
 }
 
-async function readProducerRoutes(store: DuckDbStore): Promise<readonly RouteRow[]> {
-  const rows = (await store.query(
-    "SELECT id, method, url FROM nodes WHERE kind = 'Route' ORDER BY id",
-  )) as ReadonlyArray<Record<string, unknown>>;
+async function readProducerRoutes(graph: IGraphStore): Promise<readonly RouteRow[]> {
+  const routes = await graph.listRoutes();
+  const sorted = [...routes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const out: RouteRow[] = [];
-  for (const r of rows) {
-    const url = r["url"];
-    if (typeof url !== "string" || url.length === 0) continue;
-    const method = String(r["method"] ?? "GET").toUpperCase();
-    out.push({ nodeId: String(r["id"]), method, url });
+  for (const r of sorted) {
+    if (typeof r.url !== "string" || r.url.length === 0) continue;
+    const method = (r.method ?? "GET").toUpperCase();
+    out.push({ nodeId: r.id, method, url: r.url });
   }
   return out;
 }
@@ -162,8 +160,8 @@ export async function runGroupContracts(
       });
       try {
         const [consumers, producers] = await Promise.all([
-          readConsumerEdges(store),
-          readProducerRoutes(store),
+          readConsumerEdges(store.graph),
+          readProducerRoutes(store.graph),
         ]);
         consumersByRepo.set(repo.name, consumers);
         producersByRepo.set(repo.name, producers);

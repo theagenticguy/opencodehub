@@ -1,16 +1,22 @@
 /**
  * `codehub context <symbol>` — 360-degree view of a single symbol.
  *
- * Resolves the target by exact name against the `nodes` table, filtering out
- * synthetic import-tracking stubs (`file_path = '<external>'` and
+ * Resolves the target by exact name against the graph, filtering out
+ * synthetic import-tracking stubs (`filePath = '<external>'` and
  * `kind = 'CodeElement'`) that carry no caller/callee edges. Optional
  * `targetUid`, `filePath`, and `kind` narrow same-named candidates.
  * When exact-name yields zero rows we fall back to the BM25 index so
  * concept-phrase queries still work; when it yields more than one row
  * and no disambiguator narrows the set, we surface the candidate list.
+ *
+ * Per AC-A-6e: this command is graph-only — the lifecycle owner
+ * (`openStoreForCommand`) constructs the composed `Store` envelope, but
+ * `runContext` reaches through `store.graph` for every read so the
+ * `IGraphStore` typed-finder surface stays the only contract.
  */
 
-import type { IGraphStore, SearchResult, SqlParam } from "@opencodehub/storage";
+import type { GraphNode, NodeKind } from "@opencodehub/core-types";
+import type { IGraphStore, SearchResult } from "@opencodehub/storage";
 import { type OpenStoreResult, openStoreForCommand } from "./open-store.js";
 
 export interface ContextOptions {
@@ -49,35 +55,68 @@ type Resolution =
   | { readonly kind: "ambiguous"; readonly candidates: readonly ResolvedNode[] }
   | { readonly kind: "not_found" };
 
+/**
+ * Find Process-kind partners reachable from the target via `PROCESS_STEP`
+ * edges. Mirrors the post-A-6c MCP equivalent in
+ * `packages/mcp/src/tools/context.ts:567` so the two surfaces stay in
+ * lockstep on edge semantics + ordering.
+ */
 async function fetchProcessParticipation(
-  store: IGraphStore,
+  graph: IGraphStore,
   targetId: string,
 ): Promise<readonly ProcessParticipation[]> {
-  const rows = (await store.query(
-    "SELECT DISTINCT p.id AS id, p.name AS name, p.inferred_label AS label, r.step AS step FROM relations r JOIN nodes p ON (p.id = r.from_id OR p.id = r.to_id) WHERE (r.from_id = ? OR r.to_id = ?) AND r.type = 'PROCESS_STEP' AND p.kind = 'Process' ORDER BY r.step LIMIT 20",
-    [targetId, targetId],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => {
-    const rawLabel = r["label"];
-    const rawName = r["name"];
+  const [outEdges, inEdges] = await Promise.all([
+    graph.listEdgesByType("PROCESS_STEP", { fromIds: [targetId] }),
+    graph.listEdgesByType("PROCESS_STEP", { toIds: [targetId] }),
+  ]);
+  const partnerIds = new Set<string>();
+  for (const e of [...outEdges, ...inEdges]) {
+    const id = e.from === targetId ? e.to : e.from;
+    partnerIds.add(id);
+  }
+  if (partnerIds.size === 0) return [];
+  const partners = await graph.listNodes({ ids: [...partnerIds] });
+  const partnerById = new Map<string, GraphNode>();
+  for (const p of partners) partnerById.set(p.id, p);
+  const dedup = new Map<string, { label: string; step: number | null }>();
+  for (const e of [...outEdges, ...inEdges]) {
+    const partnerId = e.from === targetId ? e.to : e.from;
+    const partner = partnerById.get(partnerId);
+    if (!partner || partner.kind !== "Process") continue;
+    if (dedup.has(partner.id)) continue;
+    const inferredLabelRaw = (partner as unknown as { inferredLabel?: unknown }).inferredLabel;
     const label =
-      typeof rawLabel === "string" && rawLabel.length > 0 ? rawLabel : String(rawName ?? "");
-    const rawStep = r["step"];
-    const step = Number(rawStep);
-    return {
-      id: String(r["id"]),
-      label,
-      step: Number.isFinite(step) && step > 0 ? Math.trunc(step) : null,
-    };
+      typeof inferredLabelRaw === "string" && inferredLabelRaw.length > 0
+        ? inferredLabelRaw
+        : partner.name;
+    const stepRaw = e.step;
+    const stepNum =
+      typeof stepRaw === "number" && Number.isFinite(stepRaw) && stepRaw > 0
+        ? Math.trunc(stepRaw)
+        : null;
+    dedup.set(partner.id, { label, step: stepNum });
+  }
+  const items = Array.from(dedup.entries()).map(([id, v]) => ({
+    id,
+    label: v.label,
+    step: v.step,
+  }));
+  // Match the prior `ORDER BY r.step` then deterministic id tiebreak.
+  items.sort((a, b) => {
+    const as = a.step ?? Number.POSITIVE_INFINITY;
+    const bs = b.step ?? Number.POSITIVE_INFINITY;
+    if (as !== bs) return as - bs;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+  return items.slice(0, 20);
 }
 
-function rowToResolvedNode(r: Record<string, unknown>): ResolvedNode {
+function nodeToResolved(n: GraphNode): ResolvedNode {
   return {
-    nodeId: String(r["id"]),
-    name: String(r["name"] ?? ""),
-    kind: String(r["kind"] ?? ""),
-    filePath: String(r["file_path"] ?? ""),
+    nodeId: n.id,
+    name: n.name,
+    kind: n.kind,
+    filePath: n.filePath,
     score: 0,
   };
 }
@@ -93,45 +132,47 @@ function searchResultToResolvedNode(r: SearchResult): ResolvedNode {
 }
 
 async function resolveTarget(
-  store: IGraphStore,
+  graph: IGraphStore,
   symbol: string,
   opts: ContextOptions,
 ): Promise<Resolution> {
   if (opts.targetUid !== undefined && opts.targetUid.length > 0) {
-    const rows = (await store.query(
-      "SELECT id, name, kind, file_path FROM nodes WHERE id = ? LIMIT 1",
-      [opts.targetUid],
-    )) as ReadonlyArray<Record<string, unknown>>;
-    const row = rows[0];
-    if (!row) return { kind: "not_found" };
-    return { kind: "resolved", target: rowToResolvedNode(row), alternates: [] };
+    const list = await graph.listNodes({ ids: [opts.targetUid], limit: 1 });
+    const node = list[0];
+    if (!node) return { kind: "not_found" };
+    return { kind: "resolved", target: nodeToResolved(node), alternates: [] };
   }
 
-  const params: SqlParam[] = [symbol];
-  let sql =
-    "SELECT id, name, kind, file_path FROM nodes WHERE name = ? AND file_path != '<external>' AND kind != 'CodeElement'";
-  if (opts.kind !== undefined && opts.kind.length > 0) {
-    sql += " AND kind = ?";
-    params.push(opts.kind);
-  }
+  // Name-keyed lookup with optional kind narrowing. The `file_path != '<external>'
+  // AND kind != 'CodeElement'` invariants from the legacy SQL are now applied
+  // post-finder so we don't need a `NOT IN` shape. The MCP-side migration in
+  // `packages/mcp/src/tools/context.ts:418-429` pioneered this pattern.
+  const listOpts =
+    opts.kind !== undefined && opts.kind.length > 0 ? { kinds: [opts.kind as NodeKind] } : {};
+  let candidates = await graph.listNodesByName(symbol, listOpts);
+  // Drop synthetic import stubs.
+  candidates = candidates.filter((n) => n.filePath !== "<external>" && n.kind !== "CodeElement");
+  // Optional file-path substring narrow (LIKE %x%).
   if (opts.filePath !== undefined && opts.filePath.length > 0) {
-    sql += " AND file_path LIKE ?";
-    params.push(`%${opts.filePath}%`);
+    const sub = opts.filePath;
+    candidates = candidates.filter((n) => n.filePath.includes(sub));
   }
-  sql += " ORDER BY file_path LIMIT 25";
+  // Match prior `ORDER BY file_path LIMIT 25`.
+  const sorted = [...candidates].sort((a, b) =>
+    a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0,
+  );
+  const sliced = sorted.slice(0, 25);
 
-  const exactRows = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
-
-  if (exactRows.length === 1) {
-    const row = exactRows[0];
-    if (!row) return { kind: "not_found" };
-    return { kind: "resolved", target: rowToResolvedNode(row), alternates: [] };
+  if (sliced.length === 1) {
+    const head = sliced[0];
+    if (!head) return { kind: "not_found" };
+    return { kind: "resolved", target: nodeToResolved(head), alternates: [] };
   }
-  if (exactRows.length > 1) {
-    return { kind: "ambiguous", candidates: exactRows.map(rowToResolvedNode) };
+  if (sliced.length > 1) {
+    return { kind: "ambiguous", candidates: sliced.map(nodeToResolved) };
   }
 
-  const fallback = await store.search({ text: symbol, limit: 5 });
+  const fallback = await graph.search({ text: symbol, limit: 5 });
   if (fallback.length === 0) return { kind: "not_found" };
   const [head, ...rest] = fallback;
   if (head === undefined) return { kind: "not_found" };
@@ -149,8 +190,9 @@ export async function runContext(
 ): Promise<void> {
   const openStore = hooks.openStore ?? openStoreForCommand;
   const { store, repoPath } = await openStore(opts);
+  const graph = store.graph;
   try {
-    const resolution = await resolveTarget(store, symbol, opts);
+    const resolution = await resolveTarget(graph, symbol, opts);
 
     if (resolution.kind === "not_found") {
       if (opts.json) {
@@ -209,19 +251,19 @@ export async function runContext(
     const target = resolution.target;
 
     const [up, down, processes] = await Promise.all([
-      store.traverse({
+      graph.traverse({
         startId: target.nodeId,
         direction: "up",
         maxDepth: 1,
         relationTypes: ["CALLS"],
       }),
-      store.traverse({
+      graph.traverse({
         startId: target.nodeId,
         direction: "down",
         maxDepth: 1,
         relationTypes: ["CALLS"],
       }),
-      fetchProcessParticipation(store, target.nodeId),
+      fetchProcessParticipation(graph, target.nodeId),
     ]);
 
     if (opts.json) {

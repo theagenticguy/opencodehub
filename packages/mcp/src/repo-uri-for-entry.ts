@@ -17,7 +17,7 @@
 
 import { resolve } from "node:path";
 import { makeNodeId } from "@opencodehub/core-types";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { IGraphStore } from "@opencodehub/storage";
 import { resolveDbPath } from "@opencodehub/storage";
 import type { ConnectionPool } from "./connection-pool.js";
 import { deriveRepoUri, type RegistryEntry } from "./repo-resolver.js";
@@ -27,15 +27,12 @@ import { deriveRepoUri, type RegistryEntry } from "./repo-resolver.js";
  * AC-M6-1 landed carry this row — earlier indexes fall back to the
  * derived URI.
  */
-async function readRepoNodeUri(store: DuckDbStore): Promise<string | undefined> {
+async function readRepoNodeUri(graph: IGraphStore): Promise<string | undefined> {
   const repoId = makeNodeId("Repo", "", "repo");
-  const rows = (await store.query("SELECT repo_uri FROM nodes WHERE id = ? LIMIT 1", [
-    repoId,
-  ])) as ReadonlyArray<Record<string, unknown>>;
-  const first = rows[0];
-  if (!first) return undefined;
-  const v = first["repo_uri"];
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+  const repo = await graph.getRepoNode(repoId);
+  if (repo === undefined) return undefined;
+  const uri = repo.repoUri;
+  return typeof uri === "string" && uri.length > 0 ? uri : undefined;
 }
 
 /**
@@ -54,7 +51,7 @@ export async function repoUriForEntry(
     try {
       const store = await pool.acquire(repoPath, dbPath);
       try {
-        const uri = await readRepoNodeUri(store);
+        const uri = await readRepoNodeUri(store.graph);
         if (uri !== undefined) return uri;
       } finally {
         await pool.release(repoPath);

@@ -18,12 +18,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import type { GraphNode, NodeId, NodeKind } from "@opencodehub/core-types";
 import type { Embedder } from "@opencodehub/embedder";
 import type {
-  DuckDbStore,
+  IGraphStore,
+  ITemporalStore,
   SearchQuery,
   SearchResult,
-  SqlParam,
+  Store,
   SymbolSummaryRow,
   VectorQuery,
   VectorResult,
@@ -49,9 +51,9 @@ interface FakeStoreHandle {
   lastQuery: string | null;
   searchCalls: number;
   vectorCalls: number;
-  embeddingCountQueries: number;
+  embeddingProbeCalls: number;
   closed: boolean;
-  readonly store: DuckDbStore;
+  readonly store: Store;
 }
 
 function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
@@ -65,15 +67,15 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
     lastQuery: null,
     searchCalls: 0,
     vectorCalls: 0,
-    embeddingCountQueries: 0,
+    embeddingProbeCalls: 0,
     closed: false,
-    store: {} as DuckDbStore,
+    store: {} as Store,
   };
-  // Minimal DuckDbStore surface: the CLI query path calls `search`,
-  // `vectorSearch`, `query` (for the embeddings probe + metadata
-  // hydration), `lookupSymbolSummariesByNode` (for P04 summary join),
-  // and `close`. Stubbing those is enough; the rest is cast.
-  const impl = {
+  // Minimal IGraphStore surface: the CLI query path calls `search`,
+  // `vectorSearch`, `listEmbeddingHashes` (the probe), `listNodes`
+  // (metadata hydration), and `close`. Stubbing those is enough; the
+  // rest is cast through the partial type guard.
+  const graph: Partial<IGraphStore> = {
     search: async (q: SearchQuery) => {
       handle.lastQuery = q.text;
       handle.searchCalls += 1;
@@ -83,34 +85,40 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
       handle.vectorCalls += 1;
       return vectorRows;
     },
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized === "SELECT COUNT(*) AS n FROM embeddings") {
-        handle.embeddingCountQueries += 1;
-        return [{ n: embeddingRows }];
-      }
-      if (normalized.startsWith("SELECT id, name, kind, file_path FROM nodes WHERE id IN")) {
-        const idSet = new Set(params.map((p) => String(p)));
-        const out: Record<string, unknown>[] = [];
-        for (const id of idSet) {
-          const meta = nodes.get(id);
-          if (meta) {
-            out.push({
-              id,
-              name: meta.name,
-              kind: meta.kind,
-              file_path: meta.filePath,
-            });
-          }
-        }
-        return out;
-      }
-      throw new Error(`unsupported sql in fake store: ${normalized}`);
+    listEmbeddingHashes: async () => {
+      handle.embeddingProbeCalls += 1;
+      // Synthesize one (nodeId, hash) entry per declared row so
+      // `embeddingsPopulated` flips on the right way without consumers
+      // ever observing the inner shape. The exact keys don't matter.
+      const out = new Map<string, string>();
+      for (let i = 0; i < embeddingRows; i += 1) out.set(`probe:${i}`, "h");
+      return out;
     },
-    ...(summaryRows !== undefined
+    listNodes: async (listOpts) => {
+      if (listOpts?.ids === undefined) return [];
+      const ids = new Set(listOpts.ids.map((s) => String(s)));
+      const out: GraphNode[] = [];
+      for (const id of ids) {
+        const meta = nodes.get(id);
+        if (meta) {
+          out.push({
+            id: id as NodeId,
+            kind: meta.kind as NodeKind,
+            name: meta.name,
+            filePath: meta.filePath,
+          } as unknown as GraphNode);
+        }
+      }
+      return out;
+    },
+  };
+
+  // The temporal-tier surface the query path touches is just
+  // `lookupSymbolSummariesByNode`. Older tests can omit it entirely so
+  // the join transparently degrades to "no summaries", matching the
+  // production fall-back.
+  const temporal: Partial<ITemporalStore> =
+    summaryRows !== undefined
       ? {
           lookupSymbolSummariesByNode: async (
             nodeIds: readonly string[],
@@ -123,12 +131,20 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
             return out;
           },
         }
-      : {}),
+      : {};
+
+  const composed: Store = {
+    backend: "duck",
+    graph: graph as unknown as IGraphStore,
+    temporal: temporal as unknown as ITemporalStore,
+    graphFile: "/tmp/fake.duckdb",
+    temporalFile: "/tmp/fake.duckdb",
     close: async () => {
       handle.closed = true;
     },
-  } as unknown as DuckDbStore;
-  (handle as { store: DuckDbStore }).store = impl;
+  };
+
+  (handle as { store: Store }).store = composed;
   return handle;
 }
 
@@ -392,7 +408,7 @@ test("cli query: embeddings populated + embedder opens → hybrid path, mode=hyb
   };
   assert.equal(parsed.mode, "hybrid", "mode must be hybrid when embedder opens");
   assert.equal(handle.vectorCalls, 1, "vectorSearch must run exactly once");
-  assert.equal(handle.embeddingCountQueries, 1, "embeddings probe must fire once");
+  assert.equal(handle.embeddingProbeCalls, 1, "embeddings probe must fire once");
   assert.equal(fake.closeCount, 1, "embedder.close() must run after use");
   const ids = parsed.results.map((r) => r.nodeId).sort();
   assert.deepEqual(ids, ["F:bar", "F:baz", "F:foo"]);
@@ -478,7 +494,7 @@ test("cli query: --bm25-only skips the embedder probe entirely", async () => {
   assert.equal(parsed.mode, "bm25");
   assert.equal(openerCalls, 0, "openEmbedder must not be invoked under --bm25-only");
   assert.equal(
-    handle.embeddingCountQueries,
+    handle.embeddingProbeCalls,
     0,
     "embeddings probe must not run when --bm25-only is set",
   );

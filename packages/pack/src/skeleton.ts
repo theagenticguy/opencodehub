@@ -10,8 +10,8 @@
  * Algorithm:
  *   1. `store.listNodes({ kinds: ["Function","Class","Method"] })`
  *      to enumerate every callable target.
- *   2. Pull every `CALLS` edge via raw SQL (relations table column is
- *      `type`, not `kind`) and feed `EdgeLike[]` into
+ *   2. Pull every `CALLS` edge via `IGraphStore.listEdgesByType('CALLS')`
+ *      (typed `CodeRelation`) and feed `EdgeLike[]` into
  *      `buildAdjacency` from `@opencodehub/analysis`.
  *   3. Run `pageRank(adj, 0.85, 50)` — fixed iterations + damping per
  *      W-M5-3 (no tolerance-based convergence; numerical drift would
@@ -90,19 +90,11 @@ export async function buildSkeleton(opts: SkeletonOpts): Promise<readonly Skelet
   // keeps the empty path strictly synchronous after the listNodes await.
   if (callables.length === 0) return [];
 
-  // Pull every CALLS edge. Field name on the relations table is `type`
-  // (not `kind`), columns are `from_id` / `to_id` (not `from_node` / `to_node`
-  // — see schema-ddl.ts:126-134).
-  const rawEdges = (await store.query(
-    "SELECT from_id, to_id FROM relations WHERE type = 'CALLS'",
-  )) as ReadonlyArray<Record<string, unknown>>;
-  const edges: EdgeLike[] = [];
-  for (const r of rawEdges) {
-    const from = r["from_id"];
-    const to = r["to_id"];
-    if (typeof from !== "string" || typeof to !== "string") continue;
-    edges.push({ fromId: from, toId: to });
-  }
+  // Pull every CALLS edge via the typed finder. CodeRelation rows expose
+  // `from`/`to` (NodeIds), already filtered to type='CALLS' at the storage
+  // layer.
+  const rawEdges = await store.listEdgesByType("CALLS");
+  const edges: EdgeLike[] = rawEdges.map((r) => ({ fromId: r.from, toId: r.to }));
 
   const adj: Adjacency = buildAdjacency(edges);
   const scores = pageRank(adj, 0.85, 50);

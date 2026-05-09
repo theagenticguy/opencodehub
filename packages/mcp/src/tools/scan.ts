@@ -73,7 +73,7 @@ interface ScanArgs {
 export async function runScan(ctx: ToolContext, args: ScanArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const specs = await selectScanners(store, args.scanners);
+      const specs = await selectScanners(store.graph, args.scanners);
       if (specs.length === 0) {
         return withNextSteps(
           `No scanners selected for ${resolved.name}.`,
@@ -146,53 +146,31 @@ export function registerScanTool(server: McpServer, ctx: ToolContext): void {
 }
 
 async function selectScanners(
-  store: {
-    query: (
-      sql: string,
-      params?: readonly (string | number)[],
-    ) => Promise<readonly Record<string, unknown>[]>;
-  },
+  graph: import("@opencodehub/storage").IGraphStore,
   explicit: readonly string[] | undefined,
 ): Promise<readonly ScannerSpec[]> {
   if (explicit !== undefined && explicit.length > 0) {
     const wanted = new Set(explicit);
     return ALL_SPECS.filter((s) => wanted.has(s.id));
   }
-  const profile = await readProfile(store);
+  const profile = await readProfile(graph);
   return filterSpecsByProfile(ALL_SPECS, profile);
 }
 
-async function readProfile(store: {
-  query: (
-    sql: string,
-    params?: readonly (string | number)[],
-  ) => Promise<readonly Record<string, unknown>[]>;
-}): Promise<ProjectProfileGate> {
+async function readProfile(
+  graph: import("@opencodehub/storage").IGraphStore,
+): Promise<ProjectProfileGate> {
   try {
-    const rows = await store.query(
-      "SELECT languages_json, iac_types_json, api_contracts_json FROM nodes WHERE kind = 'ProjectProfile' LIMIT 1",
-      [],
-    );
-    const first = rows[0];
+    const nodes = await graph.listNodesByKind("ProjectProfile", { limit: 1 });
+    const first = nodes[0];
     if (!first) return {};
     return {
-      languages: parseJsonArray(first["languages_json"]),
-      iacTypes: parseJsonArray(first["iac_types_json"]),
-      apiContracts: parseJsonArray(first["api_contracts_json"]),
+      languages: first.languages ?? [],
+      iacTypes: first.iacTypes ?? [],
+      apiContracts: first.apiContracts ?? [],
     };
   } catch {
     return {};
-  }
-}
-
-function parseJsonArray(value: unknown): readonly string[] {
-  if (typeof value !== "string" || value.length === 0) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    return [];
   }
 }
 

@@ -77,30 +77,28 @@ export async function runDependencies(
   const limit = args.limit ?? 500;
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      // The storage layer has dedicated columns for Dependency
-      // nodes: `version`, `license`, `lockfile_source`, `ecosystem`.
-      // We read them directly instead of unpacking a generic
-      // properties blob.
-      const clauses: string[] = ["kind = 'Dependency'"];
-      const params: (string | number)[] = [];
-      if (args.filePath !== undefined) {
-        clauses.push("file_path LIKE ?");
-        params.push(`%${args.filePath}%`);
-      }
-      if (args.ecosystem !== undefined) {
-        clauses.push("ecosystem = ?");
-        params.push(args.ecosystem);
-      }
-      const sql = `SELECT id, name, file_path, version, license, lockfile_source, ecosystem FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY id LIMIT ${limit}`;
-      const raw = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
+      // Typed `listDependencies` finder reads the Dependency rows directly,
+      // already rehydrated into the typed shape. The `filePath` substring
+      // filter is applied in TS because the finder doesn't expose a LIKE
+      // option — dependencies are bounded per repo so a TS filter is fine.
+      const opts: { ecosystem?: string; limit?: number } = { limit };
+      if (args.ecosystem !== undefined) opts.ecosystem = args.ecosystem;
+      const all = await store.graph.listDependencies(opts);
+      const filtered =
+        args.filePath === undefined
+          ? all
+          : all.filter((d) => {
+              const lf = d.lockfileSource ?? d.filePath;
+              return lf.includes(args.filePath as string);
+            });
 
-      const rows: DependencyRow[] = raw.map((r) => ({
-        id: String(r["id"]),
-        name: String(r["name"]),
-        version: stringOr(r["version"], "UNKNOWN"),
-        ecosystem: stringOr(r["ecosystem"], "unknown"),
-        license: stringOr(r["license"], "UNKNOWN"),
-        lockfileSource: stringOr(r["lockfile_source"], String(r["file_path"] ?? "")),
+      const rows: DependencyRow[] = filtered.map((d) => ({
+        id: d.id,
+        name: d.name,
+        version: stringOr(d.version, "UNKNOWN"),
+        ecosystem: stringOr(d.ecosystem, "unknown"),
+        license: stringOr(d.license, "UNKNOWN"),
+        lockfileSource: stringOr(d.lockfileSource, d.filePath),
       }));
 
       const header = `Dependencies (${rows.length}) for ${resolved.name}${
