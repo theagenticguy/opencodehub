@@ -25,14 +25,16 @@ import type { IGraphStore } from "@opencodehub/storage";
  * Decide whether the store has any embeddings persisted. Any failure
  * (e.g. schema mismatch, extension missing) returns false so callers
  * transparently fall back to BM25.
+ *
+ * Reads through `IGraphStore.listEmbeddingHashes()` rather than a raw
+ * `SELECT COUNT(*)` — the typed finder is cheaper than a count on every
+ * adapter (it materializes the same map the embeddings phase uses to
+ * skip work) and keeps this surface free of SQL.
  */
 export async function embeddingsPopulated(store: IGraphStore): Promise<boolean> {
   try {
-    const rows = await store.query("SELECT COUNT(*) AS n FROM embeddings", []);
-    const first = rows[0];
-    if (!first) return false;
-    const n = Number(first["n"] ?? 0);
-    return Number.isFinite(n) && n > 0;
+    const hashes = await store.listEmbeddingHashes();
+    return hashes.size > 0;
   } catch {
     return false;
   }

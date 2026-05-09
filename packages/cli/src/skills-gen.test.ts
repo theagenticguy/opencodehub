@@ -1,10 +1,12 @@
 /**
  * Tests for `generateSkills`.
  *
- * We drive the generator through a minimal fake store that dispatches on the
- * SQL text it receives — no DuckDB required. The fake mirrors the shape the
- * production store returns so `generateSkills` exercises the real code path
- * down to the markdown renderer and the filesystem writer.
+ * Post AC-A-6e the generator consumes a typed-finder surface
+ * (`Pick<IGraphStore, "listNodesByKind" | "listNodes" |
+ * "listNodesByEntryPoint" | "listEdgesByType">`). The fake store below
+ * implements those four methods over an in-memory fixture so the tests
+ * exercise the real code path down to the markdown renderer and the
+ * filesystem writer without standing up DuckDB.
  */
 
 import { strict as assert } from "node:assert";
@@ -12,6 +14,14 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, stat } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import type {
+  CodeRelation,
+  EdgeId,
+  GraphNode,
+  NodeId,
+  NodeKind,
+  RelationType,
+} from "@opencodehub/core-types";
 import { generateSkills, type SkillsGenStore, sanitizeSlug } from "./skills-gen.js";
 
 // ---------------------------------------------------------------------------
@@ -53,86 +63,85 @@ interface Fixture {
 }
 
 // ---------------------------------------------------------------------------
-// Fake store — dispatches on normalised SQL text.
+// Fake store — implements the four typed finders the generator needs over an
+// in-memory fixture. The legacy SQL-dispatch fake was retired with AC-A-6e;
+// matching the production interface keeps tests honest about which finders
+// the generator actually calls.
 // ---------------------------------------------------------------------------
 
 function makeFakeStore(fixture: Fixture): SkillsGenStore {
+  // Promote fixture rows into the typed graph shape the finders return.
+  const communityNodes: GraphNode[] = fixture.communities.map(
+    (c) =>
+      ({
+        id: c.id as NodeId,
+        kind: "Community",
+        name: c.name,
+        filePath: "",
+        symbolCount: c.symbolCount,
+        ...(c.inferredLabel !== undefined ? { inferredLabel: c.inferredLabel } : {}),
+        keywords: c.keywords ?? [],
+      }) as unknown as GraphNode,
+  );
+  const processNodes: GraphNode[] = fixture.processes.map(
+    (p, i) =>
+      ({
+        id: `Process:test:${i}` as NodeId,
+        kind: "Process",
+        name: `process-${i}`,
+        filePath: "",
+        entryPointId: p.entryPointId,
+      }) as unknown as GraphNode,
+  );
+  const memberNodes: GraphNode[] = fixture.nodes.map(
+    (n) =>
+      ({
+        id: n.id as NodeId,
+        kind: n.kind as NodeKind,
+        name: n.name,
+        filePath: n.filePath,
+        ...(n.startLine !== undefined ? { startLine: n.startLine } : {}),
+      }) as unknown as GraphNode,
+  );
+  const allNodesById = new Map<string, GraphNode>();
+  for (const arr of [communityNodes, processNodes, memberNodes]) {
+    for (const n of arr) allNodesById.set(n.id, n);
+  }
+
+  // Promote fixture edges into typed `CodeRelation` rows.
+  const edges: CodeRelation[] = fixture.edges.map((e, i) => ({
+    id: `edge:${i}` as EdgeId,
+    from: e.fromId as NodeId,
+    to: e.toId as NodeId,
+    type: e.type as RelationType,
+    confidence: 1,
+  }));
+
   return {
-    query: async (
-      sql: string,
-      params: readonly (string | number | bigint | boolean | null)[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-
-      // Fetch communities above a symbol-count floor.
-      if (/SELECT id, name, symbol_count, inferred_label, keywords FROM nodes/i.test(text)) {
-        const min = Number(params[0] ?? 0);
-        return fixture.communities
-          .filter((c) => c.symbolCount >= min)
-          .sort((a, b) => b.symbolCount - a.symbolCount || a.id.localeCompare(b.id))
-          .map((c) => ({
-            id: c.id,
-            name: c.name,
-            symbol_count: c.symbolCount,
-            inferred_label: c.inferredLabel ?? null,
-            keywords: c.keywords ?? [],
-          }));
+    listNodesByKind: async <K extends NodeKind>(kind: K) => {
+      if (kind === "Community") return communityNodes as unknown as readonly GraphNode[] as never;
+      if (kind === "Process") return processNodes as unknown as readonly GraphNode[] as never;
+      return [] as never;
+    },
+    listNodes: async (opts) => {
+      if (opts?.ids === undefined) return [];
+      const out: GraphNode[] = [];
+      for (const id of opts.ids) {
+        const hit = allNodesById.get(id);
+        if (hit) out.push(hit);
       }
-
-      // Fetch Process entry-point ids.
-      if (/FROM nodes WHERE kind = 'Process' AND entry_point_id IS NOT NULL/i.test(text)) {
-        return fixture.processes.map((p) => ({ entry_point_id: p.entryPointId }));
-      }
-
-      // Fetch members of a single community via MEMBER_OF edges.
-      if (
-        /FROM relations r JOIN nodes n ON n\.id = r\.from_id WHERE r\.type = 'MEMBER_OF'/i.test(
-          text,
-        )
-      ) {
-        const toId = String(params[0] ?? "");
-        const members: Record<string, unknown>[] = [];
-        const nodeById = new Map(fixture.nodes.map((n) => [n.id, n]));
-        for (const edge of fixture.edges) {
-          if (edge.type !== "MEMBER_OF") continue;
-          if (edge.toId !== toId) continue;
-          const node = nodeById.get(edge.fromId);
-          if (node === undefined) continue;
-          members.push({
-            id: node.id,
-            name: node.name,
-            kind: node.kind,
-            file_path: node.filePath,
-            start_line: node.startLine ?? null,
-          });
-        }
-        members.sort((a, b) => {
-          const na = String(a["name"] ?? "");
-          const nb = String(b["name"] ?? "");
-          if (na !== nb) return na < nb ? -1 : 1;
-          return String(a["id"] ?? "").localeCompare(String(b["id"] ?? ""));
-        });
-        return members;
-      }
-
-      // Out-degree fallback for entry points.
-      if (/FROM relations WHERE type = 'CALLS' AND from_id IN/i.test(text)) {
-        // Last param is the LIMIT; the prefix are the member ids.
-        const limit = Number(params[params.length - 1] ?? 5);
-        const ids = new Set(params.slice(0, params.length - 1).map((p) => String(p)));
-        const counts = new Map<string, number>();
-        for (const e of fixture.edges) {
-          if (e.type !== "CALLS") continue;
-          if (!ids.has(e.fromId)) continue;
-          counts.set(e.fromId, (counts.get(e.fromId) ?? 0) + 1);
-        }
-        return [...counts.entries()]
-          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-          .slice(0, limit)
-          .map(([id, out_degree]) => ({ id, out_degree }));
-      }
-
-      return [];
+      return out;
+    },
+    listNodesByEntryPoint: async () => [],
+    listEdgesByType: async (type: RelationType, opts) => {
+      const fromFilter = opts?.fromIds ? new Set(opts.fromIds.map((s) => String(s))) : undefined;
+      const toFilter = opts?.toIds ? new Set(opts.toIds.map((s) => String(s))) : undefined;
+      return edges.filter((e) => {
+        if (e.type !== type) return false;
+        if (fromFilter && !fromFilter.has(e.from)) return false;
+        if (toFilter && !toFilter.has(e.to)) return false;
+        return true;
+      });
     },
   };
 }

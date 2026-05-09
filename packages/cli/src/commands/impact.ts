@@ -54,7 +54,7 @@ export async function runImpact(symbol: string, opts: ImpactOptions = {}): Promi
       query.filePath = opts.filePath;
     }
     if (opts.kind !== undefined && opts.kind.length > 0) query.kind = opts.kind;
-    const result = await runImpactAnalysis(store, query);
+    const result = await runImpactAnalysis(store.graph, query);
 
     if (result.ambiguous) {
       if (opts.json) {

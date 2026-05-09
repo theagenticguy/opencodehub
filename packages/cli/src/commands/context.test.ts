@@ -1,8 +1,15 @@
 /**
  * Tests for `codehub context` CLI command.
  *
+ * Post AC-A-6e the command consumes the composed `Store` envelope and
+ * routes graph reads through `store.graph.<typed-finder>`. The fake
+ * below implements just the finders `runContext` calls
+ * (`listNodes`, `listNodesByName`, `listEdgesByType`, `traverse`,
+ * `search`, `close`) over an in-memory fixture, so the tests stay tied
+ * to the production interface rather than scraping SQL strings.
+ *
  * Covers:
- *   - External import-tracking stubs (`file_path = '<external>'`,
+ *   - External import-tracking stubs (`filePath = '<external>'`,
  *     `kind = 'CodeElement'`) never win the resolution.
  *   - Two same-named Functions fire the ambiguity branch.
  *   - `--target-uid` short-circuits to a direct id lookup.
@@ -11,12 +18,13 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { GraphNode, NodeId, NodeKind } from "@opencodehub/core-types";
 import type {
-  DuckDbStore,
   IGraphStore,
+  ITemporalStore,
   SearchQuery,
   SearchResult,
-  SqlParam,
+  Store,
   TraverseQuery,
   TraverseResult,
 } from "@opencodehub/storage";
@@ -40,7 +48,7 @@ interface FakeStoreHandle {
   searchCalls: number;
   traverseCalls: number;
   closed: boolean;
-  readonly store: IGraphStore;
+  readonly store: Store;
 }
 
 function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
@@ -53,57 +61,32 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
     searchCalls: 0,
     traverseCalls: 0,
     closed: false,
-    store: {} as IGraphStore,
+    store: {} as Store,
   };
 
-  const impl = {
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const normalized = sql.replace(/\s+/g, " ").trim();
+  const rowToGraphNode = (r: FakeNodeRow): GraphNode =>
+    ({
+      id: r.id as NodeId,
+      kind: r.kind as NodeKind,
+      name: r.name,
+      filePath: r.filePath,
+    }) as unknown as GraphNode;
 
-      if (normalized.startsWith("SELECT id, name, kind, file_path FROM nodes WHERE id = ?")) {
-        const id = String(params[0] ?? "");
-        const hit = rows.find((r) => r.id === id);
-        if (!hit) return [];
-        return [{ id: hit.id, name: hit.name, kind: hit.kind, file_path: hit.filePath }];
-      }
-
-      if (normalized.startsWith("SELECT id, name, kind, file_path FROM nodes WHERE name = ?")) {
-        const name = String(params[0] ?? "");
-        let extra = params.slice(1).map((p) => String(p));
-        let kindFilter: string | undefined;
-        let pathFilter: string | undefined;
-        if (normalized.includes("AND kind = ?")) {
-          kindFilter = extra[0];
-          extra = extra.slice(1);
-        }
-        if (normalized.includes("AND file_path LIKE ?")) {
-          const raw = extra[0] ?? "";
-          pathFilter = raw.replace(/^%/, "").replace(/%$/, "");
-        }
-        const matched = rows
-          .filter((r) => r.name === name)
-          .filter((r) => r.filePath !== "<external>" && r.kind !== "CodeElement")
-          .filter((r) => (kindFilter === undefined ? true : r.kind === kindFilter))
-          .filter((r) => (pathFilter === undefined ? true : r.filePath.includes(pathFilter)))
-          .slice()
-          .sort((a, b) => a.filePath.localeCompare(b.filePath));
-        return matched.map((r) => ({
-          id: r.id,
-          name: r.name,
-          kind: r.kind,
-          file_path: r.filePath,
-        }));
-      }
-
-      if (normalized.startsWith("SELECT DISTINCT p.id AS id")) {
-        return [];
-      }
-
-      throw new Error(`unsupported sql in fake store: ${normalized}`);
+  const graph: Partial<IGraphStore> = {
+    listNodes: async (listOpts) => {
+      if (listOpts?.ids === undefined) return rows.map(rowToGraphNode);
+      const ids = new Set(listOpts.ids.map((s) => String(s)));
+      return rows.filter((r) => ids.has(r.id)).map(rowToGraphNode);
     },
+    listNodesByName: async (name) => {
+      // Mirror the production finder's exact-name match plus optional kind
+      // narrowing. The TS-side post-filter for `<external>` / `CodeElement`
+      // / file-path substring lives in `runContext`, so the fake stops at
+      // exact-name + kind.
+      const matched = rows.filter((r) => r.name === name);
+      return matched.map(rowToGraphNode);
+    },
+    listEdgesByType: async () => [],
     search: async (_q: SearchQuery) => {
       handle.searchCalls += 1;
       return searchRows;
@@ -112,12 +95,20 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
       handle.traverseCalls += 1;
       return q.direction === "up" ? traverseUp : traverseDown;
     },
+  };
+
+  const composed: Store = {
+    backend: "duck",
+    graph: graph as unknown as IGraphStore,
+    temporal: {} as unknown as ITemporalStore,
+    graphFile: "/tmp/fake.duckdb",
+    temporalFile: "/tmp/fake.duckdb",
     close: async () => {
       handle.closed = true;
     },
-  } as unknown as IGraphStore;
+  };
 
-  (handle as { store: IGraphStore }).store = impl;
+  (handle as { store: Store }).store = composed;
   return handle;
 }
 
@@ -151,7 +142,7 @@ async function captureStderr(fn: () => Promise<void>): Promise<string[]> {
 
 function hooksFor(handle: FakeStoreHandle, repoPath: string) {
   return {
-    openStore: async () => ({ store: handle.store as unknown as DuckDbStore, repoPath }),
+    openStore: async () => ({ store: handle.store, repoPath }),
   };
 }
 

@@ -28,7 +28,7 @@ import type { ContractRegistry, SyncRepoInput } from "@opencodehub/analysis";
 import { runGroupSync } from "@opencodehub/analysis";
 import { DEFAULT_RRF_K, DEFAULT_RRF_TOP_K, rrf } from "@opencodehub/search";
 import type { SearchResult } from "@opencodehub/storage";
-import { DuckDbStore, readStoreMeta, resolveDbPath } from "@opencodehub/storage";
+import { openStore, readStoreMeta, resolveDbPath } from "@opencodehub/storage";
 import { Command } from "commander";
 import { writeFileAtomic } from "../fs-atomic.js";
 import {
@@ -426,13 +426,13 @@ export async function runGroupQuery(
     }
     const repoPath = resolve(registryHit.path);
     const dbPath = resolveDbPath(repoPath);
-    const store = new DuckDbStore(dbPath, { readOnly: true });
+    const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
     try {
-      await store.open();
-      const results = await store.search({ text, limit: 50 });
+      await composed.graph.open();
+      const results = await composed.graph.search({ text, limit: 50 });
       perRepoRuns.push({ repoName: repo.name, results: [...results] });
     } finally {
-      await store.close();
+      await composed.close();
     }
   }
 

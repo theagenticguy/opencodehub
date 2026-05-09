@@ -10,10 +10,11 @@
  *   - Call rows follow, sorted `(from ASC, to ASC, id ASC)` — the id is
  *     the deterministic last-resort tiebreak when the same callsite has
  *     two relation rows (e.g. duplicate CALLS edges across SCIP indexes).
- *   - The CALLS edge SQL goes through `IGraphStore.query` directly —
- *     mirroring the skeleton.ts pattern at packages/pack/src/skeleton.ts:96-105.
- *     The relations table column is `type` (NOT `kind`) and the edge
- *     endpoints are `from_id`/`to_id` (NOT `from_node`/`to_node`).
+ *   - The CALLS edge stream comes from `IGraphStore.listEdgesByType('CALLS')`
+ *     (AC-A-6a). Result rows are typed `CodeRelation` and ordered
+ *     `(from_id, to_id, type)` by the storage layer; this module re-sorts to
+ *     the BOM contract `(from, to, id)` so the wire form stays byte-stable
+ *     regardless of which finder ordering the adapter chose.
  *   - PageRank is NOT used here; this is a pure relations-table slice
  *     plus a Community-node enumeration. W-M5-3 (no tolerance-based
  *     convergence) is therefore not in scope but worth flagging for the
@@ -25,7 +26,7 @@
  * id)` tuple and never via raw float comparison alone.
  */
 
-import type { GraphNode } from "@opencodehub/core-types";
+import type { CommunityNode } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 
 /** Discriminator for the two row shapes the BOM emits. */
@@ -48,10 +49,6 @@ export interface XrefsOpts {
   readonly store: IGraphStore;
 }
 
-/** SQL sent to {@link IGraphStore.query}. Hoisted to a constant so the test mock can pattern-match. */
-const CALLS_SQL =
-  "SELECT id, from_id, to_id, confidence FROM relations WHERE type = 'CALLS' ORDER BY id ASC";
-
 /**
  * Build the cross-refs BOM slice.
  *
@@ -61,33 +58,20 @@ const CALLS_SQL =
 export async function buildXrefs(opts: XrefsOpts): Promise<readonly XrefRow[]> {
   const { store } = opts;
 
-  const communityNodes = await store.listNodes({ kinds: ["Community"] });
-  const communityRows: XrefRow[] = [];
-  for (const node of communityNodes) {
-    if (node.kind !== "Community") continue;
-    communityRows.push(toCommunityRow(node));
-  }
+  const communityNodes = await store.listNodesByKind("Community");
+  const communityRows: XrefRow[] = communityNodes.map(toCommunityRow);
   communityRows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
-  const rawCalls = (await store.query(CALLS_SQL)) as ReadonlyArray<Record<string, unknown>>;
-  const callRows: XrefRow[] = [];
-  for (const r of rawCalls) {
-    const id = r["id"];
-    const from = r["from_id"];
-    const to = r["to_id"];
-    const confidenceRaw = r["confidence"];
-    if (typeof id !== "string" || typeof from !== "string" || typeof to !== "string") continue;
-    const confidence = typeof confidenceRaw === "number" ? confidenceRaw : Number(confidenceRaw);
-    callRows.push({
-      kind: "call",
-      id,
-      from,
-      to,
-      // `Number(undefined)` is `NaN`; coerce to 0 so the wire form stays
-      // numeric and byte-identity holds across runs.
-      confidence: Number.isFinite(confidence) ? confidence : 0,
-    });
-  }
+  const calls = await store.listEdgesByType("CALLS");
+  const callRows: XrefRow[] = calls.map((r) => ({
+    kind: "call" as const,
+    id: r.id,
+    from: r.from,
+    to: r.to,
+    // `confidence` is `number` on CodeRelation; finite-guard for parity with the
+    // pre-finder shape that coerced NaN/undefined to 0.
+    confidence: Number.isFinite(r.confidence) ? r.confidence : 0,
+  }));
   // (from, to, id) lex order. Confidence is NOT a sort key — float
   // comparison would inject non-determinism on near-equal values.
   callRows.sort(compareCallRows);
@@ -96,7 +80,7 @@ export async function buildXrefs(opts: XrefsOpts): Promise<readonly XrefRow[]> {
 }
 
 /** Map a CommunityNode → community row, omitting absent optional fields. */
-function toCommunityRow(node: Extract<GraphNode, { kind: "Community" }>): XrefRow {
+function toCommunityRow(node: CommunityNode): XrefRow {
   const row: { kind: "community"; id: string; inferredLabel?: string; memberCount?: number } = {
     kind: "community",
     id: node.id,
@@ -107,7 +91,7 @@ function toCommunityRow(node: Extract<GraphNode, { kind: "Community" }>): XrefRo
   return { ...row, ...maybeMember(node) };
 }
 
-function maybeMember(node: Extract<GraphNode, { kind: "Community" }>): {
+function maybeMember(node: CommunityNode): {
   memberCount?: number;
 } {
   return node.symbolCount !== undefined ? { memberCount: node.symbolCount } : {};

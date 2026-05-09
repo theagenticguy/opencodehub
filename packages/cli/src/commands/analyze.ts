@@ -7,8 +7,8 @@
  *      the pipeline's fresh commit, emit an "up to date" message and return
  *      without doing work.
  *   3. Otherwise run `runIngestion(repoPath, {...})`, then open a writable
- *      DuckDbStore at `<repo>/.codehub/graph.duckdb`, `createSchema()`,
- *      `bulkLoad()`, and `setMeta()`.
+ *      `Store` (composed graph + temporal) via `openStore`, then
+ *      `createSchema()`, `bulkLoad()`, and `setMeta()`.
  *   4. Update the registry and, unless suppressed, stamp AGENTS.md + CLAUDE.md.
  *   5. Print a one-line summary.
  *
@@ -33,9 +33,10 @@ import {
 } from "@opencodehub/core-types";
 import { pipeline } from "@opencodehub/ingestion";
 import {
-  DuckDbStore,
+  openStore,
   resolveDbPath,
   resolveRepoMetaDir,
+  type Store,
   writeStoreMeta,
 } from "@opencodehub/storage";
 import { writeAgentContextFiles } from "../agent-context.js";
@@ -273,29 +274,35 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
   logWarnings(result.warnings, opts.verbose === true);
 
-  // Persist to DuckDB under <repo>/.codehub/graph.duckdb.
+  // Persist to the composed graph + temporal store. Backend resolution is
+  // env-driven (`CODEHUB_STORE`); the default `"duck"` writes to
+  // `<repo>/.codehub/graph.duckdb` exactly like the legacy path. The
+  // temporal-tier writes (`bulkLoadCochanges`, `bulkLoadSymbolSummaries`)
+  // route through `store.temporal`.
   await mkdir(resolveRepoMetaDir(repoPath), { recursive: true });
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath);
+  const store: Store = await openStore({ path: dbPath, backend: "auto" });
   try {
-    await store.open();
-    await store.createSchema();
-    await store.bulkLoad(result.graph);
+    await store.graph.open();
+    if (store.graphFile !== store.temporalFile) await store.temporal.open();
+    await store.graph.createSchema();
+    if (store.graphFile !== store.temporalFile) await store.temporal.createSchema();
+    await store.graph.bulkLoad(result.graph);
     // Persist cochange rows to the dedicated `cochanges` table. `bulkLoad` in
     // replace mode already truncated it, but `bulkLoadCochanges` does its own
     // DELETE inside the same transaction so the call is idempotent even on
     // upsert paths that keep the prior graph. Empty row sets collapse into a
     // cheap DELETE.
     if (result.cochange !== undefined) {
-      await store.bulkLoadCochanges(result.cochange.rows);
+      await store.temporal.bulkLoadCochanges(result.cochange.rows);
     }
     // Persist freshly produced summary rows. The phase returns an empty
     // `rows` array in the common gated-off / dry-run case so this is a
     // cheap no-op. A non-empty payload means the operator explicitly ran
     // with `--summaries --max-summaries > 0` and accepted the Bedrock
-    // cost; we persist under the same `.codehub/graph.duckdb`.
+    // cost; we persist under the temporal-tier surface.
     if (result.summarize !== undefined && result.summarize.rows.length > 0) {
-      await store.bulkLoadSymbolSummaries(result.summarize.rows);
+      await store.temporal.bulkLoadSymbolSummaries(result.summarize.rows);
       log(
         `codehub analyze: persisted ${result.summarize.rows.length} symbol summaries ` +
           `(promptVersion=${result.summarize.promptVersion})`,
@@ -319,7 +326,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     // common case. We upsert AFTER bulkLoad so the replace-mode wipe
     // doesn't drop freshly-written embeddings.
     if (result.embeddings !== undefined && result.embeddings.rows.length > 0) {
-      await store.upsertEmbeddings(result.embeddings.rows);
+      await store.graph.upsertEmbeddings(result.embeddings.rows);
       log(
         `codehub analyze: upserted ${result.embeddings.rows.length} embeddings ` +
           `(${result.embeddings.embeddingsModelId})`,
@@ -353,7 +360,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       ...(parseCache !== undefined ? { cacheHitRatio: parseCache.ratio } : {}),
       cacheSizeBytes: cacheSize.bytes,
     };
-    await store.setMeta(storeMeta);
+    await store.graph.setMeta(storeMeta);
     await writeStoreMeta(repoPath, storeMeta);
 
     // Persist the scan-state sidecar so the next analyze invocation can feed
@@ -374,7 +381,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     // logs-and-continues — analyze never aborts because of a skill write.
     if (opts.skills === true) {
       try {
-        const emitted = await generateSkills(store, repoPath, { log });
+        const emitted = await generateSkills(store.graph, repoPath, { log });
         log(`codehub analyze: generated ${emitted} SKILL.md ${emitted === 1 ? "file" : "files"}`);
       } catch (err) {
         log(`codehub analyze: skill generation failed: ${(err as Error).message}`);
@@ -463,38 +470,29 @@ export async function loadPreviousGraph(
   const scanState = await readScanState(repoPath);
   if (scanState === undefined) return undefined;
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath);
+  const store = await openStore({ path: dbPath, backend: "auto" }).catch(() => undefined);
+  if (store === undefined) return undefined;
   try {
-    await store.open();
+    await store.graph.open();
   } catch {
+    await store.close().catch(() => {});
     return undefined;
   }
   try {
-    // Full node + edge dumps. For a typical OCH repo this is 10K-50K nodes
-    // and 20K-100K edges — fits in memory in one shot; chunking would only
-    // help at OS-paging scale and adds seam complexity to a helper that
-    // already tolerates DB-level failures via the enclosing try/catch.
-    const nodeRows = (await store.query(
-      `SELECT ${PREV_NODE_SELECT_COLUMNS} FROM nodes`,
-    )) as ReadonlyArray<Record<string, unknown>>;
-    const nodes: GraphNode[] = [];
-    for (const row of nodeRows) {
-      const node = rowToGraphNode(row);
-      if (node !== undefined) nodes.push(node);
-    }
-    const relationRows = (await store.query(
-      "SELECT id, from_id, to_id, type, confidence, reason, step FROM relations",
-    )) as ReadonlyArray<Record<string, unknown>>;
-    const edges: CodeRelation[] = [];
-    for (const row of relationRows) {
-      const edge = rowToCodeRelation(row);
-      if (edge !== undefined) edges.push(edge);
-    }
+    // Full node + edge dumps via typed finders. For a typical OCH repo
+    // this is 10K-50K nodes and 20K-100K edges — fits in memory in one
+    // shot. The `listNodes` / `listEdges` finders already return
+    // rehydrated `GraphNode` / `CodeRelation` objects, so the legacy
+    // `rowToGraphNode` / `rowToCodeRelation` adapters are no longer
+    // needed on this read path — they remain exported for external
+    // consumers that hand-roll over the wide-column shape.
+    const nodes = [...(await store.graph.listNodes())];
+    const edges = [...(await store.graph.listEdges())];
     // Derive the legacy file-granular projections from the full edge set so
-    // we issue one fewer round-trip to DuckDB. The incremental-scope phase
-    // still reads these as the closure-walk seed — the node/edge arrays
-    // above are the carry-forward snapshot that flips the four consumer
-    // phases into active mode.
+    // we issue one fewer round-trip to the store. The incremental-scope
+    // phase still reads these as the closure-walk seed — the node/edge
+    // arrays above are the carry-forward snapshot that flips the four
+    // consumer phases into active mode.
     const importEdges: { importer: string; target: string }[] = [];
     const heritageEdges: { childFile: string; parentFile: string }[] = [];
     for (const edge of edges) {
@@ -592,19 +590,23 @@ export async function resolveMaxSummariesCap(
  */
 async function countPriorCallableSymbols(repoPath: string): Promise<number | undefined> {
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath, { readOnly: true });
+  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
+    () => undefined,
+  );
+  if (store === undefined) return undefined;
   try {
-    await store.open();
+    await store.graph.open();
   } catch {
+    await store.close().catch(() => {});
     return undefined;
   }
   try {
-    const rows = await store.query(
-      "SELECT COUNT(*) AS n FROM nodes WHERE kind IN ('Function','Method','Class')",
-    );
-    const first = rows[0];
-    if (!first) return undefined;
-    const n = Number(first["n"] ?? 0);
+    // `countNodesByKind` is the typed equivalent of `SELECT COUNT(*)
+    // GROUP BY kind`. We sum the three callable kinds in TS so cli stays
+    // off the raw-SQL surface.
+    const counts = await store.graph.countNodesByKind(["Function", "Method", "Class"]);
+    let n = 0;
+    for (const c of counts.values()) n += c;
     return Number.isFinite(n) && n >= 0 ? n : undefined;
   } catch {
     return undefined;
@@ -625,16 +627,24 @@ async function openSummaryCacheAdapter(
   repoPath: string,
 ): Promise<{ adapter: pipeline.SummaryCacheAdapter; close: () => Promise<void> } | undefined> {
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath, { readOnly: true });
+  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
+    () => undefined,
+  );
+  if (store === undefined) return undefined;
   try {
-    await store.open();
+    // The summary cache lives on the temporal tier. Open both views so
+    // the close() symmetry holds; on the duck backend the second open
+    // is a no-op against the same connection.
+    await store.graph.open();
+    if (store.graphFile !== store.temporalFile) await store.temporal.open();
   } catch {
+    await store.close().catch(() => {});
     return undefined;
   }
   return {
     adapter: {
       lookup: async (nodeId, contentHash, promptVersion) =>
-        store.lookupSymbolSummary(nodeId, contentHash, promptVersion),
+        store.temporal.lookupSymbolSummary(nodeId, contentHash, promptVersion),
     },
     close: async () => {
       await store.close();
@@ -657,15 +667,21 @@ async function openEmbeddingHashCacheAdapter(
   { adapter: pipeline.EmbeddingHashCacheAdapter; close: () => Promise<void> } | undefined
 > {
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath, { readOnly: true });
+  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
+    () => undefined,
+  );
+  if (store === undefined) return undefined;
   try {
-    await store.open();
+    await store.graph.open();
   } catch {
+    await store.close().catch(() => {});
     return undefined;
   }
   return {
     adapter: {
-      list: async () => store.listEmbeddingHashes(),
+      // listEmbeddingHashes is on the graph-tier interface — embeddings
+      // travel with the graph view, not the temporal cochange table.
+      list: async () => store.graph.listEmbeddingHashes(),
     },
     close: async () => {
       await store.close();
@@ -686,27 +702,13 @@ function fileFromNodeId(id: string): string | undefined {
   return rest.slice(0, second);
 }
 
-/**
- * Columns selected by {@link loadPreviousGraph} when materialising the prior
- * `nodes` snapshot. Kept close to the caller so the read path is obvious
- * without cross-file hunting. New columns introduced by future schema bumps
- * MUST be appended at the end to mirror `NODE_COLUMNS` in the DuckDB
- * adapter — `SELECT *` is intentionally avoided so a phase-added column
- * never silently breaks the row→node mapper.
- */
-const PREV_NODE_SELECT_COLUMNS =
-  "id, kind, name, file_path, start_line, end_line, is_exported, signature, " +
-  "parameter_count, return_type, declared_type, owner, url, method, tool_name, " +
-  "content, content_hash, inferred_label, symbol_count, cohesion, keywords, " +
-  "entry_point_id, step_count, level, response_keys, description, severity, " +
-  "rule_id, scanner_id, message, properties_bag, version, license, " +
-  "lockfile_source, ecosystem, http_method, http_path, summary, operation_id, " +
-  "email_hash, email_plain, languages_json, frameworks_json, iac_types_json, " +
-  "api_contracts_json, manifests_json, src_dirs_json, orphan_grade, is_orphan, " +
-  "truck_factor, ownership_drift_30d, ownership_drift_90d, ownership_drift_365d, " +
-  "deadness, coverage_percent, covered_lines_json, cyclomatic_complexity, " +
-  "nesting_depth, nloc, halstead_volume, input_schema_json, partial_fingerprint, " +
-  "baseline_state, suppressed_json";
+// `PREV_NODE_SELECT_COLUMNS` was the explicit column whitelist used by the
+// legacy SQL `SELECT * FROM nodes` round-trip in {@link loadPreviousGraph}.
+// AC-A-6e migrated that read path to `store.graph.listNodes()`, which
+// already returns rehydrated `GraphNode` objects, so the constant is no
+// longer load-bearing here. The `rowToGraphNode` / `rowToCodeRelation`
+// adapters below remain exported for external consumers that hand-roll
+// over the DuckDB wide-column shape.
 
 const NODE_KIND_SET: ReadonlySet<string> = new Set<string>(NODE_KINDS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set<string>(RELATION_TYPES);

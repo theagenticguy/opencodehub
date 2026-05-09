@@ -22,6 +22,7 @@
  * and does not issue one query per symbol.
  */
 
+import type { NodeKind, RelationType } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 
 export type Deadness = "live" | "dead" | "unreachable-export";
@@ -53,7 +54,7 @@ export interface DeadCodeResult {
  * generic reference edge (e.g. type-only usage on the Python provider) also
  * keeps a symbol alive.
  */
-const REFERRER_RELATIONS: readonly string[] = [
+const REFERRER_RELATIONS: readonly RelationType[] = [
   "CALLS",
   "REFERENCES",
   "ACCESSES",
@@ -238,26 +239,28 @@ function compareDeadSymbol(a: DeadSymbol, b: DeadSymbol): number {
 }
 
 async function fetchSymbols(store: IGraphStore): Promise<readonly SymbolRow[]> {
-  const kindPlaceholders = [...SYMBOL_KINDS].map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT id, name, kind, file_path, start_line, is_exported
-       FROM nodes
-      WHERE kind IN (${kindPlaceholders})`,
-    [...SYMBOL_KINDS],
-  );
+  // AC-A-6b: typed `listNodes({kinds: SYMBOL_KINDS})` replaces a `WHERE kind
+  // IN (...)` raw SELECT. The narrowed kind set guarantees every returned
+  // node carries `start_line`/`is_exported` (Function/Method/etc. are all
+  // LocatedNodes), so the JS-side coercion is a one-shot cast.
+  const symbolKinds = [...SYMBOL_KINDS] as readonly NodeKind[];
+  const nodes = await store.listNodes({ kinds: symbolKinds });
   const out: SymbolRow[] = [];
-  for (const row of rows) {
-    const id = String(row["id"] ?? "");
-    if (id.length === 0) continue;
-    const startRaw = row["start_line"];
+  for (const node of nodes) {
+    if (node.id.length === 0) continue;
+    const located = node as {
+      readonly startLine?: unknown;
+      readonly isExported?: unknown;
+    };
+    const startRaw = located.startLine;
     const start = typeof startRaw === "number" && Number.isFinite(startRaw) ? startRaw : 0;
     out.push({
-      id,
-      name: String(row["name"] ?? ""),
-      kind: String(row["kind"] ?? ""),
-      filePath: String(row["file_path"] ?? ""),
+      id: node.id,
+      name: node.name,
+      kind: node.kind,
+      filePath: node.filePath,
       startLine: start,
-      isExported: row["is_exported"] === true,
+      isExported: located.isExported === true,
     });
   }
   return out;
@@ -268,23 +271,26 @@ async function fetchReferrers(
   ids: readonly string[],
 ): Promise<readonly ReferrerRow[]> {
   if (ids.length === 0) return [];
-  const idPlaceholders = ids.map(() => "?").join(",");
-  const typePlaceholders = REFERRER_RELATIONS.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT r.to_id AS target_id, n.file_path AS source_file
-       FROM relations r
-       JOIN nodes n ON n.id = r.from_id
-      WHERE r.to_id IN (${idPlaceholders})
-        AND r.type IN (${typePlaceholders})`,
-    [...ids, ...REFERRER_RELATIONS],
-  );
+  // AC-A-6b: typed `listEdges({types, toIds})` replaces a raw `WHERE r.to_id
+  // IN (...) AND r.type IN (...)` SELECT joined to nodes. The TS-side join
+  // hydrates source-file metadata via `listNodes({ids})`.
+  const edges = await store.listEdges({
+    types: REFERRER_RELATIONS,
+    toIds: ids,
+  });
+  if (edges.length === 0) return [];
+  const sourceIds = Array.from(new Set(edges.map((e) => e.from))).filter((s) => s.length > 0);
+  const fileById = new Map<string, string>();
+  if (sourceIds.length > 0) {
+    const sourceNodes = await store.listNodes({ ids: sourceIds });
+    for (const n of sourceNodes) fileById.set(n.id, n.filePath);
+  }
   const out: ReferrerRow[] = [];
-  for (const row of rows) {
-    const targetId = String(row["target_id"] ?? "");
-    if (targetId.length === 0) continue;
+  for (const edge of edges) {
+    if (edge.to.length === 0) continue;
     out.push({
-      targetId,
-      sourceFile: String(row["source_file"] ?? ""),
+      targetId: edge.to,
+      sourceFile: fileById.get(edge.from) ?? "",
     });
   }
   return out;
@@ -295,19 +301,13 @@ async function fetchCommunityMembership(
   ids: readonly string[],
 ): Promise<readonly MembershipRow[]> {
   if (ids.length === 0) return [];
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT from_id AS symbol_id, to_id AS community_id
-       FROM relations
-      WHERE type = 'MEMBER_OF' AND from_id IN (${placeholders})`,
-    [...ids],
-  );
+  // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+  // `WHERE type = 'MEMBER_OF' AND from_id IN (...)` raw SELECT.
+  const edges = await store.listEdgesByType("MEMBER_OF", { fromIds: ids });
   const out: MembershipRow[] = [];
-  for (const row of rows) {
-    const symbolId = String(row["symbol_id"] ?? "");
-    const communityId = String(row["community_id"] ?? "");
-    if (symbolId.length === 0 || communityId.length === 0) continue;
-    out.push({ symbolId, communityId });
+  for (const edge of edges) {
+    if (edge.from.length === 0 || edge.to.length === 0) continue;
+    out.push({ symbolId: edge.from, communityId: edge.to });
   }
   return out;
 }

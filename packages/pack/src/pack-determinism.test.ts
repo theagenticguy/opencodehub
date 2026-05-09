@@ -17,9 +17,10 @@
  *   V1. Empty embeddings — store has no `exportEmbeddingsParquet` hook;
  *       sidecar is absent; manifest.files[] lists 7 BOM bodies (excluding
  *       manifest+readme). 9 files on disk: 7 bodies + readme.md + manifest.json.
- *   V2. Populated embeddings — fake exportEmbeddingsParquet writes a
- *       deterministic parquet body; sidecar is present;
- *       embeddings.parquet bytes are identical across runs.
+ *   V2. Populated embeddings — fake @internal `exportEmbeddingsParquet`
+ *       (duck-typed onto the graph view, AC-A-4) writes a deterministic
+ *       parquet body; sidecar is present; embeddings.parquet bytes are
+ *       identical across runs.
  *   V3. Mixed framework labels — ProjectProfile.frameworks is a duplicated,
  *       reverse-sorted list. file-tree.jsonl frameworks must be alpha-sorted +
  *       deduped to the same byte sequence on both runs.
@@ -36,7 +37,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { GraphNode } from "@opencodehub/core-types";
-import type { IGraphStore, ListNodesOptions } from "@opencodehub/storage";
+import type { IGraphStore, ITemporalStore, ListNodesOptions, Store } from "@opencodehub/storage";
 import { type GeneratePackInternalOpts, generatePack } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,12 @@ import { type GeneratePackInternalOpts, generatePack } from "./index.js";
 // ---------------------------------------------------------------------------
 
 interface FixtureKnobs {
-  /** Inject `exportEmbeddingsParquet` and emit 4 deterministic bytes. */
+  /**
+   * Attach a duck-typed @internal `exportEmbeddingsParquet` helper to the
+   * graph fake so AC-A-4's sidecar emits 4 deterministic bytes. The
+   * helper lives on the graph view because `runVariant` wraps the fake
+   * with `backend: "duck"`, where the sidecar narrows on `store.graph`.
+   */
   readonly withEmbeddings: boolean;
   /** Use a duplicated, reverse-sorted ProjectProfile.frameworks list. */
   readonly withMixedFrameworks: boolean;
@@ -242,28 +248,24 @@ function makeRichFixtureStore(knobs: FixtureKnobs): IGraphStore {
       filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       return filtered;
     },
-    query: async (sql: string) => {
-      if (/from\s+relations\s+where\s+type\s*=\s*'CALLS'/i.test(sql)) {
-        return edges.map((e) => ({
+    listNodesByKind: async (kind: string) => {
+      return nodes
+        .filter((n) => n.kind === kind)
+        .slice()
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    },
+    listEdgesByType: async (type: string) => {
+      return edges
+        .filter((e) => e.type === type)
+        .map((e) => ({
           id: `rel:${e.from_id}:${e.to_id}`,
-          from_id: e.from_id,
-          to_id: e.to_id,
+          from: e.from_id,
+          to: e.to_id,
+          type: e.type,
           confidence: 1,
         }));
-      }
-      if (/from\s+nodes\s+where\s+kind\s*=\s*'Finding'/i.test(sql)) {
-        return findingNodes.map((n) => ({
-          id: n.id,
-          file_path: n.filePath,
-          start_line: n.startLine ?? null,
-          rule_id: n.ruleId,
-          severity: n.severity,
-          message: n.message,
-          suppressed_json: n.suppressedJson ?? null,
-        }));
-      }
-      throw new Error(`unexpected SQL in determinism fixture store: ${sql}`);
     },
+    listFindings: async () => findingNodes,
   };
 
   if (knobs.withEmbeddings) {
@@ -331,6 +333,20 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 async function runVariant(outDir: string, knobs: FixtureKnobs): Promise<{ packHash: string }> {
+  const fakeGraph = makeRichFixtureStore(knobs);
+  // V2 attaches a duck-typed COPY helper to the graph — wrap into a
+  // backend:"duck" Store so the AC-A-4 sidecar narrows correctly. V1/V3/V4
+  // never invoke the helper; the wrapper just exposes the graph view.
+  const composedStore: Store = {
+    backend: "duck",
+    graph: fakeGraph,
+    temporal: fakeGraph as unknown as ITemporalStore,
+    graphFile: ":memory:",
+    temporalFile: ":memory:",
+    close: async () => {
+      /* test owns lifecycle */
+    },
+  };
   const manifest = await generatePack(
     {
       repoPath: "/tmp/pack-determinism-fixture",
@@ -340,7 +356,7 @@ async function runVariant(outDir: string, knobs: FixtureKnobs): Promise<{ packHa
     },
     {
       ...COMMON_INTERNAL,
-      store: makeRichFixtureStore(knobs),
+      store: composedStore,
       chunkerFiles: FIXTURE_FILES,
     },
   );

@@ -175,6 +175,30 @@ switching mid-project requires `codehub analyze --rebuild-embeddings`.
 `--offline` refuses SageMaker and HTTP backends, so offline mode is
 compatible only with the local ONNX path.
 
+## Storage backend — graph-default
+
+Starting with v1.0, OpenCodeHub picks the graph-database backend
+(`@ladybugdb/core`) as the default whenever the binding is importable on
+the current platform. DuckDB is retained as the temporal store
+(cochanges + symbol summaries) and as the legacy graph fallback. The
+`CODEHUB_STORE` environment variable controls selection:
+
+| `CODEHUB_STORE` | Behaviour |
+|---|---|
+| *unset* (default) | Probe `@ladybugdb/core`. Available → graph artifact at `<repo>/.codehub/graph.lbug` + temporal sibling `temporal.duckdb`. Missing → fall back to `<repo>/.codehub/graph.duckdb` (one-shot stderr advisory under TTY / `OCH_VERBOSE=1`). |
+| `duck` | Force the legacy DuckDB-only layout. One file backs both the graph and temporal views. |
+| `lbug` | Force the graph-database layout. Surface a `GraphDbBindingError` at open time if the binding is unavailable. |
+
+Two-artifact transition: when both `graph.duckdb` AND `graph.lbug` are
+present in the same `<repo>/.codehub/`, the newer-mtime file wins and a
+one-shot advisory fires. Remove the stale artifact to silence the
+advisory.
+
+See [`docs/adr/0011-graph-db-backend.md`](./docs/adr/0011-graph-db-backend.md)
+for the M3 phase-1 rationale and
+[`docs/adr/0013-m7-default-flip-and-abstraction.md`](./docs/adr/0013-m7-default-flip-and-abstraction.md)
+for the M7 default-flip + interface segregation.
+
 ## Status
 
 **v0.1.0 — initial public release.** The codebase is feature-complete

@@ -81,6 +81,20 @@ provides `/probe`, `/verdict`, `/owners`, `/audit-deps`, `/rename` slash
 commands plus a `code-analyst` subagent and 10 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
 
+## Storage backend — graph-default
+
+`CODEHUB_STORE` is unset by default. OpenCodeHub probes
+`@ladybugdb/core` and uses the graph-database backend when the binding
+is available; otherwise it falls back to DuckDB with a one-shot stderr
+advisory (gated on TTY or `OCH_VERBOSE=1`). Set `CODEHUB_STORE=duck` to
+force the legacy layout (single DuckDB file backs both graph + temporal
+views) or `CODEHUB_STORE=lbug` to require the graph-database backend.
+
+When both `graph.duckdb` and `graph.lbug` exist as siblings in the same
+`<repo>/.codehub/`, the newer-mtime file wins. See ADR 0013
+(`docs/adr/0013-m7-default-flip-and-abstraction.md`) for the rationale
+and the AGE/Memgraph/Neo4j/Neptune community-adapter escape hatch.
+
 ## Parse runtime — WASM default, native opt-in
 
 `@opencodehub/ingestion` defaults to the `web-tree-sitter` (WASM) runtime

@@ -10,7 +10,7 @@
  */
 
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { Store } from "@opencodehub/storage";
 import type { ConnectionPool } from "../connection-pool.js";
 import { RepoResolveError, resolveRepo } from "../repo-resolver.js";
 
@@ -33,7 +33,7 @@ export async function withResourceStore(
   uriHref: string,
   repoName: string | undefined,
   opts: ResourceStoreOptions,
-  fn: (store: DuckDbStore, repoName: string) => Promise<ReadResourceResult>,
+  fn: (store: Store, repoName: string) => Promise<ReadResourceResult>,
 ): Promise<ReadResourceResult> {
   if (!opts.pool) {
     return yamlError(uriHref, "pool unavailable", "Server was built without a connection pool.");

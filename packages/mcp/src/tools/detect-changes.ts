@@ -49,7 +49,7 @@ export async function runDetectChanges(
         compareRef?: string;
       } = { scope: args.scope, repoPath: resolved.repoPath };
       if (args.compareRef !== undefined) q.compareRef = args.compareRef;
-      const result = await callRunDetectChanges(store, q);
+      const result = await callRunDetectChanges(store.graph, q);
 
       const lines: string[] = [];
       lines.push(

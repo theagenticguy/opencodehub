@@ -1,16 +1,27 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type { GraphNode } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  DependencyNode,
+  FileNode,
+  FindingNode,
+  GraphNode,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
+} from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
-  CochangeRow,
+  ConsumerProducerEdge,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
+  ListNodesByKindOptions,
   SearchQuery,
   SearchResult,
-  SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -20,6 +31,7 @@ import { hybridSearch } from "./hybrid.js";
 import type { Embedder } from "./types.js";
 
 class StubStore implements IGraphStore {
+  readonly dialect: GraphDialect = "none";
   searchRows: SearchResult[] = [];
   vectorRows: VectorResult[] = [];
   /**
@@ -31,8 +43,14 @@ class StubStore implements IGraphStore {
   vectorRowsByTier: Record<string, readonly VectorResult[]> = {};
   /** Captured vector queries so tests can assert on the tier + filter shape. */
   vectorQueries: VectorQuery[] = [];
-  queryRows: Record<string, unknown>[] = [];
-  queryCalls: { sql: string; params?: readonly SqlParam[] }[] = [];
+  /**
+   * Fixture File-node rows the zoom path resolves through `listNodesByKind('File')`.
+   * The pre-AC-A-6d shape captured raw `{id, file_path}` query rows; the
+   * post-migration shape is the typed FileNode contract — `id` + `filePath`.
+   */
+  fileNodes: FileNode[] = [];
+  /** Captured `listNodesByKind` calls so tests can assert tier + filter shape. */
+  listNodesByKindCalls: { kind: NodeKind; opts?: ListNodesByKindOptions }[] = [];
   searchCalls = 0;
   vectorCalls = 0;
 
@@ -46,15 +64,52 @@ class StubStore implements IGraphStore {
   async listEmbeddingHashes(): Promise<Map<string, string>> {
     return new Map();
   }
-  async query(
-    sql: string,
-    params?: readonly SqlParam[],
-    _opts?: { readonly timeoutMs?: number },
-  ): Promise<readonly Record<string, unknown>[]> {
-    const entry: { sql: string; params?: readonly SqlParam[] } = { sql };
-    if (params !== undefined) entry.params = params;
-    this.queryCalls.push(entry);
-    return this.queryRows;
+  // biome-ignore lint/correctness/useYield: empty async iterable, no rows to yield
+  async *listEmbeddings(): AsyncIterable<EmbeddingRow> {}
+  async listNodes(): Promise<readonly GraphNode[]> {
+    return [];
+  }
+  async listNodesByEntryPoint(): Promise<readonly GraphNode[]> {
+    return [];
+  }
+  async listNodesByName(): Promise<readonly GraphNode[]> {
+    return [];
+  }
+  async listNodesByKind<K extends NodeKind>(
+    kind: K,
+    opts?: ListNodesByKindOptions,
+  ): Promise<readonly NodeOfKind<K>[]> {
+    const entry: { kind: NodeKind; opts?: ListNodesByKindOptions } = { kind };
+    if (opts !== undefined) entry.opts = opts;
+    this.listNodesByKindCalls.push(entry);
+    if (kind === "File") {
+      return this.fileNodes as unknown as readonly NodeOfKind<K>[];
+    }
+    return [];
+  }
+  async listEdges(): Promise<readonly CodeRelation[]> {
+    return [];
+  }
+  async listEdgesByType(): Promise<readonly CodeRelation[]> {
+    return [];
+  }
+  async listFindings(): Promise<readonly FindingNode[]> {
+    return [];
+  }
+  async listDependencies(): Promise<readonly DependencyNode[]> {
+    return [];
+  }
+  async listRoutes(): Promise<readonly RouteNode[]> {
+    return [];
+  }
+  async getRepoNode(): Promise<RepoNode | undefined> {
+    return undefined;
+  }
+  async countNodesByKind(): Promise<Map<NodeKind, number>> {
+    return new Map();
+  }
+  async countEdgesByType(): Promise<Map<RelationType, number>> {
+    return new Map();
   }
   async search(_q: SearchQuery): Promise<readonly SearchResult[]> {
     this.searchCalls += 1;
@@ -72,29 +127,21 @@ class StubStore implements IGraphStore {
   async traverse(_q: TraverseQuery): Promise<readonly TraverseResult[]> {
     return [];
   }
+  async traverseAncestors(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async traverseDescendants(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async listConsumerProducerEdges(): Promise<readonly ConsumerProducerEdge[]> {
+    return [];
+  }
   async getMeta(): Promise<StoreMeta | undefined> {
     return undefined;
   }
   async setMeta(_meta: StoreMeta): Promise<void> {}
   async healthCheck(): Promise<{ ok: boolean; message?: string }> {
     return { ok: true };
-  }
-  async bulkLoadCochanges(_rows: readonly CochangeRow[]): Promise<void> {}
-  async lookupCochangesForFile(): Promise<readonly CochangeRow[]> {
-    return [];
-  }
-  async lookupCochangesBetween(): Promise<CochangeRow | undefined> {
-    return undefined;
-  }
-  async bulkLoadSymbolSummaries(_rows: readonly SymbolSummaryRow[]): Promise<void> {}
-  async lookupSymbolSummary(): Promise<SymbolSummaryRow | undefined> {
-    return undefined;
-  }
-  async lookupSymbolSummariesByNode(): Promise<readonly SymbolSummaryRow[]> {
-    return [];
-  }
-  async listNodes(): Promise<readonly GraphNode[]> {
-    return [];
   }
 }
 
@@ -206,9 +253,9 @@ describe("hybridSearch", () => {
   it("zoom mode: coarse file-tier → file path shortlist → fine symbol-tier restricted to those files", async () => {
     const store = new StubStore();
     store.searchRows = [];
-    // Coarse step returns two file-node ids; resolveFilePaths (store.query)
-    // maps them to src/a.ts and src/b.ts. Fine step is restricted via
-    // `n.file_path IN (?,?)`.
+    // Coarse step returns two file-node ids; resolveFilePaths (now backed by
+    // listNodesByKind('File')) maps them to src/a.ts and src/b.ts. Fine step
+    // is restricted via `n.file_path IN (?,?)`.
     store.vectorRowsByTier = {
       file: [
         { nodeId: "File:src/a.ts:src/a.ts", distance: 0.1 },
@@ -216,9 +263,19 @@ describe("hybridSearch", () => {
       ],
       symbol: [{ nodeId: "Function:src/a.ts:hello", distance: 0.05 }],
     };
-    store.queryRows = [
-      { id: "File:src/a.ts:src/a.ts", file_path: "src/a.ts" },
-      { id: "File:src/b.ts:src/b.ts", file_path: "src/b.ts" },
+    store.fileNodes = [
+      {
+        id: "File:src/a.ts:src/a.ts" as FileNode["id"],
+        kind: "File",
+        name: "a.ts",
+        filePath: "src/a.ts",
+      },
+      {
+        id: "File:src/b.ts:src/b.ts" as FileNode["id"],
+        kind: "File",
+        name: "b.ts",
+        filePath: "src/b.ts",
+      },
     ];
 
     const fused = await hybridSearch(
@@ -239,6 +296,12 @@ describe("hybridSearch", () => {
     assert.equal(fine.granularity, "symbol");
     assert.match(String(fine.whereClause ?? ""), /n\.file_path IN/);
     assert.deepEqual([...(fine.params ?? [])], ["src/a.ts", "src/b.ts"]);
+    // Confirm the resolver hit listNodesByKind('File') exactly once.
+    assert.equal(
+      store.listNodesByKindCalls.filter((c) => c.kind === "File").length,
+      1,
+      "expected one listNodesByKind('File') call",
+    );
   });
 
   it("zoom mode falls back to unfiltered symbol search when file-tier returns nothing", async () => {

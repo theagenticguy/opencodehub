@@ -25,6 +25,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { GraphNode } from "@opencodehub/core-types";
+import type { IGraphStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -114,7 +116,7 @@ export async function runSignature(ctx: ToolContext, args: SignatureArgs): Promi
         );
       }
 
-      const matches = await resolveMatches(store, args);
+      const matches = await resolveMatches(store.graph, args);
       if (matches.length === 0) {
         const probe = args.name ?? args.uid ?? "<unspecified>";
         return withNextSteps(
@@ -151,7 +153,7 @@ export async function runSignature(ctx: ToolContext, args: SignatureArgs): Promi
       const language = detectLanguage(target.filePath);
       let members: readonly NodeRow[] = [];
       if (TYPE_KINDS.has(target.kind)) {
-        members = await fetchMembers(store, target.id);
+        members = await fetchMembers(store.graph, target.id);
       }
 
       const stub = renderStub(target, members, language);
@@ -204,7 +206,7 @@ export function registerSignatureTool(server: McpServer, ctx: ToolContext): void
 }
 
 async function resolveMatches(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   args: {
     readonly name?: string | undefined;
     readonly uid?: string | undefined;
@@ -212,41 +214,49 @@ async function resolveMatches(
     readonly filePath?: string | undefined;
   },
 ): Promise<NodeRow[]> {
-  const params: (string | number)[] = [];
-  let sql =
-    "SELECT id, name, kind, file_path, start_line, end_line, signature, parameter_count, return_type FROM nodes WHERE ";
+  let candidates: readonly GraphNode[];
   if (args.uid !== undefined) {
-    sql += "id = ?";
-    params.push(args.uid);
+    candidates = await graph.listNodes({ ids: [args.uid] });
   } else if (args.name !== undefined) {
-    sql += "name = ?";
-    params.push(args.name);
-    if (args.kind !== undefined) {
-      sql += " AND kind = ?";
-      params.push(args.kind);
-    }
+    type NodeKindUnion = Parameters<IGraphStore["listNodesByKind"]>[0];
+    const opts = args.kind !== undefined ? { kinds: [args.kind as NodeKindUnion] } : {};
+    let res = await graph.listNodesByName(args.name, opts);
     if (args.filePath !== undefined) {
-      sql += " AND file_path LIKE ?";
-      params.push(`%${args.filePath}%`);
+      const sub = args.filePath;
+      res = res.filter((n) => n.filePath.includes(sub));
     }
+    candidates = res;
+  } else {
+    return [];
   }
-  sql += " ORDER BY file_path LIMIT 25";
-  const rows = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map(rowToNode);
+  // Match prior ORDER BY file_path LIMIT 25.
+  const sorted = [...candidates].sort((a, b) =>
+    a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0,
+  );
+  return sorted.slice(0, 25).map(nodeToRow);
 }
 
-async function fetchMembers(
-  store: import("@opencodehub/storage").IGraphStore,
-  ownerId: string,
-): Promise<readonly NodeRow[]> {
-  const rows = (await store.query(
-    "SELECT n.id, n.name, n.kind, n.file_path, n.start_line, n.end_line, n.signature, n.parameter_count, n.return_type FROM relations r JOIN nodes n ON n.id = r.to_id WHERE r.from_id = ? AND r.type IN ('HAS_METHOD','HAS_PROPERTY') ORDER BY n.start_line, n.name LIMIT 500",
-    [ownerId],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map(rowToNode);
+async function fetchMembers(graph: IGraphStore, ownerId: string): Promise<readonly NodeRow[]> {
+  const edges = await graph.listEdges({
+    types: ["HAS_METHOD", "HAS_PROPERTY"],
+    fromIds: [ownerId],
+    limit: 500,
+  });
+  if (edges.length === 0) return [];
+  const partnerIds = Array.from(new Set(edges.map((e) => e.to)));
+  const partners = await graph.listNodes({ ids: partnerIds });
+  const out = partners.map(nodeToRow);
+  out.sort((a, b) => {
+    const as = a.startLine ?? Number.POSITIVE_INFINITY;
+    const bs = b.startLine ?? Number.POSITIVE_INFINITY;
+    if (as !== bs) return as - bs;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  return out;
 }
 
-function rowToNode(r: Record<string, unknown>): NodeRow {
+function nodeToRow(n: GraphNode): NodeRow {
+  const any = n as unknown as Record<string, unknown>;
   const out: {
     id: string;
     name: string;
@@ -258,20 +268,20 @@ function rowToNode(r: Record<string, unknown>): NodeRow {
     parameterCount?: number;
     returnType?: string;
   } = {
-    id: String(r["id"]),
-    name: String(r["name"]),
-    kind: String(r["kind"]),
-    filePath: String(r["file_path"]),
+    id: n.id,
+    name: n.name,
+    kind: n.kind,
+    filePath: n.filePath,
   };
-  const sl = r["start_line"];
+  const sl = any["startLine"];
   if (typeof sl === "number" && Number.isFinite(sl)) out.startLine = sl;
-  const el = r["end_line"];
+  const el = any["endLine"];
   if (typeof el === "number" && Number.isFinite(el)) out.endLine = el;
-  const sig = r["signature"];
+  const sig = any["signature"];
   if (typeof sig === "string" && sig.length > 0) out.signature = sig;
-  const pc = r["parameter_count"];
+  const pc = any["parameterCount"];
   if (typeof pc === "number" && Number.isFinite(pc)) out.parameterCount = pc;
-  const rt = r["return_type"];
+  const rt = any["returnType"];
   if (typeof rt === "string" && rt.length > 0) out.returnType = rt;
   return out;
 }

@@ -10,9 +10,12 @@
  *
  * Two engines are supported via the `--engine` flag:
  *   - `pack` (DEFAULT) — `@opencodehub/pack`'s `generatePack`. Opens a
- *     read-only `DuckDbStore` at `<repo>/.codehub/graph.duckdb` and walks
+ *     read-only graph store via `openStore({ readOnly: true })` and walks
  *     the indexed graph to produce the 8 mandatory BOM items + manifest +
- *     optional Parquet embeddings sidecar.
+ *     optional Parquet embeddings sidecar. AC-A-4 relocated the sidecar
+ *     emitter into pack/; cli/ passes the composed `Store` and pack
+ *     dispatches on `store.backend` (DuckDB COPY for `duck`, degraded
+ *     stamp for `lbug` v1).
  *   - `repomix` — legacy single-file snapshot via `npx repomix`. Retained
  *     under an opt-in flag for one milestone (drop deferred to M7 per
  *     spec 005 Q-DELTA-6). Internally delegates to `runPack` so the
@@ -36,7 +39,7 @@ import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generatePack, type PackManifest } from "@opencodehub/pack";
-import { DuckDbStore, type IGraphStore, resolveDbPath } from "@opencodehub/storage";
+import { type IGraphStore, openStore, resolveDbPath, type Store } from "@opencodehub/storage";
 import { runPack } from "./pack.js";
 
 /** Default token budget when `--budget` is omitted. */
@@ -66,11 +69,14 @@ export interface CodePackArgs {
    */
   readonly _generatePack?: typeof generatePack;
   /**
-   * Test seam — inject a pre-opened `IGraphStore` so unit tests can stub
-   * the graph entirely. Production callers leave this unset; the command
-   * opens a `DuckDbStore` at `<repo>/.codehub/graph.duckdb` on demand.
+   * Test seam — inject a pre-opened {@link Store} (or a graph-only
+   * stand-in via {@link IGraphStore}) so unit tests can stub the graph
+   * entirely. Production callers leave this unset; the command opens a
+   * composed store via `openStore` on demand. Backwards-compatible:
+   * tests that only need graph reads can keep passing a plain
+   * `IGraphStore` and the command auto-wraps it.
    */
-  readonly _store?: IGraphStore;
+  readonly _store?: Store | IGraphStore;
   /**
    * Test seam — inject a custom `runPack` so unit tests don't actually
    * shell-out to `npx repomix`. Production callers leave this unset.
@@ -117,8 +123,8 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   const tokenizer = args.tokenizer ?? DEFAULT_TOKENIZER_ID;
   const generate = args._generatePack ?? generatePack;
 
-  // Production: open a read-only DuckDbStore at <repo>/.codehub/graph.duckdb.
-  // Tests inject `_store` to skip the native binding entirely.
+  // Production: open a read-only graph store via the backend-agnostic
+  // factory; tests inject `_store` to skip the native binding entirely.
   const dbPath = resolveDbPath(repoPath);
   if (args._store === undefined && !existsSync(dbPath)) {
     throw new Error(
@@ -126,11 +132,29 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         "Run `codehub analyze` first to populate the store.",
     );
   }
-  const store = args._store ?? new DuckDbStore(dbPath, { readOnly: true });
   const ownsStore = args._store === undefined;
-  if (ownsStore && store instanceof DuckDbStore) {
-    await store.open();
-  }
+  // Composed-store envelope used only when this command owns lifecycle.
+  // Holds it here so the finally block can close graph + temporal in
+  // deterministic order without re-running the factory.
+  const owned = ownsStore
+    ? await (async () => {
+        const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
+        await composed.graph.open();
+        return composed;
+      })()
+    : undefined;
+  // generatePack consumes `Store` (= `OpenStoreResult`) so AC-A-4's
+  // sidecar can dispatch on `store.backend`. Tests historically passed an
+  // `IGraphStore` stub via `_store`; route that through the
+  // `internal.graphOnly` seam which auto-wraps it into a no-op-temporal
+  // Store with `backend: "duck"` (the sidecar then resolves to absent
+  // unless the stub duck-types `exportEmbeddingsParquet` itself).
+  const composedStore: Store | undefined = isStoreShape(args._store)
+    ? args._store
+    : (owned ?? undefined);
+  const graphOnlyStub: IGraphStore | undefined = isStoreShape(args._store)
+    ? undefined
+    : args._store;
 
   // Stage in a temp dir; we don't know `packHash` until generatePack returns,
   // and the canonical layout puts the hash in the directory name.
@@ -144,7 +168,9 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         budgetTokens: budget,
         tokenizerId: tokenizer,
       },
-      { store },
+      composedStore !== undefined
+        ? { store: composedStore }
+        : { graphOnly: graphOnlyStub as IGraphStore },
     );
 
     const finalOutDir =
@@ -179,8 +205,8 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
       engine: "pack",
     };
   } finally {
-    if (ownsStore && store instanceof DuckDbStore) {
-      await store.close();
+    if (owned !== undefined) {
+      await owned.close();
     }
     // Best-effort cleanup of the staging dir if we never renamed it (e.g.
     // generatePack threw). `rm` with `force` swallows ENOENT.
@@ -218,4 +244,18 @@ export function statSizeOrZero(path: string): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Discriminate between the composed {@link Store} and a bare
+ * {@link IGraphStore} stub. Tests historically passed a flat IGraphStore
+ * via `_store`; production passes the full Store envelope from
+ * {@link openStore}. We detect the envelope shape by the presence of
+ * `graph` + `temporal` + `backend` so both paths flow through the new
+ * AC-A-4 sidecar dispatch correctly.
+ */
+function isStoreShape(s: Store | IGraphStore | undefined): s is Store {
+  if (s === undefined) return false;
+  const obj = s as { backend?: unknown; graph?: unknown; temporal?: unknown };
+  return typeof obj.backend === "string" && obj.graph !== undefined && obj.temporal !== undefined;
 }

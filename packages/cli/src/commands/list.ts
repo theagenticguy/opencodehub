@@ -12,7 +12,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { codehubIsIndexed } from "../lib/is-indexed.js";
 import { type RepoEntry, readRegistry } from "../registry.js";
 
 export interface ListOptions {
@@ -34,7 +34,11 @@ type Health = "ok" | "path-missing" | "graph-missing";
 
 function classifyHealth(entry: RepoEntry): Health {
   if (!existsSync(entry.path)) return "path-missing";
-  if (!existsSync(join(entry.path, ".codehub", "graph.duckdb"))) return "graph-missing";
+  // Backend-aware probe: any of `meta.json`, `graph.duckdb`, or
+  // `graph.lbug` under `.codehub/` counts as "indexed". The legacy
+  // hard-coded `graph.duckdb` check pre-dated the M3 backend split and
+  // would have flagged every `CODEHUB_STORE=lbug` repo as broken.
+  if (!codehubIsIndexed(entry.path)) return "graph-missing";
   return "ok";
 }
 
@@ -45,7 +49,7 @@ function healthLabel(h: Health): string {
     case "path-missing":
       return "⚠ missing path";
     case "graph-missing":
-      return "⚠ no graph.duckdb";
+      return "⚠ no index";
   }
 }
 

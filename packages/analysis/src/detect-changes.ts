@@ -10,6 +10,7 @@
  * flow through the prepared-statement binder on `IGraphStore.query`.
  */
 
+import type { ProcessNode } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 import { gitDiffHunks, gitDiffNames } from "./git.js";
 import { riskFromCount } from "./risk.js";
@@ -100,23 +101,23 @@ function hunkOverlaps(
 }
 
 async function symbolsForFile(store: IGraphStore, filePath: string): Promise<readonly SymbolRow[]> {
-  const rows = await store.query(
-    `SELECT id, name, kind, file_path, start_line, end_line
-       FROM nodes
-      WHERE file_path = ? AND kind NOT IN ('File', 'Folder')
-        AND start_line IS NOT NULL AND end_line IS NOT NULL`,
-    [filePath],
-  );
+  // AC-A-6b: typed `listNodes({filePath})` replaces a `WHERE file_path = ?
+  // AND kind NOT IN ('File','Folder') AND start_line IS NOT NULL AND
+  // end_line IS NOT NULL` raw SELECT. The finder narrows to one file at the
+  // adapter layer; the kind exclusion + line-presence guard run in JS.
+  const nodes = await store.listNodes({ filePath });
   const out: SymbolRow[] = [];
-  for (const row of rows) {
-    const start = Number(row["start_line"] ?? Number.NaN);
-    const end = Number(row["end_line"] ?? Number.NaN);
+  for (const node of nodes) {
+    if (node.kind === "File" || node.kind === "Folder") continue;
+    const located = node as { readonly startLine?: unknown; readonly endLine?: unknown };
+    const start = Number(located.startLine ?? Number.NaN);
+    const end = Number(located.endLine ?? Number.NaN);
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
     out.push({
-      id: String(row["id"] ?? ""),
-      name: String(row["name"] ?? ""),
-      kind: String(row["kind"] ?? ""),
-      filePath: String(row["file_path"] ?? ""),
+      id: node.id,
+      name: node.name,
+      kind: node.kind,
+      filePath: node.filePath,
       startLine: start,
       endLine: end,
     });
@@ -133,49 +134,46 @@ async function processesForSymbols(
   // PROCESS_STEP edges connect a Process node to each symbol that
   // participates in the process. Find the set of distinct Process ids that
   // have an edge into any of the affected symbols.
-  const placeholders = symbolIds.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT DISTINCT r.from_id AS process_id
-       FROM relations r
-       JOIN nodes p ON p.id = r.from_id
-      WHERE r.type = 'PROCESS_STEP'
-        AND p.kind = 'Process'
-        AND r.to_id IN (${placeholders})`,
-    symbolIds,
+  //
+  // AC-A-6b: typed `listEdgesByType("PROCESS_STEP", {toIds})` replaces the
+  // raw `WHERE r.type = 'PROCESS_STEP' AND r.to_id IN (...)` SELECT. The
+  // `kind = 'Process'` predicate from the JOIN is enforced when we hydrate
+  // the process metadata below.
+  const stepEdges = await store.listEdgesByType("PROCESS_STEP", { toIds: symbolIds });
+  const candidateProcessIds = Array.from(new Set(stepEdges.map((e) => e.from))).filter(
+    (s) => s.length > 0,
   );
-  const processIds = rows.map((row) => String(row["process_id"] ?? "")).filter((s) => s.length > 0);
-  if (processIds.length === 0) return [];
+  if (candidateProcessIds.length === 0) return [];
 
-  const idPlaceholders = processIds.map(() => "?").join(",");
-  const processRows = await store.query(
-    `SELECT id, name, entry_point_id FROM nodes
-      WHERE id IN (${idPlaceholders}) AND kind = 'Process'`,
-    processIds,
-  );
+  // AC-A-6b: typed `listNodes({ids, kinds:["Process"]})` replaces the
+  // `WHERE id IN (...) AND kind = 'Process'` lookup.
+  const processNodes = await store.listNodes({
+    ids: candidateProcessIds,
+    kinds: ["Process"],
+  });
+  if (processNodes.length === 0) return [];
+
   // Resolve entry-point ids to their file paths in one bulk lookup.
-  const entryIds = processRows
-    .map((row) => String(row["entry_point_id"] ?? ""))
+  const entryIds = processNodes
+    .map((node) => (node.kind === "Process" ? ((node as ProcessNode).entryPointId ?? "") : ""))
     .filter((s) => s.length > 0);
   const entryMap = new Map<string, string>();
   if (entryIds.length > 0) {
-    const uniq = Array.from(new Set(entryIds));
-    const ePlaceholders = uniq.map(() => "?").join(",");
-    const entryRows = await store.query(
-      `SELECT id, file_path FROM nodes WHERE id IN (${ePlaceholders})`,
-      uniq,
-    );
-    for (const e of entryRows) {
-      entryMap.set(String(e["id"] ?? ""), String(e["file_path"] ?? ""));
+    // AC-A-6b: typed `listNodes({ids})` replaces the bulk `WHERE id IN (...)`
+    // entry-point file_path lookup.
+    const entryNodes = await store.listNodes({ ids: entryIds });
+    for (const node of entryNodes) {
+      entryMap.set(node.id, node.filePath);
     }
   }
 
   const out: AffectedProcess[] = [];
-  for (const row of processRows) {
-    const id = String(row["id"] ?? "");
-    const name = String(row["name"] ?? "");
-    const entryId = String(row["entry_point_id"] ?? "");
-    const entryPointFile = entryMap.get(entryId) ?? "";
-    out.push({ id, name, entryPointFile });
+  for (const node of processNodes) {
+    if (node.kind !== "Process") continue;
+    const proc = node as ProcessNode;
+    const entryId = proc.entryPointId ?? "";
+    const entryPointFile = entryId.length > 0 ? (entryMap.get(entryId) ?? "") : "";
+    out.push({ id: proc.id, name: proc.name, entryPointFile });
   }
   out.sort((a, b) => a.id.localeCompare(b.id));
   return out;

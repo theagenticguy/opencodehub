@@ -1,26 +1,12 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeFinding,
+  getToolHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "../test-utils.js";
 import { registerListFindingsTool } from "./list-findings.js";
 import type { ToolContext } from "./shared.js";
 
@@ -28,90 +14,56 @@ interface FakeRow {
   [k: string]: unknown;
 }
 
-function makeFakeStore(rows: FakeRow[]): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-      if (!text.includes("kind = 'Finding'")) return [];
-      let out = rows;
-      let pi = 0;
-      if (text.includes("severity = ?")) {
-        const v = params[pi++];
-        out = out.filter((r) => r["severity"] === v);
-      }
-      if (text.includes("scanner_id = ?")) {
-        const v = params[pi++];
-        out = out.filter((r) => r["scanner_id"] === v);
-      }
-      if (text.includes("rule_id = ?")) {
-        const v = params[pi++];
-        out = out.filter((r) => r["rule_id"] === v);
-      }
-      if (text.includes("file_path LIKE ?")) {
-        const v = String(params[pi++] ?? "").replace(/%/g, "");
-        out = out.filter((r) => String(r["file_path"] ?? "").includes(v));
-      }
-      return out;
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
-  return api;
+/**
+ * Project the snake_case test seed shape onto the `FakeFinding` record
+ * the test-utils helper coerces into the typed `FindingNode` `listFindings`
+ * returns. Tests retain the original SARIF-style key names; the helper
+ * normalizes to camelCase.
+ */
+function rowToFinding(r: FakeRow): FakeFinding {
+  const props = (() => {
+    const raw = r["properties_bag"];
+    if (typeof raw !== "string") return {};
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  })();
+  const sev = r["severity"];
+  const out: FakeFinding = {
+    id: typeof r["id"] === "string" ? r["id"] : "",
+    kind: "Finding",
+    name: typeof r["rule_id"] === "string" ? r["rule_id"] : "",
+    filePath: typeof r["file_path"] === "string" ? r["file_path"] : "",
+    scannerId: typeof r["scanner_id"] === "string" ? r["scanner_id"] : "",
+    ruleId: typeof r["rule_id"] === "string" ? r["rule_id"] : "",
+    ...(typeof sev === "string" ? { severity: sev as FakeFinding["severity"] } : {}),
+    message: typeof r["message"] === "string" ? r["message"] : "",
+    propertiesBag: props,
+    ...(typeof r["start_line"] === "number" ? { startLine: r["start_line"] as number } : {}),
+    ...(typeof r["end_line"] === "number" ? { endLine: r["end_line"] as number } : {}),
+  };
+  return out;
 }
 
 async function withHarness(
   rows: FakeRow[],
-  fn: (ctx: ToolContext, server: McpServer) => Promise<void>,
+  fn: (
+    ctx: ToolContext,
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-findings-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: rows.length,
-          edgeCount: 0,
-          lastCommit: "abc123",
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(rows));
-    const ctx: ToolContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { tools: {} } },
-    );
-    try {
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-mcp-findings-",
+      storeFactory: () => makeFakeGraphStore({ findings: rows.map(rowToFinding) }),
+    },
+    async ({ server, pool, home }) => {
+      const ctx: ToolContext = { pool, home };
       await fn(ctx, server);
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+    },
+  );
 }
 
 function findings(): FakeRow[] {
@@ -152,20 +104,10 @@ function findings(): FakeRow[] {
   ];
 }
 
-type RegisteredTool = { handler: (args: unknown, extra: unknown) => Promise<CallToolResult> };
-
-function getHandler(server: McpServer, name: string): RegisteredTool["handler"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internal field for test-only access
-  const map = (server as any)._registeredTools as Record<string, RegisteredTool>;
-  const entry = map[name];
-  assert.ok(entry, `tool not registered: ${name}`);
-  return entry.handler.bind(entry);
-}
-
 test("list_findings returns every finding by default", async () => {
   await withHarness(findings(), async (ctx, server) => {
     registerListFindingsTool(server, ctx);
-    const handler = getHandler(server, "list_findings");
+    const handler = getToolHandler(server, "list_findings");
     const result = await handler({ repo: "fakerepo" }, {});
     const sc = result.structuredContent as {
       findings: Array<{ scanner: string; ruleId: string; severity: string }>;
@@ -180,7 +122,7 @@ test("list_findings returns every finding by default", async () => {
 test("list_findings filters by severity", async () => {
   await withHarness(findings(), async (ctx, server) => {
     registerListFindingsTool(server, ctx);
-    const handler = getHandler(server, "list_findings");
+    const handler = getToolHandler(server, "list_findings");
     const result = await handler({ repo: "fakerepo", severity: "error" }, {});
     const sc = result.structuredContent as {
       findings: Array<{ severity: string; ruleId: string }>;
@@ -195,7 +137,7 @@ test("list_findings filters by severity", async () => {
 test("list_findings filters by scanner", async () => {
   await withHarness(findings(), async (ctx, server) => {
     registerListFindingsTool(server, ctx);
-    const handler = getHandler(server, "list_findings");
+    const handler = getToolHandler(server, "list_findings");
     const result = await handler({ repo: "fakerepo", scanner: "bandit" }, {});
     const sc = result.structuredContent as {
       findings: Array<{ scanner: string }>;
@@ -209,7 +151,7 @@ test("list_findings filters by scanner", async () => {
 test("list_findings filters by file path substring", async () => {
   await withHarness(findings(), async (ctx, server) => {
     registerListFindingsTool(server, ctx);
-    const handler = getHandler(server, "list_findings");
+    const handler = getToolHandler(server, "list_findings");
     const result = await handler({ repo: "fakerepo", filePath: "api" }, {});
     const sc = result.structuredContent as {
       findings: Array<{ filePath: string }>;
@@ -225,7 +167,7 @@ test("list_findings filters by file path substring", async () => {
 test("list_findings returns an empty list + remediation hint when no rows match", async () => {
   await withHarness([], async (ctx, server) => {
     registerListFindingsTool(server, ctx);
-    const handler = getHandler(server, "list_findings");
+    const handler = getToolHandler(server, "list_findings");
     const result = await handler({ repo: "fakerepo" }, {});
     const sc = result.structuredContent as {
       findings: unknown[];

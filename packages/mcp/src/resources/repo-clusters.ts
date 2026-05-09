@@ -12,6 +12,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CommunityNode } from "@opencodehub/core-types";
 import { readRegistry } from "../repo-resolver.js";
 import type { ResourceContext } from "./repos.js";
 import { withResourceStore } from "./store-helper.js";
@@ -19,15 +20,6 @@ import { yamlScalar } from "./yaml.js";
 
 const PATTERN = "codehub://repo/{name}/clusters";
 const RESULT_CAP = 20;
-
-interface CommunityRow {
-  id: string;
-  name: string;
-  inferred_label: string | null;
-  symbol_count: number | null;
-  cohesion: number | null;
-  keywords: readonly string[] | null;
-}
 
 export function registerRepoClustersResource(server: McpServer, ctx: ResourceContext): void {
   const template = new ResourceTemplate(PATTERN, {
@@ -63,14 +55,20 @@ export function registerRepoClustersResource(server: McpServer, ctx: ResourceCon
       if (ctx.home !== undefined) resourceOpts.home = ctx.home;
       if (ctx.pool !== undefined) resourceOpts.pool = ctx.pool;
       return withResourceStore(uri.href, decoded, resourceOpts, async (store, repoName) => {
-        const rows = (await store.query(
-          `SELECT id, name, inferred_label, symbol_count, cohesion, keywords
-           FROM nodes
-           WHERE kind = 'Community'
-           ORDER BY COALESCE(symbol_count, 0) DESC, COALESCE(cohesion, 0) DESC, id ASC
-           LIMIT ?`,
-          [RESULT_CAP],
-        )) as readonly Record<string, unknown>[];
+        const communities = (await store.graph.listNodesByKind(
+          "Community",
+        )) as readonly CommunityNode[];
+        const rows = [...communities]
+          .sort((a, b) => {
+            const ac = a.symbolCount ?? 0;
+            const bc = b.symbolCount ?? 0;
+            if (ac !== bc) return bc - ac;
+            const ah = a.cohesion ?? 0;
+            const bh = b.cohesion ?? 0;
+            if (ah !== bh) return bh - ah;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          })
+          .slice(0, RESULT_CAP);
 
         const lines: string[] = [];
         lines.push(`repo: ${yamlScalar(repoName)}`);
@@ -78,18 +76,17 @@ export function registerRepoClustersResource(server: McpServer, ctx: ResourceCon
         if (rows.length === 0) {
           lines.push("  []");
         } else {
-          for (const raw of rows) {
-            const row = coerceRow(raw);
-            lines.push(`  - id: ${yamlScalar(row.id)}`);
-            lines.push(`    name: ${yamlScalar(row.name)}`);
-            if (row.inferred_label) {
-              lines.push(`    label: ${yamlScalar(row.inferred_label)}`);
+          for (const c of rows) {
+            lines.push(`  - id: ${yamlScalar(c.id)}`);
+            lines.push(`    name: ${yamlScalar(c.name)}`);
+            if (c.inferredLabel && c.inferredLabel.length > 0) {
+              lines.push(`    label: ${yamlScalar(c.inferredLabel)}`);
             }
-            lines.push(`    symbolCount: ${row.symbol_count ?? 0}`);
-            lines.push(`    cohesion: ${row.cohesion ?? 0}`);
-            if (row.keywords && row.keywords.length > 0) {
+            lines.push(`    symbolCount: ${c.symbolCount ?? 0}`);
+            lines.push(`    cohesion: ${c.cohesion ?? 0}`);
+            if (c.keywords && c.keywords.length > 0) {
               lines.push("    keywords:");
-              for (const kw of row.keywords) {
+              for (const kw of c.keywords) {
                 lines.push(`      - ${yamlScalar(kw)}`);
               }
             }
@@ -107,19 +104,4 @@ export function registerRepoClustersResource(server: McpServer, ctx: ResourceCon
       });
     },
   );
-}
-
-function coerceRow(raw: Record<string, unknown>): CommunityRow {
-  const keywords = raw["keywords"];
-  return {
-    id: String(raw["id"] ?? ""),
-    name: String(raw["name"] ?? ""),
-    inferred_label:
-      typeof raw["inferred_label"] === "string" && raw["inferred_label"].length > 0
-        ? raw["inferred_label"]
-        : null,
-    symbol_count: typeof raw["symbol_count"] === "number" ? raw["symbol_count"] : null,
-    cohesion: typeof raw["cohesion"] === "number" ? raw["cohesion"] : null,
-    keywords: Array.isArray(keywords) ? (keywords as string[]).map(String) : null,
-  };
 }

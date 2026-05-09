@@ -127,16 +127,30 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
 
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      // Apply the guard BEFORE the store.query() call so the rejection
-      // message carries the guard's own context (SqlGuardError /
-      // CypherGuardError), and so the store never sees a write verb.
-      // The store's own readonly mode would also reject writes, but the
-      // guard produces a cleaner user-facing error.
-      // Note: `store` here is whatever the connection pool hands us. When
-      // `CODEHUB_STORE=lbug`, the pool factory is expected (E-M3-1) to
-      // yield a GraphDbStore; the `.query()` surface is shared via the
-      // IGraphStore seam so the call site does not need to discriminate.
-      const rawRows = await store.query(statement, [], { timeoutMs });
+      // Apply the guard BEFORE the store call so the rejection message
+      // carries the guard's own context (SqlGuardError / CypherGuardError),
+      // and so the store never sees a write verb. The store's own readonly
+      // mode would also reject writes, but the guard produces a cleaner
+      // user-facing error.
+      //
+      // Routing post AC-A-1: SQL → `temporal.exec()` (the `--sql` escape
+      // hatch on ITemporalStore); Cypher → `graph.execCypher` (the
+      // graph-only adapter's escape hatch). Tools that don't have the
+      // corresponding capability surface a clear error envelope.
+      let rawRows: readonly Record<string, unknown>[];
+      if (isCypher) {
+        const exec = store.graph.execCypher;
+        if (typeof exec !== "function") {
+          return toolError(
+            "INVALID_INPUT",
+            "cypher unavailable: graph adapter does not expose execCypher",
+            "Set `CODEHUB_STORE=lbug` to enable the graph-db backend that exposes the Cypher escape hatch.",
+          );
+        }
+        rawRows = await exec.call(store.graph, statement);
+      } else {
+        rawRows = await store.temporal.exec(statement, [], { timeoutMs });
+      }
       // MCP serialises structuredContent via JSON, which cannot handle
       // bigint values (DuckDB returns COUNT(*) etc. as bigint). Coerce
       // every bigint to a plain number or string before handing the

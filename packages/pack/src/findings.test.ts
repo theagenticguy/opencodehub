@@ -15,6 +15,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import type { FindingNode } from "@opencodehub/core-types";
 import { canonicalJson } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 import { buildFindings, type FindingGroup } from "./findings.js";
@@ -29,13 +30,39 @@ interface RawFinding {
   readonly suppressed_json?: string;
 }
 
+/** Convert a raw fixture row into the typed FindingNode the finder returns. */
+function toFinding(row: RawFinding): FindingNode {
+  const sev = row.severity;
+  const severity: FindingNode["severity"] =
+    sev === "error" || sev === "warning" || sev === "note" || sev === "none"
+      ? sev
+      : ("none" as const);
+  const node: FindingNode = {
+    id: row.id as FindingNode["id"],
+    kind: "Finding",
+    name: row.id,
+    filePath: row.file_path ?? "",
+    ruleId: row.rule_id,
+    severity,
+    scannerId: "",
+    message: row.message ?? "",
+    propertiesBag: {},
+    ...(row.start_line !== undefined ? { startLine: row.start_line } : {}),
+    ...(row.suppressed_json !== undefined ? { suppressedJson: row.suppressed_json } : {}),
+  };
+  // Smuggle a non-canonical severity past the typed shape so the
+  // "unknown severity coerces to 'none'" test can still exercise the
+  // production-side coercion guard.
+  if (sev !== null && sev !== severity) {
+    return { ...node, severity: sev as FindingNode["severity"] };
+  }
+  return node;
+}
+
 function makeStore(rows: readonly RawFinding[]): IGraphStore {
   return {
-    query: async (sql: string) => {
-      if (!/from\s+nodes\s+where\s+kind\s*=\s*'Finding'/i.test(sql)) {
-        throw new Error(`unexpected SQL in findings mock: ${sql}`);
-      }
-      return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    listFindings: async () => {
+      return [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map(toFinding);
     },
   } as unknown as IGraphStore;
 }

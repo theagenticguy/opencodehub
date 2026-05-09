@@ -22,12 +22,22 @@ import { test } from "node:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FsAbstraction } from "@opencodehub/analysis";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  GraphNode,
+  KnowledgeGraph,
+  NodeKind,
+  RelationType,
+} from "@opencodehub/core-types";
 import type { Embedder } from "@opencodehub/embedder";
 import type {
+  AncestorTraversalOptions,
   BulkLoadStats,
   DuckDbStore,
   EmbeddingRow,
+  ListEdgesByTypeOptions,
+  ListEdgesOptions,
+  ListNodesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -35,12 +45,33 @@ import type {
   SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
+  TraverseResult as TraverseResultType,
   VectorQuery,
   VectorResult,
 } from "@opencodehub/storage";
 import { ConnectionPool } from "../connection-pool.js";
 import { registerQueryTool } from "./query.js";
 import type { EmbedderFactory, ToolContext } from "./shared.js";
+
+/**
+ * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
+ * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
+ * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * implements both interfaces over a single connection in production.
+ */
+function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
+  return {
+    backend: "duck" as const,
+    graph: fake as import("@opencodehub/storage").IGraphStore,
+    temporal: fake as import("@opencodehub/storage").ITemporalStore,
+    graphFile: "/in-memory/graph.duckdb",
+    temporalFile: "/in-memory/graph.duckdb",
+    close: async () => {
+      const closer = (fake as { close?: () => Promise<void> }).close;
+      if (typeof closer === "function") await closer.call(fake);
+    },
+  };
+}
 
 interface FakeNode {
   readonly name: string;
@@ -115,6 +146,63 @@ interface FakeStoreHandle {
   lastSearchText: string | null;
 }
 
+/**
+ * Build a `Process` graph node + PROCESS_STEP edge graph from the test's
+ * `processMembers` triples. Step 0 of each process is treated as the
+ * entry point; each consecutive step is connected by a PROCESS_STEP edge
+ * `(prev.nodeId, cur.nodeId)`. This mirrors the real ingestion pipeline's
+ * shape so the typed-finder consumers (`traverseAncestors`,
+ * `listNodesByKind("Process")`, `listEdgesByType("PROCESS_STEP")`) can run.
+ */
+function buildProcessGraph(opts: FakeStoreOptions): {
+  processNodes: GraphNode[];
+  processEdges: CodeRelation[];
+} {
+  const members = opts.processMembers ?? [];
+  if (members.length === 0) return { processNodes: [], processEdges: [] };
+
+  // Group members by process id; sort each bucket by step ASC.
+  const byProcess = new Map<string, FakeProcessMember[]>();
+  for (const m of members) {
+    const bucket = byProcess.get(m.processId) ?? [];
+    bucket.push(m);
+    byProcess.set(m.processId, bucket);
+  }
+
+  const processNodes: GraphNode[] = [];
+  const processEdges: CodeRelation[] = [];
+  for (const [processId, bucket] of byProcess) {
+    const sorted = [...bucket].sort((a, b) => a.step - b.step);
+    const first = sorted[0];
+    if (first === undefined) continue;
+    const processNode = {
+      id: processId,
+      name: first.processName,
+      kind: "Process" as NodeKind,
+      filePath: opts.nodes.get(first.nodeId)?.filePath ?? "",
+      inferredLabel: first.inferredLabel,
+      stepCount: first.stepCount,
+      entryPointId: first.nodeId,
+    } as unknown as GraphNode;
+    processNodes.push(processNode);
+    // Chain consecutive steps with PROCESS_STEP edges (entry -> step1 -> step2 ...)
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prev = sorted[i - 1];
+      const cur = sorted[i];
+      if (prev === undefined || cur === undefined) continue;
+      processEdges.push({
+        id: `${prev.nodeId}->PROCESS_STEP->${cur.nodeId}:${cur.step}`,
+        from: prev.nodeId,
+        to: cur.nodeId,
+        type: "PROCESS_STEP" as RelationType,
+        confidence: 1,
+        step: cur.step,
+      } as unknown as CodeRelation);
+    }
+  }
+  return { processNodes, processEdges };
+}
+
 function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
   const handle: FakeStoreHandle = {
     store: {} as DuckDbStore,
@@ -122,6 +210,28 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
     searchCalls: 0,
     lastSearchText: null,
   };
+
+  // Compose the synthetic Process / PROCESS_STEP graph once per fake.
+  const { processNodes, processEdges } = buildProcessGraph(opts);
+
+  // All nodes the fake "knows about" — the symbol-tier `opts.nodes` plus
+  // the synthetic Process nodes above. Used by the typed-finder consumers.
+  const symbolNodes: GraphNode[] = [];
+  for (const [id, meta] of opts.nodes) {
+    symbolNodes.push({
+      id,
+      name: meta.name,
+      kind: meta.kind as NodeKind,
+      filePath: meta.filePath,
+      ...(meta.startLine !== undefined ? { startLine: meta.startLine } : {}),
+      ...(meta.endLine !== undefined ? { endLine: meta.endLine } : {}),
+    } as unknown as GraphNode);
+  }
+  const allNodes: readonly GraphNode[] = [...symbolNodes, ...processNodes];
+  const allEdges: readonly CodeRelation[] = processEdges;
+
+  const summariesPresent = opts.summariesJoined === true;
+
   const impl = {
     open: async () => {},
     close: async () => {},
@@ -132,95 +242,82 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
       durationMs: 0,
     }),
     upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized === "SELECT COUNT(*) AS n FROM embeddings") {
-        return [{ n: opts.embeddingRows }];
-      }
-      if (
-        normalized ===
-        "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'symbol_summaries'"
-      ) {
-        return [{ n: opts.summariesJoined === true ? 1 : 0 }];
-      }
-      if (normalized === "SELECT COUNT(*) AS n FROM symbol_summaries") {
-        return [{ n: opts.summariesJoined === true ? 5 : 0 }];
-      }
-      if (
-        normalized.startsWith(
-          "SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE id IN",
-        )
-      ) {
-        const idSet = new Set(params.map((p) => String(p)));
-        const out: Record<string, unknown>[] = [];
-        for (const id of idSet) {
-          const meta = opts.nodes.get(id);
-          if (meta) {
-            out.push({
-              id,
-              name: meta.name,
-              file_path: meta.filePath,
-              kind: meta.kind,
-              start_line: meta.startLine ?? null,
-              end_line: meta.endLine ?? null,
-            });
+    listEmbeddingHashes: async (): Promise<Map<string, string>> => {
+      // `embeddingsPopulated` only checks `.size > 0` — the actual hashes
+      // are irrelevant to this surface, so we synthesize one entry per
+      // requested row.
+      const out = new Map<string, string>();
+      for (let i = 0; i < opts.embeddingRows; i += 1) out.set(`hash-${i}`, "");
+      return out;
+    },
+    listNodes: async (lopts: ListNodesOptions = {}): Promise<readonly GraphNode[]> => {
+      const idsRaw = lopts.ids;
+      if (idsRaw !== undefined && idsRaw.length === 0) return [];
+      const kinds = lopts.kinds;
+      if (kinds !== undefined && kinds.length === 0) return [];
+      const idSet = idsRaw !== undefined ? new Set(idsRaw) : undefined;
+      const kindSet = kinds !== undefined ? new Set<string>(kinds) : undefined;
+      return allNodes.filter((n) => {
+        if (idSet !== undefined && !idSet.has(n.id)) return false;
+        if (kindSet !== undefined && !kindSet.has(n.kind)) return false;
+        return true;
+      });
+    },
+    listNodesByKind: async (kind: NodeKind): Promise<readonly GraphNode[]> => {
+      return allNodes.filter((n) => n.kind === kind);
+    },
+    listEdges: async (lopts: ListEdgesOptions = {}): Promise<readonly CodeRelation[]> => {
+      const types = lopts.types !== undefined ? new Set<string>(lopts.types) : undefined;
+      const fromIds = lopts.fromIds !== undefined ? new Set(lopts.fromIds) : undefined;
+      const toIds = lopts.toIds !== undefined ? new Set(lopts.toIds) : undefined;
+      return allEdges.filter((e) => {
+        if (types !== undefined && !types.has(e.type)) return false;
+        if (fromIds !== undefined && !fromIds.has(e.from)) return false;
+        if (toIds !== undefined && !toIds.has(e.to)) return false;
+        return true;
+      });
+    },
+    listEdgesByType: async (
+      type: RelationType,
+      lopts: ListEdgesByTypeOptions = {},
+    ): Promise<readonly CodeRelation[]> => {
+      const fromIds = lopts.fromIds !== undefined ? new Set(lopts.fromIds) : undefined;
+      const toIds = lopts.toIds !== undefined ? new Set(lopts.toIds) : undefined;
+      return allEdges.filter((e) => {
+        if (e.type !== type) return false;
+        if (fromIds !== undefined && !fromIds.has(e.from)) return false;
+        if (toIds !== undefined && !toIds.has(e.to)) return false;
+        return true;
+      });
+    },
+    traverseAncestors: async (
+      tropts: AncestorTraversalOptions,
+    ): Promise<readonly TraverseResultType[]> => {
+      // BFS backward along edges of the allowed types.
+      if (tropts.edgeTypes.length === 0) return [];
+      const allowed = new Set<string>(tropts.edgeTypes);
+      const seen = new Set<string>([tropts.fromId]);
+      const out: TraverseResultType[] = [];
+      type Frontier = { id: string; depth: number; path: string[] };
+      let frontier: Frontier[] = [{ id: tropts.fromId, depth: 0, path: [tropts.fromId] }];
+      while (frontier.length > 0) {
+        const next: Frontier[] = [];
+        for (const cur of frontier) {
+          if (cur.depth >= tropts.maxDepth) continue;
+          for (const e of allEdges) {
+            if (!allowed.has(e.type)) continue;
+            if (e.to !== cur.id) continue;
+            if (seen.has(e.from)) continue;
+            seen.add(e.from);
+            const path = [...cur.path, e.from];
+            const depth = cur.depth + 1;
+            out.push({ nodeId: e.from, depth, path });
+            next.push({ id: e.from, depth, path });
           }
         }
-        return out;
+        frontier = next;
       }
-      // Process-grouping CTE: detect by its distinctive `WITH RECURSIVE` +
-      // `ancestors(ancestor_id` + `PROCESS_STEP` + `matched_processes`
-      // fingerprint. Params are the top-K hit ids. We short-circuit the
-      // real recursive walk with a pre-built lookup from `opts.processMembers`:
-      // include every member whose processId also has at least one top-K
-      // hit in its member list.
-      if (
-        normalized.startsWith("WITH RECURSIVE") &&
-        normalized.includes("PROCESS_STEP") &&
-        normalized.includes("matched_processes")
-      ) {
-        const members = opts.processMembers ?? [];
-        if (members.length === 0) return [];
-        const hitIds = new Set(params.map((p) => String(p)));
-        // A process participates iff any of its members is in the hit set.
-        const participating = new Set<string>();
-        for (const m of members) {
-          if (hitIds.has(m.nodeId)) participating.add(m.processId);
-        }
-        const out: Record<string, unknown>[] = [];
-        for (const m of members) {
-          if (!participating.has(m.processId)) continue;
-          const meta = opts.nodes.get(m.nodeId);
-          out.push({
-            process_id: m.processId,
-            process_name: m.processName,
-            inferred_label: m.inferredLabel,
-            step_count: m.stepCount,
-            node_id: m.nodeId,
-            step: m.step,
-            node_name: meta?.name ?? m.nodeId,
-            node_kind: meta?.kind ?? "Function",
-            node_file: meta?.filePath ?? "",
-          });
-        }
-        // Mirror the real SQL's ORDER BY (process_id ASC, step ASC, node_id ASC).
-        out.sort((a, b) => {
-          const pa = String(a["process_id"] ?? "");
-          const pb = String(b["process_id"] ?? "");
-          if (pa !== pb) return pa < pb ? -1 : 1;
-          const sa = Number(a["step"] ?? 0);
-          const sb = Number(b["step"] ?? 0);
-          if (sa !== sb) return sa - sb;
-          const na = String(a["node_id"] ?? "");
-          const nb = String(b["node_id"] ?? "");
-          return na < nb ? -1 : na > nb ? 1 : 0;
-        });
-        return out;
-      }
-      throw new Error(`unsupported sql in fake store: ${normalized}`);
+      return out;
     },
     search: async (q: SearchQuery): Promise<readonly SearchResult[]> => {
       handle.searchCalls += 1;
@@ -235,8 +332,27 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
     getMeta: async (): Promise<StoreMeta | undefined> => undefined,
     setMeta: async (_m: StoreMeta): Promise<void> => {},
     healthCheck: async () => ({ ok: true }),
+    // ITemporalStore.exec — `bm25CorpusHasSummaries` calls this with two
+    // information_schema / count probes. Mirror the original SQL-regex
+    // dispatcher's responses for those exact texts.
+    exec: async (
+      sql: string,
+      _params: readonly SqlParam[] = [],
+    ): Promise<readonly Record<string, unknown>[]> => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (
+        normalized ===
+        "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'symbol_summaries'"
+      ) {
+        return [{ n: summariesPresent ? 1 : 0 }];
+      }
+      if (normalized === "SELECT COUNT(*) AS n FROM symbol_summaries") {
+        return [{ n: summariesPresent ? 5 : 0 }];
+      }
+      throw new Error(`unsupported sql in fake store exec: ${normalized}`);
+    },
     // Cochange + summary surfaces — unused by `query`, but required to
-    // satisfy the full IGraphStore interface.
+    // satisfy the full IGraphStore / ITemporalStore interfaces.
     bulkLoadCochanges: async () => {},
     lookupCochangesForFile: async () => [],
     lookupCochangesBetween: async () => undefined,
@@ -331,7 +447,9 @@ async function withHarness(
         },
       }),
     );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => handle.store);
+    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () =>
+      wrapAsStore(handle.store),
+    );
     const ctx: ToolContext = {
       pool,
       home,

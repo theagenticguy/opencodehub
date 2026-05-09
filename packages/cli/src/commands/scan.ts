@@ -50,7 +50,7 @@ import {
   type ScannerStatus,
   SPECTRAL_SPEC,
 } from "@opencodehub/scanners";
-import { DuckDbStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
+import { openStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 import { runIngestSarif } from "./ingest-sarif.js";
 
@@ -264,36 +264,28 @@ function applySuppressionsForRepo(repoPath: string, log: SarifLog): SarifLog {
 export async function readProjectProfile(repoPath: string): Promise<ProjectProfileGate> {
   const dbPath = resolveDbPath(repoPath);
   try {
-    const store = new DuckDbStore(dbPath, { readOnly: true });
+    const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
     try {
-      await store.open();
-      const rows = (await store.query(
-        "SELECT languages_json, iac_types_json, api_contracts_json FROM nodes WHERE kind = 'ProjectProfile' LIMIT 1",
-        [],
-      )) as ReadonlyArray<Record<string, unknown>>;
+      await composed.graph.open();
+      // The single-row ProjectProfile lookup. `listNodesByKind` materializes
+      // a typed `ProjectProfileNode`, which already carries the typed
+      // `languages` / `iacTypes` / `apiContracts` arrays — no JSON parsing
+      // needed. The legacy SQL went through the wide-column `*_json`
+      // shape because the column encoder serialised them; the storage
+      // layer now hands back the rehydrated TS shape directly.
+      const rows = await composed.graph.listNodesByKind("ProjectProfile", { limit: 1 });
       const row = rows[0];
       if (!row) return {};
       return {
-        languages: parseJsonArray(row["languages_json"]),
-        iacTypes: parseJsonArray(row["iac_types_json"]),
-        apiContracts: parseJsonArray(row["api_contracts_json"]),
+        languages: row.languages,
+        iacTypes: row.iacTypes,
+        apiContracts: row.apiContracts,
       };
     } finally {
-      await store.close();
+      await composed.close();
     }
   } catch {
     return {};
-  }
-}
-
-function parseJsonArray(value: unknown): readonly string[] {
-  if (typeof value !== "string" || value.length === 0) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    return [];
   }
 }
 

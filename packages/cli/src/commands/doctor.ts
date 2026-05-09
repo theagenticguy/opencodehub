@@ -94,6 +94,7 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   if (opts.skipNative !== true) {
     list.push(treeSitterNativeCheck(repoRoot));
     list.push(duckdbWorksCheck(repoRoot));
+    list.push(lbugWorksCheck(repoRoot));
   }
   list.push(
     binaryOnPathCheck(
@@ -246,6 +247,53 @@ function duckdbWorksCheck(repoRoot: string): Check {
           status: "fail",
           message: `duckdb failed to open: ${err instanceof Error ? err.message : String(err)}`,
           hint: "check platform support — pnpm only prebuilds linux-x64/arm64, darwin-arm64/x64, win32-x64",
+        };
+      }
+    },
+  };
+}
+
+/**
+ * Mirror of {@link duckdbWorksCheck} for the optional `@ladybugdb/core`
+ * graph-db backend. Emits `warn` (not `fail`) when the package is
+ * uninstalled because `@ladybugdb/core` is opt-in: a default `duck`
+ * deployment never needs it. When the package IS installed and the
+ * smoke test fails we surface `fail` so a broken native binding can be
+ * triaged the same way duckdb's is.
+ */
+function lbugWorksCheck(repoRoot: string): Check {
+  return {
+    name: "graph-db native binding",
+    async run() {
+      try {
+        const lbugPath = resolveFromRoot(repoRoot, "@ladybugdb/core");
+        if (!lbugPath) {
+          return {
+            status: "warn",
+            message: "@ladybugdb/core not installed (optional graph-db backend)",
+            hint: "run `pnpm install` and set `CODEHUB_STORE=lbug` to opt in; otherwise ignore",
+          };
+        }
+        // The opt-in graph-db backend uses `@ladybugdb/core`'s `Database`
+        // entry. We exercise the load-and-close cycle the same way the
+        // duckdb check does — anything heavier would couple this probe to
+        // the adapter's evolving smoke-test surface.
+        const mod = (await import(lbugPath)) as Record<string, unknown>;
+        const ctorRaw =
+          mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
+        if (typeof ctorRaw !== "function") {
+          return {
+            status: "fail",
+            message: "@ladybugdb/core is installed but exports no Database constructor",
+            hint: "re-run `pnpm install` to refresh the graph-db backend bindings",
+          };
+        }
+        return { status: "ok", message: "@ladybugdb/core load OK" };
+      } catch (err) {
+        return {
+          status: "fail",
+          message: `@ladybugdb/core failed to load: ${err instanceof Error ? err.message : String(err)}`,
+          hint: "the graph-db backend is opt-in; unset `CODEHUB_STORE=lbug` or reinstall the binding",
         };
       }
     },

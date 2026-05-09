@@ -48,60 +48,6 @@ interface ProjectProfilePayload {
   readonly srcDirs: readonly string[];
 }
 
-function parseJsonArray(raw: unknown): readonly string[] {
-  if (raw == null) return [];
-  if (typeof raw !== "string") return [];
-  if (raw.length === 0) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Decode the polymorphic `frameworks_json` column. Returns both the flat
- * form (legacy-compat) and the structured form (v2.0). When the column
- * holds the legacy flat array, `detected` is empty.
- */
-function parseFrameworksJson(raw: unknown): {
-  readonly flat: readonly string[];
-  readonly detected: readonly FrameworkDetection[];
-} {
-  if (raw == null || typeof raw !== "string" || raw.length === 0) {
-    return { flat: [], detected: [] };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return { flat: [], detected: [] };
-  }
-  // Legacy shape — a flat array of names.
-  if (Array.isArray(parsed)) {
-    const flat = parsed.filter((x): x is string => typeof x === "string");
-    return { flat, detected: [] };
-  }
-  // v2.0 shape — `{ flat, detected }`.
-  if (typeof parsed === "object" && parsed !== null) {
-    const rec = parsed as Record<string, unknown>;
-    const flat = Array.isArray(rec["flat"])
-      ? (rec["flat"] as unknown[]).filter((x): x is string => typeof x === "string")
-      : [];
-    const detected = Array.isArray(rec["detected"])
-      ? (rec["detected"] as unknown[]).filter((x): x is FrameworkDetection => {
-          if (typeof x !== "object" || x === null) return false;
-          const d = x as Record<string, unknown>;
-          return typeof d["name"] === "string" && typeof d["category"] === "string";
-        })
-      : [];
-    return { flat, detected };
-  }
-  return { flat: [], detected: [] };
-}
-
 interface ProjectProfileArgs {
   readonly repo?: string | undefined;
   readonly repo_uri?: string | undefined;
@@ -113,28 +59,19 @@ export async function runProjectProfile(
 ): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const rows = (await store.query(
-        `SELECT languages_json, frameworks_json, iac_types_json,
-                    api_contracts_json, manifests_json, src_dirs_json
-             FROM nodes WHERE kind = 'ProjectProfile' LIMIT 1`,
-        [],
-      )) as ReadonlyArray<Record<string, unknown>>;
-
-      const row = rows[0];
-      const { flat: frameworksFlat, detected: frameworksDetected } = parseFrameworksJson(
-        row?.["frameworks_json"],
-      );
+      const nodes = await store.graph.listNodesByKind("ProjectProfile", { limit: 1 });
+      const profile = nodes[0];
       const payload: ProjectProfilePayload = {
-        languages: parseJsonArray(row?.["languages_json"]),
-        frameworks: frameworksFlat,
-        frameworksDetected,
-        iacTypes: parseJsonArray(row?.["iac_types_json"]),
-        apiContracts: parseJsonArray(row?.["api_contracts_json"]),
-        manifests: parseJsonArray(row?.["manifests_json"]),
-        srcDirs: parseJsonArray(row?.["src_dirs_json"]),
+        languages: profile?.languages ? [...profile.languages] : [],
+        frameworks: profile?.frameworks ? [...profile.frameworks] : [],
+        frameworksDetected: profile?.frameworksDetected ? [...profile.frameworksDetected] : [],
+        iacTypes: profile?.iacTypes ? [...profile.iacTypes] : [],
+        apiContracts: profile?.apiContracts ? [...profile.apiContracts] : [],
+        manifests: profile?.manifests ? [...profile.manifests] : [],
+        srcDirs: profile?.srcDirs ? [...profile.srcDirs] : [],
       };
 
-      const profileExists = row !== undefined;
+      const profileExists = profile !== undefined;
       const header = profileExists
         ? `Project profile for ${resolved.name}:`
         : `No ProjectProfile node in ${resolved.name}. Re-index with \`codehub analyze --force\` to populate.`;

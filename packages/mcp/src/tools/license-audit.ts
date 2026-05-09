@@ -53,21 +53,14 @@ export async function runLicenseAudit(
 ): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const rows = (await store.query(
-        `SELECT id, name, version, license, lockfile_source, ecosystem, file_path
-             FROM nodes
-             WHERE kind = 'Dependency'
-             ORDER BY id`,
-        [],
-      )) as ReadonlyArray<Record<string, unknown>>;
-
-      const deps: DependencyRef[] = rows.map((r) => ({
-        id: String(r["id"] ?? ""),
-        name: String(r["name"] ?? ""),
-        version: stringOr(r["version"], "UNKNOWN"),
-        ecosystem: stringOr(r["ecosystem"], "unknown"),
-        license: stringOr(r["license"], "UNKNOWN"),
-        lockfileSource: stringOr(r["lockfile_source"], String(r["file_path"] ?? "")),
+      const all = await store.graph.listDependencies();
+      const deps: DependencyRef[] = all.map((d) => ({
+        id: d.id,
+        name: d.name,
+        version: stringOr(d.version, "UNKNOWN"),
+        ecosystem: stringOr(d.ecosystem, "unknown"),
+        license: stringOr(d.license, "UNKNOWN"),
+        lockfileSource: stringOr(d.lockfileSource, d.filePath),
       }));
 
       const result = classifyDependencies(deps);

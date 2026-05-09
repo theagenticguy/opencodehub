@@ -2,9 +2,11 @@
  * Wiki generation tests — confirm the deterministic-output + success-criteria
  * contract without spinning up DuckDB.
  *
- * A small in-memory `WikiFakeStore` models the SQL shapes the wiki renderers
- * issue. Every query the code paths emit is captured; unmatched SQL throws
- * loudly so the test surface stays honest with production.
+ * The post-AC-A-6d `WikiFakeStore` implements `IGraphStore` finder methods
+ * directly over in-memory `nodes` + `edges` arrays. The earlier
+ * SQL-regex `dispatch()` (~400 LOC of pattern-matching) is gone — every
+ * helper in `wiki/wiki-render/shared.ts` now reaches the same fixture
+ * data via typed finders.
  */
 
 import assert from "node:assert/strict";
@@ -13,18 +15,29 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import type { GraphNode } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  DependencyNode,
+  FindingNode,
+  GraphNode,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
+} from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
-  CochangeRow,
+  ConsumerProducerEdge,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
+  ListEdgesByTypeOptions,
+  ListNodesByKindOptions,
   ListNodesOptions,
   SearchQuery,
   SearchResult,
-  SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -57,6 +70,11 @@ interface WikiNode {
   readonly topContributorLastSeenDays?: number;
   readonly emailHash?: string;
   readonly emailPlain?: string;
+  /**
+   * Test fixtures historically wrote ProjectProfile arrays as JSON strings.
+   * The fake parses these into `string[]` on read so the typed
+   * `ProjectProfileNode` shape lines up without churning every fixture.
+   */
   readonly languagesJson?: string;
   readonly frameworksJson?: string;
   readonly apiContractsJson?: string;
@@ -70,7 +88,131 @@ interface WikiEdge {
   readonly confidence: number;
 }
 
+function parseJsonArray(raw: string | undefined): readonly string[] {
+  if (typeof raw !== "string" || raw.length === 0) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Project the in-memory `WikiNode` row onto the typed `GraphNode` union the
+ * production code expects. Each kind gets the minimal field set the helper
+ * functions read; absent fields collapse to `undefined`.
+ */
+function projectNode(n: WikiNode): GraphNode {
+  const base = { id: n.id as GraphNode["id"], name: n.name, filePath: n.filePath } as const;
+  const located = {
+    ...(n.startLine !== undefined ? { startLine: n.startLine } : {}),
+    ...(n.endLine !== undefined ? { endLine: n.endLine } : {}),
+  };
+  switch (n.kind) {
+    case "Community":
+      return {
+        ...base,
+        kind: "Community",
+        ...(n.inferredLabel !== undefined ? { inferredLabel: n.inferredLabel } : {}),
+        ...(n.symbolCount !== undefined ? { symbolCount: n.symbolCount } : {}),
+        ...(n.cohesion !== undefined ? { cohesion: n.cohesion } : {}),
+        ...(n.truckFactor !== undefined ? { truckFactor: n.truckFactor } : {}),
+      };
+    case "ProjectProfile":
+      return {
+        ...base,
+        kind: "ProjectProfile",
+        languages: parseJsonArray(n.languagesJson),
+        frameworks: parseJsonArray(n.frameworksJson),
+        apiContracts: parseJsonArray(n.apiContractsJson),
+        iacTypes: parseJsonArray(n.iacTypesJson),
+        manifests: [],
+        srcDirs: [],
+      };
+    case "File":
+      return {
+        ...base,
+        kind: "File",
+        ...(n.orphanGrade !== undefined
+          ? { orphanGrade: n.orphanGrade as "active" | "orphaned" | "abandoned" | "fossilized" }
+          : {}),
+        ...(n.topContributorLastSeenDays !== undefined
+          ? { topContributorLastSeenDays: n.topContributorLastSeenDays }
+          : {}),
+      };
+    case "Route":
+      return {
+        ...base,
+        kind: "Route",
+        url: n.url ?? "",
+        ...(n.method !== undefined ? { method: n.method } : {}),
+      };
+    case "Operation":
+      return {
+        ...base,
+        kind: "Operation",
+        method: (n.httpMethod ?? "GET") as RouteNode["method"] extends infer _ ? "GET" : never,
+        path: n.httpPath ?? "",
+        ...(n.summary !== undefined ? { summary: n.summary } : {}),
+      } as GraphNode;
+    case "Dependency":
+      return {
+        ...base,
+        kind: "Dependency",
+        version: n.version ?? "",
+        ecosystem: (n.ecosystem ?? "npm") as DependencyNode["ecosystem"],
+        lockfileSource: n.lockfileSource ?? "",
+        ...(n.license !== undefined ? { license: n.license } : {}),
+      };
+    case "Contributor":
+      return {
+        ...base,
+        kind: "Contributor",
+        emailHash: n.emailHash ?? "",
+        ...(n.emailPlain !== undefined ? { emailPlain: n.emailPlain } : {}),
+      };
+    case "Function":
+      return {
+        ...base,
+        kind: "Function",
+        ...located,
+        ...(n.deadness !== undefined ? { deadness: n.deadness as "dead" } : {}),
+      };
+    case "Method":
+      return {
+        ...base,
+        kind: "Method",
+        ...located,
+        owner: "",
+        ...(n.deadness !== undefined ? { deadness: n.deadness as "dead" } : {}),
+      } as GraphNode;
+    case "Class":
+      return {
+        ...base,
+        kind: "Class",
+        ...located,
+      };
+    default:
+      // Fall back to the raw shape; the production code paths for unknown
+      // kinds never read past `id`/`name`/`filePath`.
+      return { ...base, kind: n.kind as NodeKind } as GraphNode;
+  }
+}
+
+function projectEdge(e: WikiEdge): CodeRelation {
+  return {
+    id: `${e.type}:${e.fromId}->${e.toId}` as CodeRelation["id"],
+    from: e.fromId as CodeRelation["from"],
+    to: e.toId as CodeRelation["to"],
+    type: e.type as RelationType,
+    confidence: e.confidence,
+  };
+}
+
 class WikiFakeStore implements IGraphStore {
+  readonly dialect: GraphDialect = "none";
   readonly nodes: WikiNode[] = [];
   readonly edges: WikiEdge[] = [];
 
@@ -81,72 +223,29 @@ class WikiFakeStore implements IGraphStore {
     this.edges.push(e);
   }
 
-  open(): Promise<void> {
-    return Promise.resolve();
+  async open(): Promise<void> {}
+  async close(): Promise<void> {}
+  async createSchema(): Promise<void> {}
+  async bulkLoad(): Promise<BulkLoadStats> {
+    return { nodeCount: 0, edgeCount: 0, durationMs: 0 };
   }
-  close(): Promise<void> {
-    return Promise.resolve();
+  async upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {}
+  async listEmbeddingHashes(): Promise<Map<string, string>> {
+    return new Map();
   }
-  createSchema(): Promise<void> {
-    return Promise.resolve();
+  // biome-ignore lint/correctness/useYield: empty stream — no embeddings in the wiki fixture
+  async *listEmbeddings(): AsyncIterable<EmbeddingRow> {}
+
+  async listNodesByEntryPoint(_entryPointId: string): Promise<readonly GraphNode[]> {
+    return [];
   }
-  bulkLoad(): Promise<BulkLoadStats> {
-    return Promise.resolve({ nodeCount: 0, edgeCount: 0, durationMs: 0 });
-  }
-  upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {
-    return Promise.resolve();
-  }
-  listEmbeddingHashes(): Promise<Map<string, string>> {
-    return Promise.resolve(new Map());
-  }
-  search(_q: SearchQuery): Promise<readonly SearchResult[]> {
-    return Promise.resolve([]);
-  }
-  vectorSearch(_q: VectorQuery): Promise<readonly VectorResult[]> {
-    return Promise.resolve([]);
-  }
-  traverse(_q: TraverseQuery): Promise<readonly TraverseResult[]> {
-    return Promise.resolve([]);
-  }
-  getMeta(): Promise<StoreMeta | undefined> {
-    return Promise.resolve(undefined);
-  }
-  setMeta(_meta: StoreMeta): Promise<void> {
-    return Promise.resolve();
-  }
-  healthCheck(): Promise<{ ok: boolean; message?: string }> {
-    return Promise.resolve({ ok: true });
-  }
-  bulkLoadCochanges(): Promise<void> {
-    return Promise.resolve();
-  }
-  lookupCochangesForFile(): Promise<readonly CochangeRow[]> {
-    return Promise.resolve([]);
-  }
-  lookupCochangesBetween(): Promise<CochangeRow | undefined> {
-    return Promise.resolve(undefined);
-  }
-  bulkLoadSymbolSummaries(_rows: readonly SymbolSummaryRow[]): Promise<void> {
-    return Promise.resolve();
-  }
-  lookupSymbolSummary(): Promise<SymbolSummaryRow | undefined> {
-    return Promise.resolve(undefined);
-  }
-  lookupSymbolSummariesByNode(): Promise<readonly SymbolSummaryRow[]> {
-    return Promise.resolve([]);
+  async listNodesByName(_name: string): Promise<readonly GraphNode[]> {
+    return [];
   }
 
-  query(
-    sql: string,
-    params: readonly SqlParam[] = [],
-  ): Promise<readonly Record<string, unknown>[]> {
-    const trimmed = sql.replace(/\s+/g, " ").trim();
-    return Promise.resolve(this.dispatch(trimmed, params));
-  }
-
-  listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
+  async listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
     const kinds = opts.kinds;
-    if (kinds !== undefined && kinds.length === 0) return Promise.resolve([]);
+    if (kinds !== undefined && kinds.length === 0) return [];
     const filtered =
       kinds && kinds.length > 0
         ? this.nodes.filter((n) => kinds.includes(n.kind))
@@ -157,321 +256,121 @@ class WikiFakeStore implements IGraphStore {
       typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
     const sliced =
       limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
-    return Promise.resolve(sliced as unknown as readonly GraphNode[]);
+    return sliced.map(projectNode);
   }
 
-  private dispatch(sql: string, params: readonly SqlParam[]): readonly Record<string, unknown>[] {
-    if (
-      sql.startsWith(
-        "SELECT id, name, inferred_label, symbol_count, cohesion, truck_factor FROM nodes WHERE kind = 'Community'",
-      )
-    ) {
-      return this.nodes
-        .filter((n) => n.kind === "Community")
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          inferred_label: n.inferredLabel ?? "",
-          symbol_count: n.symbolCount ?? 0,
-          cohesion: n.cohesion ?? 0,
-          truck_factor: n.truckFactor ?? null,
-        }));
+  async listNodesByKind<K extends NodeKind>(
+    kind: K,
+    opts: ListNodesByKindOptions = {},
+  ): Promise<readonly NodeOfKind<K>[]> {
+    let filtered = this.nodes.filter((n) => n.kind === kind);
+    if (typeof opts.filePath === "string") {
+      filtered = filtered.filter((n) => n.filePath === opts.filePath);
     }
-    if (
-      sql.startsWith(
-        "SELECT n.file_path AS file_path, COUNT(*) AS member_count FROM relations r JOIN nodes n ON n.id = r.from_id WHERE r.type = 'MEMBER_OF' AND r.to_id = ?",
-      )
-    ) {
-      const communityId = String(params[0]);
-      const limit = Number(params[1] ?? 10);
-      const byFile = new Map<string, number>();
-      for (const e of this.edges) {
-        if (e.type !== "MEMBER_OF" || e.toId !== communityId) continue;
-        const from = this.nodes.find((n) => n.id === e.fromId);
-        if (from === undefined) continue;
-        byFile.set(from.filePath, (byFile.get(from.filePath) ?? 0) + 1);
-      }
-      const rows = [...byFile.entries()]
-        .map(([filePath, memberCount]) => ({ file_path: filePath, member_count: memberCount }))
-        .sort((a, b) =>
-          b.member_count === a.member_count
-            ? a.file_path.localeCompare(b.file_path)
-            : b.member_count - a.member_count,
-        )
-        .slice(0, limit);
-      return rows;
+    if (typeof opts.filePathLike === "string") {
+      const needle = opts.filePathLike;
+      filtered = filtered.filter((n) => n.filePath.includes(needle));
     }
-    if (
-      sql.startsWith(
-        "SELECT c.id AS id, c.name AS name, c.email_hash AS email_hash, c.email_plain AS email_plain, SUM(o.confidence) AS line_share FROM relations m JOIN nodes f ON f.id = m.from_id AND f.kind = 'File' JOIN relations o ON o.from_id = f.id AND o.type = 'OWNED_BY' JOIN nodes c ON c.id = o.to_id AND c.kind = 'Contributor' WHERE m.type = 'MEMBER_OF' AND m.to_id = ?",
-      )
-    ) {
-      const communityId = String(params[0]);
-      const limit = Number(params[1] ?? 10);
-      const contributorShares = new Map<string, { node: WikiNode; share: number }>();
-      for (const memberEdge of this.edges) {
-        if (memberEdge.type !== "MEMBER_OF" || memberEdge.toId !== communityId) continue;
-        const file = this.nodes.find((n) => n.id === memberEdge.fromId && n.kind === "File");
-        if (file === undefined) continue;
-        for (const ownEdge of this.edges) {
-          if (ownEdge.type !== "OWNED_BY" || ownEdge.fromId !== file.id) continue;
-          const contributor = this.nodes.find(
-            (n) => n.id === ownEdge.toId && n.kind === "Contributor",
-          );
-          if (contributor === undefined) continue;
-          const prior = contributorShares.get(contributor.id);
-          if (prior === undefined) {
-            contributorShares.set(contributor.id, {
-              node: contributor,
-              share: ownEdge.confidence,
-            });
-          } else {
-            prior.share += ownEdge.confidence;
-          }
-        }
-      }
-      const rows = [...contributorShares.values()]
-        .sort((a, b) =>
-          b.share === a.share ? a.node.id.localeCompare(b.node.id) : b.share - a.share,
-        )
-        .slice(0, limit)
-        .map((entry) => ({
-          id: entry.node.id,
-          name: entry.node.name,
-          email_hash: entry.node.emailHash ?? "",
-          email_plain: entry.node.emailPlain ?? "",
-          line_share: entry.share,
-        }));
-      return rows;
+    filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
+    const sliced =
+      limit === undefined ? filtered.slice(offset) : filtered.slice(offset, offset + limit);
+    return sliced.map(projectNode) as unknown as readonly NodeOfKind<K>[];
+  }
+
+  async listEdges(): Promise<readonly CodeRelation[]> {
+    const sorted = [...this.edges].sort((a, b) => {
+      if (a.fromId !== b.fromId) return a.fromId.localeCompare(b.fromId);
+      if (a.toId !== b.toId) return a.toId.localeCompare(b.toId);
+      return a.type.localeCompare(b.type);
+    });
+    return sorted.map(projectEdge);
+  }
+
+  async listEdgesByType(
+    type: RelationType,
+    opts: ListEdgesByTypeOptions = {},
+  ): Promise<readonly CodeRelation[]> {
+    let filtered = this.edges.filter((e) => e.type === type);
+    if (opts.fromIds !== undefined) {
+      const ids = new Set(opts.fromIds);
+      filtered = filtered.filter((e) => ids.has(e.fromId));
     }
-    if (
-      sql.startsWith(
-        "SELECT languages_json, frameworks_json, api_contracts_json, iac_types_json FROM nodes WHERE kind = 'ProjectProfile'",
-      )
-    ) {
-      const hit = this.nodes.find((n) => n.kind === "ProjectProfile");
-      if (hit === undefined) return [];
-      return [
-        {
-          languages_json: hit.languagesJson ?? "",
-          frameworks_json: hit.frameworksJson ?? "",
-          api_contracts_json: hit.apiContractsJson ?? "",
-          iac_types_json: hit.iacTypesJson ?? "",
-        },
-      ];
+    if (opts.toIds !== undefined) {
+      const ids = new Set(opts.toIds);
+      filtered = filtered.filter((e) => ids.has(e.toId));
     }
-    if (
-      sql.startsWith(
-        "SELECT r.id AS id, r.name AS name, r.url AS url, r.method AS method, MIN(handler.file_path) AS file_path FROM nodes r LEFT JOIN relations hr ON hr.to_id = r.id AND hr.type = 'HANDLES_ROUTE' LEFT JOIN nodes handler ON handler.id = hr.from_id WHERE r.kind = 'Route'",
-      )
-    ) {
-      const routes = this.nodes.filter((n) => n.kind === "Route");
-      const rows = routes.map((r) => {
-        const handlerEdges = this.edges.filter(
-          (e) => e.type === "HANDLES_ROUTE" && e.toId === r.id,
-        );
-        const handlers = handlerEdges
-          .map((e) => this.nodes.find((n) => n.id === e.fromId))
-          .filter((n): n is WikiNode => n !== undefined);
-        const minPath =
-          handlers.length === 0
-            ? ""
-            : (handlers.map((h) => h.filePath).sort((a, b) => a.localeCompare(b))[0] ?? "");
-        return {
-          id: r.id,
-          name: r.name,
-          url: r.url ?? "",
-          method: r.method ?? "",
-          file_path: minPath,
-        };
-      });
-      rows.sort((a, b) => {
-        if (a.url !== b.url) return a.url.localeCompare(b.url);
-        if (a.method !== b.method) return a.method.localeCompare(b.method);
-        return a.id.localeCompare(b.id);
-      });
-      return rows;
+    if (typeof opts.minConfidence === "number") {
+      const floor = opts.minConfidence;
+      filtered = filtered.filter((e) => e.confidence >= floor);
     }
-    if (
-      sql.startsWith(
-        "SELECT id, name, http_path, http_method, summary, file_path FROM nodes WHERE kind = 'Operation'",
-      )
-    ) {
-      return this.nodes
-        .filter((n) => n.kind === "Operation")
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          http_path: n.httpPath ?? "",
-          http_method: n.httpMethod ?? "",
-          summary: n.summary ?? "",
-          file_path: n.filePath,
-        }))
-        .sort((a, b) => {
-          if (a.http_path !== b.http_path) return a.http_path.localeCompare(b.http_path);
-          if (a.http_method !== b.http_method) return a.http_method.localeCompare(b.http_method);
-          return a.id.localeCompare(b.id);
-        });
+    filtered.sort((a, b) => {
+      if (a.fromId !== b.fromId) return a.fromId.localeCompare(b.fromId);
+      if (a.toId !== b.toId) return a.toId.localeCompare(b.toId);
+      return a.type.localeCompare(b.type);
+    });
+    if (typeof opts.limit === "number" && opts.limit >= 0) {
+      filtered = filtered.slice(0, Math.floor(opts.limit));
     }
-    if (
-      sql.startsWith(
-        "SELECT from_n.file_path AS from_file, from_n.name AS from_name, to_n.url AS to_url FROM relations r JOIN nodes from_n ON from_n.id = r.from_id JOIN nodes to_n ON to_n.id = r.to_id WHERE r.type = 'FETCHES'",
-      )
-    ) {
-      const rows: { from_file: string; from_name: string; to_url: string }[] = [];
-      for (const e of this.edges) {
-        if (e.type !== "FETCHES") continue;
-        const from = this.nodes.find((n) => n.id === e.fromId);
-        const to = this.nodes.find((n) => n.id === e.toId);
-        if (from === undefined || to === undefined) continue;
-        rows.push({
-          from_file: from.filePath,
-          from_name: from.name,
-          to_url: to.url ?? "",
-        });
-      }
-      rows.sort((a, b) => {
-        if (a.to_url !== b.to_url) return a.to_url.localeCompare(b.to_url);
-        if (a.from_file !== b.from_file) return a.from_file.localeCompare(b.from_file);
-        return a.from_name.localeCompare(b.from_name);
-      });
-      return rows;
+    return filtered.map(projectEdge);
+  }
+
+  async listFindings(): Promise<readonly FindingNode[]> {
+    return [];
+  }
+  async listDependencies(): Promise<readonly DependencyNode[]> {
+    const deps = this.nodes.filter((n) => n.kind === "Dependency");
+    deps.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return deps.map((n) => projectNode(n) as DependencyNode);
+  }
+  async listRoutes(): Promise<readonly RouteNode[]> {
+    const routes = this.nodes.filter((n) => n.kind === "Route");
+    routes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return routes.map((n) => projectNode(n) as RouteNode);
+  }
+  async getRepoNode(): Promise<RepoNode | undefined> {
+    return undefined;
+  }
+  async countNodesByKind(): Promise<Map<NodeKind, number>> {
+    const out = new Map<NodeKind, number>();
+    for (const n of this.nodes) {
+      out.set(n.kind as NodeKind, (out.get(n.kind as NodeKind) ?? 0) + 1);
     }
-    if (
-      sql.startsWith(
-        "SELECT d.id AS id, d.name AS name, d.version AS version, d.ecosystem AS ecosystem, d.license AS license, d.lockfile_source AS lockfile_source, COUNT(r.id) AS usage_count FROM nodes d LEFT JOIN relations r ON r.to_id = d.id AND r.type = 'DEPENDS_ON' WHERE d.kind = 'Dependency'",
-      )
-    ) {
-      const rows = this.nodes
-        .filter((n) => n.kind === "Dependency")
-        .map((d) => {
-          const usageCount = this.edges.filter(
-            (e) => e.type === "DEPENDS_ON" && e.toId === d.id,
-          ).length;
-          return {
-            id: d.id,
-            name: d.name,
-            version: d.version ?? "",
-            ecosystem: d.ecosystem ?? "",
-            license: d.license ?? "",
-            lockfile_source: d.lockfileSource ?? "",
-            usage_count: usageCount,
-          };
-        });
-      rows.sort((a, b) => {
-        if (a.name !== b.name) return a.name.localeCompare(b.name);
-        if (a.version !== b.version) return a.version.localeCompare(b.version);
-        return a.id.localeCompare(b.id);
-      });
-      return rows;
+    return out;
+  }
+  async countEdgesByType(): Promise<Map<RelationType, number>> {
+    const out = new Map<RelationType, number>();
+    for (const e of this.edges) {
+      out.set(e.type as RelationType, (out.get(e.type as RelationType) ?? 0) + 1);
     }
-    if (
-      sql.startsWith(
-        "SELECT id, name, file_path, start_line, end_line, deadness FROM nodes WHERE deadness IN ('dead', 'unreachable-export')",
-      )
-    ) {
-      return this.nodes
-        .filter((n) => n.deadness === "dead" || n.deadness === "unreachable-export")
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          file_path: n.filePath,
-          start_line: n.startLine ?? null,
-          end_line: n.endLine ?? null,
-          deadness: n.deadness ?? "",
-        }))
-        .sort((a, b) => {
-          if (a.file_path !== b.file_path) return a.file_path.localeCompare(b.file_path);
-          const al = a.start_line ?? 0;
-          const bl = b.start_line ?? 0;
-          if (al !== bl) return (al as number) - (bl as number);
-          return a.id.localeCompare(b.id);
-        });
-    }
-    if (
-      sql.startsWith(
-        "SELECT id, file_path, orphan_grade FROM nodes WHERE kind = 'File' AND orphan_grade IS NOT NULL AND orphan_grade <> 'active'",
-      )
-    ) {
-      return this.nodes
-        .filter(
-          (n) => n.kind === "File" && n.orphanGrade !== undefined && n.orphanGrade !== "active",
-        )
-        .map((n) => ({
-          id: n.id,
-          file_path: n.filePath,
-          orphan_grade: n.orphanGrade ?? "",
-        }))
-        .sort((a, b) =>
-          a.file_path === b.file_path
-            ? a.id.localeCompare(b.id)
-            : a.file_path.localeCompare(b.file_path),
-        );
-    }
-    if (
-      sql.startsWith(
-        "SELECT n.name AS name FROM relations r JOIN nodes n ON n.id = r.from_id WHERE r.type = 'MEMBER_OF' AND r.to_id = ? AND n.kind IN ('Class', 'Function', 'Method')",
-      )
-    ) {
-      const communityId = String(params[0]);
-      const limit = Number(params[1] ?? 10);
-      // Walk MEMBER_OF edges into non-File, non-Contributor members and
-      // collect symbol names. In the seeded graph, MEMBER_OF is emitted
-      // from files; symbol members for this SQL don't exist in the
-      // seeded data, so returning an empty array matches the real
-      // shape (communities in the seed are file-only).
-      const names: string[] = [];
-      for (const e of this.edges) {
-        if (e.type !== "MEMBER_OF" || e.toId !== communityId) continue;
-        const from = this.nodes.find((n) => n.id === e.fromId);
-        if (from === undefined) continue;
-        if (from.kind !== "Class" && from.kind !== "Function" && from.kind !== "Method") continue;
-        if (from.name.length === 0) continue;
-        names.push(from.name);
-      }
-      const kindOrder: Record<string, number> = { Class: 0, Function: 1, Method: 2 };
-      const fromNodesByName = new Map<string, WikiNode>();
-      for (const e of this.edges) {
-        if (e.type !== "MEMBER_OF" || e.toId !== communityId) continue;
-        const from = this.nodes.find((n) => n.id === e.fromId);
-        if (from === undefined) continue;
-        if (from.kind !== "Class" && from.kind !== "Function" && from.kind !== "Method") continue;
-        fromNodesByName.set(from.id, from);
-      }
-      const sorted = [...fromNodesByName.values()]
-        .filter((n) => n.name.length > 0)
-        .sort((a, b) => {
-          const ak = kindOrder[a.kind] ?? 99;
-          const bk = kindOrder[b.kind] ?? 99;
-          if (ak !== bk) return ak - bk;
-          return a.name.localeCompare(b.name);
-        })
-        .slice(0, limit)
-        .map((n) => ({ name: n.name }));
-      return sorted;
-    }
-    if (
-      sql.startsWith(
-        "SELECT MAX(f.top_contributor_last_seen_days) AS max_days FROM relations m JOIN nodes f ON f.id = m.from_id AND f.kind = 'File' WHERE m.type = 'MEMBER_OF' AND m.to_id = ?",
-      )
-    ) {
-      const communityId = String(params[0]);
-      let max: number | undefined;
-      for (const e of this.edges) {
-        if (e.type !== "MEMBER_OF" || e.toId !== communityId) continue;
-        const file = this.nodes.find((n) => n.id === e.fromId && n.kind === "File");
-        if (file === undefined) continue;
-        if (file.topContributorLastSeenDays !== undefined) {
-          max =
-            max === undefined
-              ? file.topContributorLastSeenDays
-              : Math.max(max, file.topContributorLastSeenDays);
-        }
-      }
-      return [{ max_days: max ?? null }];
-    }
-    throw new Error(`WikiFakeStore: unhandled SQL: ${sql}`);
+    return out;
+  }
+  async search(_q: SearchQuery): Promise<readonly SearchResult[]> {
+    return [];
+  }
+  async vectorSearch(_q: VectorQuery): Promise<readonly VectorResult[]> {
+    return [];
+  }
+  async traverse(_q: TraverseQuery): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async traverseAncestors(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async traverseDescendants(): Promise<readonly TraverseResult[]> {
+    return [];
+  }
+  async listConsumerProducerEdges(): Promise<readonly ConsumerProducerEdge[]> {
+    return [];
+  }
+  async getMeta(): Promise<StoreMeta | undefined> {
+    return undefined;
+  }
+  async setMeta(_meta: StoreMeta): Promise<void> {}
+  async healthCheck(): Promise<{ ok: boolean; message?: string }> {
+    return { ok: true };
   }
 }
 

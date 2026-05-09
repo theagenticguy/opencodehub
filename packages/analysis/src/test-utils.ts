@@ -3,31 +3,62 @@
  * settings as production code, and so tests can import it without reaching
  * across the dist boundary.
  *
- * `FakeStore` is a narrow in-memory stand-in for IGraphStore. It models
- * just enough of the surface (`query`, `traverse`, and noop lifecycle
- * methods) for impact / rename / detect-changes tests to run without
- * spinning up DuckDB.
+ * `FakeStore` is an in-memory stand-in for {@link IGraphStore}. AC-A-6b
+ * removed the SQL-regex dispatcher (formerly ~270 lines) and replaced it
+ * with direct implementations of every typed finder the analysis/ surface
+ * consumes — `listNodes`, `listNodesByKind`, `listNodesByName`,
+ * `listNodesByEntryPoint`, `listEdges`, `listEdgesByType`, `listFindings`,
+ * `countNodesByKind`, `countEdgesByType`, `traverseAncestors`,
+ * `traverseDescendants`, `traverse`, plus the ITemporalStore-compat noops.
+ *
+ * Per-test fixtures populate the store via `addNode` / `addEdge`; the test
+ * then exercises the production code through the same finders the DuckDb
+ * and GraphDb adapters expose. No raw SQL crosses the test boundary.
  */
 
-import type { GraphNode } from "@opencodehub/core-types";
 import type {
+  CodeRelation,
+  DependencyNode,
+  FindingNode,
+  GraphNode,
+  KnowledgeGraph,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
+} from "@opencodehub/core-types";
+import type {
+  AncestorTraversalOptions,
   BulkLoadStats,
-  CochangeLookupOptions,
-  CochangeRow,
+  ConsumerProducerEdge,
+  DescendantTraversalOptions,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
+  ListDependenciesOptions,
+  ListEdgesByTypeOptions,
+  ListEdgesOptions,
+  ListEmbeddingsOptions,
+  ListFindingsOptions,
+  ListNodesByKindOptions,
+  ListNodesByNameOptions,
   ListNodesOptions,
+  ListRoutesOptions,
   SearchQuery,
   SearchResult,
-  SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
   VectorResult,
 } from "@opencodehub/storage";
 
+/**
+ * Lightweight node fixture used by the analysis test suites. Carries only
+ * the fields tests actually exercise. Adapter-grade rehydration (full
+ * NODE_COLUMNS round-trip) lives in `@opencodehub/storage/finders.test.ts`.
+ */
 export interface FakeNode {
   readonly id: string;
   readonly kind: string;
@@ -42,6 +73,25 @@ export interface FakeNode {
   readonly isExported?: boolean;
   /** Community label — used by the impact-tool module aggregation. */
   readonly inferredLabel?: string;
+  /** Community symbol count — used by risk-snapshot. */
+  readonly symbolCount?: number;
+  /** Community cohesion — used by risk-snapshot. */
+  readonly cohesion?: number;
+  /** Finding rule id — used by verdict findings aggregation. */
+  readonly ruleId?: string;
+  /** Finding severity — used by verdict + risk-snapshot. */
+  readonly severity?: string;
+  /** Finding suppression payload (JSON-encoded SARIF suppressions[]). */
+  readonly suppressedJson?: string;
+  /** Verdict signals: orphan grade / fix-follow-feat / coverage / cyclomatic. */
+  readonly fixFollowFeatDensity?: number;
+  readonly coveragePercent?: number;
+  readonly cyclomaticComplexity?: number;
+  /** Contributor reviewer aggregation. */
+  readonly emailHash?: string;
+  readonly emailPlain?: string;
+  /** Other fields the production code may forward unchanged. */
+  readonly [extraField: string]: unknown;
 }
 
 export interface FakeEdge {
@@ -52,13 +102,56 @@ export interface FakeEdge {
   readonly reason?: string;
 }
 
+function nodeAsGraphNode(n: FakeNode): GraphNode {
+  // Tests exercise typed-finder consumers that read `{id, name, kind,
+  // filePath}` plus a handful of polymorphic optional fields. We pass the
+  // FakeNode through as a GraphNode — every test field already maps onto
+  // either NodeBase, LocatedNode, or a kind-specific node interface. The
+  // discriminated-union narrowing in production code only cares about
+  // `kind`, so the cast is sound for the analysis test fixtures.
+  return n as unknown as GraphNode;
+}
+
+function edgeAsCodeRelation(e: FakeEdge): CodeRelation {
+  return {
+    id: `${e.fromId}->${e.type}->${e.toId}`,
+    from: e.fromId,
+    to: e.toId,
+    type: e.type as RelationType,
+    confidence: e.confidence,
+    ...(e.reason !== undefined ? { reason: e.reason } : {}),
+  } as unknown as CodeRelation;
+}
+
 /**
- * Rudimentary SQL dispatcher. Each `query()` call is matched against a
- * small set of patterns produced by the analysis code (by-name lookup,
- * IN-list hydration, file-path filter, process-step join, …). Anything
- * unknown throws loudly so the test surfaces the shape it needs.
+ * Sort {@link FakeNode}s by `id` ASC. Mirrors the determinism contract on
+ * every typed-finder family the production adapters honour.
+ */
+function sortNodesById(nodes: readonly FakeNode[]): FakeNode[] {
+  return [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Sort edges by `(from, to, type)` so callers see the same order as
+ * `listEdges` returns from DuckDb/GraphDb.
+ */
+function sortEdges(edges: readonly FakeEdge[]): FakeEdge[] {
+  return [...edges].sort((a, b) => {
+    if (a.fromId !== b.fromId) return a.fromId < b.fromId ? -1 : 1;
+    if (a.toId !== b.toId) return a.toId < b.toId ? -1 : 1;
+    if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+    return 0;
+  });
+}
+
+/**
+ * In-memory {@link IGraphStore} implementation backing the analysis test
+ * suite. Every finder is implemented against the `nodes`/`edges` arrays
+ * directly — there is no SQL dialect between the test and the production
+ * code under test.
  */
 export class FakeStore implements IGraphStore {
+  readonly dialect: GraphDialect = "none";
   readonly nodes: FakeNode[] = [];
   readonly edges: FakeEdge[] = [];
 
@@ -79,7 +172,7 @@ export class FakeStore implements IGraphStore {
   createSchema(): Promise<void> {
     return Promise.resolve();
   }
-  bulkLoad(): Promise<BulkLoadStats> {
+  bulkLoad(_graph: KnowledgeGraph): Promise<BulkLoadStats> {
     return Promise.resolve({ nodeCount: 0, edgeCount: 0, durationMs: 0 });
   }
   upsertEmbeddings(_rows: readonly EmbeddingRow[]): Promise<void> {
@@ -87,6 +180,10 @@ export class FakeStore implements IGraphStore {
   }
   listEmbeddingHashes(): Promise<Map<string, string>> {
     return Promise.resolve(new Map());
+  }
+  // eslint-disable-next-line require-yield
+  async *listEmbeddings(_opts?: ListEmbeddingsOptions): AsyncIterable<EmbeddingRow> {
+    // No embeddings in the test fixture surface today.
   }
   search(_q: SearchQuery): Promise<readonly SearchResult[]> {
     return Promise.resolve([]);
@@ -103,64 +200,209 @@ export class FakeStore implements IGraphStore {
   healthCheck(): Promise<{ ok: boolean; message?: string }> {
     return Promise.resolve({ ok: true });
   }
-  bulkLoadCochanges(_rows: readonly CochangeRow[]): Promise<void> {
-    return Promise.resolve();
-  }
-  lookupCochangesForFile(
-    _file: string,
-    _opts?: CochangeLookupOptions,
-  ): Promise<readonly CochangeRow[]> {
-    return Promise.resolve([]);
-  }
-  lookupCochangesBetween(_a: string, _b: string): Promise<CochangeRow | undefined> {
-    return Promise.resolve(undefined);
-  }
-  bulkLoadSymbolSummaries(_rows: readonly SymbolSummaryRow[]): Promise<void> {
-    return Promise.resolve();
-  }
-  lookupSymbolSummary(
-    _nodeId: string,
-    _contentHash: string,
-    _promptVersion: string,
-  ): Promise<SymbolSummaryRow | undefined> {
-    return Promise.resolve(undefined);
-  }
-  lookupSymbolSummariesByNode(_nodeIds: readonly string[]): Promise<readonly SymbolSummaryRow[]> {
-    return Promise.resolve([]);
-  }
 
-  query(
-    sql: string,
-    params: readonly SqlParam[] = [],
-  ): Promise<readonly Record<string, unknown>[]> {
-    const trimmed = sql.replace(/\s+/g, " ").trim();
-    const rows = this.dispatch(trimmed, params);
-    return Promise.resolve(rows);
-  }
+  // --------------------------------------------------------------------------
+  // Typed-finder family — direct implementations against the in-memory arrays.
+  // --------------------------------------------------------------------------
 
   listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
-    // FakeStore models only a subset of fields per node. The shared listNodes
-    // tests live in @opencodehub/storage; this stub returns the in-memory
-    // nodes with the subset of fields we model, sorted by id ASC.
     const kinds = opts.kinds;
     if (kinds !== undefined && kinds.length === 0) return Promise.resolve([]);
-    const filtered =
-      kinds && kinds.length > 0
-        ? this.nodes.filter((n) => kinds.includes(n.kind))
-        : [...this.nodes];
-    const sorted = filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const idsRaw = opts.ids;
+    if (idsRaw !== undefined && idsRaw.length === 0) return Promise.resolve([]);
+    const ids = idsRaw !== undefined ? new Set(idsRaw) : undefined;
+    const kindSet = kinds !== undefined ? new Set(kinds) : undefined;
+    const filtered = this.nodes.filter((n) => {
+      if (kindSet !== undefined && !kindSet.has(n.kind)) return false;
+      if (ids !== undefined && !ids.has(n.id)) return false;
+      if (opts.filePath !== undefined && n.filePath !== opts.filePath) return false;
+      return true;
+    });
+    const sorted = sortNodesById(filtered);
     const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
     const limit =
       typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
     const sliced =
       limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
-    return Promise.resolve(sliced as unknown as readonly GraphNode[]);
+    return Promise.resolve(sliced.map(nodeAsGraphNode));
+  }
+
+  listNodesByKind<K extends NodeKind>(
+    kind: K,
+    opts: ListNodesByKindOptions = {},
+  ): Promise<readonly NodeOfKind<K>[]> {
+    const filtered = this.nodes.filter((n) => {
+      if (n.kind !== kind) return false;
+      if (opts.filePath !== undefined && n.filePath !== opts.filePath) return false;
+      if (opts.filePathLike !== undefined && !n.filePath.includes(opts.filePathLike)) {
+        return false;
+      }
+      return true;
+    });
+    const sorted = sortNodesById(filtered);
+    const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
+    const sliced =
+      limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
+    return Promise.resolve(sliced.map(nodeAsGraphNode) as unknown as readonly NodeOfKind<K>[]);
+  }
+
+  listNodesByName(name: string, opts: ListNodesByNameOptions = {}): Promise<readonly GraphNode[]> {
+    const kinds = opts.kinds;
+    if (kinds !== undefined && kinds.length === 0) return Promise.resolve([]);
+    const kindSet = kinds !== undefined ? new Set(kinds) : undefined;
+    const filtered = this.nodes.filter((n) => {
+      if (n.name !== name) return false;
+      if (kindSet !== undefined && !kindSet.has(n.kind as NodeKind)) return false;
+      if (opts.filePath !== undefined && n.filePath !== opts.filePath) return false;
+      return true;
+    });
+    const sorted = sortNodesById(filtered);
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0
+        ? sorted.slice(0, Math.floor(opts.limit))
+        : sorted;
+    return Promise.resolve(limit.map(nodeAsGraphNode));
+  }
+
+  listNodesByEntryPoint(entryPointId: string): Promise<readonly GraphNode[]> {
+    const filtered = this.nodes.filter((n) => n.entryPointId === entryPointId);
+    return Promise.resolve(sortNodesById(filtered).map(nodeAsGraphNode));
+  }
+
+  listEdges(opts: ListEdgesOptions = {}): Promise<readonly CodeRelation[]> {
+    const types = opts.types !== undefined ? new Set(opts.types) : undefined;
+    const fromIds = opts.fromIds !== undefined ? new Set(opts.fromIds) : undefined;
+    const toIds = opts.toIds !== undefined ? new Set(opts.toIds) : undefined;
+    const minConfidence = opts.minConfidence;
+    const filtered = this.edges.filter((e) => {
+      if (types !== undefined && !types.has(e.type as RelationType)) return false;
+      if (fromIds !== undefined && !fromIds.has(e.fromId)) return false;
+      if (toIds !== undefined && !toIds.has(e.toId)) return false;
+      if (minConfidence !== undefined && e.confidence < minConfidence) return false;
+      return true;
+    });
+    const sorted = sortEdges(filtered);
+    const offset = typeof opts.offset === "number" && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0 ? Math.floor(opts.limit) : undefined;
+    const sliced =
+      limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + limit);
+    return Promise.resolve(sliced.map(edgeAsCodeRelation));
+  }
+
+  listEdgesByType(
+    type: RelationType,
+    opts: ListEdgesByTypeOptions = {},
+  ): Promise<readonly CodeRelation[]> {
+    const merged: ListEdgesOptions = {
+      types: [type],
+      ...(opts.fromIds !== undefined ? { fromIds: opts.fromIds } : {}),
+      ...(opts.toIds !== undefined ? { toIds: opts.toIds } : {}),
+      ...(opts.minConfidence !== undefined ? { minConfidence: opts.minConfidence } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    };
+    return this.listEdges(merged);
+  }
+
+  listFindings(opts: ListFindingsOptions = {}): Promise<readonly FindingNode[]> {
+    const severitySet = opts.severity !== undefined ? new Set(opts.severity) : undefined;
+    const baselineSet = opts.baselineState !== undefined ? new Set(opts.baselineState) : undefined;
+    const filtered = this.nodes.filter((n) => {
+      if (n.kind !== "Finding") return false;
+      const sev = n.severity;
+      if (severitySet !== undefined) {
+        if (typeof sev !== "string" || !severitySet.has(sev as "note" | "warning" | "error")) {
+          return false;
+        }
+      }
+      if (opts.ruleId !== undefined && n.ruleId !== opts.ruleId) return false;
+      if (baselineSet !== undefined) {
+        const baseline = n["baselineState"];
+        if (
+          typeof baseline !== "string" ||
+          !baselineSet.has(baseline as "new" | "unchanged" | "updated" | "absent")
+        ) {
+          return false;
+        }
+      }
+      if (
+        opts.suppressed === true &&
+        (typeof n.suppressedJson !== "string" || n.suppressedJson.length === 0)
+      ) {
+        return false;
+      }
+      if (
+        opts.suppressed === false &&
+        typeof n.suppressedJson === "string" &&
+        n.suppressedJson.length > 0
+      ) {
+        return false;
+      }
+      return true;
+    });
+    const sorted = sortNodesById(filtered);
+    const limit =
+      typeof opts.limit === "number" && opts.limit >= 0
+        ? sorted.slice(0, Math.floor(opts.limit))
+        : sorted;
+    return Promise.resolve(limit.map((n) => nodeAsGraphNode(n) as unknown as FindingNode));
+  }
+
+  listDependencies(_opts: ListDependenciesOptions = {}): Promise<readonly DependencyNode[]> {
+    const filtered = this.nodes.filter((n) => n.kind === "Dependency");
+    return Promise.resolve(
+      sortNodesById(filtered).map((n) => nodeAsGraphNode(n) as unknown as DependencyNode),
+    );
+  }
+
+  listRoutes(_opts: ListRoutesOptions = {}): Promise<readonly RouteNode[]> {
+    const filtered = this.nodes.filter((n) => n.kind === "Route");
+    return Promise.resolve(
+      sortNodesById(filtered).map((n) => nodeAsGraphNode(n) as unknown as RouteNode),
+    );
+  }
+
+  getRepoNode(id: string): Promise<RepoNode | undefined> {
+    const hit = this.nodes.find((n) => n.id === id && n.kind === "Repo");
+    return Promise.resolve(hit ? (nodeAsGraphNode(hit) as unknown as RepoNode) : undefined);
+  }
+
+  countNodesByKind(kinds?: readonly NodeKind[]): Promise<Map<NodeKind, number>> {
+    const out = new Map<NodeKind, number>();
+    if (kinds !== undefined && kinds.length === 0) return Promise.resolve(out);
+    const filterSet = kinds !== undefined ? new Set(kinds) : undefined;
+    for (const n of this.nodes) {
+      if (filterSet !== undefined && !filterSet.has(n.kind as NodeKind)) continue;
+      out.set(n.kind as NodeKind, (out.get(n.kind as NodeKind) ?? 0) + 1);
+    }
+    if (kinds !== undefined) {
+      for (const k of kinds) {
+        if (!out.has(k)) out.set(k, 0);
+      }
+    }
+    return Promise.resolve(out);
+  }
+
+  countEdgesByType(types?: readonly RelationType[]): Promise<Map<RelationType, number>> {
+    const out = new Map<RelationType, number>();
+    if (types !== undefined && types.length === 0) return Promise.resolve(out);
+    const filterSet = types !== undefined ? new Set(types) : undefined;
+    for (const e of this.edges) {
+      if (filterSet !== undefined && !filterSet.has(e.type as RelationType)) continue;
+      out.set(e.type as RelationType, (out.get(e.type as RelationType) ?? 0) + 1);
+    }
+    if (types !== undefined) {
+      for (const t of types) {
+        if (!out.has(t)) out.set(t, 0);
+      }
+    }
+    return Promise.resolve(out);
   }
 
   traverse(q: TraverseQuery): Promise<readonly TraverseResult[]> {
-    // Breadth-first expansion; tracks visit order but doesn't guarantee the
-    // shortest path — tests don't care about that and neither does the
-    // production traversal on DuckDB.
+    // Breadth-first expansion mirrors the previous FakeStore behaviour.
     const minConf = q.minConfidence ?? 0;
     const relTypes = q.relationTypes ? new Set(q.relationTypes) : undefined;
     const results: TraverseResult[] = [];
@@ -203,312 +445,72 @@ export class FakeStore implements IGraphStore {
       }
       frontier = next;
     }
-    // Sort to match DuckDB's ORDER BY depth, node_id.
     results.sort((a, b) =>
       a.depth === b.depth ? a.nodeId.localeCompare(b.nodeId) : a.depth - b.depth,
     );
     return Promise.resolve(results);
   }
 
-  private dispatch(sql: string, params: readonly SqlParam[]): readonly Record<string, unknown>[] {
-    // SELECT id, name, file_path, kind FROM nodes WHERE name = ? ORDER BY id
-    if (/^SELECT id, name, file_path, kind FROM nodes WHERE name = \? ORDER BY id$/i.test(sql)) {
-      const name = String(params[0]);
-      return this.nodes
-        .filter((n) => n.name === name)
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map(nodeToRow);
-    }
-    // SELECT id, name, file_path, kind FROM nodes WHERE id = ? LIMIT 1
-    if (/^SELECT id, name, file_path, kind FROM nodes WHERE id = \? LIMIT 1$/i.test(sql)) {
-      const id = String(params[0]);
-      const hit = this.nodes.find((n) => n.id === id);
-      return hit ? [nodeToRow(hit)] : [];
-    }
-    // SELECT id, name, file_path, kind FROM nodes WHERE id IN (...)
-    if (/^SELECT id, name, file_path, kind FROM nodes WHERE id IN \([?,\s]+\)$/i.test(sql)) {
-      const set = new Set(params.map((p) => String(p)));
-      return this.nodes.filter((n) => set.has(n.id)).map(nodeToRow);
-    }
-    // Symbol resolver for rename: SELECT id, name, file_path, kind, start_line, end_line
-    if (
-      /^SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE name = \?/i.test(
-        sql,
-      )
-    ) {
-      const hasScope = /AND file_path = \?/i.test(sql);
-      const name = String(params[0]);
-      const scope = hasScope ? String(params[1]) : undefined;
-      return this.nodes
-        .filter((n) => n.name === name && (!scope || n.filePath === scope))
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map(fullNodeRow);
-    }
-    // Rename referrers: SELECT DISTINCT n.id, n.name, n.file_path, n.kind,
-    // n.start_line, n.end_line FROM relations r JOIN nodes n ON n.id =
-    // r.from_id WHERE r.to_id = ? AND r.type IN (...)
-    if (
-      /^SELECT DISTINCT n\.id, n\.name, n\.file_path, n\.kind, n\.start_line, n\.end_line FROM relations r JOIN nodes n ON n\.id = r\.from_id WHERE r\.to_id = \? AND r\.type IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const targetId = String(params[0]);
-      const types = new Set(params.slice(1).map((p) => String(p)));
-      const fromIds = new Set<string>();
-      for (const e of this.edges) {
-        if (e.toId === targetId && types.has(e.type)) fromIds.add(e.fromId);
-      }
-      return this.nodes
-        .filter((n) => fromIds.has(n.id))
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map(fullNodeRow);
-    }
-    // Rename repo file list: SELECT DISTINCT file_path FROM nodes WHERE kind = 'File' ORDER BY file_path
-    if (
-      /^SELECT DISTINCT file_path FROM nodes WHERE kind = 'File' ORDER BY file_path$/i.test(sql)
-    ) {
-      const seen = new Set<string>();
-      for (const n of this.nodes) {
-        if (n.kind === "File") seen.add(n.filePath);
-      }
-      return [...seen].sort().map((fp) => ({ file_path: fp }));
-    }
-    // Detect-changes symbol list
-    if (
-      /^SELECT id, name, kind, file_path, start_line, end_line FROM nodes WHERE file_path = \? AND kind NOT IN \('File', 'Folder'\) AND start_line IS NOT NULL AND end_line IS NOT NULL$/i.test(
-        sql,
-      )
-    ) {
-      const file = String(params[0]);
-      return this.nodes
-        .filter(
-          (n) =>
-            n.filePath === file &&
-            n.kind !== "File" &&
-            n.kind !== "Folder" &&
-            n.startLine !== undefined &&
-            n.endLine !== undefined,
-        )
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          kind: n.kind,
-          file_path: n.filePath,
-          start_line: n.startLine,
-          end_line: n.endLine,
-        }));
-    }
-    // Impact: processes that contain affected symbols (recursive PROCESS_STEP walk
-    // from target *backwards* via r.to_id = ancestor_id to entry points)
-    if (
-      /^WITH RECURSIVE member_ancestors.*JOIN member_ancestors ma ON ma\.ancestor_id = p\.entry_point_id\s+WHERE p\.kind = 'Process'$/is.test(
-        sql,
-      )
-    ) {
-      const targetIds = new Set(params.map((p) => String(p)));
-      // Reverse PROCESS_STEP adjacency: toId -> fromIds. Walk back from target
-      // collecting every ancestor (which includes the entry point).
-      const revAdj = new Map<string, string[]>();
-      for (const e of this.edges) {
-        if (e.type !== "PROCESS_STEP") continue;
-        const bucket = revAdj.get(e.toId) ?? [];
-        bucket.push(e.fromId);
-        revAdj.set(e.toId, bucket);
-      }
-      const ancestors = new Set<string>();
-      for (const t of targetIds) ancestors.add(t);
-      const queue: string[] = [...targetIds];
-      while (queue.length > 0) {
-        const cur = queue.shift();
-        if (!cur) break;
-        for (const prev of revAdj.get(cur) ?? []) {
-          if (ancestors.has(prev)) continue;
-          ancestors.add(prev);
-          queue.push(prev);
-        }
-      }
-      const matches = new Map<
-        string,
-        { id: string; name: string; entry_point_id: string | null }
-      >();
-      for (const p of this.nodes) {
-        if (p.kind !== "Process" || !p.entryPointId) continue;
-        if (!ancestors.has(p.entryPointId)) continue;
-        matches.set(p.id, {
-          id: p.id,
-          name: p.name,
-          entry_point_id: p.entryPointId ?? null,
-        });
-      }
-      return [...matches.values()].sort((a, b) => a.id.localeCompare(b.id));
-    }
-    // Detect-changes: processes for affected symbols
-    if (
-      /^SELECT DISTINCT r\.from_id AS process_id FROM relations r JOIN nodes p ON p\.id = r\.from_id WHERE r\.type = 'PROCESS_STEP' AND p\.kind = 'Process' AND r\.to_id IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const targetIds = new Set(params.map((p) => String(p)));
-      const processes = new Set<string>();
-      const processNodes = new Map(
-        this.nodes.filter((n) => n.kind === "Process").map((n) => [n.id, n]),
-      );
-      for (const e of this.edges) {
-        if (e.type !== "PROCESS_STEP") continue;
-        if (!targetIds.has(e.toId)) continue;
-        if (!processNodes.has(e.fromId)) continue;
-        processes.add(e.fromId);
-      }
-      return [...processes].sort().map((id) => ({ process_id: id }));
-    }
-    // Detect-changes: process metadata
-    if (
-      /^SELECT id, name, entry_point_id FROM nodes WHERE id IN \([?,\s]+\) AND kind = 'Process'$/i.test(
-        sql,
-      )
-    ) {
-      const ids = new Set(params.map((p) => String(p)));
-      return this.nodes
-        .filter((n) => ids.has(n.id) && n.kind === "Process")
-        .map((n) => ({ id: n.id, name: n.name, entry_point_id: n.entryPointId ?? null }));
-    }
-    // Detect-changes: entry-point file lookup
-    if (/^SELECT id, file_path FROM nodes WHERE id IN \([?,\s]+\)$/i.test(sql)) {
-      const ids = new Set(params.map((p) => String(p)));
-      return this.nodes
-        .filter((n) => ids.has(n.id))
-        .map((n) => ({ id: n.id, file_path: n.filePath }));
-    }
-    // Impact: orphan-grade lookup.
-    if (
-      /^SELECT file_path, orphan_grade FROM nodes WHERE kind = 'File' AND file_path IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const paths = new Set(params.map((p) => String(p)));
-      return this.nodes
-        .filter((n) => n.kind === "File" && paths.has(n.filePath))
-        .map((n) => ({
-          file_path: n.filePath,
-          orphan_grade: n.orphanGrade ?? null,
-        }));
-    }
-    // Impact: relation-record lookup (type + confidence + reason).
-    if (
-      /^SELECT from_id, to_id, type, confidence, reason FROM relations\s+WHERE from_id IN \([?,\s]+\) AND to_id IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      // Params: first N are from ids, next M are to ids. We don't know the split
-      // without re-parsing; the production code concatenates them, so we derive N
-      // by scanning the sql for the number of placeholders in each IN list.
-      const inCounts = [...sql.matchAll(/IN \((\?(?:, \?)*)\)/g)].map(
-        (m) => m[1]?.split(",").length ?? 0,
-      );
-      const fromCount = inCounts[0] ?? 0;
-      const fromIds = new Set(params.slice(0, fromCount).map((p) => String(p)));
-      const toIds = new Set(params.slice(fromCount).map((p) => String(p)));
-      const out: Record<string, unknown>[] = [];
-      for (const e of this.edges) {
-        if (fromIds.has(e.fromId) && toIds.has(e.toId)) {
-          out.push({
-            from_id: e.fromId,
-            to_id: e.toId,
-            type: e.type,
-            confidence: e.confidence,
-            reason: e.reason ?? null,
-          });
-        }
-      }
-      return out;
-    }
-    // Dead-code: fetch all classifiable symbols with is_exported.
-    if (
-      /^SELECT id, name, kind, file_path, start_line, is_exported FROM nodes WHERE kind IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const kinds = new Set(params.map((p) => String(p)));
-      return this.nodes
-        .filter((n) => kinds.has(n.kind))
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          kind: n.kind,
-          file_path: n.filePath,
-          start_line: n.startLine ?? null,
-          is_exported: n.isExported === true,
-        }));
-    }
-    // Dead-code: inbound referrers grouped by target + source file.
-    if (
-      /^SELECT r\.to_id AS target_id, n\.file_path AS source_file FROM relations r JOIN nodes n ON n\.id = r\.from_id WHERE r\.to_id IN \([?,\s]+\) AND r\.type IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const inMatches = [...sql.matchAll(/IN \(([?,\s]+)\)/g)];
-      const targetCount = (inMatches[0]?.[1] ?? "").split(",").length;
-      const targetIds = new Set(params.slice(0, targetCount).map((p) => String(p)));
-      const types = new Set(params.slice(targetCount).map((p) => String(p)));
-      const fileById = new Map(this.nodes.map((n) => [n.id, n.filePath]));
-      const out: Record<string, unknown>[] = [];
-      for (const e of this.edges) {
-        if (!targetIds.has(e.toId)) continue;
-        if (!types.has(e.type)) continue;
-        out.push({
-          target_id: e.toId,
-          source_file: fileById.get(e.fromId) ?? "",
-        });
-      }
-      return out;
-    }
-    // Dead-code: MEMBER_OF edges for community membership lookup.
-    if (
-      /^SELECT from_id AS symbol_id, to_id AS community_id FROM relations WHERE type = 'MEMBER_OF' AND from_id IN \([?,\s]+\)$/i.test(
-        sql,
-      )
-    ) {
-      const ids = new Set(params.map((p) => String(p)));
-      const out: Record<string, unknown>[] = [];
-      for (const e of this.edges) {
-        if (e.type !== "MEMBER_OF") continue;
-        if (!ids.has(e.fromId)) continue;
-        out.push({ symbol_id: e.fromId, community_id: e.toId });
-      }
-      return out;
-    }
-    // Impact: Community label lookup for affected_modules enrichment.
-    if (
-      /^SELECT id, name, inferred_label FROM nodes WHERE id IN \([?,\s]+\) AND kind = 'Community'$/i.test(
-        sql,
-      )
-    ) {
-      const ids = new Set(params.map((p) => String(p)));
-      return this.nodes
-        .filter((n) => n.kind === "Community" && ids.has(n.id))
-        .map((n) => ({
-          id: n.id,
-          name: n.name,
-          inferred_label: n.inferredLabel ?? null,
-        }));
-    }
-    throw new Error(`FakeStore: unhandled SQL: ${sql}`);
+  traverseAncestors(opts: AncestorTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.directionalTraverse(opts, "up");
   }
-}
 
-function nodeToRow(n: FakeNode): Record<string, unknown> {
-  return { id: n.id, name: n.name, file_path: n.filePath, kind: n.kind };
-}
+  traverseDescendants(opts: DescendantTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.directionalTraverse(opts, "down");
+  }
 
-function fullNodeRow(n: FakeNode): Record<string, unknown> {
-  return {
-    id: n.id,
-    name: n.name,
-    file_path: n.filePath,
-    kind: n.kind,
-    start_line: n.startLine ?? null,
-    end_line: n.endLine ?? null,
-  };
+  listConsumerProducerEdges(
+    _opts: { readonly repoUris?: readonly string[] } = {},
+  ): Promise<readonly ConsumerProducerEdge[]> {
+    return Promise.resolve([]);
+  }
+
+  private async directionalTraverse(
+    opts: AncestorTraversalOptions | DescendantTraversalOptions,
+    direction: "up" | "down",
+  ): Promise<readonly TraverseResult[]> {
+    if (opts.edgeTypes.length === 0) return [];
+    const minConf = opts.minConfidence ?? 0;
+    const allowedTypes = new Set(opts.edgeTypes);
+    const results: TraverseResult[] = [];
+    const seen = new Set<string>([opts.fromId]);
+    type Frontier = {
+      readonly id: string;
+      readonly depth: number;
+      readonly path: readonly string[];
+    };
+    let frontier: Frontier[] = [{ id: opts.fromId, depth: 0, path: [opts.fromId] }];
+    while (frontier.length > 0) {
+      const next: Frontier[] = [];
+      for (const cur of frontier) {
+        if (cur.depth >= opts.maxDepth) continue;
+        for (const e of this.edges) {
+          if (!allowedTypes.has(e.type as RelationType)) continue;
+          if (e.confidence < minConf) continue;
+          const nextId =
+            direction === "up"
+              ? e.toId === cur.id
+                ? e.fromId
+                : undefined
+              : e.fromId === cur.id
+                ? e.toId
+                : undefined;
+          if (!nextId) continue;
+          if (seen.has(nextId)) continue;
+          seen.add(nextId);
+          const path = [...cur.path, nextId];
+          const depth = cur.depth + 1;
+          results.push({ nodeId: nextId, depth, path });
+          next.push({ id: nextId, depth, path });
+        }
+      }
+      frontier = next;
+    }
+    results.sort((a, b) =>
+      a.depth === b.depth ? a.nodeId.localeCompare(b.nodeId) : a.depth - b.depth,
+    );
+    return results;
+  }
 }
 
 /** In-memory {@link FsAbstraction} for rename tests. */
