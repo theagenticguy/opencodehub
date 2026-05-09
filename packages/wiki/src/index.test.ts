@@ -233,7 +233,6 @@ class WikiFakeStore implements IGraphStore {
   async listEmbeddingHashes(): Promise<Map<string, string>> {
     return new Map();
   }
-  // biome-ignore lint/correctness/useYield: empty stream — no embeddings in the wiki fixture
   async *listEmbeddings(): AsyncIterable<EmbeddingRow> {}
 
   async listNodesByEntryPoint(_entryPointId: string): Promise<readonly GraphNode[]> {

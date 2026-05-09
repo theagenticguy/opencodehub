@@ -91,7 +91,9 @@ test("buildSymbolDefIndex: records each symbol's first DEFINITION site across do
 
   const calleeEdges = deriveEdges(docA).filter((e) => e.callee === fooB);
   assert.equal(calleeEdges.length, 1, "callerA calls fooB exactly once");
-  const resolved = defs.get(calleeEdges[0]!.callee);
+  const firstEdge = calleeEdges[0];
+  assert.ok(firstEdge);
+  const resolved = defs.get(firstEdge.callee);
   assert.equal(resolved?.file, "src/b.ts");
   assert.equal(resolved?.line, 5);
 });
@@ -158,7 +160,7 @@ test("deriveEdges: attributes calls inside a nested local def to the enclosing n
 
   const edges = deriveEdges(d);
   assert.equal(edges.length, 1, "expected exactly one derived edge");
-  assert.equal(edges[0]!.caller, outer);
-  assert.equal(edges[0]!.callee, callee);
-  assert.equal(edges[0]!.kind, "CALLS");
+  assert.equal(edges[0]?.caller, outer);
+  assert.equal(edges[0]?.callee, callee);
+  assert.equal(edges[0]?.kind, "CALLS");
 });
