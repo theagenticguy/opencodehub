@@ -109,7 +109,7 @@ test("detectSecretsJsonToSarif stamps hashed_secret on partialFingerprints (not 
   const r = log.runs[0]?.results?.[0];
   // SARIF §3.27.18: partialFingerprints are plugin-defined identifiers,
   // NOT a security claim. The slot is named `detect_secrets_sha1` to
-  // make the (non-cryptographic) algorithm explicit (W-B-1).
+  // make the (non-cryptographic) algorithm explicit.
   assert.equal(r?.partialFingerprints?.["detect_secrets_sha1"], "deadbeef");
 });
 
@@ -124,7 +124,7 @@ test("detectSecretsJsonToSarif uses 1-indexed startLine matching SARIF", () => {
   assert.equal(region?.startLine, 42);
 });
 
-test("detectSecretsJsonToSarif passes overlapping findings through (W-B-2)", () => {
+test("detectSecretsJsonToSarif passes overlapping findings through", () => {
   // Two detectors fire on the same line — both must pass through and let
   // OCH's downstream SARIF dedupe handle merging.
   const json = {
@@ -183,7 +183,7 @@ test("detectSecretsJsonToSarif emits empty (but valid) SARIF for garbage input",
   assert.equal(
     detectSecretsJsonToSarif(null).runs[0]?.tool.driver.name,
     "detect-secrets",
-    "tool.driver.name must be preserved on empty SARIF (E-B-2)",
+    "tool.driver.name must be preserved on empty SARIF",
   );
 });
 

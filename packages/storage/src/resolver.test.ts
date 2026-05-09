@@ -1,10 +1,11 @@
 /**
- * AC-A-9: tests for the async backend resolver + dual-artifact detection.
+/**
+ * Tests for the async backend resolver + dual-artifact detection.
  *
  * The sync `resolveStoreBackend` env-var resolution lives next door in
- * `graphdb-adapter.test.ts:141-161`. This file covers the new surface:
+ * `graphdb-adapter.test.ts:141-161`. This file covers:
  *
- *   - `resolveStoreBackendAsync` — the AC-A-9 default-flip resolver.
+ *   - `resolveStoreBackendAsync` — graph-default async resolver.
  *   - `detectDualArtifacts` — the newer-mtime-wins helper.
  */
 

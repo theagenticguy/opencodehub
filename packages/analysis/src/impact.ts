@@ -81,7 +81,7 @@ async function resolveByName(
   name: string,
   filters: { readonly filePath?: string; readonly kind?: string },
 ): Promise<readonly NodeRef[]> {
-  // AC-A-6b: typed finder replaces a `WHERE name = ?` raw SELECT.
+  // Typed finder replaces a `WHERE name = ?` raw SELECT.
   const nodes = await store.listNodesByName(name);
   const all = nodes.map(nodeToNodeRef);
   // Prefer resolved nodes over unresolved placeholder Property rows when both
@@ -102,7 +102,7 @@ async function resolveByName(
 }
 
 async function resolveById(store: IGraphStore, id: string): Promise<NodeRef | undefined> {
-  // AC-A-6b: typed `listNodes({ids})` replaces a `WHERE id = ? LIMIT 1` raw SELECT.
+  // Typed `listNodes({ids})` replaces a `WHERE id = ? LIMIT 1` raw SELECT.
   const nodes = await store.listNodes({ ids: [id], limit: 1 });
   const first = nodes[0];
   return first ? nodeToNodeRef(first) : undefined;
@@ -124,7 +124,7 @@ async function hydrateNodes(
 ): Promise<ReadonlyMap<string, NodeRef>> {
   const out = new Map<string, NodeRef>();
   if (ids.length === 0) return out;
-  // AC-A-6b: typed `listNodes({ids})` replaces a `WHERE id IN (?,?,...)` raw SELECT.
+  // Typed `listNodes({ids})` replaces a `WHERE id IN (?,?,...)` raw SELECT.
   // The adapter de-dupes the input set internally so callers can pass repeats.
   const nodes = await store.listNodes({ ids });
   for (const node of nodes) {
@@ -185,10 +185,11 @@ async function relationsByEdge(
     toIds.add(to);
   }
   if (fromIds.size === 0 || toIds.size === 0) return map;
-  // AC-A-6b: typed `listEdges({fromIds, toIds})` replaces a `WHERE from_id IN
-  // (?) AND to_id IN (?)` raw SELECT. The result is filtered down to the
-  // exact predecessor → successor pairs we walked, since `listEdges` returns
-  // every edge whose endpoints fall in the AND-combined sets.
+  // Typed `listEdges({fromIds, toIds})` replaces a `WHERE from_id IN
+  // (?) AND to_id IN (?)` raw SELECT. The result is filtered down to
+  // the exact predecessor → successor pairs we walked, since
+  // `listEdges` returns every edge whose endpoints fall in the AND-
+  // combined sets.
   const edges = await store.listEdges({
     fromIds: [...fromIds],
     toIds: [...toIds],
@@ -238,7 +239,7 @@ async function fetchAffectedModules(
 ): Promise<readonly AffectedModule[]> {
   if (allIds.length === 0) return [];
   const unique = Array.from(new Set(allIds));
-  // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+  // Typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
   // `WHERE type = 'MEMBER_OF' AND from_id IN (?)` raw SELECT.
   const membership = await store.listEdgesByType("MEMBER_OF", { fromIds: unique });
   if (membership.length === 0) return [];
@@ -256,9 +257,10 @@ async function fetchAffectedModules(
   if (communityHits.size === 0) return [];
 
   const communityIds = [...communityHits.keys()];
-  // AC-A-6b: typed `listNodes({ids, kinds:["Community"]})` replaces a raw
-  // SELECT joined to the kind discriminator. We narrow to Community + cast
-  // because the `inferred_label` field lives on CommunityNode only.
+  // Typed `listNodes({ids, kinds:["Community"]})` replaces a raw
+  // SELECT joined to the kind discriminator. We narrow to Community +
+  // cast because the `inferred_label` field lives on CommunityNode
+  // only.
   const labelNodes = await store.listNodes({ ids: communityIds, kinds: ["Community"] });
   const labelById = new Map<string, string>();
   for (const node of labelNodes) {
@@ -305,11 +307,11 @@ async function fetchAffectedProcesses(
   // Process's entry point, then match Process nodes whose `entry_point_id`
   // equals any reached ancestor (including the target itself).
   //
-  // AC-A-6b: typed `traverseAncestors` replaces the `WITH RECURSIVE
+  // Typed `traverseAncestors` replaces the `WITH RECURSIVE
   // member_ancestors USING KEY (ancestor_id)` raw query.
   // `listNodesByEntryPoint(id)` replaces the `WHERE entry_point_id = ?`
-  // join. Each ancestor lookup is an independent traversal, so we run them
-  // in parallel and dedupe the union.
+  // join. Each ancestor lookup is an independent traversal, so we run
+  // them in parallel and dedupe the union.
   const ancestorIds = new Set<string>();
   for (const sid of symbolIds) ancestorIds.add(sid);
   // Limit per-target traversal to depth 8 to match the original

@@ -1,8 +1,8 @@
 /**
- * End-to-end byte-identity determinism suite (AC-M5-8 / U2 / E-M5-3).
+ * End-to-end byte-identity determinism suite.
  *
- * The per-module tests in this package each pin one slice of the U2
- * invariant ("same inputs → same bytes"). This suite exercises the
+ * The per-module tests in this package each pin one slice of the
+ * "same inputs → same bytes" invariant. This suite exercises the
  * composition: it runs `generatePack` twice over a richer fixture and
  * asserts every file under `outDir` is byte-identical across runs.
  *
@@ -13,12 +13,12 @@
  *   3. For every file `f` in the directory:
  *      `Buffer.compare(readFile(outA/f), readFile(outB/f)) === 0`
  *
- * Variant matrix (≥ 4 per the AC-M5-8 packet):
+ * Variant matrix:
  *   V1. Empty embeddings — store has no `exportEmbeddingsParquet` hook;
  *       sidecar is absent; manifest.files[] lists 7 BOM bodies (excluding
  *       manifest+readme). 9 files on disk: 7 bodies + readme.md + manifest.json.
  *   V2. Populated embeddings — fake @internal `exportEmbeddingsParquet`
- *       (duck-typed onto the graph view, AC-A-4) writes a deterministic
+ *       (duck-typed onto the graph view) writes a deterministic
  *       parquet body; sidecar is present; embeddings.parquet bytes are
  *       identical across runs.
  *   V3. Mixed framework labels — ProjectProfile.frameworks is a duplicated,
@@ -28,7 +28,8 @@
  *       must group stably; findings.jsonl bytes match across runs.
  *
  * The chonkie loader is a deterministic stub so the test never depends on
- * the real `@chonkiejs/core` install (worktree native-binding lesson).
+ * the real `@chonkiejs/core` install (worktree native bindings may not
+ * always rebuild cleanly).
  */
 
 import { strict as assert } from "node:assert";
@@ -47,9 +48,9 @@ import { type GeneratePackInternalOpts, generatePack } from "./index.js";
 interface FixtureKnobs {
   /**
    * Attach a duck-typed @internal `exportEmbeddingsParquet` helper to the
-   * graph fake so AC-A-4's sidecar emits 4 deterministic bytes. The
-   * helper lives on the graph view because `runVariant` wraps the fake
-   * with `backend: "duck"`, where the sidecar narrows on `store.graph`.
+   * graph fake so the sidecar emits 4 deterministic bytes. The helper
+   * lives on the graph view because `runVariant` wraps the fake with
+   * `backend: "duck"`, where the sidecar narrows on `store.graph`.
    */
   readonly withEmbeddings: boolean;
   /** Use a duplicated, reverse-sorted ProjectProfile.frameworks list. */
@@ -270,8 +271,8 @@ function makeRichFixtureStore(knobs: FixtureKnobs): IGraphStore {
 
   if (knobs.withEmbeddings) {
     // Deterministic 4-byte parquet stand-in. Real DuckDB Parquet output is
-    // also byte-stable for the same input set on the same engine version
-    // (S-M5-3 / AC-M5-6); the test exercises the wiring path only.
+    // also byte-stable for the same input set on the same engine version;
+    // the test exercises the wiring path only.
     store["exportEmbeddingsParquet"] = async (absPath: string): Promise<unknown> => {
       const fs = await import("node:fs/promises");
       await fs.writeFile(absPath, new Uint8Array([0x50, 0x41, 0x52, 0x31]));
@@ -314,8 +315,7 @@ const COMMON_INTERNAL: GeneratePackInternalOpts = {
   duckdbVersion: "1.1.3",
   grammarCommits: { typescript: "b".repeat(40) },
   // Deterministic chonkie stub — emits one chunk per file. Avoids the real
-  // import path so the test runs even when native bindings are unavailable
-  // (worktree lesson).
+  // import path so the test runs even when native bindings are unavailable.
   chonkieLoader: async () => ({
     version: "0.0.9",
     CodeChunker: {
@@ -335,7 +335,7 @@ async function tempDir(prefix: string): Promise<string> {
 async function runVariant(outDir: string, knobs: FixtureKnobs): Promise<{ packHash: string }> {
   const fakeGraph = makeRichFixtureStore(knobs);
   // V2 attaches a duck-typed COPY helper to the graph — wrap into a
-  // backend:"duck" Store so the AC-A-4 sidecar narrows correctly. V1/V3/V4
+  // backend:"duck" Store so the sidecar narrows correctly. V1/V3/V4
   // never invoke the helper; the wrapper just exposes the graph view.
   const composedStore: Store = {
     backend: "duck",
@@ -398,7 +398,7 @@ async function assertByteIdentical(label: string, knobs: FixtureKnobs): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Variant tests — 4 distinct shapes per the AC-M5-8 matrix.
+// Variant tests — 4 distinct shapes covering the determinism matrix.
 // ---------------------------------------------------------------------------
 
 test("V1. empty embeddings — sidecar absent, 9 files on disk, byte-identical", async () => {

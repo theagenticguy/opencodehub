@@ -1,10 +1,10 @@
 /**
  * Shared helpers for wiki renderers.
  *
- * Everything here is pure: no LLM calls, no network, no clock. The only side
- * effect is reading from the graph store via typed `IGraphStore` finders
- * (post-AC-A-6). Each helper returns structured data the render modules
- * turn into Markdown.
+ * Everything here is pure: no LLM calls, no network, no clock. The only
+ * side effect is reading from the graph store via typed `IGraphStore`
+ * finders. Each helper returns structured data the render modules turn
+ * into Markdown.
  */
 
 import type { IGraphStore } from "@opencodehub/storage";

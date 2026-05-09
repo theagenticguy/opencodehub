@@ -282,8 +282,9 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
   // Instantiating the summarizer resolves the AWS SDK credential chain, which
   // throws `CredentialsProviderError` / `NoCredentialsError` when no creds
   // are configured. Catch that family here so contributors without Bedrock
-  // access still get a green analyze — see SUM-S-002 / SUM-UN-001. Any other
-  // factory error continues to surface so real bugs don't go silent.
+  // access still get a green analyze — the missing-credentials path emits a
+  // skip note and zero rows, while every other factory error continues to
+  // surface so real bugs don't go silent.
   let summarizer: SummarizerAdapter;
   try {
     summarizer = (testHooks?.summarizerFactory ?? defaultSummarizerFactory)({ modelId });

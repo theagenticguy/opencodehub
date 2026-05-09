@@ -7,8 +7,8 @@
  * so callers can route graph-tier queries through `store.graph` and
  * temporal-tier queries (cochanges, summaries, `--sql` escape hatch)
  * through `store.temporal`. Backend selection follows the standard
- * `openStore` resolution (env-driven `CODEHUB_STORE`, defaulting to
- * `"duck"` until AC-A-9 flips the default).
+ * `openStore` resolution (env-driven `CODEHUB_STORE`, with auto-detect
+ * when unset).
  */
 
 import { resolve } from "node:path";

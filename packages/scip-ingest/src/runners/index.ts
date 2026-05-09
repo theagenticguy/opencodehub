@@ -5,9 +5,6 @@
  * writes `.codehub/scip/<lang>.scip`. The factory `runIndexer` is
  * fan-out friendly — callers invoke it once per detected language in
  * parallel via `Promise.all`.
- *
- * See `.erpaval/sessions/session-f8a300bc/research-scip-indexers.yaml`
- * for indexer versions + known issues as of 2026-04-26.
  */
 
 import { spawn } from "node:child_process";
@@ -100,11 +97,11 @@ export interface IndexerResult {
  * Note on `cobol-proleap`: the detector never infers the proleap kind
  * from disk alone — it is strictly gated behind
  * `allowedBuildScripts.includes("proleap")`, which the CLI surface only
- * sets in response to an explicit user opt-in (spec W-M4-1). Callers
- * that opted in append `"cobol-proleap"` to the detected set themselves.
+ * sets in response to an explicit user opt-in. Callers that opted in
+ * append `"cobol-proleap"` to the detected set themselves.
  *
- * Kotlin note (AC-M4-4): before scip-kotlin existed as a standalone SCIP
- * adapter, Kotlin projects rode on the `java` adapter + the tree-sitter-kotlin
+ * Kotlin note: before scip-kotlin existed as a standalone SCIP adapter,
+ * Kotlin projects rode on the `java` adapter + the tree-sitter-kotlin
  * grammar. With scip-kotlin v0.6.0 promoted in, we detect `.kt`/`.kts` source
  * files directly and emit `"kotlin"` as its own candidate. Pure-Kotlin
  * projects (Kotlin sources, no Java sources, no `pom.xml` / `build.sbt` /

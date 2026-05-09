@@ -117,7 +117,7 @@ export async function buildRiskSnapshot(
 ): Promise<RiskSnapshot> {
   const perCommunityRisk: Record<string, CommunityRiskEntry> = {};
 
-  // AC-A-6b: typed `listNodesByKind("Community")` replaces a `WHERE kind =
+  // Typed `listNodesByKind("Community")` replaces a `WHERE kind =
   // 'Community'` raw SELECT. The finder rehydrates {@link CommunityNode}
   // directly so callers consume `inferredLabel`/`symbolCount`/`cohesion` via
   // typed fields rather than column casts.
@@ -141,7 +141,7 @@ export async function buildRiskSnapshot(
     // Community nodes are optional.
   }
 
-  // AC-A-6b: typed `countNodesByKind` aggregates every kind into a single
+  // Typed `countNodesByKind` aggregates every kind into a single
   // round-trip; we sum the result to mirror the legacy `COUNT(*) FROM nodes`.
   // `countEdgesByType` does the same for relations.
   let totalNodeCount = 0;
@@ -165,7 +165,7 @@ export async function buildRiskSnapshot(
     note: 0,
   };
   try {
-    // AC-A-6b: typed `listFindings()` replaces the
+    // Typed `listFindings()` replaces the
     // `WHERE kind = 'Finding' GROUP BY severity` aggregate. The histogram is
     // built JS-side; the finding row count never blows up because Finding
     // nodes are bounded by the scanner output (typically O(100s)).

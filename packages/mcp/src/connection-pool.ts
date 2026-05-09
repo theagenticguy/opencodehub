@@ -19,14 +19,13 @@
  *
  * `shutdown()` drains the pool on stdio close so the server exits cleanly.
  *
- * AC-A-6c migration: previously held `DuckDbStore` directly. Now caches
- * the composed `OpenStoreResult` so MCP tools can route graph-tier calls
- * through `store.graph` and temporal-tier calls (cochanges, summaries,
- * `--sql` escape hatch) through `store.temporal`. Backend selection
- * follows the standard `openStore` resolution (env-driven `CODEHUB_STORE`,
- * defaulting to `"duck"`); `OpenStoreResult.close()` is the deterministic
- * composite close — for the DuckDB-only deployment that's a single
- * underlying close, identical to the prior behavior.
+ * The pool caches the composed `OpenStoreResult` so MCP tools can route
+ * graph-tier calls through `store.graph` and temporal-tier calls
+ * (cochanges, summaries, `--sql` escape hatch) through `store.temporal`.
+ * Backend selection follows the standard `openStore` resolution (env-
+ * driven `CODEHUB_STORE`, with auto-detect when unset).
+ * `OpenStoreResult.close()` is the deterministic composite close — for
+ * the DuckDB-only deployment that's a single underlying close.
  */
 
 import { openStore, type Store } from "@opencodehub/storage";

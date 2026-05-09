@@ -1,9 +1,9 @@
 /**
- * BOM body item: aggregated LICENSES + NOTICES (AC-M5-5 — item 9 partial).
+ * BOM body item: aggregated LICENSES + NOTICES (item 9 partial).
  *
  * Reads `Dependency` nodes via `IGraphStore.listNodes()`, classifies them
- * via `classifyDependencies` from `@opencodehub/analysis` (lifted in
- * AC-M5-3), and renders both:
+ * via `classifyDependencies` from `@opencodehub/analysis`, and renders
+ * both:
  *
  *   - `licensesMd` — Markdown body listing every dependency by tier
  *     (BLOCK / WARN / OK) and a per-package section in
@@ -16,7 +16,7 @@
  *     before rendering — same key as `deps.ts` so the two BOM items agree
  *     on order.
  *   - The markdown body is reconstructed from the sorted rows; LF-only
- *     line endings (W-M5-4).
+ *     line endings.
  *   - NOTICE file lookup probes a fixed list in lex order; the first
  *     match wins, but the function still concatenates every match found
  *     so two repos with the same NOTICES content produce byte-identical
@@ -154,7 +154,7 @@ async function readNotices(opts: LicensesOpts): Promise<string> {
     if (content === undefined || content.length === 0) continue;
     chunks.push(`# ${filename}`);
     chunks.push("");
-    // CRLF→LF normalize for byte-identity (W-M5-4).
+    // CRLF→LF normalize for byte-identity.
     chunks.push(content.replace(/\r\n/g, "\n").trimEnd());
     chunks.push("");
   }

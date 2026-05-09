@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { CochangeRow, IGraphStore, ITemporalStore, Store } from "./interface.js";
 
 // ---------------------------------------------------------------------------
-// AC-A-1 — structural separation between IGraphStore and ITemporalStore
+// Structural separation between IGraphStore and ITemporalStore
 // ---------------------------------------------------------------------------
 
 /**
@@ -62,9 +62,9 @@ void _graphLeakWedge;
 test("IGraphStore-shaped value lacks temporal methods at runtime", () => {
   // Minimal IGraphStore stub. Intentionally typed precisely as IGraphStore
   // so the structural shape is enforced by the checker.
-  // AC-A-6 widened the IGraphStore surface with the typed-finder family;
-  // the minimal stub gains thin no-op implementations for each new finder
-  // so the structural shape continues to be enforced by the checker.
+  // The minimal stub carries thin no-op implementations for each typed
+  // finder so the structural shape continues to be enforced by the
+  // checker.
   // eslint-disable-next-line require-yield
   async function* emptyEmbeddings() {
     // intentionally empty

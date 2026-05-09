@@ -43,8 +43,8 @@ import { type RemoveDeadCodeContext, registerRemoveDeadCodeTool } from "./remove
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
- * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * (`OpenStoreResult`) that the connection pool returns. The same
+ * instance backs both `graph` and `temporal` because DuckDbStore
  * implements both interfaces over a single connection in production.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
@@ -73,9 +73,10 @@ interface FakeNode {
 
 /**
  * In-memory fake of the typed-finder surface that `classifyDeadness` and
- * `enrichWithEndLines` consume post AC-A-6c: `listNodes`, `listEdges`,
- * `listEdgesByType`. Edges are absent from these tests (the dead-code path
- * looks for inbound referrers but we only seed isolated dead candidates).
+ * `enrichWithEndLines` consume: `listNodes`, `listEdges`,
+ * `listEdgesByType`. Edges are absent from these tests (the dead-code
+ * path looks for inbound referrers but we only seed isolated dead
+ * candidates).
  */
 function makeFakeStore(nodes: readonly FakeNode[]): DuckDbStore {
   const nodeAsGraphNode = (n: FakeNode): GraphNode => n as unknown as GraphNode;

@@ -516,10 +516,10 @@ export interface ProjectProfileNode extends NodeBase {
  *
  * Singleton per graph — constructed via `makeNodeId("Repo", "", "repo")` so
  * the id stays stable across clones of the same repo on different absolute
- * paths (mirroring ProjectProfileNode). The 9 attributes below match spec
- * 005 AC-M6-1 E-M6-1 exactly; `indexTime` is deliberately kept OUT of
- * `pack_hash` / `graphHash` inputs (it serializes as a node field but does
- * not feed determinism-sensitive pipelines).
+ * paths (mirroring ProjectProfileNode). `indexTime` is deliberately kept OUT
+ * of `pack_hash` / `graphHash` inputs (it serializes as a node field but does
+ * not feed determinism-sensitive pipelines) so two indexes built from the
+ * same commit yield byte-identical graph hashes.
  */
 export interface RepoNode extends NodeBase {
   readonly kind: "Repo";
@@ -529,7 +529,7 @@ export interface RepoNode extends NodeBase {
    * Sourcegraph-style host-path key. Example: `github.com/org/repo`.
    *
    * When `originUrl` is null, this is `local:<sha256(absolute-path)[:12]>`
-   * so the handle remains deterministic and distinguishable per S-M6-1.
+   * so the handle remains deterministic and distinguishable.
    */
   readonly repoUri: string;
   /** Default branch at index time. Example: `main`. Null when detached or unknown. */

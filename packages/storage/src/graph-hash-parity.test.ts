@@ -1,8 +1,8 @@
 /**
- * graphHash parity gate (architecture-revised.md §AC-A-7).
+ * graphHash parity gate.
  *
- * Enforces the v1.0 byte-identity invariant (validation constraint #6)
- * across every IGraphStore backend: for every fixture graph,
+ * Enforces the v1.0 byte-identity invariant across every IGraphStore
+ * backend: for every fixture graph,
  *
  *   graphHash(graph)
  *     === graphHash(rebuildFromStore(duckGraph))
@@ -10,16 +10,16 @@
  *
  * If these hashes diverge, one of the adapters dropped, reordered, or
  * coerced a field on the round-trip — which would silently break the
- * incremental re-index contract (T-M7-4) and the Reindex parity gate.
- * This file is the CI tripwire.
+ * incremental re-index contract and the Reindex parity gate. This file
+ * is the CI tripwire.
  *
- * AC-A-7 hoisted the per-backend rebuilders into
- * `./test-utils/parity-harness.ts`. The parity harness now uses ONLY
- * `IGraphStore.listNodes({})` + `IGraphStore.listEdges({})` — a third-
- * party AGE / Memgraph / Neo4j / Neptune adapter can prove conformance
- * by importing `assertGraphParity` from `@opencodehub/storage/test-utils`
- * and running it against its own adapter. This test reduces to fixture
- * builders + a single `assertGraphParity` call per fixture.
+ * The per-backend rebuilders live in `./test-utils/parity-harness.ts`.
+ * The parity harness uses ONLY `IGraphStore.listNodes({})` +
+ * `IGraphStore.listEdges({})` — a third-party AGE / Memgraph / Neo4j /
+ * Neptune adapter can prove conformance by importing `assertGraphParity`
+ * from `@opencodehub/storage/test-utils` and running it against its own
+ * adapter. This test reduces to fixture builders + a single
+ * `assertGraphParity` call per fixture.
  *
  * Three fixtures exercise progressively larger shapes:
  *   - small:  ≤10 nodes, DEFINES + CALLS only (sanity shape).
@@ -28,15 +28,14 @@
  *             CALLS / OWNED_BY so the v1.1 node + edge surface is visible.
  *   - large:  ≥500 nodes built as a long CALLS chain with shortcuts, plus
  *             a companion sweep that emits at least one edge for every
- *             entry in `getAllRelationTypes()` (24 kinds as of AC-M3-3).
- *   - repo / repo-null: AC-M6-1 RepoNode round-trip — populated AND
- *             explicit-null variants of `originUrl` / `defaultBranch` /
- *             `group`.
+ *             entry in `getAllRelationTypes()` (24 kinds today).
+ *   - repo / repo-null: RepoNode round-trip — populated AND explicit-null
+ *             variants of `originUrl` / `defaultBranch` / `group`.
  *
- * Step-zero contract (AC-M3-3 + AC-A-2): both adapters' read paths drop
- * `step` when the stored value reads back as 0/null so the rebuilt graph
- * is byte-identical across backends. Fixtures avoid `step: 0` anyway to
- * keep the original-graph comparison clean.
+ * Step-zero contract: both adapters' read paths drop `step` when the
+ * stored value reads back as 0/null so the rebuilt graph is byte-
+ * identical across backends. Fixtures avoid `step: 0` anyway to keep
+ * the original-graph comparison clean.
  */
 
 import { mkdtemp } from "node:fs/promises";
@@ -404,7 +403,7 @@ function buildMediumWithoutKeywordsFixture(): KnowledgeGraph {
 }
 
 /**
- * AC-M6-1 fixture: a RepoNode exercising every field — populated +
+ * Repo fixture: a RepoNode exercising every field — populated +
  * explicit-null variants of `originUrl` / `defaultBranch` / `group`, and
  * a non-empty `languageStats` record. The fixture must round-trip
  * through both stores with matching graphHash, proving the new Repo
@@ -438,7 +437,7 @@ function buildRepoFixture(): KnowledgeGraph {
 
 /**
  * Parallel RepoNode fixture with the nullable string fields explicitly set
- * to `null` — covers the S-M6-1 "no remote" branch where originUrl is
+ * to `null` — covers the "no remote" branch where originUrl is
  * absent, defaultBranch is unknown, and the repo is group-less. Empty
  * languageStats ({}) is normalised to NULL on the wire; the reader
  * reconstructs it as `{}` so canonical-JSON parity holds.

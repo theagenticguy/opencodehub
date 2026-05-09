@@ -15,9 +15,9 @@ function loadFixture(): Uint8Array {
 }
 
 test("materialize: blast ranking surfaces a connected leader with backward reach", () => {
-  // Before AC-M5-2 this test asserted `add()` as the POC leader when
-  // the blast formula included a `gamma * pagerank * n` term.
-  // PageRank was lifted to @opencodehub/analysis and is now a
+  // The previous version of this test asserted `add()` as the POC
+  // leader when the blast formula included a `gamma * pagerank * n`
+  // term. PageRank was lifted to @opencodehub/analysis and is now a
   // request-time kernel; the ingest-time blast formula leans on
   // reach + SCC only, which shifts the top-ranked symbol on this
   // fixture. The invariant we still care about at this layer is

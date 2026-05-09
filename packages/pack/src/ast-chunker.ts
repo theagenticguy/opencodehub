@@ -1,10 +1,10 @@
 /**
- * BOM body item: AST-aware code chunks (AC-M5-5 — item 5/9).
+ * BOM body item: AST-aware code chunks (item 5/9).
  *
  * Wraps `@chonkiejs/core`'s `CodeChunker`, which builds chunks from a
  * tree-sitter AST (children grouped by token budget). Each input file is
- * CRLF→LF normalized BEFORE chunking — W-M5-4 requires that two repos
- * differing only by line-ending style produce the same `pack_hash`.
+ * CRLF→LF normalized BEFORE chunking — two repos differing only by
+ * line-ending style must produce the same `pack_hash`.
  *
  * Determinism:
  *   - Strict path: `CodeChunker.create({language})` succeeds for every
@@ -282,7 +282,7 @@ function pushLineSplitChunks(
   }
 }
 
-/** Decode raw bytes as UTF-8 and CRLF→LF normalize for W-M5-4. */
+/** Decode raw bytes as UTF-8 and CRLF→LF normalize for line-ending byte-identity. */
 function decodeAndNormalize(bytes: Uint8Array): string {
   // `fatal: false` so malformed sequences become U+FFFD instead of throwing —
   // the BOM is best-effort over arbitrary repo bytes; it does not validate

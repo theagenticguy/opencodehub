@@ -312,8 +312,8 @@ describe("installScipTool", () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-placeholder-"));
     try {
       // All 4 adapter pins (clang/ruby/dotnet/kotlin) now ship real sha256
-      // digests post AC-M4-1..4. To exercise the placeholder-refusal path
-      // we synthesize a placeholder pin and install via override.
+      // digests. To exercise the placeholder-refusal path we synthesize a
+      // placeholder pin and install via override.
       const PLACEHOLDER = "0".repeat(64);
       const replacement: ScipToolPin = {
         ...SCIP_PINS.clang,

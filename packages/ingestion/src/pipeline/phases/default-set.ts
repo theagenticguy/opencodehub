@@ -55,7 +55,7 @@ import { toolsPhase } from "./tools.js";
 export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   scanPhase,
   profilePhase,
-  // `repo-node` emits one RepoNode (AC-M6-1) and runs immediately after
+  // `repo-node` emits one RepoNode and runs immediately after
   // `profile` so it inherits the detected-languages list when deriving
   // `languageStats`. It has no downstream dependents — the node is read
   // from the graph by MCP tools at query time, not consumed by later phases.

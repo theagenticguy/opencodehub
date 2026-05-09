@@ -1,100 +1,94 @@
 # Determinism contract — auditor reference
 
-Ground truth for the `codehub-code-pack` skill. Cite this file when
-the user disputes a `packHash` mismatch, when a CI determinism gate
-fails, or when a future contributor proposes adding a non-deterministic
-emitter to `@opencodehub/pack`. All requirements below are excerpted
-verbatim from `.erpaval/specs/005-m5-m6/spec.md` and
-`.erpaval/ROADMAP.md` — do not paraphrase.
+Ground truth for the `codehub-code-pack` skill. Cite this file when the
+user disputes a `packHash` mismatch, when a CI determinism gate fails,
+or when a future contributor proposes adding a non-deterministic emitter
+to `@opencodehub/pack`. The reference implementation in
+`packages/pack/src/` is authoritative; this document describes the
+contract that the implementation enforces.
 
-## Source — ROADMAP §M5: 9-item code-pack BOM (verbatim)
+## 9-item code-pack BOM
 
-> **9-item code-pack BOM** (byte-identical given same commit,
-> tokenizer, budget):
->
-> 1. `manifest.json` — pack_hash, commit SHA, tokenizer ID, schema version, counts
-> 2. PageRank-ranked symbol skeleton
-> 3. File tree with framework labels
-> 4. Dependency graph / lockfile slice (exact versions)
-> 5. Top-N AST-chunked files with byte offsets
-> 6. SCIP-grounded cross-refs (community clusters + call graph)
-> 7. Optional embeddings sidecar (`.parquet`)
-> 8. Salient docstrings / SARIF findings by severity + rule
-> 9. LICENSES / NOTICES + README.md + full determinism contract
+Every `codehub code-pack` invocation produces a directory of nine BOM
+items plus a manifest. Same `(commit, tokenizer, budget)` → byte-
+identical output:
 
-## Source — Spec 005 §M5 ubiquitous requirements (verbatim)
+1. `manifest.json` — pack_hash, commit SHA, tokenizer ID, schema version, counts
+2. PageRank-ranked symbol skeleton
+3. File tree with framework labels
+4. Dependency graph / lockfile slice (exact versions)
+5. Top-N AST-chunked files with byte offsets
+6. SCIP-grounded cross-refs (community clusters + call graph)
+7. Optional embeddings sidecar (`.parquet`)
+8. Salient docstrings / SARIF findings by severity + rule
+9. LICENSES / NOTICES + README.md + full determinism contract
 
-> - **U1**: `graphHash` byte-identity invariant MUST hold before and
->   after every M5+M6 commit — existing `DuckDbStore` / `GraphDbStore`
->   parity suite stays green.
-> - **U2**: `pack_hash` byte-identity invariant — same
->   `(commit, tokenizer, budget, chonkie_version, duckdb_version,
->   grammar_commits)` → same `pack_hash`. Verified by a determinism
->   suite.
-> - **U3**: No tracked source file MUST introduce banned literals.
->   `bash scripts/check-banned-strings.sh` MUST exit 0 post-commit.
-> - **U4**: `mise run check` MUST exit 0 after every commit.
-> - **U5**: Every new package MUST carry `@opencodehub/<name>` naming,
->   Apache-2.0 license, `type: module`, `tsc --noEmit` clean.
-> - **U6**: No LLM calls outside `@opencodehub/summarizer`.
-> - **U7**: Every MCP tool and CLI output MUST remain deterministic
->   (alpha-sort, lex-stable tiebreak) — preserves the existing
->   group-query convention at `group-query.ts`.
+## Invariants
 
-## Source — Spec 005 §M5 event-driven requirements (verbatim)
+- **graphHash byte-identity** holds before and after every pack-
+  affecting commit — the `DuckDbStore` / `GraphDbStore` parity suite
+  stays green.
+- **packHash byte-identity** — same
+  `(commit, tokenizer, budget, chonkie_version, duckdb_version,
+  grammar_commits)` → same `packHash`. Verified by the determinism
+  suite at `packages/pack/src/pack-determinism.test.ts`.
+- **No banned literals** in tracked source —
+  `bash scripts/check-banned-strings.sh` exits 0 post-commit.
+- **`mise run check`** exits 0 after every commit.
+- **Naming + license** — every new package carries `@opencodehub/<name>`
+  naming, Apache-2.0 license, `type: module`, `tsc --noEmit` clean.
+- **No LLM calls** outside `@opencodehub/summarizer`.
+- **Deterministic output** — every MCP tool and CLI output is
+  alpha-sorted with a lex-stable tiebreak.
 
-> - **E-M5-1**: When a user runs `codehub code-pack <repo> --budget <N>`,
->   the CLI MUST produce a directory containing all 9 BOM items plus
->   `manifest.json` at `<repo>/.codehub/packs/<pack_hash>/`.
-> - **E-M5-2**: When `pack_codebase` MCP tool is called with a pack-id
->   arg, it MUST route through `@opencodehub/pack`, not `repomix`. The
->   legacy repomix path stays available under an `--engine repomix`
->   opt-in flag for one milestone, then removes in M7.
-> - **E-M5-3**: When `codehub code-pack` is called twice on the same
->   `(commit, tokenizer, budget)`, every file under the output
->   directory MUST be byte-identical on second run (cmp -s).
-> - **E-M5-4**: When the BOM is written, `manifest.json` MUST include
->   `{commit, repo_origin_url, tokenizer_id, determinism_class,
->   budget_tokens, grammar_commits, chonkie_version, duckdb_version,
->   files[], pack_hash}` with
->   `pack_hash = sha256(canonicalJson(all-other-fields))`.
-> - **E-M5-5**: When PageRank is computed, it MUST be at request time
->   from the loaded `KnowledgeGraph` (per ROADMAP §Target package
->   layout — "`@opencodehub/analysis` — request-time queries (PageRank,
->   blast, impact)"), NOT at index time in `materialize.ts`. The
->   dead-code `pagerank()` call at `materialize.ts:231` MUST be
->   removed in the same commit that lifts the function.
+## Behavior
 
-## Source — Spec 005 §M5 state-driven requirements (verbatim)
+### Pack invocation
 
-> - **S-M5-1**: While `@chonkiejs/core` fails to install or load
->   (native-binding unavailable on CI platform), `@opencodehub/pack`
->   MUST degrade to a line-split fallback and stamp
->   `determinism_class: degraded` in the manifest — NOT silently emit
->   byte-different output claiming strict determinism.
-> - **S-M5-2**: While `tokenizer_id` names a Claude model, the
->   manifest MUST set `determinism_class: best_effort` and the BOM
->   verifier MUST warn when asked to check byte-identity against such
->   a pack.
-> - **S-M5-3**: While the target repo has no embeddings computed, BOM
->   item #7 (Parquet sidecar) MUST be absent entirely (not an empty
->   file) and `manifest.files[]` MUST NOT list a path to it.
+- `codehub code-pack <repo> --budget <N>` produces a directory
+  containing all 9 BOM items plus `manifest.json` at
+  `<repo>/.codehub/packs/<pack_hash>/`.
+- The `pack_codebase` MCP tool routes through `@opencodehub/pack`. The
+  legacy `repomix` path remains available under an `--engine repomix`
+  opt-in flag for one milestone before removal.
+- Two invocations of `codehub code-pack` with the same
+  `(commit, tokenizer, budget)` produce byte-identical output (`cmp -s`
+  on every file under the output directory).
+- `manifest.json` carries
+  `{commit, repo_origin_url, tokenizer_id, determinism_class,
+  budget_tokens, grammar_commits, chonkie_version, duckdb_version,
+  files[], pack_hash}` with
+  `pack_hash = sha256(canonicalJson(all-other-fields))`.
+- PageRank is computed at request time from the loaded
+  `KnowledgeGraph` via `@opencodehub/analysis` — never at index time.
 
-## Source — Spec 005 §M5 unwanted-behavior requirements (verbatim)
+### Degraded modes
 
-> - **W-M5-1**: `@opencodehub/pack` MUST NOT call any LLM (enforced
->   by the existing `scripts/check-banned-strings.sh`-style audit +
->   a new `no-bedrock-outside-summarizer` test).
-> - **W-M5-2**: `codehub code-pack` MUST NOT emit writer metadata
->   (DuckDB `created_by`, chonkie writer tags) as top-level fields in
->   `manifest.json` — all tool-version pins live in a single
->   `pins: {}` nested object so the BOM schema is stable across tool
->   upgrades.
-> - **W-M5-3**: `codehub code-pack` MUST NOT use tolerance-based
->   PageRank convergence — fixed iterations only.
-> - **W-M5-4**: CRLF files on Windows checkouts MUST NOT produce a
->   different `pack_hash` than LF on Linux — ingest normalizes to LF
->   before hashing content.
+- When `@chonkiejs/core` fails to install or load (native binding
+  unavailable on a CI platform), pack degrades to a line-split
+  fallback and stamps `determinism_class: degraded` in the manifest —
+  it does NOT silently emit byte-different output claiming strict
+  determinism.
+- When `tokenizer_id` names a Claude model, the manifest sets
+  `determinism_class: best_effort`. The BOM verifier warns when asked
+  to check byte-identity against such a pack.
+- When the target repo has no embeddings computed, BOM item #7 (the
+  Parquet sidecar) is absent entirely (not an empty file) and
+  `manifest.files[]` does NOT list a path to it.
+
+### Forbidden
+
+- No LLM calls in `@opencodehub/pack` (enforced by
+  `scripts/check-banned-strings.sh`-style audit + a
+  `no-bedrock-outside-summarizer` test).
+- No writer metadata (DuckDB `created_by`, chonkie writer tags) as
+  top-level fields in `manifest.json` — all tool-version pins live in
+  a single nested `pins: {}` object so the BOM schema is stable across
+  tool upgrades.
+- No tolerance-based PageRank convergence — fixed iterations only.
+- CRLF files on Windows checkouts MUST NOT produce a different
+  `pack_hash` than LF on Linux — ingest normalizes to LF before
+  hashing content.
 
 ## packHash construction algorithm
 
@@ -102,17 +96,16 @@ The exact preimage shape that produces `packHash`:
 
 1. Compute `fileHash = sha256_hex(raw_bytes)` for every emitted BOM
    file (items 2-9 from the contract above). CRLF files are
-   normalized to LF **at ingest** before hashing content (per W-M5-4)
-   — the on-disk bytes after normalization are the bytes that get
-   hashed.
+   normalized to LF **at ingest** before hashing content — the
+   on-disk bytes after normalization are the bytes that get hashed.
 2. Construct the manifest object with `packHash: ""` as a placeholder
    and `files[]` populated with `{kind, path, fileHash}` rows in the
    order they appear in `BomItem.kind` (the type union enumerates a
    stable order).
 3. Serialize the manifest to RFC 8785-shaped canonical JSON (sorted
    keys, no whitespace, no trailing newline). All tool-version pins
-   live in a single nested `pins: {}` object (per W-M5-2) — the
-   top-level `manifest.json` schema does not carry writer metadata.
+   live in a single nested `pins: {}` object — the top-level
+   `manifest.json` schema does not carry writer metadata.
 4. `packHash = sha256_hex(canonicalJson(manifest_with_packHash_omitted))`.
 5. Replace the placeholder. Write `manifest.json` with `packHash` set
    and `files[]` unchanged. The wire form serializes camelCase TS
@@ -122,29 +115,27 @@ The exact preimage shape that produces `packHash`:
 
 The reference implementation is `packages/pack/src/manifest.ts` (the
 `buildManifest()` helper). The serializer reuses
-`packages/core-types/src/graph-hash.ts` `writeCanonicalJson` per the
-spec context note ("OCH's existing `graphHash` helper is already the
-right pattern").
+`packages/core-types/src/graph-hash.ts` `writeCanonicalJson` — the
+same canonical-JSON pattern that `graphHash` uses.
 
 ## Determinism class triage
 
 The manifest's `determinism_class` (snake_case on disk, `determinismClass`
-in TS) takes one of three values. Each maps to a state-driven
-requirement above.
+in TS) takes one of three values:
 
-| Class | Trigger | Requirement |
+| Class | Trigger | Implication |
 |-------|---------|-------------|
-| `strict` | None of the degraded triggers fire | U2 holds in full: same `(commit, tokenizer, budget, chonkie_version, duckdb_version, grammar_commits)` → same `pack_hash`. |
-| `best_effort` | `tokenizer_id` resolves to a Claude model | S-M5-2 — verifier MUST warn callers checking byte-identity. |
-| `degraded` | `@chonkiejs/core` native binding fails to load | S-M5-1 — line-split fallback used; pack still self-consistent locally but not portable. |
+| `strict` | None of the degraded triggers fire | The byte-identity invariant holds in full: same `(commit, tokenizer, budget, chonkie_version, duckdb_version, grammar_commits)` → same `pack_hash`. |
+| `best_effort` | `tokenizer_id` resolves to a Claude model | The verifier MUST warn callers checking byte-identity. |
+| `degraded` | `@chonkiejs/core` native binding fails to load | Line-split fallback used; pack still self-consistent locally but not portable. |
 
 ## Determinism suite location
 
 The byte-identity test suite lives at
-`packages/pack/src/pack-determinism.test.ts` (delivered by T-W3-3 in
-this same M5 wave). It runs `generatePack` twice against a fixture
-repo, computes `cmp -s` over every output file, and asserts manifest
-`pack_hash` equality. CI gates on this suite.
+`packages/pack/src/pack-determinism.test.ts`. It runs `generatePack`
+twice against a fixture repo, computes `cmp -s` over every output
+file, and asserts manifest `pack_hash` equality. CI gates on this
+suite.
 
 When debugging a `pack_hash` drift:
 

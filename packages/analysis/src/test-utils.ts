@@ -3,10 +3,9 @@
  * settings as production code, and so tests can import it without reaching
  * across the dist boundary.
  *
- * `FakeStore` is an in-memory stand-in for {@link IGraphStore}. AC-A-6b
- * removed the SQL-regex dispatcher (formerly ~270 lines) and replaced it
- * with direct implementations of every typed finder the analysis/ surface
- * consumes — `listNodes`, `listNodesByKind`, `listNodesByName`,
+ * `FakeStore` is an in-memory stand-in for {@link IGraphStore} that
+ * implements every typed finder the analysis/ surface consumes —
+ * `listNodes`, `listNodesByKind`, `listNodesByName`,
  * `listNodesByEntryPoint`, `listEdges`, `listEdgesByType`, `listFindings`,
  * `countNodesByKind`, `countEdgesByType`, `traverseAncestors`,
  * `traverseDescendants`, `traverse`, plus the ITemporalStore-compat noops.

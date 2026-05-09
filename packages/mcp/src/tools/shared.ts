@@ -95,7 +95,7 @@ export function fromToolResult(r: ToolResult): CallToolResult {
  * Shared zod shape for `{ repo, repo_uri }` — every per-repo MCP tool
  * spreads this into its `inputSchema` so callers can pass either the
  * registry name (`repo`) or a Sourcegraph-style URI (`repo_uri`). When
- * both are provided, `repo_uri` wins at the resolver. See AC-M6-2 §5.
+ * both are provided, `repo_uri` wins at the resolver.
  */
 export const repoArgShape = {
   repo: z
@@ -167,7 +167,7 @@ export async function withStore(
     // Enumerate every in-tree backend's artifact filename so the hint is
     // useful regardless of which backend produced the index. Pulling the
     // filenames from `describeArtifacts` keeps two-store deployments in
-    // sync with a single source of truth (AC-A-8).
+    // sync with a single source of truth.
     const candidates = (["duck", "lbug"] as const)
       .map((b) => `.codehub/${describeArtifacts(b).graphFile}`)
       .join(" or ");

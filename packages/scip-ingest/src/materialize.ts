@@ -7,9 +7,9 @@
  * the BFS closures run on the same scale as the Python+NetworkX
  * implementation for ~10k-node repos (OCH's analyze target).
  *
- * PageRank was lifted to `@opencodehub/analysis/page-rank.ts`
- * (AC-M5-2). It's now a request-time kernel; this file no longer
- * computes per-symbol PageRank during ingest.
+ * PageRank was lifted to `@opencodehub/analysis/page-rank.ts`. It's now
+ * a request-time kernel; this file no longer computes per-symbol
+ * PageRank during ingest.
  */
 
 import { type Adjacency, buildAdjacency } from "@opencodehub/analysis";
@@ -198,9 +198,9 @@ export function materialize(
     const sccEntry = scc[u] ?? { sccId: -1, size: 0 };
     const sccContribution = sccEntry.size > 1 ? sccEntry.size : 0;
     // PageRank term (`gamma * pr * n`) was removed with the lift to
-    // @opencodehub/analysis (AC-M5-2). The field was never consumed
-    // outside this file; ranking now leans on reach closures + SCC
-    // membership until AC-M5-4 reintroduces PageRank at request time.
+    // @opencodehub/analysis. The field was never consumed outside this
+    // file; ranking now leans on reach closures + SCC membership until
+    // PageRank is reintroduced at request time.
     const raw = alpha * (fwdReach[u] ?? 0) + beta * (bwdReach[u] ?? 0) + delta * sccContribution;
     const blast = Math.log1p(raw);
     metrics.set(sym, {

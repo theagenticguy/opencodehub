@@ -1,7 +1,7 @@
 /**
- * Tests for the BOM manifest builder (AC-M5-3).
+ * Tests for the BOM manifest builder.
  *
- * Covers the four success criteria from the packet:
+ * Covers four core invariants:
  *   A. Byte-identity: two runs on the same opts produce === manifest JSON.
  *   B. Hash sensitivity: each input field propagates to packHash.
  *   C. packHash is not part of its own preimage.

@@ -2,11 +2,10 @@
  * Wiki generation tests — confirm the deterministic-output + success-criteria
  * contract without spinning up DuckDB.
  *
- * The post-AC-A-6d `WikiFakeStore` implements `IGraphStore` finder methods
- * directly over in-memory `nodes` + `edges` arrays. The earlier
- * SQL-regex `dispatch()` (~400 LOC of pattern-matching) is gone — every
- * helper in `wiki/wiki-render/shared.ts` now reaches the same fixture
- * data via typed finders.
+ * `WikiFakeStore` implements `IGraphStore` finder methods directly
+ * over in-memory `nodes` + `edges` arrays. Every helper in
+ * `wiki/wiki-render/shared.ts` reaches the same fixture data via
+ * typed finders.
  */
 
 import assert from "node:assert/strict";

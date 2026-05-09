@@ -49,7 +49,7 @@ async function findCandidates(
   symbolName: string,
   scopeFile: string | undefined,
 ): Promise<readonly SymbolLocation[]> {
-  // AC-A-6b: typed `listNodesByName(name, {filePath})` replaces a raw
+  // Typed `listNodesByName(name, {filePath})` replaces a raw
   // `WHERE name = ? [AND file_path = ?]` SELECT. The finder returns full
   // GraphNodes; we map onto the local SymbolLocation shape so downstream
   // rename logic stays unchanged.
@@ -78,7 +78,7 @@ async function referrersOf(
   store: IGraphStore,
   targetId: string,
 ): Promise<readonly SymbolLocation[]> {
-  // AC-A-6b: typed `listEdges({types, toIds})` replaces a raw `WHERE
+  // Typed `listEdges({types, toIds})` replaces a raw `WHERE
   // r.to_id = ? AND r.type IN (...)` SELECT joined to nodes. The TS-side
   // join hydrates referrer node metadata via `listNodes({ids})`.
   const edges = await store.listEdges({
@@ -106,7 +106,7 @@ async function referrersOf(
 }
 
 async function allRepoFiles(store: IGraphStore): Promise<readonly string[]> {
-  // AC-A-6b: typed `listNodesByKind("File")` replaces a `SELECT DISTINCT
+  // Typed `listNodesByKind("File")` replaces a `SELECT DISTINCT
   // file_path FROM nodes WHERE kind = 'File'` raw SELECT.
   const files = await store.listNodesByKind("File");
   const seen = new Set<string>();

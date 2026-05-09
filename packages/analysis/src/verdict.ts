@@ -517,7 +517,7 @@ async function collectCommunities(
 ): Promise<void> {
   if (symbolIds.length === 0) return;
   try {
-    // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+    // Typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
     // `WHERE r.type = 'MEMBER_OF' AND r.from_id IN (...)` raw SELECT. The
     // community label join becomes a TS-side `listNodes({ids})` lookup.
     const edges = await store.listEdgesByType("MEMBER_OF", { fromIds: symbolIds });
@@ -550,7 +550,7 @@ async function collectFindings(
 
   if (symbolIds.length > 0) {
     try {
-      // AC-A-6b: typed `listEdgesByType("FOUND_IN", {toIds})` replaces a
+      // Typed `listEdgesByType("FOUND_IN", {toIds})` replaces a
       // `WHERE r.type = 'FOUND_IN' AND r.to_id IN (...)` raw SELECT. The
       // join to `nodes WHERE kind = 'Finding'` becomes a typed
       // `listFindings()` filtered by id post-fetch.
@@ -581,7 +581,7 @@ async function collectFindings(
   // to a specific symbol.
   if (files.length > 0) {
     try {
-      // AC-A-6b: typed `listFindings()` replaces a
+      // Typed `listFindings()` replaces a
       // `WHERE kind = 'Finding' AND file_path IN (...)` raw SELECT. The
       // file membership filter runs JS-side; finding rows are bounded by the
       // scanner output (typically O(100s)) so the filter is cheap.
@@ -633,7 +633,7 @@ async function collectFileMeta(
   if (files.length === 0) return out;
   const fileSet = new Set(files);
   try {
-    // AC-A-6b: typed `listNodesByKind("File")` replaces a
+    // Typed `listNodesByKind("File")` replaces a
     // `WHERE kind = 'File' AND file_path IN (...)` raw SELECT. The file
     // membership filter runs JS-side because `listNodesByKind` exposes a
     // single-file-path option only.
@@ -673,7 +673,7 @@ async function collectFileMeta(
   // separate set of finder calls because `cyclomatic_complexity` is
   // populated on child symbol rows, not on the File row itself.
   //
-  // AC-A-6b: typed `listNodesByKind` per callable kind replaces a
+  // Typed `listNodesByKind` per callable kind replaces a
   // `WHERE kind IN ('Function','Method','Constructor') AND file_path IN
   // (...) GROUP BY file_path MAX(cyclomatic_complexity)` aggregate. The MAX
   // reduction runs JS-side as a single linear sweep.
@@ -709,7 +709,7 @@ async function collectReviewers(
   // Build a list of File node ids — the form `File:<path>:<path>`.
   const fileNodeIds = files.map((f) => `File:${f}:${f}`);
   try {
-    // AC-A-6b: typed `listEdgesByType("OWNED_BY", {fromIds})` replaces a
+    // Typed `listEdgesByType("OWNED_BY", {fromIds})` replaces a
     // `WHERE r.type = 'OWNED_BY' AND r.from_id IN (...)` raw SELECT. The
     // SUM(confidence) GROUP BY contributor + JOIN to nodes both run TS-side
     // — `listNodes({ids})` materializes the contributor metadata.

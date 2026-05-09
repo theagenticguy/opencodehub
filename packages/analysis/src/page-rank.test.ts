@@ -37,8 +37,8 @@ test("pageRank: 10-node fixture — mass concentrates on node C, sums to ~1", ()
   assert.equal(adj.nodes.length, 10);
   const pr = pageRank(adj);
   const total = pr.reduce((acc, v) => acc + v, 0);
-  // Fixed 50 iterations is loose convergence by design (W-M5-3 bans
-  // tolerance-based termination); the sum stays ~1 within float
+  // Fixed 50 iterations is loose convergence by design (tolerance-
+  // based termination is forbidden); the sum stays ~1 within float
   // noise on a balanced graph.
   assert.ok(Math.abs(total - 1) < 1e-6, `pagerank sum should be ~1.0; got ${total}`);
   // C has 4 inbound edges (B->C plus E, G, I -> C); the other nodes
@@ -60,7 +60,7 @@ test("pageRank: determinism snapshot — hex fingerprint is stable", () => {
   // If this hex changes, byte-identity of the kernel has drifted.
   // Investigate: did damping, iteration count, dangling-mass math,
   // or edge iteration order change? NONE of those are allowed to
-  // shift without an explicit, documented rev (see W-M5-3).
+  // shift without an explicit, documented rev.
   //
   // Captured on V8 (Node 24) from the lifted kernel. Little-endian
   // Float64 bytes for the 10-node PageRank output, in adj.nodes

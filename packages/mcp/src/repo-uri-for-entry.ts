@@ -1,17 +1,17 @@
 /**
- * `repoUriForEntry` — resolve a `repo_uri` for a registry entry, preferring
- * the graph-backed `RepoNode.repoUri` when the repo has been indexed with
- * AC-M6-1's phase, otherwise falling back to `deriveRepoUri(entry)` from
- * `repo-resolver.ts` (shipped by AC-M6-2).
+ * `repoUriForEntry` — resolve a `repo_uri` for a registry entry,
+ * preferring the graph-backed `RepoNode.repoUri` when the repo's index
+ * carries one, otherwise falling back to `deriveRepoUri(entry)` from
+ * `repo-resolver.ts`.
  *
- * Used by the `group_*` MCP tools (AC-M6-4) so that every repo-identified
- * response row carries a stable `repo_uri` alongside its legacy `name` /
- * `_repo` string. Lookups are best-effort — any DB-open / query failure
- * falls back silently to the derived URI so a single unhealthy repo cannot
- * break the whole response.
+ * Used by the `group_*` MCP tools so that every repo-identified
+ * response row carries a stable `repo_uri` alongside its legacy `name`
+ * / `_repo` string. Lookups are best-effort — any DB-open / query
+ * failure falls back silently to the derived URI so a single unhealthy
+ * repo cannot break the whole response.
  *
- * Determinism: `deriveRepoUri` is pure; `RepoNode.repoUri` is byte-stable
- * after AC-M6-1 lands. Neither path depends on wall-clock.
+ * Determinism: `deriveRepoUri` is pure; `RepoNode.repoUri` is byte-
+ * stable when present. Neither path depends on wall-clock.
  */
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
@@ -23,9 +23,9 @@ import type { ConnectionPool } from "./connection-pool.js";
 import { deriveRepoUri, type RegistryEntry } from "./repo-resolver.js";
 
 /**
- * Preferred: read `RepoNode.repoUri` from DuckDB. Only repos indexed AFTER
- * AC-M6-1 landed carry this row — earlier indexes fall back to the
- * derived URI.
+ * Preferred: read `RepoNode.repoUri` from the persisted Repo row.
+ * Only repos that were indexed with the first-class Repo entity carry
+ * this row — earlier indexes fall back to the derived URI.
  */
 async function readRepoNodeUri(graph: IGraphStore): Promise<string | undefined> {
   const repoId = makeNodeId("Repo", "", "repo");
@@ -59,7 +59,8 @@ export async function repoUriForEntry(
     } catch {
       // Fall through to derived URI — a missing DB file, an unreadable
       // nodes table, or any other transient failure must not break the
-      // group response. AC-M6-4 is additive; legacy fields stay correct.
+      // group response. The repo_uri output is additive; legacy fields
+      // stay correct.
     }
   }
   return deriveRepoUri(entry);

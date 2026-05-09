@@ -461,7 +461,7 @@ test("vectorSearch with granularity filter restricts to that tier", async () => 
 });
 
 // ---------------------------------------------------------------------------
-// listEmbeddingHashes (T-M1-3 content-hash skip helper)
+// listEmbeddingHashes — content-hash skip helper
 // ---------------------------------------------------------------------------
 
 test("listEmbeddingHashes returns an empty Map on a fresh database", async () => {
@@ -934,7 +934,7 @@ test("bulkLoad stores Finding / Dependency / Operation / Contributor / ProjectPr
   }
 });
 
-test("bulkLoad stores Repo columns (AC-M6-1 first-class repo node)", async () => {
+test("bulkLoad stores Repo columns (first-class repo node)", async () => {
   const dbPath = await scratchDbPath();
   const store = new DuckDbStore(dbPath);
   await store.open();
@@ -982,7 +982,7 @@ test("bulkLoad stores Repo columns (AC-M6-1 first-class repo node)", async () =>
   }
 });
 
-test("bulkLoad stores Repo columns with explicit-null nullable fields (S-M6-1)", async () => {
+test("bulkLoad stores Repo columns with explicit-null nullable fields", async () => {
   const dbPath = await scratchDbPath();
   const store = new DuckDbStore(dbPath);
   await store.open();
@@ -2145,7 +2145,7 @@ test("listNodes() returns [] from an unknown kind", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// v1.0 community-adapter conformance suite (AC-A-11)
+// v1.0 community-adapter conformance suite
 //
 // DuckDb is the flagship reference implementation, so it MUST pass every
 // block of the shared conformance contract. A regression here would mean

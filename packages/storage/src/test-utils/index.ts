@@ -5,8 +5,7 @@
  * `IGraphStore` adapter authors (community AGE / Memgraph / Neo4j /
  * Neptune forks) import {@link assertIGraphStoreConformance} from here and
  * run it against their own implementation to prove they satisfy the v1.0
- * graphHash byte-identity + typed-finder contract (architecture-revised.md
- * §AC-A-11).
+ * graphHash byte-identity + typed-finder contract.
  *
  * {@link assertGraphParity} + {@link rebuildFromStore} are the lower-level
  * primitives that the conformance suite is built on; they are re-exported

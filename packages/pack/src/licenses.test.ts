@@ -1,5 +1,5 @@
 /**
- * Tests for the licenses BOM body (AC-M5-5 — item 9 partial).
+ * Tests for the licenses BOM body (item 9 partial).
  *
  * Covers:
  *   - A. Determinism across two consecutive calls.

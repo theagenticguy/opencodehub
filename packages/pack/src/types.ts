@@ -1,9 +1,10 @@
 /**
- * @opencodehub/pack — public type surface for the M5 9-item BOM.
+ * @opencodehub/pack — public type surface for the 9-item BOM.
  *
- * These interfaces are the contract consumed by AC-M5-3..9. Fields are
- * `readonly` by convention (see sibling packages in this workspace for
- * precedent) so downstream code cannot mutate a manifest in-place.
+ * These interfaces are the contract every BOM body builder consumes.
+ * Fields are `readonly` by convention (see sibling packages in this
+ * workspace for precedent) so downstream code cannot mutate a manifest
+ * in-place.
  */
 
 /** A single item in the 9-item BOM. */

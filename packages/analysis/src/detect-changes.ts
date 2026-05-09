@@ -101,7 +101,7 @@ function hunkOverlaps(
 }
 
 async function symbolsForFile(store: IGraphStore, filePath: string): Promise<readonly SymbolRow[]> {
-  // AC-A-6b: typed `listNodes({filePath})` replaces a `WHERE file_path = ?
+  // Typed `listNodes({filePath})` replaces a `WHERE file_path = ?
   // AND kind NOT IN ('File','Folder') AND start_line IS NOT NULL AND
   // end_line IS NOT NULL` raw SELECT. The finder narrows to one file at the
   // adapter layer; the kind exclusion + line-presence guard run in JS.
@@ -135,7 +135,7 @@ async function processesForSymbols(
   // participates in the process. Find the set of distinct Process ids that
   // have an edge into any of the affected symbols.
   //
-  // AC-A-6b: typed `listEdgesByType("PROCESS_STEP", {toIds})` replaces the
+  // Typed `listEdgesByType("PROCESS_STEP", {toIds})` replaces the
   // raw `WHERE r.type = 'PROCESS_STEP' AND r.to_id IN (...)` SELECT. The
   // `kind = 'Process'` predicate from the JOIN is enforced when we hydrate
   // the process metadata below.
@@ -145,7 +145,7 @@ async function processesForSymbols(
   );
   if (candidateProcessIds.length === 0) return [];
 
-  // AC-A-6b: typed `listNodes({ids, kinds:["Process"]})` replaces the
+  // Typed `listNodes({ids, kinds:["Process"]})` replaces the
   // `WHERE id IN (...) AND kind = 'Process'` lookup.
   const processNodes = await store.listNodes({
     ids: candidateProcessIds,
@@ -159,7 +159,7 @@ async function processesForSymbols(
     .filter((s) => s.length > 0);
   const entryMap = new Map<string, string>();
   if (entryIds.length > 0) {
-    // AC-A-6b: typed `listNodes({ids})` replaces the bulk `WHERE id IN (...)`
+    // Typed `listNodes({ids})` replaces the bulk `WHERE id IN (...)`
     // entry-point file_path lookup.
     const entryNodes = await store.listNodes({ ids: entryIds });
     for (const node of entryNodes) {

@@ -30,9 +30,8 @@ function decode(codes: readonly number[]): string {
 test("generateSchemaDdl emits the expected number of node tables", () => {
   const ddl = generateSchemaDdl();
   const nodeMatches = ddl.match(/CREATE NODE TABLE IF NOT EXISTS \w+/g) ?? [];
-  // AC-A-1 deleted Cochange + SymbolSummary NODE TABLEs (those rows now
-  // live exclusively on a paired ITemporalStore). The graph-side schema
-  // is therefore CodeNode + Embedding + StoreMeta = 3.
+  // Cochange + SymbolSummary live exclusively on a paired ITemporalStore;
+  // the graph-side schema is CodeNode + Embedding + StoreMeta = 3.
   assert.equal(nodeMatches.length, 3, nodeMatches.join("\n"));
 });
 
@@ -118,8 +117,8 @@ test("getAllRelationTypes returns every OCH edge kind in canonical order", () =>
 
 test("statements are semicolon-terminated", () => {
   const ddl = generateSchemaDdl();
-  // 3 node tables (post AC-A-1: CodeNode + Embedding + StoreMeta) +
-  // 24 rel tables + 1 EMBEDS rel = 28 statements → 28 semicolons.
+  // 3 node tables (CodeNode + Embedding + StoreMeta) + 24 rel tables +
+  // 1 EMBEDS rel = 28 statements → 28 semicolons.
   const count = (ddl.match(/;\n/g) ?? []).length;
   assert.equal(count, 3 + EXPECTED_RELATION_COUNT + 1);
 });

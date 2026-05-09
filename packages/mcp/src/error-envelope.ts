@@ -40,9 +40,9 @@ export interface ErrorDetail {
  * are intentional — this shape crosses the MCP boundary to an agent, and
  * the research spec (§6.2 of research-m5m6.yaml) names them that way.
  *
- * `repo_uri` is derived from the registry at error-construction time. Once
- * AC-M6-1's `RepoNode` type lands in M7, this field will be pulled from
- * the registry-backed node instead of being computed from
+ * `repo_uri` is derived from the registry at error-construction time.
+ * Once the registry surfaces the persisted RepoNode, this field will
+ * be pulled from there instead of being computed from
  * `RegistryEntry.name`.
  */
 export interface RepoChoice {
@@ -63,7 +63,7 @@ export interface AmbiguousRepoDetail extends ErrorDetail {
   readonly error_code: "AMBIGUOUS_REPO";
   /** JSON-RPC code for "invalid params" — per MCP spec. */
   readonly jsonrpc_code: -32602;
-  /** Capped at 10 — see AC-M6-2 §5. */
+  /** Capped at 10. */
   readonly choices: readonly RepoChoice[];
   /** Full count of matching registry entries (may exceed `choices.length`). */
   readonly total_matches: number;

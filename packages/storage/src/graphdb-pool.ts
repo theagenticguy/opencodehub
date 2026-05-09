@@ -1,7 +1,7 @@
 /**
  * Connection pool for the graph-database backend.
  *
- * Design goals (spec 004 §AC-M3-2 / §W-M3-1):
+ * Design goals:
  *
  *   1. **Single-writer-multi-reader model.** One native `Database` per store
  *      path, with a bounded fan-out of `Connection` objects on top of it.
@@ -241,10 +241,10 @@ function closeEntry(path: string): void {
 
 async function loadDefaultBinding(): Promise<NativeBinding> {
   // Dynamic import keeps the native dep off the startup path when the
-  // default DuckDB backend is in use (spec 004 §S-M3-1). The cast
-  // passes through `unknown` because the native binding's typed surface
-  // is richer than the structural shape this module uses — we only
-  // require `{ Database, Connection }` constructors, nothing more.
+  // DuckDB backend is in use. The cast passes through `unknown` because
+  // the native binding's typed surface is richer than the structural
+  // shape this module uses — we only require `{ Database, Connection }`
+  // constructors, nothing more.
   const mod = (await import("@ladybugdb/core")) as unknown as {
     default?: NativeBinding;
   } & NativeBinding;

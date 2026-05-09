@@ -133,9 +133,9 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
       // mode would also reject writes, but the guard produces a cleaner
       // user-facing error.
       //
-      // Routing post AC-A-1: SQL → `temporal.exec()` (the `--sql` escape
-      // hatch on ITemporalStore); Cypher → `graph.execCypher` (the
-      // graph-only adapter's escape hatch). Tools that don't have the
+      // Routing: SQL → `temporal.exec()` (the `--sql` escape hatch on
+      // ITemporalStore); Cypher → `graph.execCypher` (the graph-only
+      // adapter's escape hatch). Tools that don't have the
       // corresponding capability surface a clear error envelope.
       let rawRows: readonly Record<string, unknown>[];
       if (isCypher) {

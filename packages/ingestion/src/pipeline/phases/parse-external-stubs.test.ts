@@ -1,5 +1,5 @@
 /**
- * Parse phase — external-specifier stubs (DET-E-003).
+ * Parse phase — external-specifier stubs.
  *
  * Previously, unresolved external imports (`import { foo } from "some-lib"`)
  * were silently dropped by the parse phase. P06 emits one

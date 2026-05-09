@@ -199,7 +199,7 @@ test("detect-secrets wrapper returns empty SARIF + skipped when binary missing",
   const { deps } = makeFakeDeps(() => ({ stdout: "" }), { missing: ["detect-secrets"] });
   const wrapper = createDetectSecretsWrapper(deps);
   const out = await wrapper.run(ctx);
-  // E-B-2: tool.driver.name must be preserved even when skipped.
+  // tool.driver.name must be preserved even when skipped.
   assert.equal(out.sarif.runs[0]?.tool.driver.name, "detect-secrets");
   assert.equal(out.sarif.runs[0]?.results?.length, 0);
   assert.ok(out.skipped?.includes("not found on PATH"));
@@ -213,7 +213,7 @@ test("detect-secrets wrapper emits empty SARIF when stdout is malformed", async 
   assert.equal(out.sarif.runs[0]?.results?.length, 0);
 });
 
-test("detect-secrets wrapper passes overlapping findings through (W-B-2)", async () => {
+test("detect-secrets wrapper passes overlapping findings through", async () => {
   // KeywordDetector + AWSKeyDetector firing on the same line: both must
   // appear in the SARIF output; OCH's downstream merge handles dedupe.
   const json = {

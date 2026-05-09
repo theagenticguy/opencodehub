@@ -1,5 +1,5 @@
 /**
- * BOM body item: framework-labelled file tree (AC-M5-4 — item 3/9).
+ * BOM body item: framework-labelled file tree (item 3/9).
  *
  * Enumerates every `File`/`Folder` node and decorates each with the repo's
  * detected framework set. The `ProjectProfile` singleton (one per repo)
@@ -24,7 +24,7 @@
  * Path strings come straight from the FileNode/FolderNode `filePath`
  * field; we deliberately do NOT walk `CONTAINS` edges to reconstruct
  * the tree (the file/folder set already conveys structure via path
- * prefixes — see anti-goals in the task packet).
+ * prefixes).
  */
 
 import type { GraphNode } from "@opencodehub/core-types";

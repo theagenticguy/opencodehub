@@ -7,10 +7,9 @@
  *  - Leading-slash anchored-to-root matches.
  *  - Negation (`!`) re-includes a previously excluded path.
  *  - `*` (single segment), `?` (single char), `**` (any number of segments).
- *  - Nested `.gitignore` files with layered negation (DET-U-003 /
- *    DET-E-004). Rules stack from repo root downward; deeper layers
- *    override shallower ones so `docs/.gitignore` can negate rules set
- *    by the repo-root file.
+ *  - Nested `.gitignore` files with layered negation. Rules stack from
+ *    repo root downward; deeper layers override shallower ones so
+ *    `docs/.gitignore` can negate rules set by the repo-root file.
  *
  * Not supported today: character classes (`[abc]`), escaped metacharacters
  * (`\*`). We surface them as warnings when the operator enables verbose

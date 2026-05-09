@@ -1,12 +1,12 @@
 /**
- * @opencodehub/pack — deterministic M5 code-pack BOM.
+ * @opencodehub/pack — deterministic code-pack BOM.
  *
  * Public surface:
  *   - generatePack(opts): assembles the 9-item BOM (skeleton, file-tree,
  *     deps, ast-chunks, xrefs, findings, licenses.md, readme.md, optional
  *     Parquet embeddings sidecar) plus the manifest. The Parquet sidecar
- *     (AC-M5-6) is absent when no embeddings exist (S-M5-3).
- *   - buildManifest / serializeManifest: BOM manifest + pack_hash (AC-M5-3).
+ *     is absent when no embeddings exist.
+ *   - buildManifest / serializeManifest: BOM manifest + pack_hash.
  *   - Per-BOM-item builders re-exported for direct use (skeleton, file-tree,
  *     deps, ast-chunker, xrefs, findings, licenses, readme,
  *     embeddings-sidecar).
@@ -68,12 +68,11 @@ export { buildXrefs } from "./xrefs.js";
  * loader). Callers in production never set this; the public `PackOpts`
  * surface is unchanged.
  *
- * `store` is the composed {@link Store} (= `OpenStoreResult`) — AC-A-4
- * widened the seam from `IGraphStore` so the embeddings sidecar can
- * dispatch on `store.backend` and reach the temporal-tier DuckDB COPY
- * helper. Tests that only need graph-side reads can pass an
- * {@link IGraphStore} via the `graphOnly` field; the sidecar then takes
- * the absent path automatically.
+ * `store` is the composed {@link Store} (= `OpenStoreResult`) — the
+ * embeddings sidecar dispatches on `store.backend` and reaches the
+ * temporal-tier DuckDB COPY helper through this seam. Tests that only
+ * need graph-side reads can pass an {@link IGraphStore} via the
+ * `graphOnly` field; the sidecar then takes the absent path automatically.
  */
 export interface GeneratePackInternalOpts {
   readonly store?: Store;
@@ -101,7 +100,7 @@ export interface GeneratePackInternalOpts {
  *
  * Writes the 8 always-present BOM files plus the manifest into
  * `opts.outDir`, plus an optional Parquet sidecar when the underlying
- * embeddings table has rows (AC-M5-6):
+ * embeddings table has rows:
  *   - skeleton.jsonl
  *   - file-tree.jsonl
  *   - deps.jsonl
@@ -110,13 +109,14 @@ export interface GeneratePackInternalOpts {
  *   - findings.jsonl
  *   - licenses.md
  *   - readme.md
- *   - embeddings.parquet (optional — absent when no embeddings, S-M5-3)
+ *   - embeddings.parquet (optional — absent when no embeddings)
  *   - manifest.json
  *
  * Determinism class:
  *   - `"strict"` by default.
- *   - `"best_effort"` when `tokenizerId` starts with `"anthropic:"` (S-M5-2).
- *   - `"degraded"` when the AST chunker fell back to line-split (S-M5-1).
+ *   - `"best_effort"` when `tokenizerId` starts with `"anthropic:"` (Claude
+ *     tokenizers are not guaranteed stable across versions).
+ *   - `"degraded"` when the AST chunker fell back to line-split.
  *
  * The function always writes the manifest LAST so a partial run never
  * leaves a manifest pointing at hashes that don't match the on-disk
@@ -173,14 +173,13 @@ export async function generatePack(
     bomItem("licenses", "licenses.md", licensesBytes),
   ];
 
-  // --- Optional Parquet embeddings sidecar (BOM item #7, AC-M5-6 +
-  //     AC-A-4 relocation). The sidecar dispatches on `store.backend`:
-  //     `duck` runs DuckDB COPY directly, `lbug` stamps a degraded
-  //     determinism class for v1 (no temporal embeddings table to COPY
-  //     from). When written, the sidecar's runtime `SELECT version()`
-  //     overrides `pins.duckdbVersion` so the manifest binds determinism
-  //     to the engine version that produced the file — the parquet
-  //     `created_by` metadata embeds it. ---
+  // --- Optional Parquet embeddings sidecar (BOM item #7). The sidecar
+  //     dispatches on `store.backend`: `duck` runs DuckDB COPY directly,
+  //     `lbug` stamps a degraded determinism class for v1 (no temporal
+  //     embeddings table to COPY from). When written, the sidecar's
+  //     runtime `SELECT version()` overrides `pins.duckdbVersion` so the
+  //     manifest binds determinism to the engine version that produced
+  //     the file — the parquet `created_by` metadata embeds it. ---
   await mkdir(opts.outDir, { recursive: true });
   const sidecarPath = path.join(opts.outDir, "embeddings.parquet");
   const sidecar = await writeEmbeddingsSidecar({ store, outPath: sidecarPath });
@@ -292,7 +291,7 @@ async function writeBytes(p: string, bytes: Uint8Array): Promise<void> {
 
 /**
  * Resolve the determinism class. `degraded` (from either the chunker
- * fallback or the AC-A-4 sidecar lbug-path stamp) dominates everything;
+ * fallback or the sidecar's lbug-path stamp) dominates everything;
  * Anthropic tokenizers downgrade to `best_effort`; otherwise `strict`.
  */
 function resolveDeterminism(
@@ -306,11 +305,11 @@ function resolveDeterminism(
 }
 
 /**
- * Resolve the composed store. AC-A-4 widened the seam from `IGraphStore`
- * to `Store`; tests that don't exercise the sidecar can still pass an
- * `IGraphStore` via `internal.graphOnly` and we wrap it into a minimal
- * `Store` shape that funnels the sidecar to its absent path automatically
- * (no `temporal` DuckDB → no COPY helper → `writerBackend: "absent"`).
+ * Resolve the composed store. The seam accepts a composed `Store`; tests
+ * that don't exercise the sidecar can still pass an `IGraphStore` via
+ * `internal.graphOnly` and we wrap it into a minimal `Store` shape that
+ * funnels the sidecar to its absent path automatically (no `temporal`
+ * DuckDB → no COPY helper → `writerBackend: "absent"`).
  */
 async function resolveStore(internal: GeneratePackInternalOpts, repoPath: string): Promise<Store> {
   if (internal.store !== undefined) return internal.store;
@@ -348,10 +347,11 @@ function wrapGraphOnly(graph: IGraphStore): Store {
  * `internal.graphOnly`) instead.
  */
 async function openStoreFromRepoPath(_repoPath: string): Promise<Store> {
-  // M5 leaves the production lookup wiring to AC-M5-7 (CLI integration).
-  // Keep a clear failure mode here so the wiring AC catches it loudly.
+  // Production store lookup is wired by the CLI integration layer.
+  // Keep a clear failure mode here so callers that forget to inject a
+  // store in tests (or skip the CLI in production) fail loudly.
   throw new Error(
-    "generatePack: production store lookup is owned by AC-M5-7; pass internal.store in tests.",
+    "generatePack: production store lookup is wired by the CLI; pass internal.store in tests.",
   );
 }
 

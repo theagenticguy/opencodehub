@@ -14,7 +14,7 @@ Generates a Markdown PR body from graph primitives. Linear (no subagents). Sonne
 ## Preconditions
 
 1. Resolve `--base` (default `main`) and `--head` (default `HEAD`) via `git rev-parse`.
-2. `git diff --name-only <base>..<head>` must return ≥ 1 path. If empty, emit `No diff detected — resolve base/head or stage changes.` and stop. (Spec 001 AC-5-4.)
+2. `git diff --name-only <base>..<head>` must return ≥ 1 path. If empty, emit `No diff detected — resolve base/head or stage changes.` and stop.
 
 ## Arguments
 

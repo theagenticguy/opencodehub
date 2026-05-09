@@ -1,7 +1,7 @@
 /**
  * Tests for `generateSkills`.
  *
- * Post AC-A-6e the generator consumes a typed-finder surface
+ * The generator consumes a typed-finder surface
  * (`Pick<IGraphStore, "listNodesByKind" | "listNodes" |
  * "listNodesByEntryPoint" | "listEdgesByType">`). The fake store below
  * implements those four methods over an in-memory fixture so the tests
@@ -64,9 +64,8 @@ interface Fixture {
 
 // ---------------------------------------------------------------------------
 // Fake store — implements the four typed finders the generator needs over an
-// in-memory fixture. The legacy SQL-dispatch fake was retired with AC-A-6e;
-// matching the production interface keeps tests honest about which finders
-// the generator actually calls.
+// in-memory fixture. Matching the production interface keeps tests
+// honest about which finders the generator actually calls.
 // ---------------------------------------------------------------------------
 
 function makeFakeStore(fixture: Fixture): SkillsGenStore {

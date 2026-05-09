@@ -212,11 +212,11 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     ? await openSummaryCacheAdapter(repoPath)
     : undefined;
 
-  // Mirror the same pattern for the embeddings phase's content-hash skip
-  // (T-M1-3). Only open when `--embeddings` is on AND `--force` is off —
-  // force re-embeds everything, so the adapter would do no useful work.
-  // When the prior DB is absent the adapter returns undefined and the
-  // phase degrades to "every chunk is new".
+  // Mirror the same pattern for the embeddings phase's content-hash skip.
+  // Only open when `--embeddings` is on AND `--force` is off — force
+  // re-embeds everything, so the adapter would do no useful work. When the
+  // prior DB is absent the adapter returns undefined and the phase
+  // degrades to "every chunk is new".
   const embeddingHashAdapter =
     opts.embeddings === true && opts.force !== true
       ? await openEmbeddingHashCacheAdapter(repoPath)
@@ -518,8 +518,8 @@ export async function loadPreviousGraph(
 
 /**
  * Resolve the effective `summaries` flag, honoring the
- * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch (SUM-S-001) and the P04
- * default-on contract (absent flag → enabled).
+ * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch and the P04 default-on
+ * contract (absent flag → enabled).
  *
  * Truth table (post-P04):
  *   - env var set + flag undefined  → false (kill-switch wins)
@@ -654,7 +654,7 @@ async function openSummaryCacheAdapter(
 
 /**
  * Open a read-only DuckDB store scoped to the `embeddings` content-hash
- * probe (T-M1-3). The returned adapter's `list()` loads every prior
+ * probe. The returned adapter's `list()` loads every prior
  * `(granularity, nodeId, chunkIndex) → content_hash` row in a single
  * round-trip so the embeddings phase can skip chunks whose source text is
  * unchanged across runs. Returns `undefined` when the store cannot be
@@ -704,11 +704,11 @@ function fileFromNodeId(id: string): string | undefined {
 
 // `PREV_NODE_SELECT_COLUMNS` was the explicit column whitelist used by the
 // legacy SQL `SELECT * FROM nodes` round-trip in {@link loadPreviousGraph}.
-// AC-A-6e migrated that read path to `store.graph.listNodes()`, which
-// already returns rehydrated `GraphNode` objects, so the constant is no
-// longer load-bearing here. The `rowToGraphNode` / `rowToCodeRelation`
-// adapters below remain exported for external consumers that hand-roll
-// over the DuckDB wide-column shape.
+// That read path now goes through `store.graph.listNodes()`, which already
+// returns rehydrated `GraphNode` objects, so the constant is no longer
+// load-bearing here. The `rowToGraphNode` / `rowToCodeRelation` adapters
+// below remain exported for external consumers that hand-roll over the
+// DuckDB wide-column shape.
 
 const NODE_KIND_SET: ReadonlySet<string> = new Set<string>(NODE_KINDS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set<string>(RELATION_TYPES);

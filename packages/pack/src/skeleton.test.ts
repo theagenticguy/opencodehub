@@ -1,5 +1,5 @@
 /**
- * Tests for the PageRank-ranked symbol skeleton (AC-M5-4 — item 2/9).
+ * Tests for the PageRank-ranked symbol skeleton (item 2/9).
  *
  * Covers:
  *   - A. Determinism: two consecutive calls return deep-equal output.

@@ -291,7 +291,7 @@ async function callRealPackEngine(args: {
   }
 }
 
-/** Real-world repomix shell-out. Mirrors the pre-AC-M5-7 implementation. */
+/** Real-world repomix shell-out. */
 async function callRealRepomixEngine(args: {
   repoPath: string;
   style: "xml" | "markdown" | "json" | "plain";

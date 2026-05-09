@@ -9,7 +9,7 @@
  * concept-phrase queries still work; when it yields more than one row
  * and no disambiguator narrows the set, we surface the candidate list.
  *
- * Per AC-A-6e: this command is graph-only — the lifecycle owner
+ * This command is graph-only — the lifecycle owner
  * (`openStoreForCommand`) constructs the composed `Store` envelope, but
  * `runContext` reaches through `store.graph` for every read so the
  * `IGraphStore` typed-finder surface stays the only contract.

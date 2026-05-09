@@ -1,5 +1,5 @@
 /**
- * Unit tests for the scip-kotlin v0.6.0 adapter (AC-M4-4).
+ * Unit tests for the scip-kotlin v0.6.0 adapter.
  *
  * Covered paths:
  *   - `detectLanguages`: pure-Kotlin projects drop the legacy `"java"` candidate;

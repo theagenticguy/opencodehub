@@ -31,10 +31,10 @@ const GroupStatusInput = {
 interface RepoStatusRow {
   readonly name: string;
   /**
-   * Cross-repo handle. Additive per AC-M6-4: prefers the graph-backed
-   * `RepoNode.repoUri` when the repo has been indexed with AC-M6-1's
-   * phase; falls back to `deriveRepoUri` for orphan references / pre-M6
-   * indexes. Legacy `name` field stays through M7.
+   * Cross-repo handle. Prefers the graph-backed `RepoNode.repoUri`
+   * when the repo's index carries one; falls back to `deriveRepoUri`
+   * for orphan references / pre-RepoNode indexes. Legacy `name` field
+   * stays through the next major.
    */
   readonly repo_uri: string;
   readonly path: string;
@@ -73,7 +73,7 @@ export async function runGroupStatus(ctx: ToolContext, args: GroupStatusArgs): P
       const hit = registry[repo.name];
       if (!hit) {
         // Orphan reference — still emit a deterministic repo_uri so
-        // consumers always receive the additive AC-M6-4 field.
+        // consumers always receive the additive `repo_uri` field.
         const orphanUri = deriveRepoUri({
           name: repo.name,
           path: repo.path,
