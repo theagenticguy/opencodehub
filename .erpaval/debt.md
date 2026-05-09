@@ -288,11 +288,13 @@ architecture pages + mermaid rendering.
    `sarif`, `scip-ingest`, `search` — all have code-level docs but no
    README.
 
-2. **`.gitmodules` thiserror pin comment.** The sweep reconciled
-   `packages/gym/corpus/rust/README.md` and `corpus/repos/README.md` on
-   `thiserror@2.0.17`. `.gitmodules` line 19 still says
-   `pin: v2.0.0 tag`. One-line fix — the subagent's write was denied,
-   deferred to the user.
+2. **`.gitmodules` thiserror pin comment.** **Status: CLOSED-STALE** —
+   `git show HEAD:.gitmodules` returns "fatal: path .gitmodules does
+   not exist in HEAD"; the file was removed when `packages/gym` moved
+   to `opencodehub-testbed` (commit 378f79f). The submodule set lives
+   in the testbed repo now; any thiserror-pin reconciliation belongs
+   over there, not here. Closed as stale by AC-C-7 (Track C, v1
+   finalize, 2026-05-09).
 
 3. **Dead eval-harness fallback.** `packages/eval/src/opencodehub_eval/
    test_parametrized.py:167-175` has tool-still-unregistered fallback

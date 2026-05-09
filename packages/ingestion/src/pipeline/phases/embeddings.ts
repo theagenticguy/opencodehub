@@ -513,6 +513,10 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
 
   let embedder: Embedder;
   try {
+    // Intentionally NOT using `openDefaultEmbedder` from `@opencodehub/embedder`:
+    // ingestion needs the offline flag, an explicit ONNX variant + modelDir,
+    // a weight canary, and an OnnxEmbedderPool — none of which apply at query
+    // time. Keep the two paths separate.
     const httpEmbedder = await tryOpenHttpEmbedder({ offline: ctx.options.offline === true });
     if (httpEmbedder !== null) {
       embedder = httpEmbedder;

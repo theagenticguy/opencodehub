@@ -9,7 +9,7 @@
  */
 
 import type { ScipDocument, ScipIndex, ScipOccurrence, ScipRange } from "./parse.js";
-import { SCIP_ROLE_DEFINITION } from "./parse.js";
+import { SCIP_ROLE_DEFINITION, SCIP_ROLE_IMPORT } from "./parse.js";
 
 export interface DerivedEdge {
   readonly caller: string;
@@ -127,24 +127,40 @@ export function deriveEdges(doc: ScipDocument): DerivedEdge[] {
   const edges: DerivedEdge[] = [];
   for (const occ of doc.occurrences) {
     if (occ.symbolRoles & SCIP_ROLE_DEFINITION) continue;
+    // Pure import-bridge occurrences (named import line, re-export bind)
+    // never carry call/reference semantics — drop before classification.
+    if (occ.symbolRoles & SCIP_ROLE_IMPORT) continue;
     if (!isReferenceable(occ.symbol)) continue;
-    // The call graph is function-to-function. REFERENCES across types
-    // (e.g. `builtins/float#`) are handled by the downstream structural
-    // tier and would otherwise distort blast-radius rankings with noise
-    // from stdlib types. See POC `scip_graph_poc/ingest.py` for the
-    // same contract.
-    if (!isFunctionLike(occ.symbol)) continue;
     const caller = innermostEnclosing(defs, occ.range, (s) => s.startsWith("local "));
     if (!caller || caller === occ.symbol) continue;
     if (!isFunctionLike(caller)) continue;
-    edges.push({
-      caller,
-      callee: occ.symbol,
-      document: doc.relativePath,
-      callLine: occ.range.startLine,
-      callChar: occ.range.startChar,
-      kind: "CALLS",
-    });
+    // Function-like occurrences become CALLS edges (the historical scip
+    // POC contract). All other referenceable occurrences with a
+    // function-like enclosing scope become REFERENCES edges — type
+    // mentions, identifier reads, decorator targets — so blast-radius
+    // walks see the full read-side fanout from each defining function.
+    // The downstream emit pass drops REFERENCES whose callee has no
+    // DEFINITION anywhere in the index (stdlib / vendored / typings),
+    // matching the existing CALLS contract.
+    if (isFunctionLike(occ.symbol)) {
+      edges.push({
+        caller,
+        callee: occ.symbol,
+        document: doc.relativePath,
+        callLine: occ.range.startLine,
+        callChar: occ.range.startChar,
+        kind: "CALLS",
+      });
+    } else {
+      edges.push({
+        caller,
+        callee: occ.symbol,
+        document: doc.relativePath,
+        callLine: occ.range.startLine,
+        callChar: occ.range.startChar,
+        kind: "REFERENCES",
+      });
+    }
   }
   return edges;
 }

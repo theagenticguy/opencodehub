@@ -382,6 +382,10 @@ program
     "--granularity <tier>",
     "Restrict ANN to one hierarchical tier: symbol (default), file, or community",
   )
+  .option(
+    "--force-backend-mismatch",
+    "Bypass the embedder fingerprint check. Lets a query run when the persisted embedder model_id differs from the current one. Vectors may be stale.",
+  )
   .action(async (text: string, opts: Record<string, unknown>) => {
     const mod = await import("./commands/query.js");
     const granularity = parseQueryGranularity(opts["granularity"]);
@@ -398,6 +402,7 @@ program
       zoom: opts["zoom"] === true,
       ...(typeof opts["fanout"] === "number" ? { fanout: opts["fanout"] } : {}),
       ...(granularity !== undefined ? { granularity } : {}),
+      forceBackendMismatch: opts["forceBackendMismatch"] === true,
     });
   });
 

@@ -24,7 +24,8 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "INTERNAL"
   | "NO_INDEX"
-  | "AMBIGUOUS_REPO";
+  | "AMBIGUOUS_REPO"
+  | "EMBEDDER_MISMATCH";
 
 /** Structured shape carried under `structuredContent.error`. */
 export interface ErrorDetail {

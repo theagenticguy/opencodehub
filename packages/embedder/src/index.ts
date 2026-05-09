@@ -34,6 +34,12 @@ import {
 } from "./sagemaker-embedder.js";
 import type { Embedder, EmbedderConfig } from "./types.js";
 
+export { type OpenDefaultEmbedderOptions, openDefaultEmbedder } from "./factory.js";
+export {
+  assertEmbedderCompatible,
+  EMBEDDER_MISMATCH_HINT,
+  type EmbedderCompatibilityResult,
+} from "./fingerprint.js";
 export {
   type HttpEmbedderConfig,
   openHttpEmbedder,
