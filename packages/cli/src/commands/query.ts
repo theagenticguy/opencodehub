@@ -37,7 +37,7 @@ import {
   type SymbolHit,
   tryOpenEmbedder,
 } from "@opencodehub/search";
-import type { DuckDbStore, SymbolSummaryRow } from "@opencodehub/storage";
+import type { Store, SymbolSummaryRow } from "@opencodehub/storage";
 import { type OpenStoreResult, openStoreForCommand } from "./open-store.js";
 
 /** Per-symbol cap for `--content`. Matches the MCP `query` tool contract. */
@@ -136,6 +136,7 @@ export async function runQuery(
   const openStore = hooks.openStore ?? openStoreForCommand;
   const openEmbedder = hooks.openEmbedder ?? defaultOpenEmbedder;
   const { store, repoPath } = await openStore(opts);
+  const graph = store.graph;
   try {
     const searchText = buildSearchText(text, opts.context, opts.goal);
 
@@ -144,14 +145,14 @@ export async function runQuery(
 
     if (opts.bm25Only === true) {
       // Explicit opt-out: never touch the embedder probe.
-      ranked = await runBm25(store, searchText, limit);
+      ranked = await runBm25(graph, searchText, limit);
       mode = "bm25";
-    } else if (await embeddingsPopulated(store)) {
+    } else if (await embeddingsPopulated(graph)) {
       const embedder = await tryOpenEmbedder<Embedder>(openEmbedder, "[cli:query]");
       if (embedder !== null) {
         try {
           const fused = await hybridSearch(
-            store,
+            graph,
             {
               text: searchText,
               limit: rerankTopK,
@@ -161,7 +162,7 @@ export async function runQuery(
             },
             embedder,
           );
-          ranked = await hydrateFused(store, fused, limit);
+          ranked = await hydrateFused(graph, fused, limit);
           mode = "hybrid";
         } finally {
           // Always release the native session — even on error — so the ONNX
@@ -169,18 +170,18 @@ export async function runQuery(
           await embedder.close();
         }
       } else {
-        ranked = await runBm25(store, searchText, limit);
+        ranked = await runBm25(graph, searchText, limit);
         mode = "bm25";
       }
     } else {
-      ranked = await runBm25(store, searchText, limit);
+      ranked = await runBm25(graph, searchText, limit);
       mode = "bm25";
     }
 
     // Merge P04 summary-hydration onto the P02 hybrid/BM25 rows. Single
-    // round trip via `IN (...)`; missing table / missing rows / lookup
-    // failures all degrade silently — summaries are enrichment, not
-    // load-bearing.
+    // round trip via the temporal-tier `lookupSymbolSummariesByNode`
+    // finder; missing table / missing rows / lookup failures all degrade
+    // silently — summaries are enrichment, not load-bearing.
     const summaryMap = await joinSummaries(
       store,
       ranked.map((r) => r.nodeId),
@@ -229,11 +230,11 @@ export async function runQuery(
  * parameters the MCP tool passes, so ranking parity is automatic.
  */
 async function runBm25(
-  store: OpenStoreResult["store"],
+  graph: Store["graph"],
   searchText: string,
   limit: number,
 ): Promise<readonly QueryRow[]> {
-  const hits = await bm25Search(store, { text: searchText, limit });
+  const hits = await bm25Search(graph, { text: searchText, limit });
   return hits.map((h: SymbolHit) => ({
     nodeId: h.nodeId,
     name: h.name,
@@ -251,31 +252,25 @@ async function runBm25(
  * embeddings) are silently dropped. Input order is preserved.
  */
 async function hydrateFused(
-  store: OpenStoreResult["store"],
+  graph: Store["graph"],
   fused: readonly FusedHit[],
   limit: number,
 ): Promise<readonly QueryRow[]> {
   if (fused.length === 0) return [];
   const capped = fused.slice(0, limit);
   const ids = Array.from(new Set(capped.map((f) => f.nodeId)));
-  const placeholders = ids.map(() => "?").join(",");
   const meta = new Map<
     string,
     { readonly name: string; readonly kind: string; readonly filePath: string }
   >();
   try {
-    const rows = await store.query(
-      `SELECT id, name, kind, file_path FROM nodes WHERE id IN (${placeholders})`,
-      ids,
-    );
-    for (const r of rows) {
-      const id = String(r["id"] ?? "");
-      if (id === "") continue;
-      meta.set(id, {
-        name: String(r["name"] ?? ""),
-        kind: String(r["kind"] ?? ""),
-        filePath: String(r["file_path"] ?? ""),
-      });
+    // Typed-finder hydration replaces the legacy `SELECT id, name, kind,
+    // file_path FROM nodes WHERE id IN (...)`. `listNodes({ids})`
+    // already returns the rehydrated `GraphNode` shape with name + kind
+    // + filePath populated.
+    const nodes = await graph.listNodes({ ids });
+    for (const n of nodes) {
+      meta.set(n.id, { name: n.name, kind: n.kind, filePath: n.filePath });
     }
   } catch {
     // Any metadata-hydration failure collapses to "hit with blank fields"
@@ -309,19 +304,24 @@ async function hydrateFused(
  * without `lookupSymbolSummariesByNode` get an empty join transparently.
  */
 async function joinSummaries(
-  store: DuckDbStore | { readonly lookupSymbolSummariesByNode?: unknown },
+  store: Store,
   nodeIds: readonly string[],
 ): Promise<Map<string, SymbolSummaryRow>> {
   const out = new Map<string, SymbolSummaryRow>();
   if (nodeIds.length === 0) return out;
-  const lookup = (store as { readonly lookupSymbolSummariesByNode?: unknown })
-    .lookupSymbolSummariesByNode;
-  if (typeof lookup !== "function") return out;
+  // Test fakes that omit a real temporal view (or set it to a partial
+  // shape) get an empty join transparently — `lookupSymbolSummariesByNode`
+  // is required on `ITemporalStore` but we still duck-check at runtime so
+  // a hand-rolled mock without the method doesn't blow up.
+  const temporal = store.temporal as unknown as {
+    readonly lookupSymbolSummariesByNode?: (
+      ids: readonly string[],
+    ) => Promise<readonly SymbolSummaryRow[]>;
+  };
+  if (typeof temporal.lookupSymbolSummariesByNode !== "function") return out;
   const uniqIds = Array.from(new Set(nodeIds));
   try {
-    const rows = (await (
-      lookup as (ids: readonly string[]) => Promise<readonly SymbolSummaryRow[]>
-    ).call(store, uniqIds)) as readonly SymbolSummaryRow[];
+    const rows = await temporal.lookupSymbolSummariesByNode.call(store.temporal, uniqIds);
     for (const row of rows) {
       // Overwriting per node id keeps the newest prompt version because of
       // the storage layer's ORDER BY contract on `lookupSymbolSummariesByNode`.

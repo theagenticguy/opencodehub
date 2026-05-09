@@ -1,27 +1,25 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
 import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
+  AncestorTraversalOptions,
+  DescendantTraversalOptions,
   SearchQuery,
   SearchResult,
-  SqlParam,
-  StoreMeta,
   TraverseQuery,
   TraverseResult,
-  VectorQuery,
-  VectorResult,
 } from "@opencodehub/storage";
 import { assertReadOnlySql } from "@opencodehub/storage";
-import { ConnectionPool } from "./connection-pool.js";
+import {
+  type FakeDependency,
+  type FakeEdgeLike,
+  type FakeNodeLike,
+  type FakeRoute,
+  getToolHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "./test-utils.js";
 import { registerContextTool } from "./tools/context.js";
 import { registerDependenciesTool } from "./tools/dependencies.js";
 import { registerImpactTool } from "./tools/impact.js";
@@ -50,470 +48,272 @@ interface FakeStoreData {
   searchResults?: SearchResult[];
 }
 
-function makeFakeStore(data: FakeStoreData): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      // Guard runs first so the `sql` tool's INVALID_INPUT path works.
-      assertReadOnlySql(sql);
-      const text = sql.replace(/\s+/g, " ").trim();
-      const projectNode = (n: Record<string, unknown>) => ({
-        id: n["id"],
-        name: n["name"],
-        kind: n["kind"],
-        file_path: n["file_path"],
-      });
+/**
+ * Project the legacy snake_case test seed shape onto the typed-finder
+ * data the production code reads.
+ *
+ * Routes / Dependencies are surfaced via dedicated finders (`listRoutes`,
+ * `listDependencies`); ProjectProfile rows have JSON-string columns we
+ * pre-parse into typed arrays. Cochange rows go through the temporal
+ * `lookupCochangesForFile` finder.
+ */
+function buildFake(data: FakeStoreData) {
+  const nodes: FakeNodeLike[] = data.nodes.map(
+    (n) =>
+      ({
+        ...n,
+        id: String(n["id"]),
+        name: typeof n["name"] === "string" ? (n["name"] as string) : "",
+        kind: typeof n["kind"] === "string" ? (n["kind"] as string) : "",
+      }) as unknown as FakeNodeLike,
+  );
 
-      // Analysis package: resolve-by-id lookup
-      if (text.startsWith("SELECT id, name, file_path, kind FROM nodes WHERE id = ?")) {
+  // Project ProjectProfile JSON-string columns into typed arrays so the
+  // typed `listNodesByKind("ProjectProfile")` finder returns rows the
+  // production code can read.
+  for (const n of nodes) {
+    if (n.kind !== "ProjectProfile") continue;
+    const p = n as unknown as Record<string, unknown>;
+    const parseArr = (key: string): string[] => {
+      const raw = p[key];
+      if (typeof raw !== "string") return [];
+      try {
+        const v = JSON.parse(raw);
+        return Array.isArray(v) ? (v as string[]) : [];
+      } catch {
+        return [];
+      }
+    };
+    p["languages"] = parseArr("languages_json");
+    p["frameworks"] = parseArr("frameworks_json");
+    p["iacTypes"] = parseArr("iac_types_json");
+    p["apiContracts"] = parseArr("api_contracts_json");
+    p["manifests"] = parseArr("manifests_json");
+    p["srcDirs"] = parseArr("src_dirs_json");
+  }
+
+  const edges: FakeEdgeLike[] = data.relations.map(
+    (r) =>
+      ({
+        ...r,
+        type: String(r["type"]),
+      }) as unknown as FakeEdgeLike,
+  );
+
+  // Project Route nodes for `listRoutes()` (api-impact, route-map, etc.)
+  const routes: FakeRoute[] = nodes
+    .filter((n) => n.kind === "Route")
+    .map((n) => {
+      const p = n as unknown as Record<string, unknown>;
+      return {
+        id: n.id,
+        kind: "Route" as const,
+        name: typeof n.name === "string" ? n.name : "",
+        filePath: typeof p["filePath"] === "string" ? (p["filePath"] as string) : "",
+        ...(typeof p["url"] === "string" ? { url: p["url"] as string } : {}),
+        ...(typeof p["method"] === "string" ? { method: p["method"] as string } : {}),
+        ...(Array.isArray(p["responseKeys"])
+          ? { responseKeys: p["responseKeys"] as string[] }
+          : {}),
+      };
+    });
+
+  // Project Dependency nodes for `listDependencies()`.
+  const dependencies: FakeDependency[] = nodes
+    .filter((n) => n.kind === "Dependency")
+    .map((n) => {
+      const p = n as unknown as Record<string, unknown>;
+      return {
+        id: n.id,
+        kind: "Dependency" as const,
+        name: typeof n.name === "string" ? n.name : "",
+        ...(typeof p["filePath"] === "string"
+          ? { filePath: p["filePath"] as string }
+          : typeof p["file_path"] === "string"
+            ? { filePath: p["file_path"] as string }
+            : {}),
+        ...(typeof p["ecosystem"] === "string" ? { ecosystem: p["ecosystem"] as string } : {}),
+        ...(typeof p["version"] === "string" ? { version: p["version"] as string } : {}),
+        ...(typeof p["license"] === "string" ? { license: p["license"] as string } : {}),
+      };
+    });
+
+  const cochangeRows = data.cochanges ?? [];
+
+  return makeFakeGraphStore(
+    { nodes, edges, routes, dependencies },
+    {
+      // Per-test BM25 — search over node names by substring.
+      search: async (q: SearchQuery): Promise<readonly SearchResult[]> => {
+        if (data.searchResults) return data.searchResults;
         return data.nodes
-          .filter((n) => n["id"] === (params[0] as string))
-          .map(projectNode)
-          .slice(0, 1);
-      }
-      // Analysis package: resolve-by-name lookup
-      if (text.startsWith("SELECT id, name, file_path, kind FROM nodes WHERE name = ?")) {
-        return data.nodes.filter((n) => n["name"] === (params[0] as string)).map(projectNode);
-      }
-      // Analysis package: bulk id hydration
-      if (text.startsWith("SELECT id, name, file_path, kind FROM nodes WHERE id IN")) {
-        const idSet = new Set(params as string[]);
-        return data.nodes.filter((n) => idSet.has(String(n["id"]))).map(projectNode);
-      }
-      // Query tool: bulk id hydration with start_line/end_line.
-      if (
-        text.startsWith(
-          "SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE id IN",
-        )
-      ) {
-        const idSet = new Set(params as string[]);
-        return data.nodes
-          .filter((n) => idSet.has(String(n["id"])))
+          .filter((n) =>
+            String(n["name"] ?? "")
+              .toLowerCase()
+              .includes(q.text.toLowerCase()),
+          )
+          .slice(0, q.limit ?? 50)
           .map((n) => ({
+            nodeId: String(n["id"]),
+            name: String(n["name"]),
+            kind: String(n["kind"]),
+            filePath: String(n["file_path"]),
+            score: 1,
+          }));
+      },
+      // BFS over the in-memory relations table — the impact tool reads
+      // analysis/impact.ts which uses `traverseAncestors` / `traverse`.
+      traverse: async (q: TraverseQuery): Promise<readonly TraverseResult[]> => {
+        const out: TraverseResult[] = [];
+        const visited = new Set<string>([q.startId]);
+        let frontier: string[] = [q.startId];
+        for (let depth = 1; depth <= q.maxDepth; depth += 1) {
+          const next: string[] = [];
+          for (const id of frontier) {
+            const matched = data.relations.filter((r) => {
+              if (q.direction === "up") return r["to_id"] === id;
+              if (q.direction === "down") return r["from_id"] === id;
+              return r["from_id"] === id || r["to_id"] === id;
+            });
+            for (const edge of matched) {
+              const other = q.direction === "up" ? edge["from_id"] : edge["to_id"];
+              const otherId = String(other);
+              if (visited.has(otherId)) continue;
+              visited.add(otherId);
+              out.push({ nodeId: otherId, depth, path: [q.startId, otherId] });
+              next.push(otherId);
+            }
+          }
+          frontier = next;
+        }
+        return out;
+      },
+      traverseAncestors: async (
+        opts: AncestorTraversalOptions,
+      ): Promise<readonly TraverseResult[]> => {
+        const out: TraverseResult[] = [];
+        const visited = new Set<string>([opts.fromId]);
+        const allowedTypes = new Set<string>(opts.edgeTypes);
+        let frontier: string[] = [opts.fromId];
+        for (let depth = 1; depth <= opts.maxDepth; depth += 1) {
+          const next: string[] = [];
+          for (const id of frontier) {
+            const matched = data.relations.filter((r) => {
+              if (!allowedTypes.has(String(r["type"]))) return false;
+              if (
+                opts.minConfidence !== undefined &&
+                Number(r["confidence"] ?? 0) < opts.minConfidence
+              ) {
+                return false;
+              }
+              return r["to_id"] === id;
+            });
+            for (const edge of matched) {
+              const otherId = String(edge["from_id"]);
+              if (visited.has(otherId)) continue;
+              visited.add(otherId);
+              out.push({ nodeId: otherId, depth, path: [opts.fromId, otherId] });
+              next.push(otherId);
+            }
+          }
+          frontier = next;
+        }
+        return out;
+      },
+      traverseDescendants: async (
+        opts: DescendantTraversalOptions,
+      ): Promise<readonly TraverseResult[]> => {
+        const out: TraverseResult[] = [];
+        const visited = new Set<string>([opts.fromId]);
+        const allowedTypes = new Set<string>(opts.edgeTypes);
+        let frontier: string[] = [opts.fromId];
+        for (let depth = 1; depth <= opts.maxDepth; depth += 1) {
+          const next: string[] = [];
+          for (const id of frontier) {
+            const matched = data.relations.filter((r) => {
+              if (!allowedTypes.has(String(r["type"]))) return false;
+              if (
+                opts.minConfidence !== undefined &&
+                Number(r["confidence"] ?? 0) < opts.minConfidence
+              ) {
+                return false;
+              }
+              return r["from_id"] === id;
+            });
+            for (const edge of matched) {
+              const otherId = String(edge["to_id"]);
+              if (visited.has(otherId)) continue;
+              visited.add(otherId);
+              out.push({ nodeId: otherId, depth, path: [opts.fromId, otherId] });
+              next.push(otherId);
+            }
+          }
+          frontier = next;
+        }
+        return out;
+      },
+      lookupCochangesForFile: async (
+        file: string,
+        opts: { limit?: number; minLift?: number } = {},
+      ) => {
+        const minLift = opts.minLift ?? 1.0;
+        const limit = opts.limit ?? 10;
+        return cochangeRows
+          .filter((r) => (r.sourceFile === file || r.targetFile === file) && r.lift >= minLift)
+          .slice()
+          .sort((a, b) => b.lift - a.lift)
+          .slice(0, limit);
+      },
+      lookupCochangesBetween: async (fileA: string, fileB: string) =>
+        cochangeRows.find(
+          (r) =>
+            (r.sourceFile === fileA && r.targetFile === fileB) ||
+            (r.sourceFile === fileB && r.targetFile === fileA),
+        ),
+      // SQL escape hatch (sql tool tests). Apply the read-only guard so
+      // write-verb rejections propagate through the tool's INVALID_INPUT
+      // path, then echo back the seeded nodes for the SELECT path.
+      exec: async (sql: string) => {
+        assertReadOnlySql(sql);
+        const text = sql.replace(/\s+/g, " ").trim();
+        if (/^SELECT \* FROM NODES LIMIT/i.test(text)) {
+          return data.nodes.slice(0, 5).map((n) => ({
             id: n["id"],
             name: n["name"],
             kind: n["kind"],
             file_path: n["file_path"],
-            start_line: n["start_line"] ?? null,
-            end_line: n["end_line"] ?? null,
           }));
-      }
-      // Analysis package: relation-record lookup (type + confidence + reason).
-      // Params: first N placeholders are from ids, next M are to ids. We derive
-      // N from the first `IN (…)` placeholder run so asymmetric splits work.
-      if (text.startsWith("SELECT from_id, to_id, type, confidence, reason FROM relations")) {
-        const inCounts = [...text.matchAll(/IN \(([?,\s]+)\)/g)].map(
-          (m) => m[1]?.split(",").length ?? 0,
-        );
-        const fromCount = inCounts[0] ?? 0;
-        const froms = new Set((params as string[]).slice(0, fromCount));
-        const tos = new Set((params as string[]).slice(fromCount));
-        return data.relations
-          .filter((r) => froms.has(String(r["from_id"])) && tos.has(String(r["to_id"])))
-          .map((r) => ({
-            from_id: r["from_id"],
-            to_id: r["to_id"],
-            type: r["type"],
-            confidence: r["confidence"],
-            reason: r["reason"],
-          }));
-      }
-      const projectContextNode = (n: Record<string, unknown>) => ({
-        id: n["id"],
-        name: n["name"],
-        kind: n["kind"],
-        file_path: n["file_path"],
-        start_line: n["start_line"] ?? null,
-        end_line: n["end_line"] ?? null,
-        content: n["content"] ?? null,
-      });
-      // Context tool: uid-based direct lookup
-      if (
-        text.startsWith(
-          "SELECT id, name, kind, file_path, start_line, end_line, content FROM nodes WHERE id = ?",
-        )
-      ) {
-        const [id] = params as string[];
-        return data.nodes
-          .filter((n) => n["id"] === id)
-          .slice(0, 1)
-          .map(projectContextNode);
-      }
-      // Context tool: name-based lookup (with optional kind / file_path LIKE).
-      // The SQL threads AND clauses through conditionally, so we detect them
-      // from the text before peeling params off in the same order.
-      if (
-        text.startsWith(
-          "SELECT id, name, kind, file_path, start_line, end_line, content FROM nodes WHERE name = ?",
-        )
-      ) {
-        const hasKind = /AND kind = \?/.test(text);
-        const hasFile = /AND file_path LIKE \?/.test(text);
-        const name = String(params[0] ?? "");
-        let pi = 1;
-        const kindMaybe = hasKind ? String(params[pi++] ?? "") : "";
-        const fileMaybe = hasFile ? String(params[pi++] ?? "") : "";
-        return data.nodes
-          .filter((n) => n["name"] === name)
-          .filter((n) => !kindMaybe || n["kind"] === kindMaybe)
-          .filter(
-            (n) => !fileMaybe || String(n["file_path"] ?? "").includes(fileMaybe.replace(/%/g, "")),
-          )
-          .map(projectContextNode);
-      }
-      // Legacy context name-based lookup (kept for callers that still probe
-      // without start_line/end_line/content).
-      if (text.startsWith("SELECT id, name, kind, file_path FROM nodes WHERE name = ?")) {
-        const hasKind = /AND kind = \?/.test(text);
-        const hasFile = /AND file_path LIKE \?/.test(text);
-        const name = String(params[0] ?? "");
-        let pi = 1;
-        const kindMaybe = hasKind ? String(params[pi++] ?? "") : "";
-        const fileMaybe = hasFile ? String(params[pi++] ?? "") : "";
-        return data.nodes
-          .filter((n) => n["name"] === name)
-          .filter((n) => !kindMaybe || n["kind"] === kindMaybe)
-          .filter(
-            (n) => !fileMaybe || String(n["file_path"] ?? "").includes(fileMaybe.replace(/%/g, "")),
-          )
-          .map(projectNode);
-      }
-      // Impact tool: name-probe
-      if (text.startsWith("SELECT id FROM nodes WHERE name = ?")) {
-        return data.nodes
-          .filter((n) => n["name"] === (params[0] as string))
-          .map((n) => ({ id: n["id"] }));
-      }
-      // Context tool: categorised-edges join (incoming or outgoing). The
-      // IN (?, ?, …) placeholder list always matches CATEGORY_EDGE_TYPES in
-      // the same order, so we extract the target id + the type list from
-      // the first param + the rest.
-      if (
-        text.startsWith(
-          "SELECT r.type AS rel_type, n.id, n.name, n.kind, n.file_path FROM relations",
-        )
-      ) {
-        const targetId = String(params[0]);
-        const types = new Set((params as string[]).slice(1));
-        const direction: "incoming" | "outgoing" = text.includes("r.to_id = ?")
-          ? "incoming"
-          : "outgoing";
-        return data.relations
-          .filter((r) => {
-            if (!types.has(String(r["type"]))) return false;
-            if (direction === "incoming") return r["to_id"] === targetId;
-            return r["from_id"] === targetId;
-          })
-          .map((r) => {
-            const partnerId = direction === "incoming" ? r["from_id"] : r["to_id"];
-            const node = data.nodes.find((n) => n["id"] === partnerId) ?? {};
-            return {
-              rel_type: r["type"],
-              id: node["id"],
-              name: node["name"],
-              kind: node["kind"],
-              file_path: node["file_path"],
-            };
-          });
-      }
-      // Context tool: HANDLES_ROUTE linkage (Operation → Route)
-      if (text.includes("r.type = 'HANDLES_ROUTE'") && text.includes("n.kind = 'Operation'")) {
-        const routeId = params[0];
-        return data.relations
-          .filter((r) => r["type"] === "HANDLES_ROUTE" && r["to_id"] === routeId)
-          .map((r) => {
-            const op = data.nodes.find((n) => n["id"] === r["from_id"]) ?? {};
-            return {
-              id: op["id"],
-              file_path: op["file_path"],
-              http_method: op["http_method"],
-              http_path: op["http_path"],
-              summary: op["summary"],
-              operation_id: op["operation_id"],
-            };
-          });
-      }
-      // Context tool: owner lookup via HAS_METHOD / HAS_PROPERTY / CONTAINS
-      // pointing at the target.
-      if (
-        text.includes("r.type IN ('HAS_METHOD','HAS_PROPERTY','CONTAINS')") &&
-        text.includes("r.to_id = ?")
-      ) {
-        const id = params[0];
-        return data.relations
-          .filter(
-            (r) =>
-              (r["type"] === "HAS_METHOD" ||
-                r["type"] === "HAS_PROPERTY" ||
-                r["type"] === "CONTAINS") &&
-              r["to_id"] === id,
-          )
-          .map((r) => {
-            const src = data.nodes.find((n) => n["id"] === r["from_id"]) ?? {};
-            return projectNode(src);
-          });
-      }
-      if (text.includes("SELECT n.id, n.name, n.kind, n.file_path FROM relations")) {
+        }
         return [];
-      }
-      if (text.includes("SELECT DISTINCT p.id")) {
-        return [];
-      }
-      // Context tool: confidence-breakdown edge aggregation query. Cochange
-      // rows no longer sit in `relations`, so the allowed set excludes it.
-      if (
-        text.startsWith("SELECT confidence, reason FROM relations") &&
-        text.includes("from_id = ? OR to_id = ?") &&
-        text.includes("type IN")
-      ) {
-        const targetId = params[0];
-        // The first two params are (targetId, targetId); the remaining are
-        // the allowed relation types. Build the set from the tail so the
-        // fake matches whatever list the tool passes today.
-        const allowed = new Set((params as string[]).slice(2));
-        return data.relations
-          .filter(
-            (r) =>
-              (r["from_id"] === targetId || r["to_id"] === targetId) &&
-              allowed.has(String(r["type"])),
-          )
-          .map((r) => ({ confidence: r["confidence"], reason: r["reason"] }));
-      }
-      // dependencies tool: flat SELECT over Dependency columns.
-      if (
-        text.startsWith(
-          "SELECT id, name, file_path, version, license, lockfile_source, ecosystem FROM nodes WHERE kind = 'Dependency'",
-        )
-      ) {
-        let rows = data.nodes.filter((n) => n["kind"] === "Dependency");
-        // Consume LIKE / ecosystem params from the front of the params list
-        // in the same order the tool appends them.
-        let pi = 0;
-        if (text.includes("file_path LIKE")) {
-          const pattern = String(params[pi] ?? "").replace(/%/g, "");
-          pi += 1;
-          rows = rows.filter((n) => String(n["file_path"] ?? "").includes(pattern));
-        }
-        if (text.includes("ecosystem = ?")) {
-          const ecoMatch = String(params[pi] ?? "");
-          pi += 1;
-          rows = rows.filter((n) => n["ecosystem"] === ecoMatch);
-        }
-        return rows.map((n) => ({
-          id: n["id"],
-          name: n["name"],
-          file_path: n["file_path"],
-          version: n["version"],
-          license: n["license"],
-          lockfile_source: n["lockfile_source"],
-          ecosystem: n["ecosystem"],
-        }));
-      }
-      // owners tool: join relations + nodes for OWNED_BY contributors.
-      if (
-        text.includes("SELECT c.email_hash AS email_hash") &&
-        text.includes("FROM relations r JOIN nodes c")
-      ) {
-        const fromId = String(params[0] ?? "");
-        const matches: Array<Record<string, unknown>> = [];
-        for (const rel of data.relations) {
-          if (String(rel["from_id"]) !== fromId) continue;
-          if (String(rel["type"]) !== "OWNED_BY") continue;
-          const contrib = data.nodes.find((n) => n["id"] === rel["to_id"]);
-          if (!contrib || contrib["kind"] !== "Contributor") continue;
-          matches.push({
-            email_hash: contrib["email_hash"] ?? "",
-            email_plain: contrib["email_plain"] ?? "",
-            name: contrib["name"] ?? "",
-            weight: typeof rel["confidence"] === "number" ? (rel["confidence"] as number) : 0,
-          });
-        }
-        matches.sort((a, b) => {
-          const aw = Number(a["weight"] ?? 0);
-          const bw = Number(b["weight"] ?? 0);
-          if (aw !== bw) return bw - aw;
-          return String(a["email_hash"]).localeCompare(String(b["email_hash"]));
-        });
-        return matches;
-      }
-      // license_audit tool: select every Dependency row with all license columns.
-      if (
-        text.startsWith("SELECT id, name, version, license, lockfile_source, ecosystem, file_path")
-      ) {
-        return data.nodes
-          .filter((n) => n["kind"] === "Dependency")
-          .map((n) => ({
-            id: n["id"],
-            name: n["name"],
-            version: n["version"],
-            license: n["license"],
-            lockfile_source: n["lockfile_source"],
-            ecosystem: n["ecosystem"],
-            file_path: n["file_path"],
-          }));
-      }
-      // project_profile tool: select columns from the ProjectProfile row.
-      if (text.startsWith("SELECT languages_json, frameworks_json")) {
-        const row = data.nodes.find((n) => n["kind"] === "ProjectProfile");
-        if (!row) return [];
-        return [
-          {
-            languages_json: row["languages_json"] ?? "[]",
-            frameworks_json: row["frameworks_json"] ?? "[]",
-            iac_types_json: row["iac_types_json"] ?? "[]",
-            api_contracts_json: row["api_contracts_json"] ?? "[]",
-            manifests_json: row["manifests_json"] ?? "[]",
-            src_dirs_json: row["src_dirs_json"] ?? "[]",
-          },
-        ];
-      }
-      if (text === "SELECT 1 AS one") {
-        return [{ one: 1 }];
-      }
-      if (/^SELECT \* FROM NODES LIMIT/i.test(text)) {
-        return data.nodes.slice(0, 5);
-      }
-      if (/^SELECT/i.test(text)) {
-        return [];
-      }
-      throw new Error(`unsupported sql in fake store: ${text}`);
+      },
     },
-    search: async (q: SearchQuery): Promise<readonly SearchResult[]> => {
-      if (data.searchResults) return data.searchResults;
-      return data.nodes
-        .filter((n) =>
-          String(n["name"] ?? "")
-            .toLowerCase()
-            .includes(q.text.toLowerCase()),
-        )
-        .slice(0, q.limit ?? 50)
-        .map((n) => ({
-          nodeId: String(n["id"]),
-          name: String(n["name"]),
-          kind: String(n["kind"]),
-          filePath: String(n["file_path"]),
-          score: 1,
-        }));
-    },
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (q: TraverseQuery): Promise<readonly TraverseResult[]> => {
-      // Very tiny BFS over the in-memory relations table.
-      const out: TraverseResult[] = [];
-      const visited = new Set<string>([q.startId]);
-      let frontier: string[] = [q.startId];
-      for (let depth = 1; depth <= q.maxDepth; depth += 1) {
-        const next: string[] = [];
-        for (const id of frontier) {
-          const edges = data.relations.filter((r) => {
-            if (q.direction === "up") return r["to_id"] === id;
-            if (q.direction === "down") return r["from_id"] === id;
-            return r["from_id"] === id || r["to_id"] === id;
-          });
-          for (const edge of edges) {
-            const other = q.direction === "up" ? edge["from_id"] : edge["to_id"];
-            const otherId = String(other);
-            if (visited.has(otherId)) continue;
-            visited.add(otherId);
-            out.push({ nodeId: otherId, depth, path: [q.startId, otherId] });
-            next.push(otherId);
-          }
-        }
-        frontier = next;
-      }
-      return out;
-    },
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-    bulkLoadCochanges: async (_rows: readonly unknown[]): Promise<void> => {},
-    lookupCochangesForFile: async (
-      file: string,
-      opts: { limit?: number; minLift?: number } = {},
-    ): Promise<readonly FakeCochangeRow[]> => {
-      const rows = data.cochanges ?? [];
-      const minLift = opts.minLift ?? 1.0;
-      const limit = opts.limit ?? 10;
-      return rows
-        .filter((r) => (r.sourceFile === file || r.targetFile === file) && r.lift >= minLift)
-        .slice()
-        .sort((a, b) => b.lift - a.lift)
-        .slice(0, limit);
-    },
-    lookupCochangesBetween: async (
-      fileA: string,
-      fileB: string,
-    ): Promise<FakeCochangeRow | undefined> => {
-      const rows = data.cochanges ?? [];
-      return rows.find(
-        (r) =>
-          (r.sourceFile === fileA && r.targetFile === fileB) ||
-          (r.sourceFile === fileB && r.targetFile === fileA),
-      );
-    },
-  } as unknown as DuckDbStore;
-  return api;
+  );
 }
 
 async function withTestHarness(
   data: FakeStoreData,
-  fn: (ctx: ToolContext, server: McpServer) => Promise<void>,
+  fn: (
+    ctx: ToolContext,
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-harness-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: data.nodes.length,
-          edgeCount: data.relations.length,
-          lastCommit: "abc123",
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(data));
-    const ctx: ToolContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { tools: {} } },
-    );
-    try {
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-mcp-harness-",
+      storeFactory: () => buildFake(data),
+    },
+    async ({ server, pool, home }) => {
+      const ctx: ToolContext = { pool, home };
       await fn(ctx, server);
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
+    },
+  );
 }
 
-type RegisteredTool = {
-  handler: (args: unknown, extra: unknown) => Promise<CallToolResult>;
-};
-
-function getHandler(server: McpServer, name: string): RegisteredTool["handler"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internal field for test-only access
-  const map = (server as any)._registeredTools as Record<string, RegisteredTool>;
-  const entry = map[name];
-  assert.ok(entry, `tool not registered: ${name}`);
-  return entry.handler.bind(entry);
+function getHandler(
+  server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  name: string,
+): (args: unknown, extra: unknown) => Promise<CallToolResult> {
+  return getToolHandler(server, name);
 }
 
 test("list_repos surfaces the registry entry", async () => {
@@ -963,8 +763,7 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
           // confidence siblings, which is the whole point of the feature:
           // even when the demoted edge makes it into the blast radius, the
           // agent can see it is unconfirmed and treat the risk band as a
-          // lower bound. The fake `traverse()` doesn't filter by
-          // minConfidence, so all three edges reach the aggregator.
+          // lower bound.
           confidence: 0.2,
           reason: "heuristic/tier-2+scip-unconfirmed",
         },

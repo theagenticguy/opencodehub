@@ -201,31 +201,11 @@ export function generateSchemaDdl(opts: GraphDbSchemaOptions = {}): string {
   PRIMARY KEY (id)
 )`);
 
-  statements.push(`CREATE NODE TABLE IF NOT EXISTS Cochange (
-  source_file STRING,
-  target_file STRING,
-  cocommit_count INT32,
-  total_commits_source INT32,
-  total_commits_target INT32,
-  last_cocommit_at TIMESTAMP,
-  lift DOUBLE,
-  pk STRING,
-  PRIMARY KEY (pk)
-)`);
-
-  statements.push(`CREATE NODE TABLE IF NOT EXISTS SymbolSummary (
-  pk STRING,
-  node_id STRING,
-  content_hash STRING,
-  prompt_version STRING,
-  model_id STRING,
-  summary_text STRING,
-  signature_summary STRING,
-  returns_type_summary STRING,
-  created_at TIMESTAMP,
-  PRIMARY KEY (pk)
-)`);
-
+  // AC-A-1 — Cochange + SymbolSummary NODE TABLEs deleted. The graph
+  // adapter never stored cochange / symbol-summary data; the M3+M6
+  // reframe (AC-A-3) routes those rows to a paired DuckDB-backed
+  // ITemporalStore on every deployment, so the Cypher schema no longer
+  // needs to declare them.
   // -------------------------------------------------------------------------
   // Rel tables — one per edge kind. FROM/TO is CodeNode on both sides; an
   // AC-M3-3 follow-up may narrow the endpoints per kind once the node-kind

@@ -52,7 +52,7 @@ export async function runWiki(opts: WikiCommandOptions): Promise<void> {
           ...(opts.llmModel !== undefined ? { modelId: opts.llmModel } : {}),
         }
       : undefined;
-    const result = await generateWiki(store, {
+    const result = await generateWiki(store.graph, {
       outputDir: opts.output,
       repoPath,
       loadTrends: async (p) => computeRiskTrends(await loadSnapshots(p)),

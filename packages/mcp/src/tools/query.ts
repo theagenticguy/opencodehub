@@ -35,6 +35,7 @@
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createNodeFs, type FsAbstraction } from "@opencodehub/analysis";
+import type { GraphNode } from "@opencodehub/core-types";
 import type { Embedder } from "@opencodehub/embedder";
 import type { FusedHit, SymbolHit } from "@opencodehub/search";
 import {
@@ -43,7 +44,7 @@ import {
   hybridSearch,
   tryOpenEmbedder,
 } from "@opencodehub/search";
-import type { DuckDbStore, SqlParam, SymbolSummaryRow } from "@opencodehub/storage";
+import type { IGraphStore, ITemporalStore, SymbolSummaryRow } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -203,7 +204,7 @@ interface ProcessSymbol {
  * deterministically selects the newest prompt version.
  */
 async function lookupSummariesForHits(
-  store: DuckDbStore,
+  temporal: ITemporalStore,
   summariesJoined: boolean,
   nodeIds: readonly string[],
 ): Promise<Map<string, SymbolSummaryRow>> {
@@ -212,7 +213,7 @@ async function lookupSummariesForHits(
   const uniqIds = Array.from(new Set(nodeIds));
   if (uniqIds.length === 0) return out;
   try {
-    const rows = await store.lookupSymbolSummariesByNode(uniqIds);
+    const rows = await temporal.lookupSymbolSummariesByNode(uniqIds);
     for (const row of rows) {
       // Overwriting per node id keeps the newest prompt version because of
       // the ORDER BY contract in `lookupSymbolSummariesByNode`.
@@ -233,17 +234,19 @@ async function lookupSummariesForHits(
  * lives here so the sibling summarizer work can light up a corpus
  * extension without re-threading the tool.
  */
-async function bm25CorpusHasSummaries(store: DuckDbStore): Promise<boolean> {
+async function bm25CorpusHasSummaries(temporal: ITemporalStore): Promise<boolean> {
+  // information_schema introspection is DuckDB-specific; route via the
+  // temporal-tier `exec` escape hatch so a future graph-only adapter
+  // pairing with a non-DuckDB temporal store can override this probe.
   try {
-    const rows = await store.query(
+    const rows = await temporal.exec(
       "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'symbol_summaries'",
-      [],
     );
     const first = rows[0];
     if (!first) return false;
     const hasTable = Number(first["n"] ?? 0) > 0;
     if (!hasTable) return false;
-    const rows2 = await store.query("SELECT COUNT(*) AS n FROM symbol_summaries", []);
+    const rows2 = await temporal.exec("SELECT COUNT(*) AS n FROM symbol_summaries");
     const first2 = rows2[0];
     if (!first2) return false;
     return Number(first2["n"] ?? 0) > 0;
@@ -258,26 +261,21 @@ async function bm25CorpusHasSummaries(store: DuckDbStore): Promise<boolean> {
  * silently dropped from the returned map.
  */
 async function hydrateNodeMeta(
-  store: DuckDbStore,
+  graph: IGraphStore,
   ids: readonly string[],
 ): Promise<Map<string, NodeMeta>> {
   const out = new Map<string, NodeMeta>();
   if (ids.length === 0) return out;
-  const placeholders = ids.map(() => "?").join(",");
-  const params: readonly SqlParam[] = ids;
-  const rows = await store.query(
-    `SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE id IN (${placeholders})`,
-    params,
-  );
-  for (const r of rows) {
-    const id = String(r["id"] ?? "");
-    if (id === "") continue;
-    out.set(id, {
-      name: String(r["name"] ?? ""),
-      filePath: String(r["file_path"] ?? ""),
-      kind: String(r["kind"] ?? ""),
-      startLine: toLineOrNull(r["start_line"]),
-      endLine: toLineOrNull(r["end_line"]),
+  const partners = await graph.listNodes({ ids: [...ids] });
+  for (const n of partners) {
+    const startLine = (n as unknown as Record<string, unknown>)["startLine"];
+    const endLine = (n as unknown as Record<string, unknown>)["endLine"];
+    out.set(n.id, {
+      name: n.name,
+      filePath: n.filePath,
+      kind: n.kind,
+      startLine: toLineOrNull(startLine),
+      endLine: toLineOrNull(endLine),
     });
   }
   return out;
@@ -328,14 +326,14 @@ async function extractSnippet(
  * metadata and snippets. Order is preserved from the input list.
  */
 async function enrichWithContext(
-  store: DuckDbStore,
+  graph: IGraphStore,
   fs: FsAbstraction,
   repoRoot: string,
   hits: readonly { nodeId: string; score: number; sources: readonly ("bm25" | "vector")[] }[],
 ): Promise<readonly QueryRow[]> {
   if (hits.length === 0) return [];
   const uniqIds = Array.from(new Set(hits.map((h) => h.nodeId)));
-  const meta = await hydrateNodeMeta(store, uniqIds);
+  const meta = await hydrateNodeMeta(graph, uniqIds);
   const out: QueryRow[] = [];
   let rank = 0;
   for (const hit of hits) {
@@ -471,7 +469,7 @@ async function defaultOpenEmbedder(): Promise<Embedder> {
  * don't blow up.
  */
 async function fetchProcessGrouping(
-  store: DuckDbStore,
+  graph: IGraphStore,
   hits: readonly { nodeId: string; score: number }[],
 ): Promise<{
   readonly groups: readonly ProcessGroup[];
@@ -480,123 +478,131 @@ async function fetchProcessGrouping(
   if (hits.length === 0) return { groups: [], symbols: [] };
   const hitIds = Array.from(new Set(hits.map((h) => h.nodeId)));
   if (hitIds.length === 0) return { groups: [], symbols: [] };
-  const placeholders = hitIds.map(() => "?").join(",");
-  // Any failure here (schema mismatch, DuckDB version without `USING KEY`,
-  // etc.) degrades gracefully to an empty grouping — callers treat missing
-  // processes as "no PROCESS_STEP detection yet" and still return the flat
-  // `results` list. We never want process enrichment to abort a query.
-  let rows: readonly Record<string, unknown>[];
+
   try {
-    rows = await store.query(
-      `WITH RECURSIVE
-         ancestors(ancestor_id, depth) USING KEY (ancestor_id) AS (
-           SELECT CAST(n.id AS TEXT), 0 FROM nodes n WHERE n.id IN (${placeholders})
-           UNION ALL
-           SELECT r.from_id, a.depth + 1
-             FROM ancestors a
-             JOIN relations r ON r.to_id = a.ancestor_id AND r.type = 'PROCESS_STEP'
-            WHERE a.depth < 10
-         ),
-         matched_processes AS (
-           SELECT DISTINCT p.id             AS process_id,
-                           p.name           AS process_name,
-                           p.inferred_label AS inferred_label,
-                           p.step_count     AS step_count,
-                           p.entry_point_id AS entry_point_id
-             FROM nodes p
-             JOIN ancestors a ON a.ancestor_id = p.entry_point_id
-            WHERE p.kind = 'Process'
-         ),
-         members(process_id, node_id, step) USING KEY (process_id, node_id) AS (
-           SELECT mp.process_id, mp.entry_point_id, 0
-             FROM matched_processes mp
-           UNION ALL
-           SELECT m.process_id, r.to_id, m.step + 1
-             FROM members m
-             JOIN relations r ON r.from_id = m.node_id AND r.type = 'PROCESS_STEP'
-            WHERE m.step < 10
-         )
-       SELECT mp.process_id      AS process_id,
-              mp.process_name    AS process_name,
-              mp.inferred_label  AS inferred_label,
-              mp.step_count      AS step_count,
-              m.node_id          AS node_id,
-              m.step             AS step,
-              n.name             AS node_name,
-              n.kind             AS node_kind,
-              n.file_path        AS node_file
-         FROM matched_processes mp
-         JOIN members m ON m.process_id = mp.process_id
-         JOIN nodes n ON n.id = m.node_id
-        ORDER BY mp.process_id ASC, m.step ASC, m.node_id ASC`,
-      hitIds,
-    );
-  } catch {
-    return { groups: [], symbols: [] };
-  }
+    // Step 1. Walk PROCESS_STEP ancestors from each hit.
+    const ancestorIds = new Set<string>();
+    for (const id of hitIds) {
+      ancestorIds.add(id);
+      const ancestors = await graph.traverseAncestors({
+        fromId: id,
+        edgeTypes: ["PROCESS_STEP"],
+        maxDepth: 10,
+      });
+      for (const a of ancestors) ancestorIds.add(a.nodeId);
+    }
+    if (ancestorIds.size === 0) return { groups: [], symbols: [] };
 
-  if (rows.length === 0) return { groups: [], symbols: [] };
+    // Step 2. Find every Process whose entry point is an ancestor.
+    type ProcessRow = {
+      readonly id: string;
+      readonly name: string;
+      readonly inferredLabel?: string;
+      readonly stepCount?: number;
+      readonly entryPointId?: string;
+    };
+    const processes = (await graph.listNodesByKind("Process")) as readonly ProcessRow[];
+    const matched: ProcessRow[] = [];
+    for (const p of processes) {
+      const ep = p.entryPointId;
+      if (typeof ep === "string" && ep.length > 0 && ancestorIds.has(ep)) {
+        matched.push(p);
+      }
+    }
+    if (matched.length === 0) return { groups: [], symbols: [] };
 
-  // Index fused-hit scores so we can score each process by the best hit
-  // that reaches it. A process with two top-K hits at score 0.8 and 0.6
-  // gets score 0.8.
-  const scoreById = new Map<string, number>();
-  for (const h of hits) {
-    const prev = scoreById.get(h.nodeId);
-    if (prev === undefined || h.score > prev) scoreById.set(h.nodeId, h.score);
-  }
+    // Step 3. BFS from each entry point along PROCESS_STEP edges.
+    const allStepEdges = await graph.listEdgesByType("PROCESS_STEP");
+    const adj = new Map<string, { to: string; step: number }[]>();
+    const allPartnerIds = new Set<string>();
+    for (const e of allStepEdges) {
+      const list = adj.get(e.from) ?? [];
+      list.push({ to: e.to, step: e.step ?? 0 });
+      adj.set(e.from, list);
+      allPartnerIds.add(e.from);
+      allPartnerIds.add(e.to);
+    }
+    for (const p of matched) if (p.entryPointId) allPartnerIds.add(p.entryPointId);
+    const allPartners =
+      allPartnerIds.size > 0 ? await graph.listNodes({ ids: [...allPartnerIds] }) : [];
+    const byId = new Map<string, GraphNode>();
+    for (const n of allPartners) byId.set(n.id, n);
 
-  const groupById = new Map<string, { group: ProcessGroup; scoreCandidates: number[] }>();
-  const symbols: ProcessSymbol[] = [];
-  for (const r of rows) {
-    const processId = String(r["process_id"] ?? "");
-    const nodeId = String(r["node_id"] ?? "");
-    if (processId === "" || nodeId === "") continue;
-    const stepRaw = Number(r["step"] ?? 0);
-    const step = Number.isFinite(stepRaw) ? Math.max(0, Math.trunc(stepRaw)) : 0;
-    if (!groupById.has(processId)) {
-      const processName = String(r["process_name"] ?? "");
-      const inferredLabel = r["inferred_label"];
+    const scoreById = new Map<string, number>();
+    for (const h of hits) {
+      const prev = scoreById.get(h.nodeId);
+      if (prev === undefined || h.score > prev) scoreById.set(h.nodeId, h.score);
+    }
+
+    const groupById = new Map<string, { group: ProcessGroup; scoreCandidates: number[] }>();
+    const symbols: ProcessSymbol[] = [];
+    for (const proc of matched) {
+      const ep = proc.entryPointId;
+      if (typeof ep !== "string" || ep.length === 0) continue;
+      const seen = new Set<string>();
+      const queue: { id: string; step: number }[] = [{ id: ep, step: 0 }];
+      const members: { id: string; step: number }[] = [];
+      while (queue.length > 0) {
+        const cur = queue.shift() as { id: string; step: number };
+        if (seen.has(cur.id)) continue;
+        seen.add(cur.id);
+        members.push(cur);
+        if (cur.step >= 10) continue;
+        const out = adj.get(cur.id) ?? [];
+        for (const e of out) {
+          if (seen.has(e.to)) continue;
+          queue.push({ id: e.to, step: cur.step + 1 });
+        }
+      }
+      members.sort((a, b) => {
+        if (a.step !== b.step) return a.step - b.step;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+
+      const inferredLabel = proc.inferredLabel;
       const label =
-        typeof inferredLabel === "string" && inferredLabel.length > 0 ? inferredLabel : processName;
-      const stepCountRaw = Number(r["step_count"] ?? 0);
-      const stepCount = Number.isFinite(stepCountRaw) ? Math.max(0, Math.trunc(stepCountRaw)) : 0;
-      groupById.set(processId, {
+        typeof inferredLabel === "string" && inferredLabel.length > 0 ? inferredLabel : proc.name;
+      const stepCount = Math.max(0, Math.trunc(proc.stepCount ?? 0));
+      const bucket = {
         group: {
-          id: processId,
+          id: proc.id,
           label,
           processType: "flow",
           stepCount,
           score: 0,
-        },
-        scoreCandidates: [],
-      });
-    }
-    const bucket = groupById.get(processId);
-    if (bucket === undefined) continue;
-    const hitScore = scoreById.get(nodeId);
-    if (hitScore !== undefined) bucket.scoreCandidates.push(hitScore);
-    symbols.push({
-      process_id: processId,
-      nodeId,
-      name: String(r["node_name"] ?? ""),
-      kind: String(r["node_kind"] ?? ""),
-      filePath: String(r["node_file"] ?? ""),
-      step,
-    });
-  }
+        } satisfies ProcessGroup,
+        scoreCandidates: [] as number[],
+      };
+      groupById.set(proc.id, bucket);
 
-  const groups: ProcessGroup[] = [];
-  for (const { group, scoreCandidates } of groupById.values()) {
-    const score = scoreCandidates.length === 0 ? 0 : Math.max(...scoreCandidates);
-    groups.push({ ...group, score });
+      for (const m of members) {
+        const partner = byId.get(m.id);
+        const hitScore = scoreById.get(m.id);
+        if (hitScore !== undefined) bucket.scoreCandidates.push(hitScore);
+        symbols.push({
+          process_id: proc.id,
+          nodeId: m.id,
+          name: partner?.name ?? "",
+          kind: partner?.kind ?? "",
+          filePath: partner?.filePath ?? "",
+          step: m.step,
+        });
+      }
+    }
+
+    const groups: ProcessGroup[] = [];
+    for (const { group, scoreCandidates } of groupById.values()) {
+      const score = scoreCandidates.length === 0 ? 0 : Math.max(...scoreCandidates);
+      groups.push({ ...group, score });
+    }
+    groups.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    return { groups, symbols };
+  } catch {
+    return { groups: [], symbols: [] };
   }
-  // Deterministic ordering: highest process score first, then id ascending.
-  groups.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
-  return { groups, symbols };
 }
 
 interface QueryArgs {
@@ -629,12 +635,13 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
   const searchText = buildSearchText(args.query, args.task_context, args.goal);
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
+      const { graph, temporal } = store;
       const kinds = args.kinds && args.kinds.length > 0 ? args.kinds : undefined;
 
       // Probe for the symbol_summaries table so the value is recorded
       // alongside `mode` (surfaces via structuredContent). This is a
       // cheap metadata read; it runs once per query.
-      const summariesJoined = await bm25CorpusHasSummaries(store);
+      const summariesJoined = await bm25CorpusHasSummaries(temporal);
 
       let ranked: readonly {
         nodeId: string;
@@ -643,12 +650,12 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       }[];
       let mode: "bm25" | "hybrid" = "bm25";
 
-      if (await embeddingsPopulated(store)) {
+      if (await embeddingsPopulated(graph)) {
         const embedder = await tryOpenEmbedder<Embedder>(openEmbedder, "[mcp:query]");
         if (embedder) {
           try {
             const fused = await hybridSearch(
-              store,
+              graph,
               {
                 text: searchText,
                 limit,
@@ -667,7 +674,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
             await embedder.close();
           }
         } else {
-          const bmHits = await bm25Search(store, {
+          const bmHits = await bm25Search(graph, {
             text: searchText,
             limit,
             ...(kinds !== undefined ? { kinds } : {}),
@@ -675,7 +682,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
           ranked = bm25RowsAsFused(bmHits);
         }
       } else {
-        const bmHits = await bm25Search(store, {
+        const bmHits = await bm25Search(graph, {
           text: searchText,
           limit,
           ...(kinds !== undefined ? { kinds } : {}),
@@ -684,14 +691,14 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       }
 
       const fs = fsFactory();
-      const enrichedRows = await enrichWithContext(store, fs, resolved.repoPath, ranked);
+      const enrichedRows = await enrichWithContext(graph, fs, resolved.repoPath, ranked);
 
       // Join `symbol_summaries` onto each hit when P04 data is present.
       // Single round trip for the whole top-K via `IN (...)`; missing rows
       // simply omit `summary` / `signatureSummary`. Any lookup failure
       // degrades silently — summaries are enrichment, not load-bearing.
       const summaryMap = await lookupSummariesForHits(
-        store,
+        temporal,
         summariesJoined,
         enrichedRows.map((r) => r.nodeId),
       );
@@ -761,7 +768,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       // flat `process_symbols` list AFTER grouping; `results[]` is always
       // capped by `limit`.
       const { groups: processes, symbols: processSymbols } = await fetchProcessGrouping(
-        store,
+        graph,
         ranked,
       );
       const cappedProcessSymbols = processSymbols.slice(0, maxSymbols);

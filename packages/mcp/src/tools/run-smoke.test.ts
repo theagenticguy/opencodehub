@@ -62,6 +62,26 @@ import { runToolMap } from "./tool-map.js";
 import { runVerdict } from "./verdict.js";
 
 /**
+ * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
+ * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
+ * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * implements both interfaces over a single connection in production.
+ */
+function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
+  return {
+    backend: "duck" as const,
+    graph: fake as import("@opencodehub/storage").IGraphStore,
+    temporal: fake as import("@opencodehub/storage").ITemporalStore,
+    graphFile: "/in-memory/graph.duckdb",
+    temporalFile: "/in-memory/graph.duckdb",
+    close: async () => {
+      const closer = (fake as { close?: () => Promise<void> }).close;
+      if (typeof closer === "function") await closer.call(fake);
+    },
+  };
+}
+
+/**
  * Minimal DuckDB-compatible fake — every `store.query` that a tool runs
  * against it returns an empty row set. That is enough to exercise the
  * `run<Tool>` call path through `withStore` without a real index. Tools
@@ -124,7 +144,9 @@ async function withHarness(fn: (ctx: ToolContext) => Promise<void>): Promise<voi
         },
       }),
     );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore());
+    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () =>
+      wrapAsStore(makeFakeStore()),
+    );
     const ctx: ToolContext = { pool, home };
     try {
       await fn(ctx);

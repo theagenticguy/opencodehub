@@ -11,6 +11,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ProcessNode } from "@opencodehub/core-types";
 import { readRegistry } from "../repo-resolver.js";
 import type { ResourceContext } from "./repos.js";
 import { withResourceStore } from "./store-helper.js";
@@ -53,14 +54,15 @@ export function registerRepoProcessesResource(server: McpServer, ctx: ResourceCo
       if (ctx.pool !== undefined) resourceOpts.pool = ctx.pool;
 
       return withResourceStore(uri.href, decoded, resourceOpts, async (store, repoName) => {
-        const rows = (await store.query(
-          `SELECT id, name, inferred_label, step_count, entry_point_id, file_path
-           FROM nodes
-           WHERE kind = 'Process'
-           ORDER BY COALESCE(step_count, 0) DESC, id ASC
-           LIMIT ?`,
-          [RESULT_CAP],
-        )) as readonly Record<string, unknown>[];
+        const processes = (await store.graph.listNodesByKind("Process")) as readonly ProcessNode[];
+        const rows = [...processes]
+          .sort((a, b) => {
+            const ac = a.stepCount ?? 0;
+            const bc = b.stepCount ?? 0;
+            if (ac !== bc) return bc - ac;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          })
+          .slice(0, RESULT_CAP);
 
         const lines: string[] = [];
         lines.push(`repo: ${yamlScalar(repoName)}`);
@@ -68,21 +70,18 @@ export function registerRepoProcessesResource(server: McpServer, ctx: ResourceCo
         if (rows.length === 0) {
           lines.push("  []");
         } else {
-          for (const row of rows) {
-            const id = String(row["id"] ?? "");
-            const name = String(row["name"] ?? "");
+          for (const p of rows) {
             const label =
-              typeof row["inferred_label"] === "string" && row["inferred_label"].length > 0
-                ? String(row["inferred_label"])
+              typeof p.inferredLabel === "string" && p.inferredLabel.length > 0
+                ? p.inferredLabel
                 : null;
-            const stepCount = typeof row["step_count"] === "number" ? row["step_count"] : 0;
+            const stepCount = p.stepCount ?? 0;
             const entryPointId =
-              typeof row["entry_point_id"] === "string" && row["entry_point_id"].length > 0
-                ? String(row["entry_point_id"])
+              typeof p.entryPointId === "string" && p.entryPointId.length > 0
+                ? p.entryPointId
                 : null;
-            const filePath = String(row["file_path"] ?? "");
-            lines.push(`  - id: ${yamlScalar(id)}`);
-            lines.push(`    name: ${yamlScalar(name)}`);
+            lines.push(`  - id: ${yamlScalar(p.id)}`);
+            lines.push(`    name: ${yamlScalar(p.name)}`);
             if (label) {
               lines.push(`    label: ${yamlScalar(label)}`);
             }
@@ -91,8 +90,8 @@ export function registerRepoProcessesResource(server: McpServer, ctx: ResourceCo
             if (entryPointId) {
               lines.push(`    entryPointId: ${yamlScalar(entryPointId)}`);
             }
-            if (filePath) {
-              lines.push(`    filePath: ${yamlScalar(filePath)}`);
+            if (p.filePath && p.filePath.length > 0) {
+              lines.push(`    filePath: ${yamlScalar(p.filePath)}`);
             }
           }
         }

@@ -177,7 +177,7 @@ export async function runGroupQuery(ctx: ToolContext, args: GroupQueryArgs): Pro
           args.kinds && args.kinds.length > 0
             ? { text: args.query, kinds: args.kinds, limit: perRepoLimit }
             : { text: args.query, limit: perRepoLimit };
-        const results = await bm25Search(store, bm25Query);
+        const results = await bm25Search(store.graph, bm25Query);
         const ranked: { id: string }[] = [];
         for (const r of results) {
           const id = `${repo.name}::${r.nodeId}`;

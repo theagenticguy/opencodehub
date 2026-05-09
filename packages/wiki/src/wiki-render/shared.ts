@@ -2,10 +2,10 @@
  * Shared helpers for wiki renderers.
  *
  * Everything here is pure: no LLM calls, no network, no clock. The only side
- * effect is reading from the graph store. Each helper returns structured data
- * the render modules turn into Markdown.
+ * effect is reading from the graph store via typed `IGraphStore` finders
+ * (post-AC-A-6). Each helper returns structured data the render modules
+ * turn into Markdown.
  */
-// biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { IGraphStore } from "@opencodehub/storage";
 
@@ -97,59 +97,16 @@ export interface ProjectProfileSummary {
   readonly iacTypes: readonly string[];
 }
 
-/** Best-effort string coercion for DuckDB rows. */
-export function str(row: Record<string, unknown>, key: string): string {
-  const v = row[key];
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (typeof v === "bigint") return v.toString();
-  return "";
-}
-
-export function num(row: Record<string, unknown>, key: string): number {
-  const v = row[key];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "bigint") return Number(v);
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-
-export function maybeNum(row: Record<string, unknown>, key: string): number | undefined {
-  const v = row[key];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "bigint") return Number(v);
-  return undefined;
-}
-
-function parseJsonArray(raw: unknown): readonly string[] {
-  if (typeof raw !== "string" || raw.length === 0) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    return [];
-  }
-}
-
 export async function loadCommunities(store: IGraphStore): Promise<readonly CommunityRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT id, name, inferred_label, symbol_count, cohesion, truck_factor
-         FROM nodes
-        WHERE kind = 'Community'
-        ORDER BY id`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      name: str(row, "name"),
-      inferredLabel: str(row, "inferred_label"),
-      symbolCount: num(row, "symbol_count"),
-      cohesion: num(row, "cohesion"),
-      truckFactor: maybeNum(row, "truck_factor"),
+    const nodes = await store.listNodesByKind("Community");
+    return nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      inferredLabel: n.inferredLabel ?? "",
+      symbolCount: typeof n.symbolCount === "number" ? n.symbolCount : 0,
+      cohesion: typeof n.cohesion === "number" ? n.cohesion : 0,
+      truckFactor: typeof n.truckFactor === "number" ? n.truckFactor : undefined,
     }));
   } catch {
     return [];
@@ -160,6 +117,10 @@ export async function loadCommunities(store: IGraphStore): Promise<readonly Comm
  * Top files in a community, ranked by the number of member symbols whose File
  * resolves to that path. Relies on the MEMBER_OF edge between a symbol and the
  * community node.
+ *
+ * Implementation: walk MEMBER_OF edges with the typed `listEdgesByType`
+ * finder, lift every node via `listNodes()`, then aggregate `filePath`
+ * counts in JS — the SQL `GROUP BY n.file_path` becomes a Map<filePath, count>.
  */
 export async function loadCommunityTopFiles(
   store: IGraphStore,
@@ -167,20 +128,25 @@ export async function loadCommunityTopFiles(
   limit: number,
 ): Promise<readonly CommunityMemberFile[]> {
   try {
-    const rows = await store.query(
-      `SELECT n.file_path AS file_path, COUNT(*) AS member_count
-         FROM relations r
-         JOIN nodes n ON n.id = r.from_id
-        WHERE r.type = 'MEMBER_OF' AND r.to_id = ?
-        GROUP BY n.file_path
-        ORDER BY member_count DESC, n.file_path ASC
-        LIMIT ?`,
-      [communityId, limit],
-    );
-    return rows.map((row) => ({
-      filePath: str(row, "file_path"),
-      memberCount: num(row, "member_count"),
-    }));
+    const memberEdges = await store.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
+    if (memberEdges.length === 0) return [];
+    const memberFromIds = new Set(memberEdges.map((e) => e.from));
+    const allNodes = await store.listNodes();
+    const byFile = new Map<string, number>();
+    for (const n of allNodes) {
+      if (!memberFromIds.has(n.id)) continue;
+      if (typeof n.filePath !== "string" || n.filePath.length === 0) continue;
+      byFile.set(n.filePath, (byFile.get(n.filePath) ?? 0) + 1);
+    }
+    const rows: CommunityMemberFile[] = [];
+    for (const [filePath, memberCount] of byFile) {
+      rows.push({ filePath, memberCount });
+    }
+    rows.sort((a, b) => {
+      if (b.memberCount !== a.memberCount) return b.memberCount - a.memberCount;
+      return a.filePath.localeCompare(b.filePath);
+    });
+    return rows.slice(0, limit);
   } catch {
     return [];
   }
@@ -189,6 +155,11 @@ export async function loadCommunityTopFiles(
 /**
  * Top contributors for a community, ranked by summed OWNED_BY edge weight
  * across the community's File members.
+ *
+ * Implementation: replace the four-way SQL JOIN with three typed finders —
+ * MEMBER_OF edges (community → members), File node set, OWNED_BY edges
+ * (file → contributor), Contributor node set — and accumulate
+ * line-share by contributor in JS.
  */
 export async function loadCommunityTopContributors(
   store: IGraphStore,
@@ -196,28 +167,51 @@ export async function loadCommunityTopContributors(
   limit: number,
 ): Promise<readonly CommunityContributor[]> {
   try {
-    const rows = await store.query(
-      `SELECT c.id AS id,
-              c.name AS name,
-              c.email_hash AS email_hash,
-              c.email_plain AS email_plain,
-              SUM(o.confidence) AS line_share
-         FROM relations m
-         JOIN nodes f ON f.id = m.from_id AND f.kind = 'File'
-         JOIN relations o ON o.from_id = f.id AND o.type = 'OWNED_BY'
-         JOIN nodes c ON c.id = o.to_id AND c.kind = 'Contributor'
-        WHERE m.type = 'MEMBER_OF' AND m.to_id = ?
-        GROUP BY c.id, c.name, c.email_hash, c.email_plain
-        ORDER BY line_share DESC, c.id ASC
-        LIMIT ?`,
-      [communityId, limit],
-    );
-    return rows.map((row) => ({
-      contributorId: str(row, "id"),
-      name: str(row, "name"),
-      emailHash: str(row, "email_hash"),
-      emailPlain: str(row, "email_plain"),
-      lineShare: num(row, "line_share"),
+    const memberEdges = await store.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
+    if (memberEdges.length === 0) return [];
+    const memberFromIds = new Set(memberEdges.map((e) => e.from));
+    const fileNodes = await store.listNodesByKind("File");
+    const fileIdsInCommunity: string[] = [];
+    for (const f of fileNodes) {
+      if (memberFromIds.has(f.id)) fileIdsInCommunity.push(f.id);
+    }
+    if (fileIdsInCommunity.length === 0) return [];
+    const ownedByEdges = await store.listEdgesByType("OWNED_BY", { fromIds: fileIdsInCommunity });
+    if (ownedByEdges.length === 0) return [];
+    const contributors = await store.listNodesByKind("Contributor");
+    const contributorById = new Map(contributors.map((c) => [c.id, c]));
+    const shares = new Map<
+      string,
+      { id: string; name: string; emailHash: string; emailPlain: string; share: number }
+    >();
+    for (const e of ownedByEdges) {
+      const contributor = contributorById.get(e.to);
+      if (contributor === undefined) continue;
+      const prior = shares.get(contributor.id);
+      const inc = Number.isFinite(e.confidence) ? e.confidence : 0;
+      if (prior === undefined) {
+        shares.set(contributor.id, {
+          id: contributor.id,
+          name: contributor.name,
+          emailHash: contributor.emailHash,
+          emailPlain: contributor.emailPlain ?? "",
+          share: inc,
+        });
+      } else {
+        prior.share += inc;
+      }
+    }
+    const rows = [...shares.values()];
+    rows.sort((a, b) => {
+      if (b.share !== a.share) return b.share - a.share;
+      return a.id.localeCompare(b.id);
+    });
+    return rows.slice(0, limit).map((r) => ({
+      contributorId: r.id,
+      name: r.name,
+      emailHash: r.emailHash,
+      emailPlain: r.emailPlain,
+      lineShare: r.share,
     }));
   } catch {
     return [];
@@ -228,19 +222,16 @@ export async function loadProjectProfile(
   store: IGraphStore,
 ): Promise<ProjectProfileSummary | undefined> {
   try {
-    const rows = await store.query(
-      `SELECT languages_json, frameworks_json, api_contracts_json, iac_types_json
-         FROM nodes
-        WHERE kind = 'ProjectProfile'
-        LIMIT 1`,
-    );
-    const row = rows[0];
-    if (row === undefined) return undefined;
+    const nodes = await store.listNodesByKind("ProjectProfile", { limit: 1 });
+    const node = nodes[0];
+    if (node === undefined) return undefined;
+    // The typed ProjectProfileNode already exposes the four arrays as
+    // `readonly string[]`; no JSON re-parse needed.
     return {
-      languages: parseJsonArray(row["languages_json"]),
-      frameworks: parseJsonArray(row["frameworks_json"]),
-      apiContracts: parseJsonArray(row["api_contracts_json"]),
-      iacTypes: parseJsonArray(row["iac_types_json"]),
+      languages: node.languages ?? [],
+      frameworks: node.frameworks ?? [],
+      apiContracts: node.apiContracts ?? [],
+      iacTypes: node.iacTypes ?? [],
     };
   } catch {
     return undefined;
@@ -249,26 +240,43 @@ export async function loadProjectProfile(
 
 export async function loadRoutes(store: IGraphStore): Promise<readonly RouteRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT r.id AS id,
-              r.name AS name,
-              r.url AS url,
-              r.method AS method,
-              MIN(handler.file_path) AS file_path
-         FROM nodes r
-         LEFT JOIN relations hr ON hr.to_id = r.id AND hr.type = 'HANDLES_ROUTE'
-         LEFT JOIN nodes handler ON handler.id = hr.from_id
-        WHERE r.kind = 'Route'
-        GROUP BY r.id, r.name, r.url, r.method
-        ORDER BY r.url ASC, r.method ASC, r.id ASC`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      name: str(row, "name"),
-      url: str(row, "url"),
-      method: str(row, "method"),
-      handlerFilePath: str(row, "file_path"),
-    }));
+    const [routes, handlerEdges, allNodes] = await Promise.all([
+      store.listRoutes(),
+      store.listEdgesByType("HANDLES_ROUTE"),
+      store.listNodes(),
+    ]);
+    const handlersByRouteId = new Map<string, string[]>();
+    const nodeById = new Map(allNodes.map((n) => [n.id, n]));
+    for (const e of handlerEdges) {
+      const handler = nodeById.get(e.from);
+      if (handler === undefined) continue;
+      if (typeof handler.filePath !== "string" || handler.filePath.length === 0) continue;
+      const list = handlersByRouteId.get(e.to);
+      if (list === undefined) {
+        handlersByRouteId.set(e.to, [handler.filePath]);
+      } else {
+        list.push(handler.filePath);
+      }
+    }
+    const rows: RouteRow[] = routes.map((r) => {
+      const paths = handlersByRouteId.get(r.id) ?? [];
+      // SQL `MIN(handler.file_path)` collation = lex ASC.
+      const minPath =
+        paths.length === 0 ? "" : (paths.slice().sort((a, b) => a.localeCompare(b))[0] ?? "");
+      return {
+        id: r.id,
+        name: r.name,
+        url: r.url,
+        method: r.method ?? "",
+        handlerFilePath: minPath,
+      };
+    });
+    rows.sort((a, b) => {
+      if (a.url !== b.url) return a.url.localeCompare(b.url);
+      if (a.method !== b.method) return a.method.localeCompare(b.method);
+      return a.id.localeCompare(b.id);
+    });
+    return rows;
   } catch {
     return [];
   }
@@ -276,20 +284,21 @@ export async function loadRoutes(store: IGraphStore): Promise<readonly RouteRow[
 
 export async function loadOperations(store: IGraphStore): Promise<readonly OperationRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT id, name, http_path, http_method, summary, file_path
-         FROM nodes
-        WHERE kind = 'Operation'
-        ORDER BY http_path ASC, http_method ASC, id ASC`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      name: str(row, "name"),
-      path: str(row, "http_path"),
-      method: str(row, "http_method"),
-      summary: str(row, "summary"),
-      filePath: str(row, "file_path"),
+    const ops = await store.listNodesByKind("Operation");
+    const rows: OperationRow[] = ops.map((op) => ({
+      id: op.id,
+      name: op.name,
+      path: op.path,
+      method: op.method,
+      summary: op.summary ?? "",
+      filePath: op.filePath,
     }));
+    rows.sort((a, b) => {
+      if (a.path !== b.path) return a.path.localeCompare(b.path);
+      if (a.method !== b.method) return a.method.localeCompare(b.method);
+      return a.id.localeCompare(b.id);
+    });
+    return rows;
   } catch {
     return [];
   }
@@ -297,21 +306,34 @@ export async function loadOperations(store: IGraphStore): Promise<readonly Opera
 
 export async function loadFetches(store: IGraphStore): Promise<readonly FetchesRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT from_n.file_path AS from_file,
-              from_n.name AS from_name,
-              to_n.url AS to_url
-         FROM relations r
-         JOIN nodes from_n ON from_n.id = r.from_id
-         JOIN nodes to_n ON to_n.id = r.to_id
-        WHERE r.type = 'FETCHES'
-        ORDER BY to_n.url ASC, from_n.file_path ASC, from_n.name ASC`,
-    );
-    return rows.map((row) => ({
-      fromFilePath: str(row, "from_file"),
-      fromName: str(row, "from_name"),
-      toUrl: str(row, "to_url"),
-    }));
+    const [fetchEdges, allNodes, routes] = await Promise.all([
+      store.listEdgesByType("FETCHES"),
+      store.listNodes(),
+      store.listRoutes(),
+    ]);
+    const nodeById = new Map(allNodes.map((n) => [n.id, n]));
+    const routeById = new Map(routes.map((r) => [r.id, r]));
+    const rows: FetchesRow[] = [];
+    for (const e of fetchEdges) {
+      const from = nodeById.get(e.from);
+      if (from === undefined) continue;
+      const route = routeById.get(e.to);
+      // FETCHES targets are typed as Route nodes carrying `url`; skip if the
+      // edge points at something else (defence in depth — old graphs may
+      // have leaked non-Route targets through the SQL JOIN).
+      const toUrl = route?.url ?? "";
+      rows.push({
+        fromFilePath: from.filePath,
+        fromName: from.name,
+        toUrl,
+      });
+    }
+    rows.sort((a, b) => {
+      if (a.toUrl !== b.toUrl) return a.toUrl.localeCompare(b.toUrl);
+      if (a.fromFilePath !== b.fromFilePath) return a.fromFilePath.localeCompare(b.fromFilePath);
+      return a.fromName.localeCompare(b.fromName);
+    });
+    return rows;
   } catch {
     return [];
   }
@@ -319,29 +341,29 @@ export async function loadFetches(store: IGraphStore): Promise<readonly FetchesR
 
 export async function loadDependencies(store: IGraphStore): Promise<readonly DependencyRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT d.id AS id,
-              d.name AS name,
-              d.version AS version,
-              d.ecosystem AS ecosystem,
-              d.license AS license,
-              d.lockfile_source AS lockfile_source,
-              COUNT(r.id) AS usage_count
-         FROM nodes d
-         LEFT JOIN relations r ON r.to_id = d.id AND r.type = 'DEPENDS_ON'
-        WHERE d.kind = 'Dependency'
-        GROUP BY d.id, d.name, d.version, d.ecosystem, d.license, d.lockfile_source
-        ORDER BY d.name ASC, d.version ASC, d.id ASC`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      name: str(row, "name"),
-      version: str(row, "version"),
-      ecosystem: str(row, "ecosystem"),
-      license: str(row, "license"),
-      lockfileSource: str(row, "lockfile_source"),
-      usageCount: num(row, "usage_count"),
+    const [deps, dependsOnEdges] = await Promise.all([
+      store.listDependencies(),
+      store.listEdgesByType("DEPENDS_ON"),
+    ]);
+    const usageByDepId = new Map<string, number>();
+    for (const e of dependsOnEdges) {
+      usageByDepId.set(e.to, (usageByDepId.get(e.to) ?? 0) + 1);
+    }
+    const rows: DependencyRow[] = deps.map((d) => ({
+      id: d.id,
+      name: d.name,
+      version: d.version,
+      ecosystem: d.ecosystem,
+      license: d.license ?? "",
+      lockfileSource: d.lockfileSource,
+      usageCount: usageByDepId.get(d.id) ?? 0,
     }));
+    rows.sort((a, b) => {
+      if (a.name !== b.name) return a.name.localeCompare(b.name);
+      if (a.version !== b.version) return a.version.localeCompare(b.version);
+      return a.id.localeCompare(b.id);
+    });
+    return rows;
   } catch {
     return [];
   }
@@ -349,20 +371,38 @@ export async function loadDependencies(store: IGraphStore): Promise<readonly Dep
 
 export async function loadDeadFunctions(store: IGraphStore): Promise<readonly DeadFunctionRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT id, name, file_path, start_line, end_line, deadness
-         FROM nodes
-        WHERE deadness IN ('dead', 'unreachable-export')
-        ORDER BY file_path ASC, start_line ASC, id ASC`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      name: str(row, "name"),
-      filePath: str(row, "file_path"),
-      startLine: maybeNum(row, "start_line"),
-      endLine: maybeNum(row, "end_line"),
-      deadness: str(row, "deadness"),
-    }));
+    // `deadness` only ever decorates callable nodes — Function, Method,
+    // Constructor (CallableShape in core-types/src/nodes.ts). Pull each
+    // callable kind via the typed finder and filter on the JS side. Both
+    // the typed enum spelling (`unreachable_export`) and the legacy
+    // hyphenated form (`unreachable-export`, written by older dead-code
+    // phases before the underscore normalization landed) are accepted.
+    const [functions, methods, constructors] = await Promise.all([
+      store.listNodesByKind("Function"),
+      store.listNodesByKind("Method"),
+      store.listNodesByKind("Constructor"),
+    ]);
+    const rows: DeadFunctionRow[] = [];
+    for (const n of [...functions, ...methods, ...constructors]) {
+      const d = n.deadness as string | undefined;
+      if (d !== "dead" && d !== "unreachable_export" && d !== "unreachable-export") continue;
+      rows.push({
+        id: n.id,
+        name: n.name,
+        filePath: n.filePath,
+        startLine: typeof n.startLine === "number" ? n.startLine : undefined,
+        endLine: typeof n.endLine === "number" ? n.endLine : undefined,
+        deadness: d,
+      });
+    }
+    rows.sort((a, b) => {
+      if (a.filePath !== b.filePath) return a.filePath.localeCompare(b.filePath);
+      const al = a.startLine ?? 0;
+      const bl = b.startLine ?? 0;
+      if (al !== bl) return al - bl;
+      return a.id.localeCompare(b.id);
+    });
+    return rows;
   } catch {
     return [];
   }
@@ -370,17 +410,18 @@ export async function loadDeadFunctions(store: IGraphStore): Promise<readonly De
 
 export async function loadOrphanFiles(store: IGraphStore): Promise<readonly OrphanFileRow[]> {
   try {
-    const rows = await store.query(
-      `SELECT id, file_path, orphan_grade
-         FROM nodes
-        WHERE kind = 'File' AND orphan_grade IS NOT NULL AND orphan_grade <> 'active'
-        ORDER BY file_path ASC, id ASC`,
-    );
-    return rows.map((row) => ({
-      id: str(row, "id"),
-      filePath: str(row, "file_path"),
-      orphanGrade: str(row, "orphan_grade"),
-    }));
+    const files = await store.listNodesByKind("File");
+    const rows: OrphanFileRow[] = [];
+    for (const f of files) {
+      const grade = f.orphanGrade;
+      if (grade === undefined || grade === "active") continue;
+      rows.push({ id: f.id, filePath: f.filePath, orphanGrade: grade });
+    }
+    rows.sort((a, b) => {
+      if (a.filePath !== b.filePath) return a.filePath.localeCompare(b.filePath);
+      return a.id.localeCompare(b.id);
+    });
+    return rows;
   } catch {
     return [];
   }

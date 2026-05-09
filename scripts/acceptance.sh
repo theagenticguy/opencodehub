@@ -25,19 +25,21 @@
 #  14.  license-audit-smoke         (analyze + license_audit tool)  [NEW v1.0]
 #  15.  verdict-smoke               (2-commit fixture → tier)       [NEW v1.0]
 #  16.  pack-determinism            (code-pack ×2 → diff -r, U2)    [NEW v1.0]
+#  17.  m7-parity-audit             (analyze ×2 backends → graphHash, U1) [NEW v1.0]
 #
-# Gates 10-16 MUST degrade gracefully: when their dependency binary is not
+# Gates 10-17 MUST degrade gracefully: when their dependency binary is not
 # available (semgrep, embedder weights, codehub verdict command, populated
-# DuckStore), they print `[SKIP]` with a reason and do not change the exit
-# code. This lets the acceptance run complete on any developer laptop and
-# in CI, while still enforcing gates when those dependencies are present.
+# DuckStore, @ladybugdb/core binding), they print `[SKIP]` with a reason and
+# do not change the exit code. This lets the acceptance run complete on any
+# developer laptop and in CI, while still enforcing gates when those
+# dependencies are present.
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-TOTAL_GATES=16
+TOTAL_GATES=17
 
 FAIL=0
 pass() { echo "  [PASS] $1"; }
@@ -566,6 +568,29 @@ if bash "$ROOT/scripts/pack-determinism-audit.sh" > "$PACK_LOG" 2>&1; then
 else
   fail "pack-determinism: audit script reported a divergence"
   tail -20 "$PACK_LOG"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 17. M7 parity audit: analyze ×2 backends → graphHash byte-identity (U1)
+# ---------------------------------------------------------------------------
+echo "17/${TOTAL_GATES}: m7-parity-audit (analyze ×2 backends → graphHash)"
+# The audit script runs `codehub analyze --force` under both `CODEHUB_STORE=duck`
+# and `CODEHUB_STORE=lbug`, then compares the `graph <hash>` summary line. It
+# SKIPs cleanly when the CLI isn't built or the `@ladybugdb/core` binding is
+# not importable on this host. Companion to the in-memory parity harness
+# (AC-A-7); together they pin U1 from both layers.
+PARITY_LOG="$tmpdir/m7-parity-audit.log"
+if bash "$ROOT/scripts/m7-parity-audit.sh" > "$PARITY_LOG" 2>&1; then
+  PARITY_LINE=$(head -1 "$PARITY_LOG" || true)
+  case "${PARITY_LINE:-}" in
+    *"[skip]"*) skip "m7-parity-audit: ${PARITY_LINE#*\[skip\] }" ;;
+    *"[pass]"*) pass "m7-parity-audit: ${PARITY_LINE#*\[pass\] }" ;;
+    *)          pass "m7-parity-audit: ${PARITY_LINE:-byte-identical}" ;;
+  esac
+else
+  fail "m7-parity-audit: graphHash divergence across backends (U1 breach)"
+  tail -20 "$PARITY_LOG"
 fi
 echo
 

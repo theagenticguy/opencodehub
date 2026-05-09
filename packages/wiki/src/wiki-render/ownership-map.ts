@@ -15,7 +15,6 @@ import {
   escapePipe,
   loadCommunities,
   loadCommunityTopContributors,
-  maybeNum,
   shortHash,
   slugify,
 } from "./shared.js";
@@ -93,17 +92,20 @@ async function loadCommunityLastSeen(
   communityId: string,
 ): Promise<number | undefined> {
   try {
-    const rows = await store.query(
-      `SELECT MAX(f.top_contributor_last_seen_days) AS max_days
-         FROM relations m
-         JOIN nodes f ON f.id = m.from_id AND f.kind = 'File'
-        WHERE m.type = 'MEMBER_OF' AND m.to_id = ?`,
-      [communityId],
-    );
-    const row = rows[0];
-    if (row === undefined) return undefined;
-    const n = maybeNum(row, "max_days");
-    return n === undefined ? undefined : n;
+    const [memberEdges, fileNodes] = await Promise.all([
+      store.listEdgesByType("MEMBER_OF", { toIds: [communityId] }),
+      store.listNodesByKind("File"),
+    ]);
+    if (memberEdges.length === 0) return undefined;
+    const memberFromIds = new Set(memberEdges.map((e) => e.from));
+    let max: number | undefined;
+    for (const f of fileNodes) {
+      if (!memberFromIds.has(f.id)) continue;
+      const v = f.topContributorLastSeenDays;
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      max = max === undefined ? v : Math.max(max, v);
+    }
+    return max;
   } catch {
     return undefined;
   }

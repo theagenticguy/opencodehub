@@ -31,6 +31,26 @@ import { ConnectionPool } from "../connection-pool.js";
 import { registerListFindingsDeltaTool } from "./list-findings-delta.js";
 import type { ToolContext } from "./shared.js";
 
+/**
+ * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
+ * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
+ * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * implements both interfaces over a single connection in production.
+ */
+function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
+  return {
+    backend: "duck" as const,
+    graph: fake as import("@opencodehub/storage").IGraphStore,
+    temporal: fake as import("@opencodehub/storage").ITemporalStore,
+    graphFile: "/in-memory/graph.duckdb",
+    temporalFile: "/in-memory/graph.duckdb",
+    close: async () => {
+      const closer = (fake as { close?: () => Promise<void> }).close;
+      if (typeof closer === "function") await closer.call(fake);
+    },
+  };
+}
+
 function makeFakeStore(): DuckDbStore {
   const api = {
     open: async () => {},
@@ -139,7 +159,9 @@ async function withHarness(
         },
       }),
     );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore());
+    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () =>
+      wrapAsStore(makeFakeStore()),
+    );
     const ctx: ToolContext = { pool, home };
     const server = new McpServer(
       { name: "test", version: "0.0.0" },

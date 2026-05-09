@@ -10,6 +10,7 @@
  */
 
 import { isAbsolute, join } from "node:path";
+import type { RelationType } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 import type { FsAbstraction, NodeRef, RenameEdit, RenameQuery, RenameResult } from "./types.js";
 
@@ -18,7 +19,7 @@ interface SymbolLocation extends NodeRef {
   readonly endLine: number;
 }
 
-const GRAPH_REFERRER_RELATIONS: readonly string[] = [
+const GRAPH_REFERRER_RELATIONS: readonly RelationType[] = [
   "CALLS",
   "ACCESSES",
   "EXTENDS",
@@ -48,24 +49,24 @@ async function findCandidates(
   symbolName: string,
   scopeFile: string | undefined,
 ): Promise<readonly SymbolLocation[]> {
-  const base = "SELECT id, name, file_path, kind, start_line, end_line FROM nodes WHERE name = ?";
-  let sql = base;
-  const params: (string | number)[] = [symbolName];
-  if (scopeFile) {
-    sql += " AND file_path = ?";
-    params.push(scopeFile);
-  }
-  sql += " ORDER BY id";
-  const rows = await store.query(sql, params);
+  // AC-A-6b: typed `listNodesByName(name, {filePath})` replaces a raw
+  // `WHERE name = ? [AND file_path = ?]` SELECT. The finder returns full
+  // GraphNodes; we map onto the local SymbolLocation shape so downstream
+  // rename logic stays unchanged.
+  const nodes = await store.listNodesByName(
+    symbolName,
+    scopeFile !== undefined ? { filePath: scopeFile } : {},
+  );
   const out: SymbolLocation[] = [];
-  for (const row of rows) {
-    const start = Number(row["start_line"] ?? Number.NaN);
-    const end = Number(row["end_line"] ?? Number.NaN);
+  for (const node of nodes) {
+    const located = node as { readonly startLine?: unknown; readonly endLine?: unknown };
+    const start = Number(located.startLine ?? Number.NaN);
+    const end = Number(located.endLine ?? Number.NaN);
     out.push({
-      id: String(row["id"] ?? ""),
-      name: String(row["name"] ?? ""),
-      filePath: String(row["file_path"] ?? ""),
-      kind: String(row["kind"] ?? ""),
+      id: node.id,
+      name: node.name,
+      filePath: node.filePath,
+      kind: node.kind,
       startLine: Number.isFinite(start) ? start : 0,
       endLine: Number.isFinite(end) ? end : 0,
     });
@@ -77,22 +78,26 @@ async function referrersOf(
   store: IGraphStore,
   targetId: string,
 ): Promise<readonly SymbolLocation[]> {
-  const typePlaceholders = GRAPH_REFERRER_RELATIONS.map(() => "?").join(",");
-  const rows = await store.query(
-    `SELECT DISTINCT n.id, n.name, n.file_path, n.kind, n.start_line, n.end_line
-       FROM relations r JOIN nodes n ON n.id = r.from_id
-      WHERE r.to_id = ? AND r.type IN (${typePlaceholders})`,
-    [targetId, ...GRAPH_REFERRER_RELATIONS],
-  );
+  // AC-A-6b: typed `listEdges({types, toIds})` replaces a raw `WHERE
+  // r.to_id = ? AND r.type IN (...)` SELECT joined to nodes. The TS-side
+  // join hydrates referrer node metadata via `listNodes({ids})`.
+  const edges = await store.listEdges({
+    types: GRAPH_REFERRER_RELATIONS,
+    toIds: [targetId],
+  });
+  const referrerIds = Array.from(new Set(edges.map((e) => e.from))).filter((s) => s.length > 0);
+  if (referrerIds.length === 0) return [];
+  const nodes = await store.listNodes({ ids: referrerIds });
   const out: SymbolLocation[] = [];
-  for (const row of rows) {
-    const start = Number(row["start_line"] ?? Number.NaN);
-    const end = Number(row["end_line"] ?? Number.NaN);
+  for (const node of nodes) {
+    const located = node as { readonly startLine?: unknown; readonly endLine?: unknown };
+    const start = Number(located.startLine ?? Number.NaN);
+    const end = Number(located.endLine ?? Number.NaN);
     out.push({
-      id: String(row["id"] ?? ""),
-      name: String(row["name"] ?? ""),
-      filePath: String(row["file_path"] ?? ""),
-      kind: String(row["kind"] ?? ""),
+      id: node.id,
+      name: node.name,
+      filePath: node.filePath,
+      kind: node.kind,
       startLine: Number.isFinite(start) ? start : 0,
       endLine: Number.isFinite(end) ? end : 0,
     });
@@ -101,15 +106,14 @@ async function referrersOf(
 }
 
 async function allRepoFiles(store: IGraphStore): Promise<readonly string[]> {
-  const rows = await store.query(
-    "SELECT DISTINCT file_path FROM nodes WHERE kind = 'File' ORDER BY file_path",
-  );
-  const out: string[] = [];
-  for (const row of rows) {
-    const p = String(row["file_path"] ?? "");
-    if (p.length > 0) out.push(p);
+  // AC-A-6b: typed `listNodesByKind("File")` replaces a `SELECT DISTINCT
+  // file_path FROM nodes WHERE kind = 'File'` raw SELECT.
+  const files = await store.listNodesByKind("File");
+  const seen = new Set<string>();
+  for (const node of files) {
+    if (node.filePath.length > 0) seen.add(node.filePath);
   }
-  return out;
+  return [...seen].sort();
 }
 
 /** Sweep a buffer for every word-bounded hit. Returns edits in source order. */

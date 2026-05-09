@@ -18,7 +18,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AffectedModule, AffectedProcess, ImpactDepthBucket } from "@opencodehub/analysis";
-import type { IGraphStore } from "@opencodehub/storage";
+import type { ITemporalStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { callRunImpact } from "../analysis-bridge.js";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
@@ -134,7 +134,7 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
       if (args.kind !== undefined && args.kind.length > 0) q.kind = args.kind;
       if (args.includeTests !== undefined) q.includeTests = args.includeTests;
 
-      const result = await callRunImpact(store, q);
+      const result = await callRunImpact(store.graph, q);
 
       if (result.ambiguous) {
         const candidates = result.targetCandidates.slice(0, 10).map((c) => ({
@@ -156,7 +156,7 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
       const chosen = result.chosenTarget;
       const chosenLabel = chosen ? `${chosen.name} [${chosen.kind}]` : args.target;
       const confidenceBreakdown = computeConfidenceBreakdown(result.traversedEdges);
-      const cochanges = chosen ? await fetchCochangesForFile(store, chosen.filePath) : [];
+      const cochanges = chosen ? await fetchCochangesForFile(store.temporal, chosen.filePath) : [];
       const byDepthMap = buildByDepthMap(result.byDepth);
       const affectedProcesses = mapProcesses(result.affectedProcesses);
       const affectedModules = mapModules(result.affectedModules);
@@ -306,11 +306,11 @@ function mapModules(mods: readonly AffectedModule[]): readonly {
  * blast radius — we fetch it independently and surface it as its own field.
  */
 async function fetchCochangesForFile(
-  store: IGraphStore,
+  temporal: ITemporalStore,
   file: string,
 ): Promise<readonly ImpactCochangePartner[]> {
   if (file.length === 0) return [];
-  const rows = await store.lookupCochangesForFile(file, { limit: 10 });
+  const rows = await temporal.lookupCochangesForFile(file, { limit: 10 });
   const out: ImpactCochangePartner[] = [];
   for (const r of rows) {
     const partner = r.sourceFile === file ? r.targetFile : r.sourceFile;

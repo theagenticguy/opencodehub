@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, test } from "node:test";
 import type { GraphNode } from "@opencodehub/core-types";
-import type { IGraphStore, ListNodesOptions } from "@opencodehub/storage";
+import type { IGraphStore, ITemporalStore, ListNodesOptions, Store } from "@opencodehub/storage";
 import { generatePack } from "./index.js";
 
 describe("@opencodehub/pack public entry (AC-M5-1 scaffold)", () => {
@@ -110,29 +110,27 @@ function makeFixtureStore(): IGraphStore {
       filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       return filtered;
     },
-    query: async (sql: string) => {
-      if (/from\s+relations\s+where\s+type\s*=\s*'CALLS'/i.test(sql)) {
-        return edges.map((e) => ({
+    listNodesByKind: async (kind: string) => {
+      return nodes
+        .filter((n) => n.kind === kind)
+        .slice()
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    },
+    listEdgesByType: async (type: string) => {
+      return edges
+        .filter((e) => e.type === type)
+        .map((e) => ({
           id: `rel:${e.from_id}:${e.to_id}`,
-          from_id: e.from_id,
-          to_id: e.to_id,
+          from: e.from_id,
+          to: e.to_id,
+          type: e.type,
           confidence: 1,
         }));
-      }
-      if (/from\s+nodes\s+where\s+kind\s*=\s*'Finding'/i.test(sql)) {
-        return nodes
-          .filter((n): n is Extract<GraphNode, { kind: "Finding" }> => n.kind === "Finding")
-          .map((n) => ({
-            id: n.id,
-            file_path: n.filePath,
-            start_line: n.startLine ?? null,
-            rule_id: n.ruleId,
-            severity: n.severity,
-            message: n.message,
-            suppressed_json: n.suppressedJson ?? null,
-          }));
-      }
-      throw new Error(`unexpected SQL in fixture store: ${sql}`);
+    },
+    listFindings: async () => {
+      return nodes.filter(
+        (n): n is Extract<GraphNode, { kind: "Finding" }> => n.kind === "Finding",
+      );
     },
   } as unknown as IGraphStore;
 }
@@ -184,7 +182,12 @@ async function runFixture(
     },
     {
       ...COMMON_INTERNAL,
-      store: makeFixtureStore(),
+      // AC-A-4 widened the seam to `Store`, but tests that don't exercise
+      // the sidecar can still pass a graph-only store via `graphOnly`.
+      // generatePack auto-wraps it into a Store with backend: "duck" and
+      // a no-op temporal — the sidecar's COPY-helper probe finds nothing
+      // and resolves to absent (S-M5-3).
+      graphOnly: makeFixtureStore(),
       chunkerFiles: FIXTURE_FILES,
       ...internalOverrides,
     },
@@ -364,9 +367,11 @@ test("E2E-G. sidecar absent — manifest.files[] does not list embeddings.parque
 test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides", async () => {
   const dir = await tempDir();
   try {
-    // Inject a store that DOES implement exportEmbeddingsParquet. The fake
-    // writes 4 magic bytes ("PAR1") to the path so we can verify the hash
-    // round-trips into manifest.files[].
+    // Inject a Store whose graph view duck-types the @internal COPY
+    // helper. AC-A-4's `writeEmbeddingsSidecar` narrows on
+    // `backend === "duck"` and finds the helper attached to the graph
+    // view. The fake writes 4 magic bytes ("PAR1") to the path so we
+    // can verify the hash round-trips into manifest.files[].
     const baseStore = makeFixtureStore() as unknown as Record<string, unknown>;
     baseStore["exportEmbeddingsParquet"] = async (absPath: string) => {
       await (await import("node:fs/promises")).writeFile(
@@ -374,6 +379,16 @@ test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides
         new Uint8Array([0x50, 0x41, 0x52, 0x31]),
       );
       return { rowCount: 3, duckdbVersion: "v1.3.99-test" };
+    };
+    const composedStore: Store = {
+      backend: "duck",
+      graph: baseStore as unknown as IGraphStore,
+      temporal: baseStore as unknown as ITemporalStore,
+      graphFile: ":memory:",
+      temporalFile: ":memory:",
+      close: async () => {
+        /* no-op */
+      },
     };
     const manifest = await generatePack(
       {
@@ -384,7 +399,7 @@ test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides
       },
       {
         ...COMMON_INTERNAL,
-        store: baseStore as unknown as IGraphStore,
+        store: composedStore,
         chunkerFiles: FIXTURE_FILES,
       },
     );

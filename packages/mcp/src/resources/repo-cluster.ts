@@ -12,7 +12,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { CommunityNode, GraphNode } from "@opencodehub/core-types";
 import { readRegistry } from "../repo-resolver.js";
 import type { ResourceContext } from "./repos.js";
 import { withResourceStore } from "./store-helper.js";
@@ -61,38 +61,32 @@ export function registerRepoClusterResource(server: McpServer, ctx: ResourceCont
       if (ctx.pool !== undefined) resourceOpts.pool = ctx.pool;
 
       return withResourceStore(uri.href, repoName, resourceOpts, async (store, resolvedRepo) => {
-        const matchRows = (await store.query(
-          `SELECT id, name, inferred_label
-           FROM nodes
-           WHERE kind = 'Community' AND (name = ? OR inferred_label = ?)
-           ORDER BY id ASC
-           LIMIT 1`,
-          [clusterName, clusterName],
-        )) as readonly Record<string, unknown>[];
+        const graph = store.graph;
+        const communities = (await graph.listNodesByKind("Community")) as readonly CommunityNode[];
+        const hit = communities.find(
+          (c) => c.name === clusterName || c.inferredLabel === clusterName,
+        );
 
-        if (matchRows.length === 0) {
-          return buildNotFound(uri.href, resolvedRepo, clusterName, store);
+        if (hit === undefined) {
+          return buildNotFound(uri.href, resolvedRepo, clusterName, communities);
         }
-        const hit = matchRows[0];
-        if (!hit) {
-          return buildNotFound(uri.href, resolvedRepo, clusterName, store);
-        }
-        const communityId = String(hit["id"] ?? "");
+        const communityId = hit.id;
         const communityLabel =
-          typeof hit["inferred_label"] === "string" && hit["inferred_label"].length > 0
-            ? String(hit["inferred_label"])
+          typeof hit.inferredLabel === "string" && hit.inferredLabel.length > 0
+            ? hit.inferredLabel
             : null;
-        const communityName = String(hit["name"] ?? "");
+        const communityName = hit.name;
 
-        const members = (await store.query(
-          `SELECT n.id AS id, n.name AS name, n.kind AS kind, n.file_path AS file_path
-           FROM relations r
-           JOIN nodes n ON n.id = r.from_id
-           WHERE r.type = 'MEMBER_OF' AND r.to_id = ?
-           ORDER BY n.kind ASC, n.name ASC, n.id ASC
-           LIMIT ?`,
-          [communityId, MEMBERS_CAP],
-        )) as readonly Record<string, unknown>[];
+        const memberEdges = await graph.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
+        const memberIds = Array.from(new Set(memberEdges.map((e) => e.from)));
+        const members: GraphNode[] =
+          memberIds.length > 0 ? [...(await graph.listNodes({ ids: memberIds }))] : [];
+        members.sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+          if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        });
+        const cappedMembers = members.slice(0, MEMBERS_CAP);
 
         const lines: string[] = [];
         lines.push(`repo: ${yamlScalar(resolvedRepo)}`);
@@ -103,14 +97,14 @@ export function registerRepoClusterResource(server: McpServer, ctx: ResourceCont
           lines.push(`  label: ${yamlScalar(communityLabel)}`);
         }
         lines.push("members:");
-        if (members.length === 0) {
+        if (cappedMembers.length === 0) {
           lines.push("  []");
         } else {
-          for (const raw of members) {
-            lines.push(`  - id: ${yamlScalar(String(raw["id"] ?? ""))}`);
-            lines.push(`    name: ${yamlScalar(String(raw["name"] ?? ""))}`);
-            lines.push(`    kind: ${yamlScalar(String(raw["kind"] ?? ""))}`);
-            lines.push(`    filePath: ${yamlScalar(String(raw["file_path"] ?? ""))}`);
+          for (const m of cappedMembers) {
+            lines.push(`  - id: ${yamlScalar(m.id)}`);
+            lines.push(`    name: ${yamlScalar(m.name)}`);
+            lines.push(`    kind: ${yamlScalar(m.kind)}`);
+            lines.push(`    filePath: ${yamlScalar(m.filePath)}`);
           }
         }
         return {
@@ -131,21 +125,20 @@ async function buildNotFound(
   uri: string,
   repoName: string,
   clusterName: string,
-  store: DuckDbStore,
+  communities: readonly CommunityNode[],
 ): Promise<ReadResourceResult> {
-  const allRows = (await store.query(
-    `SELECT name, inferred_label
-     FROM nodes
-     WHERE kind = 'Community'
-     ORDER BY COALESCE(symbol_count, 0) DESC, id ASC`,
-    [],
-  )) as readonly Record<string, unknown>[];
+  const ordered = [...communities].sort((a, b) => {
+    const ac = a.symbolCount ?? 0;
+    const bc = b.symbolCount ?? 0;
+    if (ac !== bc) return bc - ac;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
   const candidates = rankCandidates(
     clusterName,
-    allRows.flatMap((r) => {
+    ordered.flatMap((c) => {
       const out: string[] = [];
-      const n = typeof r["name"] === "string" ? r["name"] : null;
-      const l = typeof r["inferred_label"] === "string" ? r["inferred_label"] : null;
+      const n = typeof c.name === "string" ? c.name : null;
+      const l = typeof c.inferredLabel === "string" ? c.inferredLabel : null;
       if (n) out.push(n);
       if (l && l !== n) out.push(l);
       return out;

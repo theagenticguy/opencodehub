@@ -1,7 +1,13 @@
 /**
  * `codehub sql <query>` — run a read-only SQL statement against the local
- * DuckDB store. The `assertReadOnlySql` guard inside the store rejects any
- * mutation, and a per-statement JS timer interrupts long queries.
+ * temporal store. The `assertReadOnlySql` guard inside the temporal adapter
+ * rejects any mutation, and a per-statement JS timer interrupts long
+ * queries.
+ *
+ * Per AC-A-6e: routes through `store.temporal.exec()` rather than the
+ * graph-tier escape hatch — `--sql` is the one CLI surface that consumes
+ * the tabular view directly. Graph-only commands stay on
+ * `store.graph.<finder>()`.
  */
 
 import { openStoreForCommand } from "./open-store.js";
@@ -16,7 +22,7 @@ export interface SqlOptions {
 export async function runSql(sql: string, opts: SqlOptions = {}): Promise<void> {
   const { store } = await openStoreForCommand(opts);
   try {
-    const rows = await store.query(sql, [], { timeoutMs: opts.timeoutMs ?? 5_000 });
+    const rows = await store.temporal.exec(sql, [], { timeoutMs: opts.timeoutMs ?? 5_000 });
     if (opts.json || rows.length === 0) {
       console.log(JSON.stringify(rows, null, 2));
       return;

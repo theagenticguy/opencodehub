@@ -12,6 +12,7 @@ import {
 } from "@opencodehub/core-types";
 import { DuckDbStore } from "./duckdb-adapter.js";
 import type { StoreMeta } from "./interface.js";
+import { assertIGraphStoreConformance } from "./test-utils/conformance.js";
 
 async function scratchDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "och-storage-duck-"));
@@ -2141,4 +2142,21 @@ test("listNodes() returns [] from an unknown kind", async () => {
   } finally {
     await store.close();
   }
+});
+
+// ---------------------------------------------------------------------------
+// v1.0 community-adapter conformance suite (AC-A-11)
+//
+// DuckDb is the flagship reference implementation, so it MUST pass every
+// block of the shared conformance contract. A regression here would mean
+// the in-tree adapter has diverged from the published v1.0 contract and
+// every community fork would be at risk.
+// ---------------------------------------------------------------------------
+
+assertIGraphStoreConformance("DuckDb", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  await store.createSchema();
+  return store;
 });

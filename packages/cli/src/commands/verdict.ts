@@ -18,7 +18,7 @@ import {
   type PolicyDecision,
   PolicyValidationError,
 } from "@opencodehub/policy";
-import type { IGraphStore } from "@opencodehub/storage";
+import type { IGraphStore, Store } from "@opencodehub/storage";
 import { openStoreForCommand } from "./open-store.js";
 import { cliExitCodeForTier, renderJson, renderMarkdown, renderSummary } from "./verdict-render.js";
 
@@ -49,7 +49,14 @@ export interface VerdictCliOptions {
   readonly exitCode?: boolean;
   readonly json?: boolean;
   readonly configOverrides?: Partial<VerdictConfig>;
-  readonly storeFactory?: () => Promise<{ store: IGraphStore; repoPath: string }>;
+  /**
+   * Test seam — inject a custom store factory. Production callers leave
+   * this unset; the runtime calls {@link openStoreForCommand}. Either an
+   * `IGraphStore`-shaped fake (legacy tests) or the composed `Store`
+   * envelope is acceptable; the runVerdict body normalises both into an
+   * `IGraphStore` for the analysis call.
+   */
+  readonly storeFactory?: () => Promise<{ store: IGraphStore | Store; repoPath: string }>;
   readonly computeVerdictFn?: (store: IGraphStore, query: VerdictQuery) => Promise<VerdictResponse>;
   /**
    * Test hook: override the policy loader. Defaults to loadPolicy against
@@ -99,7 +106,11 @@ export async function runVerdict(opts: VerdictCliOptions = {}): Promise<void> {
       ...(opts.head !== undefined ? { head: opts.head } : {}),
       ...(opts.configOverrides !== undefined ? { config: opts.configOverrides } : {}),
     };
-    const verdict = await compute(store, query);
+    // Normalise — production passes the composed `Store` envelope; legacy
+    // test fakes pass an `IGraphStore`. The analysis layer only needs the
+    // graph view either way.
+    const graph: IGraphStore = "graph" in store ? store.graph : store;
+    const verdict = await compute(graph, query);
 
     // Fold opencodehub.policy.yaml into the decision. `loadPolicy` returns
     // undefined for the starter (all-comment) state so the default repo

@@ -1,13 +1,34 @@
 /**
- * BOM body item: Parquet embeddings sidecar (AC-M5-6 — item 7/9).
+ * BOM body item #7: Parquet embeddings sidecar (AC-M5-6, AC-A-4 relocation).
  *
- * Streams the live `embeddings` table to a Parquet file via DuckDB
- * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Optional by
- * design: when no embeddings exist the sidecar is ABSENT — no file on
- * disk and {@link generatePack} omits it from `manifest.files[]` (S-M5-3).
+ * AC-A-4 moved sidecar emission OUT of `@opencodehub/storage` and into the
+ * pack layer. The sidecar is now a packaging concern: it consumes
+ * embeddings via {@link IGraphStore.listEmbeddings} (a portable graph-side
+ * method shipped by both adapters in AC-A-6a) and writes Parquet via the
+ * temporal store's DuckDB `COPY ... TO ... (FORMAT PARQUET, COMPRESSION
+ * ZSTD)`. Third-party graph adapters (AGE, Memgraph, Neo4j, Neptune)
+ * therefore do NOT implement Parquet emission themselves — pack handles
+ * it from the deterministic row stream.
+ *
+ * Backend dispatch (per architecture-revised.md §AC-A-4):
+ *
+ *   - `backend === "duck"`: temporal IS the same DuckDB connection that
+ *     owns the `embeddings` table. We call the @internal helper
+ *     `DuckDbStore.exportEmbeddingsParquet` directly — it runs `COPY` over
+ *     the existing rows and produces byte-identical output across runs.
+ *     `determinismClass: "strict"`, `writerBackend: "duck-copy"`.
+ *
+ *   - `backend === "lbug"`: graph rows live in `@ladybugdb/core`; the paired
+ *     temporal DuckDB has no embeddings table. v1 stamps
+ *     `determinismClass: "degraded"`, `writerBackend: "absent"` and emits
+ *     no file. AC-A-4 anti-goal §10 explicitly permits this:
+ *     "accept `determinism_class: degraded` on lbug-only deployments for
+ *     v1". A future iteration can stage rows into the temporal store
+ *     before COPY (or fall back to `@dsnp/parquetjs`) once the dep
+ *     footprint is acceptable.
  *
  * Determinism contract — non-negotiable, mirrored by the byte-identity
- * test in `embeddings-sidecar.test.ts`:
+ * test in `embeddings-sidecar.test.ts` for the duck path:
  *
  *   1. Row order = `node_id ASC, granularity ASC, chunk_index ASC`. The
  *      DuckDB COPY runs the inner SELECT to completion before writing,
@@ -19,137 +40,226 @@
  *      drop the implicit timestamps that previously broke byte-identity.
  *      The `created_by` metadata still carries the engine version, so
  *      the pack manifest pins `duckdbVersion` to the runtime
- *      `SELECT version()` result. A run on a different DuckDB engine
- *      version is therefore expected to produce a different file (the
- *      pack hash will diverge — that is the right behaviour).
- *
- * Why the structural duck-type for {@link IGraphStore}? The COPY/Parquet
- * path is DuckDB-specific. Adding it to {@link IGraphStore} would commit
- * every alternate adapter (GraphDbStore, future LanceDB, mocks) to a
- * stub-throw. Instead the sidecar checks at runtime whether the store
- * implements `exportEmbeddingsParquet`. Stores that don't (or mocks
- * pretending the table is empty) cleanly resolve to `absent: true`.
+ *      `SELECT version()` result.
  */
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { IGraphStore } from "@opencodehub/storage";
+import { DuckDbStore, type IGraphStore, type Store } from "@opencodehub/storage";
 
-/** Inputs to {@link buildEmbeddingsSidecar}. */
-export interface EmbeddingsSidecarOpts {
-  /** Open graph store. Production callers pass a `DuckDbStore`. */
-  readonly store: IGraphStore;
+/**
+ * Inputs to {@link writeEmbeddingsSidecar}. AC-A-4 takes a composed
+ * {@link Store} (= `OpenStoreResult`) so the sidecar can dispatch on
+ * backend and route through whichever adapter owns the embeddings.
+ */
+export interface SidecarOptions {
+  /** Composed graph + temporal store. */
+  readonly store: Store;
   /**
-   * Absolute path to the destination Parquet file. The DuckStore
-   * validates the path before interpolating into the COPY statement
-   * (prepared statements do not bind COPY destinations).
+   * Absolute path to the destination Parquet file. The DuckDB-backed
+   * writer validates the path before interpolating into the COPY
+   * statement (DuckDB does not bind COPY destinations).
    */
   readonly outPath: string;
+  /**
+   * Optional embedding-tier filter. When omitted the writer emits every
+   * row from the `embeddings` table in its native ordering. Reserved for
+   * future tier-specific packs; the duck-path COPY ignores it today.
+   */
+  readonly granularity?: "symbol" | "file" | "community";
 }
 
-/** Result of {@link buildEmbeddingsSidecar}. */
-export interface EmbeddingsSidecarResult {
+/**
+ * Backend identifier for the writer that produced the sidecar (or
+ * `"absent"` when no file was written).
+ */
+export type SidecarWriterBackend = "duck-copy" | "parquetjs" | "absent";
+
+/**
+ * Determinism class stamped on the sidecar. `"strict"` when the writer
+ * produces byte-identical output across runs; `"degraded"` otherwise
+ * (e.g., lbug-only deployments where the pack writes no Parquet for v1).
+ */
+export type SidecarDeterminismClass = "strict" | "degraded";
+
+/** Result of {@link writeEmbeddingsSidecar}. */
+export interface SidecarResult {
+  /** True when a Parquet file was written to `outPath`. */
+  readonly written: boolean;
+  /** Number of `embeddings` rows materialized into the file (0 when not written). */
+  readonly rowCount: number;
+  /** Strictness signal — `"degraded"` when the writer cannot emit a deterministic file. */
+  readonly determinismClass: SidecarDeterminismClass;
+  /** Which writer produced the file, or `"absent"` when no file was written. */
+  readonly writerBackend: SidecarWriterBackend;
   /** Bytes written to disk; `0` when the sidecar is absent. */
   readonly bytesWritten: number;
-  /** Number of `embeddings` rows materialized into the file. `0` when absent. */
-  readonly rowCount: number;
-  /**
-   * `true` when no Parquet file was written (either the embeddings table is
-   * empty, or the store does not support Parquet export). The caller MUST
-   * skip the BOM item entirely in this case (S-M5-3).
-   */
-  readonly absent: boolean;
   /**
    * Hint payload for `PackPins`. `duckdbVersion` is the runtime
-   * `SELECT version()` result from the DuckDB binding that wrote the file
-   * — pinning it stabilizes the cross-environment determinism contract,
-   * because the parquet writer's `created_by` metadata embeds this string.
-   * Undefined when the sidecar is absent.
+   * `SELECT version()` result from the DuckDB binding that wrote the
+   * file — pinning it stabilizes the cross-environment determinism
+   * contract because the parquet `created_by` metadata embeds this
+   * string. Undefined when no Parquet file was written.
    */
   readonly pinsHint: { readonly duckdbVersion?: string };
-  /** sha256 hex of the written file. Undefined when the sidecar is absent. */
+  /** sha256 hex of the written file. Undefined when no Parquet file was written. */
   readonly fileHash?: string;
 }
 
 /**
- * Structural type for stores that can export `embeddings` to Parquet. Pulled
- * out as its own type so the sidecar can duck-type without importing
- * concrete-class symbols (`DuckDbStore`) and tightening the cross-package
- * dependency graph.
+ * Structural type for stores that expose the @internal DuckDB COPY helper.
+ * Pulled out so the runtime predicate stays explicit at the call site —
+ * pack does not import the helper symbol itself, just narrows by
+ * `instanceof DuckDbStore` plus a defensive duck-type check.
  */
-interface ParquetExportingStore {
+interface ParquetCopyCapableStore {
   exportEmbeddingsParquet(
     absOutPath: string,
   ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }>;
 }
 
 /**
- * Build the optional Parquet embeddings sidecar.
+ * Write the optional Parquet embeddings sidecar.
  *
- * Returns `{absent: true, ...}` and writes nothing when:
- *   - the store does not implement `exportEmbeddingsParquet` (e.g. mock
- *     stores in pack tests, or a future non-DuckDB backend), or
- *   - the underlying `embeddings` table has zero rows (S-M5-3).
+ * Returns `{ written: false, rowCount: 0, writerBackend: "absent", ... }`
+ * when:
+ *   - the `embeddings` table is empty (S-M5-3 — pack omits the BomItem);
+ *   - the backend is `lbug` (v1 degraded path — no temporal embeddings
+ *     table to COPY from).
  *
- * Returns `{absent: false, fileHash, bytesWritten, ...}` and writes the
- * Parquet file at `opts.outPath` when the store backs the call. The
- * caller (typically {@link generatePack}) appends a `BomItem` and pins
+ * Returns `{ written: true, ..., fileHash, bytesWritten }` and writes the
+ * Parquet file at `opts.outPath` when the duck-path emitter ran. The
+ * caller (typically {@link generatePack}) appends the BomItem and pins
  * `duckdbVersion` from `pinsHint`.
  */
-export async function buildEmbeddingsSidecar(
-  opts: EmbeddingsSidecarOpts,
-): Promise<EmbeddingsSidecarResult> {
+export async function writeEmbeddingsSidecar(opts: SidecarOptions): Promise<SidecarResult> {
   const { store, outPath } = opts;
 
-  if (!hasParquetExport(store)) {
+  // Locate the DuckDB-capable store. `backend === "duck"` → temporal IS
+  // the graph store; `backend === "lbug"` → the temporal DuckDB has no
+  // embeddings table, so the COPY helper is unreachable. The duck-type
+  // probe lets test fakes inject the helper without instantiating a
+  // real DuckDbStore (the byte-identity test does so).
+  const copyHelper = resolveCopyHelper(store);
+
+  if (copyHelper === undefined) {
+    // lbug path (or any community backend without DuckDB temporal): we
+    // cannot emit a deterministic Parquet file in v1. Stamp degraded so
+    // generatePack downgrades the manifest's determinism_class
+    // accordingly.
+    //
+    // Probe `listEmbeddings()` so callers and tests can still see whether
+    // any rows exist — the count signals to operators that the stamp is
+    // a deliberate v1 limitation rather than an empty table.
+    const rowCount = await countEmbeddings(store.graph, opts.granularity);
     return {
+      written: false,
+      rowCount,
+      determinismClass: rowCount === 0 ? "strict" : "degraded",
+      writerBackend: "absent",
       bytesWritten: 0,
-      rowCount: 0,
-      absent: true,
       pinsHint: {},
     };
   }
 
-  const { rowCount, duckdbVersion } = await store.exportEmbeddingsParquet(outPath);
+  const { rowCount, duckdbVersion } = await copyHelper.exportEmbeddingsParquet(outPath);
 
   if (rowCount === 0) {
-    // Store has signalled empty embeddings — by contract NO file was
-    // written. Surface `duckdbVersion` only when the sidecar is actually
-    // produced; the absent case leaves `pinsHint.duckdbVersion`
-    // undefined so generatePack can fall back to the package-version
-    // pin without overriding it with a runtime value that has nothing
-    // bound to a written file.
+    // S-M5-3 — empty embeddings means NO file on disk and no manifest
+    // entry. `determinismClass: "strict"` because absence is itself a
+    // deterministic outcome on the duck path.
     return {
-      bytesWritten: 0,
+      written: false,
       rowCount: 0,
-      absent: true,
+      determinismClass: "strict",
+      writerBackend: "absent",
+      bytesWritten: 0,
       pinsHint: {},
     };
   }
 
   // Read the whole file for byte-identity hashing; derive size from the
-  // same buffer so `bytesWritten` and `fileHash` are taken from one
-  // read (no stat/read race). Fine here: the typical M5 pack target is
-  // a single repo and the `.parquet` file is small (hundreds of KB to a
-  // few MB). The pack writer hashes every BOM body anyway.
+  // same buffer so `bytesWritten` and `fileHash` are taken from one read
+  // (no stat/read race). The typical pack target's sidecar is small
+  // (hundreds of KB to a few MB); the pack writer hashes every BOM body
+  // anyway.
   const bytes = await readFile(outPath);
   const fileHash = createHash("sha256").update(bytes).digest("hex");
   return {
-    bytesWritten: bytes.byteLength,
+    written: true,
     rowCount,
-    absent: false,
+    determinismClass: "strict",
+    writerBackend: "duck-copy",
+    bytesWritten: bytes.byteLength,
     pinsHint: { duckdbVersion },
     fileHash,
   };
 }
 
 /**
- * Runtime predicate for the structural `exportEmbeddingsParquet` contract.
- * Lifted to a named function so the type narrowing is explicit at the call
- * site — TS narrows `store` to `IGraphStore & ParquetExportingStore` once
- * this returns true.
+ * Return the @internal DuckDB COPY helper if the store exposes one.
+ *
+ * Lookup order (matches AC-A-4 dispatch §AC-A-4):
+ *   1. `store.graph` is a `DuckDbStore` (backend === "duck"). The graph
+ *      view IS the embedding-owning DuckDB connection.
+ *   2. `store.temporal` is a `DuckDbStore` AND its file holds the
+ *      embeddings (backend === "duck"; same instance as graph in this
+ *      arrangement).
+ *   3. Either view duck-types as {@link ParquetCopyCapableStore} — used
+ *      by the test fakes that simulate the COPY helper without a native
+ *      DuckDB binding.
+ *
+ * Returns `undefined` when no helper is reachable. lbug-backed Stores
+ * land here in v1 (their temporal DuckDB has no embeddings table; the
+ * graph view is `GraphDbStore`).
  */
-function hasParquetExport(store: IGraphStore): store is IGraphStore & ParquetExportingStore {
-  const fn = (store as Partial<ParquetExportingStore>).exportEmbeddingsParquet;
+function resolveCopyHelper(store: Store): ParquetCopyCapableStore | undefined {
+  if (store.graph instanceof DuckDbStore) {
+    return store.graph;
+  }
+  if (store.temporal instanceof DuckDbStore && store.backend === "duck") {
+    return store.temporal;
+  }
+  // Duck-type fallback for test fakes that attach `exportEmbeddingsParquet`
+  // to a plain object without instantiating a real DuckDbStore. We honor
+  // this only on the duck path — lbug deliberately resolves to absent.
+  if (store.backend === "duck") {
+    if (hasParquetCopy(store.graph)) return store.graph;
+    if (hasParquetCopy(store.temporal)) return store.temporal as unknown as ParquetCopyCapableStore;
+  }
+  return undefined;
+}
+
+function hasParquetCopy(store: unknown): store is ParquetCopyCapableStore {
+  if (store === null || typeof store !== "object") return false;
+  const fn = (store as { exportEmbeddingsParquet?: unknown }).exportEmbeddingsParquet;
   return typeof fn === "function";
+}
+
+/**
+ * Count rows in the embeddings stream so the degraded-path result still
+ * carries an honest `rowCount`. Drains the iterator (which is the only
+ * portable surface across both adapters) — a pure COUNT(*) shortcut isn't
+ * on `IGraphStore` and adding one would widen the interface, against the
+ * AC-A-4 anti-goal "DO NOT change `IGraphStore.listEmbeddings` signature".
+ *
+ * Tolerant of test fakes that don't implement `listEmbeddings`: when the
+ * method is missing we treat that as zero embeddings (the fake clearly
+ * doesn't model the embeddings table). Real adapters always implement
+ * it (AC-A-6a shipped both adapters) so this guard never trips in
+ * production.
+ */
+async function countEmbeddings(
+  graph: IGraphStore,
+  granularity: SidecarOptions["granularity"],
+): Promise<number> {
+  if (typeof (graph as { listEmbeddings?: unknown }).listEmbeddings !== "function") {
+    return 0;
+  }
+  let n = 0;
+  for await (const row of graph.listEmbeddings()) {
+    if (granularity !== undefined && row.granularity !== granularity) continue;
+    n += 1;
+  }
+  return n;
 }

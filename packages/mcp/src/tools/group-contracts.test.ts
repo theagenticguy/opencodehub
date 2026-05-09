@@ -6,21 +6,13 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
 import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeEdgeLike,
+  type FakeRoute,
+  makeFakeGraphStore,
+  wrapAsStore,
+} from "../test-utils.js";
 import { registerGroupContractsTool } from "./group-contracts.js";
 import type { ToolContext } from "./shared.js";
 
@@ -28,53 +20,40 @@ interface FetchEdge {
   readonly fromId: string;
   readonly toId: string;
 }
-interface RouteNode {
+interface FakeRouteRow {
   readonly id: string;
   readonly method: string;
   readonly url: string;
 }
 
-interface FakeRepo {
+interface FakeRepoData {
   readonly name: string;
   readonly fetches: readonly FetchEdge[];
-  readonly routes: readonly RouteNode[];
+  readonly routes: readonly FakeRouteRow[];
 }
 
-function makeFakeStore(data: FakeRepo): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      _p: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      if (sql.includes("FROM relations") && sql.includes("FETCHES")) {
-        return data.fetches.map((f) => ({ from_id: f.fromId, to_id: f.toId }));
-      }
-      if (sql.includes("FROM nodes") && sql.includes("Route")) {
-        return data.routes.map((r) => ({ id: r.id, method: r.method, url: r.url }));
-      }
-      return [];
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
-  return api;
+function buildStore(data: FakeRepoData): import("@opencodehub/storage").Store {
+  // FETCHES edges with `to` = `fetches:unresolved:<METHOD>:<PATH>` are the
+  // raw shape the consumer side emits before producers join.
+  const edges: FakeEdgeLike[] = data.fetches.map((f) => ({
+    type: "FETCHES",
+    fromId: f.fromId,
+    toId: f.toId,
+  }));
+  const routes: FakeRoute[] = data.routes.map((r) => ({
+    id: r.id,
+    kind: "Route" as const,
+    name: `${r.method} ${r.url}`,
+    filePath: "",
+    url: r.url,
+    method: r.method,
+    responseKeys: [],
+  }));
+  return wrapAsStore(makeFakeGraphStore({ edges, routes }));
 }
 
 async function withHarness(
-  repos: readonly FakeRepo[],
+  repos: readonly FakeRepoData[],
   groupRepos: readonly string[],
   fn: (ctx: ToolContext, server: McpServer) => Promise<void>,
 ): Promise<void> {
@@ -111,7 +90,7 @@ async function withHarness(
     const pool = new ConnectionPool({ max: 4, ttlMs: 60_000 }, async (dbPath) => {
       for (const r of repos) {
         const rp = repoPaths.get(r.name);
-        if (rp && dbPath.startsWith(rp)) return makeFakeStore(r);
+        if (rp && dbPath.startsWith(rp)) return buildStore(r);
       }
       throw new Error(`no fake store wired for ${dbPath}`);
     });
@@ -144,7 +123,7 @@ function getHandler(server: McpServer, name: string): RegisteredTool["handler"] 
 }
 
 test("group_contracts resolves a consumer unresolved FETCHES to a producer Route", async () => {
-  const repos: FakeRepo[] = [
+  const repos: FakeRepoData[] = [
     {
       name: "client",
       fetches: [
@@ -194,7 +173,7 @@ test("group_contracts resolves a consumer unresolved FETCHES to a producer Route
 });
 
 test("group_contracts normalises :id and {id} to the same key", async () => {
-  const repos: FakeRepo[] = [
+  const repos: FakeRepoData[] = [
     {
       name: "client",
       fetches: [

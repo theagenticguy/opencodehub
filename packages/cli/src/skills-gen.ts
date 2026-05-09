@@ -21,14 +21,19 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { CommunityNode, NodeId } from "@opencodehub/core-types";
+import type { IGraphStore } from "@opencodehub/storage";
 
-/** Minimal store surface used by the generator — satisfied by `DuckDbStore`. */
-export interface SkillsGenStore {
-  query(
-    sql: string,
-    params?: readonly (string | number | bigint | boolean | null)[],
-  ): Promise<readonly Record<string, unknown>[]>;
-}
+/**
+ * Minimal store surface used by the generator. Aliased to {@link IGraphStore}
+ * so cli/skills-gen always operates through the typed-finder surface — no
+ * raw SQL escape hatch. Tests can supply a partial mock that implements just
+ * the four finders this generator calls.
+ */
+export type SkillsGenStore = Pick<
+  IGraphStore,
+  "listNodesByKind" | "listNodes" | "listNodesByEntryPoint" | "listEdgesByType"
+>;
 
 export interface SkillsGenOptions {
   /** Minimum `symbolCount` for a community to be written out. Default 5. */
@@ -123,76 +128,81 @@ async function fetchCommunities(
   store: SkillsGenStore,
   minSymbols: number,
 ): Promise<readonly CommunityRow[]> {
-  const rows = await store.query(
-    `SELECT id, name, symbol_count, inferred_label, keywords
-       FROM nodes
-      WHERE kind = 'Community' AND symbol_count >= ?
-      ORDER BY symbol_count DESC, id ASC`,
-    [minSymbols],
-  );
+  // `listNodesByKind('Community')` returns the typed `CommunityNode` shape
+  // with `symbolCount`, `inferredLabel`, and `keywords` already rehydrated.
+  // Filter + sort in TS — the typed finder only paginates on `(id ASC)`,
+  // not on a derived metric like `symbolCount`. `symbolCount` is optional
+  // on `CommunityNode` so we coerce missing values to 0 (treating an
+  // un-populated community as below the minimum).
+  const all = (await store.listNodesByKind("Community")) as readonly CommunityNode[];
+  const filtered = all
+    .map((c) => ({ c, count: c.symbolCount ?? 0 }))
+    .filter(({ count }) => count >= minSymbols)
+    .sort((a, b) => {
+      if (a.count !== b.count) return b.count - a.count;
+      return a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0;
+    });
   const out: CommunityRow[] = [];
-  for (const r of rows) {
-    const id = String(r["id"] ?? "");
-    const name = String(r["name"] ?? "");
-    const count = Number(r["symbol_count"] ?? 0);
-    if (id.length === 0 || !Number.isFinite(count)) continue;
-    const labelRaw = r["inferred_label"];
-    const label = typeof labelRaw === "string" && labelRaw.length > 0 ? labelRaw : undefined;
-    const keywordsRaw = r["keywords"];
-    const keywords = Array.isArray(keywordsRaw)
-      ? keywordsRaw.filter((v): v is string => typeof v === "string")
-      : [];
-    out.push({ id, name, symbolCount: count, inferredLabel: label, keywords });
-  }
-  return out;
-}
-
-async function fetchMembers(store: SkillsGenStore, communityId: string): Promise<MemberRow[]> {
-  const rows = await store.query(
-    `SELECT n.id, n.name, n.kind, n.file_path, n.start_line
-       FROM relations r
-       JOIN nodes n ON n.id = r.from_id
-      WHERE r.type = 'MEMBER_OF' AND r.to_id = ?
-      ORDER BY n.name ASC, n.id ASC`,
-    [communityId],
-  );
-  const out: MemberRow[] = [];
-  for (const r of rows) {
-    const id = String(r["id"] ?? "");
-    if (id.length === 0) continue;
-    const startLineRaw = r["start_line"];
-    const startLine =
-      typeof startLineRaw === "number" && Number.isFinite(startLineRaw)
-        ? startLineRaw
-        : typeof startLineRaw === "bigint"
-          ? Number(startLineRaw)
-          : undefined;
+  for (const { c, count } of filtered) {
+    if (c.id.length === 0 || !Number.isFinite(count)) continue;
+    const label =
+      typeof c.inferredLabel === "string" && c.inferredLabel.length > 0
+        ? c.inferredLabel
+        : undefined;
     out.push({
-      id,
-      name: String(r["name"] ?? ""),
-      kind: String(r["kind"] ?? ""),
-      filePath: String(r["file_path"] ?? ""),
-      startLine,
+      id: c.id,
+      name: c.name,
+      symbolCount: count,
+      inferredLabel: label,
+      keywords: c.keywords ?? [],
     });
   }
   return out;
 }
 
+async function fetchMembers(store: SkillsGenStore, communityId: string): Promise<MemberRow[]> {
+  // MEMBER_OF edges have the symbol on `from` and the Community on `to`.
+  const edges = await store.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
+  if (edges.length === 0) return [];
+  const fromIds = Array.from(new Set(edges.map((e) => e.from)));
+  const nodes = await store.listNodes({ ids: fromIds });
+  const rows: MemberRow[] = [];
+  for (const n of nodes) {
+    const startLineRaw = (n as unknown as { startLine?: number }).startLine;
+    const startLine =
+      typeof startLineRaw === "number" && Number.isFinite(startLineRaw) ? startLineRaw : undefined;
+    rows.push({
+      id: n.id,
+      name: n.name,
+      kind: n.kind,
+      filePath: n.filePath,
+      startLine,
+    });
+  }
+  // Match prior `ORDER BY n.name ASC, n.id ASC`.
+  rows.sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return rows;
+}
+
 async function fetchProcessEntryPointIds(store: SkillsGenStore): Promise<ReadonlySet<string>> {
-  const rows = await store.query(
-    "SELECT entry_point_id FROM nodes WHERE kind = 'Process' AND entry_point_id IS NOT NULL",
-  );
+  const processes = await store.listNodesByKind("Process");
   const out = new Set<string>();
-  for (const r of rows) {
-    const id = r["entry_point_id"];
-    if (typeof id === "string" && id.length > 0) out.add(id);
+  for (const p of processes) {
+    const entryPointId = (p as unknown as { entryPointId?: unknown }).entryPointId;
+    if (typeof entryPointId === "string" && entryPointId.length > 0) out.add(entryPointId);
   }
   return out;
 }
 
 /**
  * Fetch the top-K members of a community by outgoing CALLS degree. Used as a
- * fallback when no community members are process heads.
+ * fallback when no community members are process heads. Computes the
+ * `GROUP BY from_id COUNT(*)` aggregate in TS over the typed-finder edges
+ * — the legacy SQL pushed it down to DuckDB, but `listEdgesByType` already
+ * narrows to one type so the reduction is bounded by community size.
  */
 async function fetchTopCallersByOutDegree(
   store: SkillsGenStore,
@@ -200,30 +210,16 @@ async function fetchTopCallersByOutDegree(
   limit: number,
 ): Promise<ReadonlyMap<string, number>> {
   if (memberIds.length === 0) return new Map();
-  const placeholders = memberIds.map(() => "?").join(", ");
-  const rows = await store.query(
-    `SELECT from_id AS id, COUNT(*) AS out_degree
-       FROM relations
-      WHERE type = 'CALLS' AND from_id IN (${placeholders})
-      GROUP BY from_id
-      ORDER BY out_degree DESC, from_id ASC
-      LIMIT ?`,
-    [...memberIds, limit],
-  );
-  const out = new Map<string, number>();
-  for (const r of rows) {
-    const id = String(r["id"] ?? "");
-    if (id.length === 0) continue;
-    const degreeRaw = r["out_degree"];
-    const degree =
-      typeof degreeRaw === "number"
-        ? degreeRaw
-        : typeof degreeRaw === "bigint"
-          ? Number(degreeRaw)
-          : 0;
-    out.set(id, degree);
-  }
-  return out;
+  const ids = memberIds as readonly NodeId[];
+  const edges = await store.listEdgesByType("CALLS", { fromIds: ids });
+  const counts = new Map<string, number>();
+  for (const e of edges) counts.set(e.from, (counts.get(e.from) ?? 0) + 1);
+  // Match prior `ORDER BY out_degree DESC, from_id ASC LIMIT ?`.
+  const sorted = Array.from(counts.entries()).sort((a, b) => {
+    if (a[1] !== b[1]) return b[1] - a[1];
+    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+  });
+  return new Map(sorted.slice(0, limit));
 }
 
 async function selectEntryPoints(

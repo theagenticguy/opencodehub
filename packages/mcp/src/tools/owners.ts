@@ -60,32 +60,31 @@ export async function runOwners(ctx: ToolContext, args: OwnersArgs): Promise<Too
   const limit = args.limit ?? 20;
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const rows = (await store.query(
-        `SELECT c.email_hash AS email_hash,
-                    c.email_plain AS email_plain,
-                    c.name AS name,
-                    r.confidence AS weight
-               FROM relations r
-               JOIN nodes c ON c.id = r.to_id
-              WHERE r.from_id = ? AND r.type = 'OWNED_BY' AND c.kind = 'Contributor'
-              ORDER BY r.confidence DESC, c.email_hash ASC
-              LIMIT ${limit}`,
-        [args.target],
-      )) as ReadonlyArray<Record<string, unknown>>;
-
-      const owners: OwnerRow[] = rows.map((r) => {
-        const plain =
-          typeof r["email_plain"] === "string" && (r["email_plain"] as string).length > 0
-            ? (r["email_plain"] as string)
-            : "";
-        const hash = typeof r["email_hash"] === "string" ? (r["email_hash"] as string) : "";
-        return {
-          email: plain,
-          emailHash: hash,
-          name: typeof r["name"] === "string" ? (r["name"] as string) : "",
-          weight: typeof r["weight"] === "number" ? (r["weight"] as number) : 0,
-        };
+      const graph = store.graph;
+      const ownedBy = await graph.listEdgesByType("OWNED_BY", { fromIds: [args.target] });
+      const sorted = [...ownedBy].sort((a, b) => {
+        const ac = a.confidence ?? 0;
+        const bc = b.confidence ?? 0;
+        if (ac !== bc) return bc - ac;
+        return a.to < b.to ? -1 : a.to > b.to ? 1 : 0;
       });
+      const sliced = sorted.slice(0, limit);
+      const contributors = await graph.listNodesByKind("Contributor");
+      const contribById = new Map<string, (typeof contributors)[number]>();
+      for (const c of contributors) contribById.set(c.id, c);
+
+      const owners: OwnerRow[] = [];
+      for (const edge of sliced) {
+        const c = contribById.get(edge.to);
+        if (c === undefined) continue;
+        const plain = typeof c.emailPlain === "string" ? c.emailPlain : "";
+        owners.push({
+          email: plain,
+          emailHash: c.emailHash,
+          name: c.name,
+          weight: edge.confidence ?? 0,
+        });
+      }
 
       const header = `Owners for ${args.target} in ${resolved.name} (${owners.length}):`;
       const body =

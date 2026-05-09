@@ -22,7 +22,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { CodeRelation, GraphNode } from "@opencodehub/core-types";
+import type { IGraphStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -66,7 +67,7 @@ interface ShapeCheckArgs {
 export async function runShapeCheck(ctx: ToolContext, args: ShapeCheckArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const routes = await loadRouteShapes(store, args.route);
+      const routes = await loadRouteShapes(store.graph, args.route);
 
       const header = `shape_check — ${routes.length} route(s) for ${resolved.name}${
         args.route ? ` · url~${args.route}` : ""
@@ -124,28 +125,25 @@ export function registerShapeCheckTool(server: McpServer, ctx: ToolContext): voi
 
 /** Load every Route matching the filter and classify each consumer file. */
 export async function loadRouteShapes(
-  store: DuckDbStore,
+  graph: IGraphStore,
   routeFilter: string | undefined,
 ): Promise<readonly RouteShape[]> {
-  const clauses: string[] = ["kind = 'Route'"];
-  const params: (string | number)[] = [];
-  if (routeFilter !== undefined && routeFilter.length > 0) {
-    clauses.push("url LIKE ?");
-    params.push(`%${routeFilter}%`);
-  }
-  const raw = (await store.query(
-    `SELECT id, method, url, response_keys FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY url, method LIMIT 500`,
-    params,
-  )) as ReadonlyArray<Record<string, unknown>>;
+  const opts: { pathLike?: string; limit?: number } = { limit: 500 };
+  if (routeFilter !== undefined && routeFilter.length > 0) opts.pathLike = routeFilter;
+  const listed = await graph.listRoutes(opts);
+  const sorted = [...listed].sort((a, b) => {
+    if (a.url !== b.url) return a.url < b.url ? -1 : 1;
+    const am = a.method ?? "";
+    const bm = b.method ?? "";
+    return am < bm ? -1 : am > bm ? 1 : 0;
+  });
+  const accessesEdges = await graph.listEdgesByType("ACCESSES");
 
   const routes: RouteShape[] = [];
-  for (const r of raw) {
-    const routeId = String(r["id"]);
-    const url = stringOr(r["url"], "");
-    const method = stringOr(r["method"], "");
-    const responseKeys = stringArray(r["response_keys"]);
-    const consumers = await collectConsumerShapes(store, routeId, responseKeys);
-    routes.push({ url, method, responseKeys, consumers });
+  for (const r of sorted) {
+    const responseKeys = r.responseKeys ?? [];
+    const consumers = await collectConsumerShapes(graph, accessesEdges, r.id, responseKeys);
+    routes.push({ url: r.url, method: r.method ?? "", responseKeys, consumers });
   }
   return routes;
 }
@@ -163,74 +161,54 @@ export function classifyShape(
 }
 
 async function collectConsumerShapes(
-  store: DuckDbStore,
+  graph: IGraphStore,
+  accessesEdges: readonly CodeRelation[],
   routeId: string,
   responseKeys: readonly string[],
 ): Promise<readonly ConsumerShape[]> {
-  // 1. Consumer symbols: the from_id side of every FETCHES → routeId.
-  const consumerRows = (await store.query(
-    "SELECT from_id FROM relations WHERE type = 'FETCHES' AND to_id = ? ORDER BY from_id",
-    [routeId],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  const consumerSymbolIds = consumerRows
-    .map((r) => String(r["from_id"] ?? ""))
-    .filter((s) => s.length > 0);
+  const fetches = await graph.listEdgesByType("FETCHES", { toIds: [routeId] });
+  const consumerSymbolIds = fetches
+    .map((e) => e.from)
+    .filter((s) => s.length > 0)
+    .sort();
   if (consumerSymbolIds.length === 0) return [];
 
-  // 2. Map each consumer symbol to its file_path. Nodes also carry their
-  //    containing file so we don't need a CONTAINS join.
-  const placeholders = consumerSymbolIds.map(() => "?").join(",");
-  const fileRows = (await store.query(
-    `SELECT id, file_path FROM nodes WHERE id IN (${placeholders})`,
-    consumerSymbolIds,
-  )) as ReadonlyArray<Record<string, unknown>>;
-  const symbolFile = new Map<string, string>();
-  for (const r of fileRows) {
-    const id = String(r["id"] ?? "");
-    const fp = String(r["file_path"] ?? "");
-    if (id.length > 0 && fp.length > 0) symbolFile.set(id, fp);
-  }
+  const consumerSymbols = await graph.listNodes({ ids: consumerSymbolIds });
+  const consumerById = new Map<string, GraphNode>();
+  for (const n of consumerSymbols) consumerById.set(n.id, n);
 
-  // 3. Group unique files with their seed consumer symbol ids.
-  const filesToSymbols = new Map<string, string[]>();
+  const consumerFiles = new Set<string>();
   for (const sid of consumerSymbolIds) {
-    const fp = symbolFile.get(sid);
-    if (fp === undefined) continue;
-    const bucket = filesToSymbols.get(fp) ?? [];
-    bucket.push(sid);
-    filesToSymbols.set(fp, bucket);
+    const n = consumerById.get(sid);
+    if (n && n.filePath.length > 0) consumerFiles.add(n.filePath);
   }
 
-  // 4. For every consumer file, gather the set of accessed property names.
-  //    We look at ACCESSES from ANY symbol defined in the same file, then
-  //    resolve the target node's `name` column (which holds the Property
-  //    name). This catches helper functions in the same module that parse
-  //    the response after the fetch.
+  // Snapshot all nodes referenced by ACCESSES edges so per-file walks
+  // don't fan out per-iteration.
+  const accessedIds = new Set<string>();
+  for (const e of accessesEdges) {
+    accessedIds.add(e.from);
+    accessedIds.add(e.to);
+  }
+  const accessedNodes =
+    accessedIds.size > 0 ? await graph.listNodes({ ids: [...accessedIds] }) : [];
+  const accByID = new Map<string, GraphNode>();
+  for (const n of accessedNodes) accByID.set(n.id, n);
+
   const out: ConsumerShape[] = [];
-  const sortedFiles = [...filesToSymbols.keys()].sort();
+  const sortedFiles = [...consumerFiles].sort();
   for (const file of sortedFiles) {
-    const rows = (await store.query(
-      "SELECT DISTINCT p.name AS name FROM relations r JOIN nodes src ON src.id = r.from_id JOIN nodes p ON p.id = r.to_id WHERE r.type = 'ACCESSES' AND src.file_path = ? AND p.kind = 'Property' ORDER BY p.name",
-      [file],
-    )) as ReadonlyArray<Record<string, unknown>>;
-    const accessedKeys = rows.map((r) => String(r["name"] ?? "")).filter((s) => s.length > 0);
+    const accessedSet = new Set<string>();
+    for (const e of accessesEdges) {
+      const src = accByID.get(e.from);
+      if (!src || src.filePath !== file) continue;
+      const target = accByID.get(e.to);
+      if (!target || target.kind !== "Property") continue;
+      if (target.name && target.name.length > 0) accessedSet.add(target.name);
+    }
+    const accessedKeys = Array.from(accessedSet).sort();
     const { status, missing } = classifyShape(accessedKeys, responseKeys);
     out.push({ file, accessedKeys, status, missing });
-  }
-  return out;
-}
-
-function stringOr(v: unknown, fallback: string): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return fallback;
-}
-
-function stringArray(v: unknown): readonly string[] {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(item);
   }
   return out;
 }

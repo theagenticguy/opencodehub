@@ -22,7 +22,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { GraphNode, RouteNode } from "@opencodehub/core-types";
+import type { IGraphStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -69,7 +70,7 @@ interface ApiImpactArgs {
 export async function runApiImpact(ctx: ToolContext, args: ApiImpactArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const rows = await analyzeApiImpact(store, args.route, args.file);
+      const rows = await analyzeApiImpact(store.graph, args.route, args.file);
 
       const header = `api_impact — ${rows.length} route(s) for ${resolved.name}${
         args.route ? ` · url~${args.route}` : ""
@@ -131,55 +132,47 @@ export function registerApiImpactTool(server: McpServer, ctx: ToolContext): void
 }
 
 async function analyzeApiImpact(
-  store: DuckDbStore,
+  graph: IGraphStore,
   routeFilter: string | undefined,
   fileFilter: string | undefined,
 ): Promise<readonly ApiImpactRow[]> {
-  const clauses: string[] = ["kind = 'Route'"];
-  const params: (string | number)[] = [];
-  if (routeFilter !== undefined && routeFilter.length > 0) {
-    clauses.push("url LIKE ?");
-    params.push(`%${routeFilter}%`);
-  }
+  const opts: { pathLike?: string; limit?: number } = { limit: 500 };
+  if (routeFilter !== undefined && routeFilter.length > 0) opts.pathLike = routeFilter;
+  let routes: readonly RouteNode[] = await graph.listRoutes(opts);
   if (fileFilter !== undefined && fileFilter.length > 0) {
-    clauses.push("file_path LIKE ?");
-    params.push(`%${fileFilter}%`);
+    const sub = fileFilter;
+    routes = routes.filter((r) => r.filePath.includes(sub));
   }
-  const raw = (await store.query(
-    `SELECT id, method, url, file_path, response_keys FROM nodes WHERE ${clauses.join(" AND ")} ORDER BY url, method LIMIT 500`,
-    params,
-  )) as ReadonlyArray<Record<string, unknown>>;
+  const sorted = [...routes].sort((a, b) => {
+    if (a.url !== b.url) return a.url < b.url ? -1 : 1;
+    const am = a.method ?? "";
+    const bm = b.method ?? "";
+    return am < bm ? -1 : am > bm ? 1 : 0;
+  });
 
   const out: ApiImpactRow[] = [];
-  for (const r of raw) {
-    const routeId = String(r["id"]);
-    const url = stringOr(r["url"], "");
-    const method = stringOr(r["method"], "");
-    const filePath = stringOr(r["file_path"], "");
-    const responseKeys = stringArray(r["response_keys"]);
+  for (const r of sorted) {
+    const responseKeys = r.responseKeys ?? [];
 
     const [consumerSymbolIds, handlers] = await Promise.all([
-      fetchFromIds(store, routeId, "FETCHES"),
-      fetchFromIds(store, routeId, "HANDLES_ROUTE"),
+      fetchFromIds(graph, r.id, "FETCHES"),
+      fetchFromIds(graph, r.id, "HANDLES_ROUTE"),
     ]);
 
-    // Map consumer symbols to distinct files for counting + mismatch
-    // classification.
-    const consumerFiles = await resolveFiles(store, consumerSymbolIds);
+    const consumerFiles = await resolveFiles(graph, consumerSymbolIds);
 
-    // Mismatches: run the same ACCESSES walk shape_check uses, per file.
     const mismatches: string[] = [];
     for (const file of consumerFiles) {
-      const accessedKeys = await collectAccessedKeys(store, file);
+      const accessedKeys = await collectAccessedKeys(graph, file);
       const { status } = classifyShape(accessedKeys, responseKeys);
       if (status === "MISMATCH") mismatches.push(file);
     }
 
-    const affectedProcesses = await fetchAffectedProcesses(store, consumerSymbolIds);
+    const affectedProcesses = await fetchAffectedProcesses(graph, consumerSymbolIds);
 
     const risk = scoreRisk(consumerFiles.length, mismatches.length);
     out.push({
-      route: { id: routeId, url, method, filePath },
+      route: { id: r.id, url: r.url, method: r.method ?? "", filePath: r.filePath },
       risk,
       consumers: consumerFiles,
       middleware: handlers,
@@ -203,62 +196,69 @@ function worseRisk(a: Risk, b: Risk): Risk {
 }
 
 async function fetchFromIds(
-  store: DuckDbStore,
+  graph: IGraphStore,
   targetId: string,
-  type: string,
+  type: "FETCHES" | "HANDLES_ROUTE",
 ): Promise<readonly string[]> {
-  const rows = (await store.query(
-    "SELECT from_id FROM relations WHERE to_id = ? AND type = ? ORDER BY from_id",
-    [targetId, type],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => String(r["from_id"] ?? "")).filter((s) => s.length > 0);
+  const edges = await graph.listEdgesByType(type, { toIds: [targetId] });
+  return edges
+    .map((e) => e.from)
+    .filter((s) => s.length > 0)
+    .sort();
 }
 
 async function resolveFiles(
-  store: DuckDbStore,
+  graph: IGraphStore,
   nodeIds: readonly string[],
 ): Promise<readonly string[]> {
   if (nodeIds.length === 0) return [];
-  const placeholders = nodeIds.map(() => "?").join(",");
-  const rows = (await store.query(
-    `SELECT DISTINCT file_path FROM nodes WHERE id IN (${placeholders}) AND file_path IS NOT NULL ORDER BY file_path`,
-    [...nodeIds],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => String(r["file_path"] ?? "")).filter((s) => s.length > 0);
+  const partners = await graph.listNodes({ ids: [...nodeIds] });
+  const set = new Set<string>();
+  for (const n of partners) {
+    if (n.filePath && n.filePath.length > 0) set.add(n.filePath);
+  }
+  return Array.from(set).sort();
 }
 
-async function collectAccessedKeys(store: DuckDbStore, file: string): Promise<readonly string[]> {
-  const rows = (await store.query(
-    "SELECT DISTINCT p.name AS name FROM relations r JOIN nodes src ON src.id = r.from_id JOIN nodes p ON p.id = r.to_id WHERE r.type = 'ACCESSES' AND src.file_path = ? AND p.kind = 'Property' ORDER BY p.name",
-    [file],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => String(r["name"] ?? "")).filter((s) => s.length > 0);
+async function collectAccessedKeys(graph: IGraphStore, file: string): Promise<readonly string[]> {
+  const edges = await graph.listEdgesByType("ACCESSES");
+  if (edges.length === 0) return [];
+  const allIds = new Set<string>();
+  for (const e of edges) {
+    allIds.add(e.from);
+    allIds.add(e.to);
+  }
+  const allNodes = await graph.listNodes({ ids: [...allIds] });
+  const byId = new Map<string, GraphNode>();
+  for (const n of allNodes) byId.set(n.id, n);
+  const names = new Set<string>();
+  for (const e of edges) {
+    const src = byId.get(e.from);
+    if (!src || src.filePath !== file) continue;
+    const target = byId.get(e.to);
+    if (!target || target.kind !== "Property") continue;
+    if (target.name && target.name.length > 0) names.add(target.name);
+  }
+  return Array.from(names).sort();
 }
 
 async function fetchAffectedProcesses(
-  store: DuckDbStore,
+  graph: IGraphStore,
   consumerSymbolIds: readonly string[],
 ): Promise<readonly string[]> {
   if (consumerSymbolIds.length === 0) return [];
-  const placeholders = consumerSymbolIds.map(() => "?").join(",");
-  const rows = (await store.query(
-    `SELECT DISTINCT p.id FROM relations r JOIN nodes p ON p.id = r.from_id WHERE r.type = 'PROCESS_STEP' AND p.kind = 'Process' AND r.to_id IN (${placeholders}) ORDER BY p.id`,
-    [...consumerSymbolIds],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => String(r["id"] ?? "")).filter((s) => s.length > 0);
-}
-
-function stringOr(v: unknown, fallback: string): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return fallback;
-}
-
-function stringArray(v: unknown): readonly string[] {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(item);
+  const targetSet = new Set(consumerSymbolIds);
+  const edges = await graph.listEdgesByType("PROCESS_STEP");
+  const procIds = new Set<string>();
+  for (const e of edges) {
+    if (!targetSet.has(e.to)) continue;
+    procIds.add(e.from);
   }
-  return out;
+  if (procIds.size === 0) return [];
+  const partners = await graph.listNodes({ ids: [...procIds] });
+  const out: string[] = [];
+  for (const n of partners) {
+    if (n.kind === "Process") out.push(n.id);
+  }
+  return out.sort();
 }

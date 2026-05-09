@@ -13,7 +13,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import type { GraphNode } from "@opencodehub/core-types";
+import type { CodeRelation, GraphNode } from "@opencodehub/core-types";
 import { canonicalJson } from "@opencodehub/core-types";
 import type { IGraphStore, ListNodesOptions } from "@opencodehub/storage";
 import { buildSkeleton, type SkeletonRow } from "./skeleton.js";
@@ -25,9 +25,9 @@ interface RawEdge {
 }
 
 /**
- * Build a thin in-memory `IGraphStore` mock that satisfies only the
- * methods `buildSkeleton` reaches: `listNodes` (kind-filtered) and
- * `query` (the single CALLS-edge SQL).
+ * Build a thin in-memory `IGraphStore` mock that satisfies only the methods
+ * `buildSkeleton` reaches: `listNodes` (kind-filtered) and `listEdgesByType`
+ * for the CALLS-edge stream.
  */
 function makeStore(nodes: readonly GraphNode[], edges: readonly RawEdge[] = []): IGraphStore {
   return {
@@ -40,19 +40,17 @@ function makeStore(nodes: readonly GraphNode[], edges: readonly RawEdge[] = []):
       filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       return filtered;
     },
-    query: async (sql: string) => {
-      // The skeleton calls exactly one SQL: "... FROM relations WHERE type = 'CALLS'".
-      // We surface only the CALLS rows; any other SQL throws so the test
-      // surfaces an unintended call.
-      if (!/from\s+relations\s+where\s+type\s*=\s*'CALLS'/i.test(sql)) {
-        throw new Error(`unexpected SQL in skeleton mock: ${sql}`);
-      }
-      return edges
-        .filter((e) => e.type === "CALLS")
-        .map((e) => ({
-          from_id: e.from_id,
-          to_id: e.to_id,
-        }));
+    listEdgesByType: async (type: string) => {
+      const filtered = edges.filter((e) => e.type === type);
+      return filtered.map(
+        (e, i): CodeRelation => ({
+          id: `rel:${i}` as CodeRelation["id"],
+          from: e.from_id as CodeRelation["from"],
+          to: e.to_id as CodeRelation["to"],
+          type: e.type as CodeRelation["type"],
+          confidence: 1,
+        }),
+      );
     },
   } as unknown as IGraphStore;
 }

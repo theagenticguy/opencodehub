@@ -26,7 +26,7 @@ import type { LlmModuleInput, LlmOverviewOptions } from "./wiki-render/llm-overv
 import { renderLlmOverviews } from "./wiki-render/llm-overview.js";
 import { renderOwnershipMapPages } from "./wiki-render/ownership-map.js";
 import { type RiskTrendsLike, renderRiskAtlasPages } from "./wiki-render/risk-atlas.js";
-import { loadCommunities, loadCommunityTopFiles, str } from "./wiki-render/shared.js";
+import { loadCommunities, loadCommunityTopFiles } from "./wiki-render/shared.js";
 
 // Re-export wiki-render types so consumers can import them from the package root.
 export type {
@@ -240,6 +240,11 @@ async function renderLlmOverviewPage(
  * Top symbol names (functions / methods / classes) for a community, ranked
  * by kind priority then name. Used by the LLM overview page to feed key
  * symbols into each summarizer prompt.
+ *
+ * Implementation: walk MEMBER_OF edges via `listEdgesByType` (post-AC-A-6a),
+ * lift the typed Class/Function/Method node lists via `listNodesByKind`,
+ * then JS-side join the edge endpoints to the symbol nodes. Sort by the
+ * (kind-priority, name ASC) key the SQL formerly applied via `CASE n.kind`.
  */
 async function loadCommunityTopSymbols(
   store: IGraphStore,
@@ -247,22 +252,29 @@ async function loadCommunityTopSymbols(
   limit: number,
 ): Promise<readonly string[]> {
   try {
-    const rows = await store.query(
-      `SELECT n.name AS name
-         FROM relations r
-         JOIN nodes n ON n.id = r.from_id
-        WHERE r.type = 'MEMBER_OF'
-          AND r.to_id = ?
-          AND n.kind IN ('Class', 'Function', 'Method')
-          AND n.name IS NOT NULL
-          AND n.name <> ''
-        ORDER BY
-          CASE n.kind WHEN 'Class' THEN 0 WHEN 'Function' THEN 1 ELSE 2 END,
-          n.name ASC
-        LIMIT ?`,
-      [communityId, limit],
-    );
-    return rows.map((r) => str(r, "name")).filter((s) => s.length > 0);
+    const memberEdges = await store.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
+    if (memberEdges.length === 0) return [];
+    const memberFromIds = new Set(memberEdges.map((e) => e.from));
+    const [classes, functions, methods] = await Promise.all([
+      store.listNodesByKind("Class"),
+      store.listNodesByKind("Function"),
+      store.listNodesByKind("Method"),
+    ]);
+    const all: { kindRank: number; name: string }[] = [];
+    for (const c of classes) {
+      if (memberFromIds.has(c.id) && c.name.length > 0) all.push({ kindRank: 0, name: c.name });
+    }
+    for (const f of functions) {
+      if (memberFromIds.has(f.id) && f.name.length > 0) all.push({ kindRank: 1, name: f.name });
+    }
+    for (const m of methods) {
+      if (memberFromIds.has(m.id) && m.name.length > 0) all.push({ kindRank: 2, name: m.name });
+    }
+    all.sort((a, b) => {
+      if (a.kindRank !== b.kindRank) return a.kindRank - b.kindRank;
+      return a.name.localeCompare(b.name);
+    });
+    return all.slice(0, limit).map((r) => r.name);
   } catch {
     return [];
   }

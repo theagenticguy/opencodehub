@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import {
-  DB_FILE_NAME,
+  describeArtifacts,
   META_DIR_NAME,
   META_FILE_NAME,
   REGISTRY_FILE_NAME,
@@ -20,7 +20,10 @@ test("resolveRepoMetaDir: joins repo path with .codehub", () => {
 
 test("resolveDbPath: drops the DuckDB file inside the meta dir", () => {
   const actual = resolveDbPath("/tmp/demo-repo");
-  assert.equal(actual, resolve("/tmp/demo-repo", META_DIR_NAME, DB_FILE_NAME));
+  assert.equal(
+    actual,
+    resolve("/tmp/demo-repo", META_DIR_NAME, describeArtifacts("duck").graphFile),
+  );
 });
 
 test("resolveMetaFilePath: drops meta.json inside the meta dir", () => {
@@ -42,4 +45,25 @@ test("resolveRegistryPath: defaults to os.homedir()", () => {
 test("resolveRepoMetaDir: resolves relative paths", () => {
   const actual = resolveRepoMetaDir("demo-repo");
   assert.equal(actual, resolve(process.cwd(), "demo-repo", META_DIR_NAME));
+});
+
+test("describeArtifacts: duck collapses graph + temporal to a single file", () => {
+  const actual = describeArtifacts("duck");
+  assert.equal(actual.graphFile, "graph.duckdb");
+  assert.equal(actual.temporalFile, "graph.duckdb");
+  assert.equal(actual.schemaName, "main");
+});
+
+test("describeArtifacts: lbug splits graph + temporal across two files", () => {
+  const actual = describeArtifacts("lbug");
+  assert.equal(actual.graphFile, "graph.lbug");
+  assert.equal(actual.temporalFile, "temporal.duckdb");
+  assert.equal(actual.schemaName, "main");
+});
+
+test("describeArtifacts: community backends fall back to graph.<backend> + temporal.duckdb", () => {
+  const actual = describeArtifacts("neo4j");
+  assert.equal(actual.graphFile, "graph.neo4j");
+  assert.equal(actual.temporalFile, "temporal.duckdb");
+  assert.equal(actual.schemaName, "main");
 });

@@ -23,7 +23,7 @@
 
 import { resolve, sep } from "node:path";
 import { bm25Search } from "@opencodehub/search";
-import { DuckDbStore, resolveDbPath } from "@opencodehub/storage";
+import { type IGraphStore, openStore, resolveDbPath } from "@opencodehub/storage";
 import { type RepoEntry, readRegistry } from "../registry.js";
 
 /** Public-API shape for `runAugment`. */
@@ -92,23 +92,28 @@ export async function augment(pattern: string, opts: AugmentOptions = {}): Promi
   if (repo === undefined) return "";
 
   const dbPath = resolveDbPath(repo.path);
-  const store = new DuckDbStore(dbPath, { readOnly: true });
+  const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
+    () => undefined,
+  );
+  if (composed === undefined) return "";
   try {
-    await store.open();
+    await composed.graph.open();
   } catch {
     // No index, corrupt DB, or file missing — treat as "nothing to say".
+    await composed.close().catch(() => {});
     return "";
   }
 
+  const graph = composed.graph;
   try {
-    const hits = await bm25Search(store, { text: pattern, limit });
+    const hits = await bm25Search(graph, { text: pattern, limit });
     if (hits.length === 0) return "";
 
     const topIds = hits.slice(0, limit).map((h) => h.nodeId);
     const [callersMap, calleesMap, processesMap] = await Promise.all([
-      fetchCallersByTarget(store, topIds),
-      fetchCalleesBySource(store, topIds),
-      fetchProcessesBySymbol(store, topIds),
+      fetchCallersByTarget(graph, topIds),
+      fetchCalleesBySource(graph, topIds),
+      fetchProcessesBySymbol(graph, topIds),
     ]);
 
     const enriched: EnrichedHit[] = hits.slice(0, limit).map((h) => ({
@@ -123,7 +128,7 @@ export async function augment(pattern: string, opts: AugmentOptions = {}): Promi
 
     return renderBlock(enriched, repo.name);
   } finally {
-    await store.close().catch(() => {});
+    await composed.close().catch(() => {});
   }
 }
 
@@ -158,32 +163,31 @@ async function resolveRepoForCwd(
 }
 
 // ---------------------------------------------------------------------------
-// Graph hydration — three batched SQL round-trips keyed on the top-N node ids.
-// Any failure degrades silently to an empty map so the caller can still emit
-// the flat BM25 ranking.
+// Graph hydration — three typed-finder round-trips keyed on the top-N node
+// ids. Each follows the canonical `listEdges*` → `listNodes({ids})` pattern
+// the post-A-6c MCP tools (`packages/mcp/src/tools/context.ts`) use, so cli
+// and mcp share the exact ranking semantics. Any failure degrades silently
+// to an empty map so the caller can still emit the flat BM25 ranking.
 // ---------------------------------------------------------------------------
 
 async function fetchCallersByTarget(
-  store: DuckDbStore,
+  graph: IGraphStore,
   ids: readonly string[],
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
-  const placeholders = ids.map(() => "?").join(",");
   try {
-    const rows = await store.query(
-      `SELECT r.to_id AS target_id, n.name AS caller_name
-         FROM relations r
-         JOIN nodes n ON n.id = r.from_id
-        WHERE r.type = 'CALLS' AND r.to_id IN (${placeholders})`,
-      ids,
-    );
-    for (const row of rows) {
-      const tid = String(row["target_id"] ?? "");
-      const name = String(row["caller_name"] ?? "");
-      if (tid.length === 0 || name.length === 0) continue;
-      const arr = out.get(tid);
-      if (arr === undefined) out.set(tid, [name]);
+    const edges = await graph.listEdgesByType("CALLS", { toIds: ids });
+    if (edges.length === 0) return out;
+    const fromIds = Array.from(new Set(edges.map((e) => e.from)));
+    const callers = await graph.listNodes({ ids: fromIds });
+    const nameById = new Map<string, string>();
+    for (const n of callers) nameById.set(n.id, n.name);
+    for (const e of edges) {
+      const name = nameById.get(e.from);
+      if (name === undefined || name.length === 0) continue;
+      const arr = out.get(e.to);
+      if (arr === undefined) out.set(e.to, [name]);
       else arr.push(name);
     }
   } catch {
@@ -193,26 +197,23 @@ async function fetchCallersByTarget(
 }
 
 async function fetchCalleesBySource(
-  store: DuckDbStore,
+  graph: IGraphStore,
   ids: readonly string[],
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
-  const placeholders = ids.map(() => "?").join(",");
   try {
-    const rows = await store.query(
-      `SELECT r.from_id AS source_id, n.name AS callee_name
-         FROM relations r
-         JOIN nodes n ON n.id = r.to_id
-        WHERE r.type = 'CALLS' AND r.from_id IN (${placeholders})`,
-      ids,
-    );
-    for (const row of rows) {
-      const sid = String(row["source_id"] ?? "");
-      const name = String(row["callee_name"] ?? "");
-      if (sid.length === 0 || name.length === 0) continue;
-      const arr = out.get(sid);
-      if (arr === undefined) out.set(sid, [name]);
+    const edges = await graph.listEdgesByType("CALLS", { fromIds: ids });
+    if (edges.length === 0) return out;
+    const toIds = Array.from(new Set(edges.map((e) => e.to)));
+    const callees = await graph.listNodes({ ids: toIds });
+    const nameById = new Map<string, string>();
+    for (const n of callees) nameById.set(n.id, n.name);
+    for (const e of edges) {
+      const name = nameById.get(e.to);
+      if (name === undefined || name.length === 0) continue;
+      const arr = out.get(e.from);
+      if (arr === undefined) out.set(e.from, [name]);
       else arr.push(name);
     }
   } catch {
@@ -222,31 +223,29 @@ async function fetchCalleesBySource(
 }
 
 async function fetchProcessesBySymbol(
-  store: DuckDbStore,
+  graph: IGraphStore,
   ids: readonly string[],
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
-  const placeholders = ids.map(() => "?").join(",");
   // PROCESS_STEP edges are emitted from a Process node toward each symbol
-  // that participates (see `detect-changes.ts`). Chase r.from_id back to a
-  // Process node name in a single JOIN so we avoid a second round-trip.
+  // that participates (see `detect-changes.ts`). Pull edges + the named
+  // partner via two finders, then post-filter to `kind = 'Process'` so we
+  // mirror the legacy SQL's join shape exactly.
   try {
-    const rows = await store.query(
-      `SELECT r.to_id AS symbol_id, p.name AS process_name
-         FROM relations r
-         JOIN nodes p ON p.id = r.from_id
-        WHERE r.type = 'PROCESS_STEP'
-          AND p.kind = 'Process'
-          AND r.to_id IN (${placeholders})`,
-      ids,
-    );
-    for (const row of rows) {
-      const sid = String(row["symbol_id"] ?? "");
-      const name = String(row["process_name"] ?? "");
-      if (sid.length === 0 || name.length === 0) continue;
-      const arr = out.get(sid);
-      if (arr === undefined) out.set(sid, [name]);
+    const edges = await graph.listEdgesByType("PROCESS_STEP", { toIds: ids });
+    if (edges.length === 0) return out;
+    const fromIds = Array.from(new Set(edges.map((e) => e.from)));
+    const partners = await graph.listNodes({ ids: fromIds });
+    const processNameById = new Map<string, string>();
+    for (const p of partners) {
+      if (p.kind === "Process" && p.name.length > 0) processNameById.set(p.id, p.name);
+    }
+    for (const e of edges) {
+      const name = processNameById.get(e.from);
+      if (name === undefined) continue;
+      const arr = out.get(e.to);
+      if (arr === undefined) out.set(e.to, [name]);
       else arr.push(name);
     }
   } catch {

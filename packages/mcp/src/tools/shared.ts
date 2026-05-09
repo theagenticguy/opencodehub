@@ -12,7 +12,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FsAbstraction } from "@opencodehub/analysis";
 import type { Embedder } from "@opencodehub/embedder";
-import type { DuckDbStore } from "@opencodehub/storage";
+import { describeArtifacts, type Store } from "@opencodehub/storage";
 import { z } from "zod";
 import type { ConnectionPool } from "../connection-pool.js";
 import { toolAmbiguousRepoError, toolError, toolErrorFromUnknown } from "../error-envelope.js";
@@ -138,7 +138,7 @@ export interface RepoArgs {
 export async function withStore(
   ctx: ToolContext,
   arg: RepoArgs | string | undefined,
-  fn: (store: DuckDbStore, resolved: ResolvedRepo) => Promise<CallToolResult>,
+  fn: (store: Store, resolved: ResolvedRepo) => Promise<CallToolResult>,
 ): Promise<CallToolResult> {
   let resolved: ResolvedRepo;
   try {
@@ -159,15 +159,22 @@ export async function withStore(
     return toolErrorFromUnknown(err);
   }
 
-  let store: DuckDbStore;
+  let store: Store;
   try {
     store = await ctx.pool.acquire(resolved.repoPath, resolved.dbPath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Enumerate every in-tree backend's artifact filename so the hint is
+    // useful regardless of which backend produced the index. Pulling the
+    // filenames from `describeArtifacts` keeps two-store deployments in
+    // sync with a single source of truth (AC-A-8).
+    const candidates = (["duck", "lbug"] as const)
+      .map((b) => `.codehub/${describeArtifacts(b).graphFile}`)
+      .join(" or ");
     return toolError(
       "DB_ERROR",
-      `Failed to open DuckDB at ${resolved.dbPath}: ${msg}`,
-      "Ensure the repo was indexed and that the .codehub/graph.duckdb file is readable.",
+      `Failed to open store at ${resolved.dbPath}: ${msg}`,
+      `Ensure the repo was indexed and that the ${candidates} file is readable.`,
     );
   }
   try {

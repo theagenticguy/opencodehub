@@ -1,10 +1,11 @@
 /**
- * LRU-backed connection pool for DuckDB graph stores.
+ * LRU-backed connection pool for graph stores.
  *
  * A single MCP session routinely fields back-to-back tool calls that all
- * target the same repo; opening the DuckDB file for every call would be
- * wasteful. We cache open `DuckDbStore` handles keyed by absolute repo
- * path, with three safety guards on top of a plain LRU:
+ * target the same repo; opening the underlying database for every call
+ * would be wasteful. We cache open `Store` (= `OpenStoreResult`) handles
+ * keyed by absolute repo path, with three safety guards on top of a plain
+ * LRU:
  *
  *   1. Per-key promise dedupe. Concurrent acquires for the same repo share
  *      a single in-flight open() — otherwise DuckDB will raise on the
@@ -17,13 +18,22 @@
  *      15 minutes.
  *
  * `shutdown()` drains the pool on stdio close so the server exits cleanly.
+ *
+ * AC-A-6c migration: previously held `DuckDbStore` directly. Now caches
+ * the composed `OpenStoreResult` so MCP tools can route graph-tier calls
+ * through `store.graph` and temporal-tier calls (cochanges, summaries,
+ * `--sql` escape hatch) through `store.temporal`. Backend selection
+ * follows the standard `openStore` resolution (env-driven `CODEHUB_STORE`,
+ * defaulting to `"duck"`); `OpenStoreResult.close()` is the deterministic
+ * composite close — for the DuckDB-only deployment that's a single
+ * underlying close, identical to the prior behavior.
  */
 
-import { DuckDbStore } from "@opencodehub/storage";
+import { openStore, type Store } from "@opencodehub/storage";
 import { LRUCache } from "lru-cache";
 
 export interface PoolEntry {
-  readonly store: DuckDbStore;
+  readonly store: Store;
   refCount: number;
   closed: boolean;
   /** Set when an eviction fires while refCount > 0; close on last release. */
@@ -39,14 +49,25 @@ const DEFAULT_MAX = 8;
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 /**
- * Factory indirection keeps tests mockable without standing up DuckDB.
- * Production always constructs a real `DuckDbStore`.
+ * Factory indirection keeps tests mockable without standing up the
+ * underlying database. Production always calls `openStore` so backend
+ * selection (DuckDB or the graph-db pairing) follows the env-driven
+ * resolution.
  */
-export type StoreFactory = (dbPath: string) => Promise<DuckDbStore>;
+export type StoreFactory = (dbPath: string) => Promise<Store>;
 
 const defaultFactory: StoreFactory = async (dbPath) => {
-  const store = new DuckDbStore(dbPath, { readOnly: true });
-  await store.open();
+  // openStore picks backend via CODEHUB_STORE (defaults to "duck"). We
+  // open read-only because every MCP tool is a reader; the ingestion
+  // pipeline owns writes and runs out-of-process.
+  const store = await openStore({ path: dbPath, readOnly: true });
+  await store.graph.open();
+  if (store.graphFile !== store.temporalFile) {
+    // Two distinct underlying files — open each side. For the default
+    // DuckDB backend graph and temporal alias the same instance and the
+    // second open() is a no-op.
+    await store.temporal.open();
+  }
   return store;
 };
 
@@ -88,7 +109,7 @@ export class ConnectionPool {
    * the on-disk DuckDB file; `repoKey` is a stable identifier used for
    * caching (usually the absolute repo path).
    */
-  async acquire(repoKey: string, dbPath: string): Promise<DuckDbStore> {
+  async acquire(repoKey: string, dbPath: string): Promise<Store> {
     if (this.disposed) {
       throw new Error("ConnectionPool is shut down");
     }

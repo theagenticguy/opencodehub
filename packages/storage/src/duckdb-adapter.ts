@@ -1,9 +1,21 @@
 /**
- * DuckDB-backed adapter for {@link IGraphStore}.
+ * DuckDB-backed adapter for the storage interfaces.
+ *
+ * Per AC-A-1, this class implements BOTH {@link IGraphStore} and
+ * {@link ITemporalStore} over a single `DuckDBConnection`. The legacy
+ * `DuckDbStore` class export is retained as the bridge type for the
+ * 41 type-pin call sites that AC-A-5 will migrate gradually — its
+ * instances satisfy the union of both surfaces.
+ *
+ * When a caller composes a {@link OpenStoreResult} with `backend: "duck"`,
+ * the same `DuckDbStore` instance is returned as both the `graph` view
+ * and the `temporal` view (no second file). When `backend: "lbug"`,
+ * `GraphDbStore` provides the graph view and a separate `DuckDbStore`
+ * instance over `<path>.temporal.duckdb` provides the temporal view.
  *
  * Lifecycle: `open` → `createSchema` → `bulkLoad` (once per index run) →
- * `query` / `search` / `vectorSearch` / `traverse` against the same
- * connection → `close`.
+ * `query` / `exec` / `search` / `vectorSearch` / `traverse` against the
+ * same connection → `close`.
  *
  * Extensions:
  *   - `hnsw_acorn` (community extension) — registers an `HNSW` index type
@@ -28,19 +40,40 @@ import {
   listValue,
 } from "@duckdb/node-api";
 import {
+  type CodeRelation,
   canonicalJson,
+  type DependencyNode,
+  type FindingNode,
   type GraphNode,
   type KnowledgeGraph,
+  type NodeKind,
+  type NodeOfKind,
   type RelationType,
+  type RepoNode,
+  type RouteNode,
 } from "@opencodehub/core-types";
+import { dedupeLastById, NODE_COLUMNS, nodeToColumns } from "./column-encode.js";
 import type {
+  AncestorTraversalOptions,
   BulkLoadOptions,
   BulkLoadStats,
   CochangeLookupOptions,
   CochangeRow,
+  ConsumerProducerEdge,
+  DescendantTraversalOptions,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
+  ITemporalStore,
+  ListDependenciesOptions,
+  ListEdgesByTypeOptions,
+  ListEdgesOptions,
+  ListEmbeddingsOptions,
+  ListFindingsOptions,
+  ListNodesByKindOptions,
+  ListNodesByNameOptions,
   ListNodesOptions,
+  ListRoutesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -99,7 +132,21 @@ const ALL_RELATION_TYPES: readonly string[] = [
 const DEFAULT_COCHANGE_LOOKUP_LIMIT = 10;
 const DEFAULT_COCHANGE_MIN_LIFT = 1.0;
 
-export class DuckDbStore implements IGraphStore {
+/**
+ * Concrete adapter that satisfies both {@link IGraphStore} (graph-tier)
+ * and {@link ITemporalStore} (tabular-tier) over a single DuckDB
+ * connection. The class export remains the legacy bridge type that the
+ * 41 AC-A-5 type-pin sites continue to consume; new code should call
+ * `openStore(...)` and route through `OpenStoreResult.graph` /
+ * `OpenStoreResult.temporal` rather than reaching for the concrete class.
+ */
+export class DuckDbStore implements IGraphStore, ITemporalStore {
+  /**
+   * DuckDB exposes no public Cypher entry point — typed finders cover the
+   * graph reads. Stamped as `"none"` for the {@link IGraphStore.dialect}
+   * marker introduced in AC-A-1.
+   */
+  readonly dialect: GraphDialect = "none";
   private readonly path: string;
   private readonly readOnly: boolean;
   private readonly embeddingDim: number;
@@ -435,9 +482,19 @@ export class DuckDbStore implements IGraphStore {
   }
 
   /**
+   * @internal
    * Stream the `embeddings` table to a Parquet file via DuckDB's built-in
    * `COPY ... TO ... (FORMAT PARQUET, COMPRESSION ZSTD)`. Backs the M5 BOM
    * item #7 (Parquet sidecar) for `@opencodehub/pack`.
+   *
+   * **NOT part of the public storage surface.** AC-A-4 reframed the
+   * embeddings sidecar as a packaging concern, owned by `@opencodehub/pack`.
+   * This method survives as a DuckDB-only helper that pack's
+   * `writeEmbeddingsSidecar` invokes after narrowing `store.temporal` (or
+   * `store.graph` when `backend === "duck"`) to a {@link DuckDbStore}.
+   * Third-party {@link IGraphStore} / {@link ITemporalStore} implementations
+   * MUST NOT implement it — pack stamps `determinismClass: "degraded"`
+   * automatically when the helper is unreachable.
    *
    * Determinism contract — must hold byte-for-byte across two runs against
    * the same on-disk DuckDB file:
@@ -844,6 +901,21 @@ export class DuckDbStore implements IGraphStore {
   }
 
   /**
+   * {@link ITemporalStore.exec} implementation — delegates to {@link query}.
+   * AC-A-1 introduced this name on the temporal interface so callers that
+   * route through `OpenStoreResult.temporal` use the new vocabulary; the
+   * original `query()` method stays for the 41 type-pin sites AC-A-5 will
+   * migrate.
+   */
+  async exec(
+    sql: string,
+    params: readonly SqlParam[] = [],
+    opts: { readonly timeoutMs?: number } = {},
+  ): Promise<readonly Record<string, unknown>[]> {
+    return this.query(sql, params, opts);
+  }
+
+  /**
    * Enumerate fully-rehydrated GraphNodes by kind. Backs the M5 BOM bodies
    * (skeleton, file-tree, deps, xrefs) so they can iterate typed nodes
    * without scattering raw SELECT statements across `packages/pack/`.
@@ -864,12 +936,27 @@ export class DuckDbStore implements IGraphStore {
     // Empty-kinds short-circuit. The contract is "kinds: [] returns []";
     // we never even hit SQL so the round-trip is free.
     if (kinds !== undefined && kinds.length === 0) return [];
+    // Same short-circuit semantics for `ids`: an empty array means "no
+    // ids match". Adapters de-dupe on the input set so callers can pass
+    // a list with repeats.
+    const idsRaw = opts.ids;
+    if (idsRaw !== undefined && idsRaw.length === 0) return [];
+    const ids = idsRaw !== undefined ? Array.from(new Set(idsRaw)) : undefined;
     const limit = clampNonNegativeInt(opts.limit);
     const offset = clampNonNegativeInt(opts.offset);
 
     const columnList = NODE_COLUMNS.join(", ");
-    const whereClause =
-      kinds && kinds.length > 0 ? `WHERE kind IN (${kinds.map(() => "?").join(", ")})` : "";
+    const wheres: string[] = [];
+    if (kinds && kinds.length > 0) {
+      wheres.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
+    }
+    if (ids !== undefined && ids.length > 0) {
+      wheres.push(`id IN (${ids.map(() => "?").join(", ")})`);
+    }
+    if (opts.filePath !== undefined) {
+      wheres.push("file_path = ?");
+    }
+    const whereClause = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
     // ORDER BY id ASC at the SQL layer; LIMIT/OFFSET applied after the
     // filter so paging stays stable across calls. Both clauses are omitted
     // when their values are undefined so the prepared statement plan
@@ -889,6 +976,14 @@ export class DuckDbStore implements IGraphStore {
           stmt.bindVarchar(idx++, k);
         }
       }
+      if (ids !== undefined) {
+        for (const id of ids) {
+          stmt.bindVarchar(idx++, id);
+        }
+      }
+      if (opts.filePath !== undefined) {
+        stmt.bindVarchar(idx++, opts.filePath);
+      }
       if (limit !== undefined) stmt.bindInteger(idx++, limit);
       if (offset !== undefined) stmt.bindInteger(idx++, offset);
       const reader = await stmt.runAndReadAll();
@@ -906,6 +1001,686 @@ export class DuckDbStore implements IGraphStore {
     } finally {
       stmt.destroySync();
     }
+  }
+
+  // --------------------------------------------------------------------------
+  // Typed finders — AC-A-6 service-layer foundation
+  // --------------------------------------------------------------------------
+  //
+  // Every method below replaces a pattern-matched raw-SQL site identified in
+  // architecture-revised.md §5. SQL strings stay LOCAL to this file — they are
+  // never exported from the package surface so consumers cannot reach for the
+  // dialect directly.
+  //
+  // Determinism contract: every finder returns rows in deterministic order so
+  // two calls against the same on-disk graph produce byte-identical output.
+  // Node finders order by `id ASC`; edge finders order by `(from_id, to_id,
+  // type)`; the consumer-producer finder orders by
+  // `(consumer_repo_uri, producer_repo_uri, http_method, http_path)`.
+
+  /**
+   * Single-kind shorthand. Implemented as a thin wrapper around the
+   * existing column-keyed `SELECT ${NODE_COLUMNS} FROM nodes` plus
+   * `filePath`/`filePathLike` predicates. Returns rehydrated typed
+   * nodes via {@link rowToGraphNode}.
+   */
+  async listNodesByKind<K extends NodeKind>(
+    kind: K,
+    opts: ListNodesByKindOptions = {},
+  ): Promise<readonly NodeOfKind<K>[]> {
+    const c = this.requireConn();
+    const limit = clampNonNegativeInt(opts.limit);
+    const offset = clampNonNegativeInt(opts.offset);
+    const columnList = NODE_COLUMNS.join(", ");
+
+    const wheres: string[] = ["kind = ?"];
+    const binds: SqlParam[] = [kind];
+    if (opts.filePath !== undefined) {
+      wheres.push("file_path = ?");
+      binds.push(opts.filePath);
+    }
+    if (opts.filePathLike !== undefined) {
+      wheres.push("file_path LIKE ?");
+      binds.push(`%${opts.filePathLike}%`);
+    }
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const offsetClause = offset !== undefined ? "OFFSET ?" : "";
+    const sql = (
+      `SELECT ${columnList} FROM nodes WHERE ${wheres.join(" AND ")} ` +
+      `ORDER BY id ASC ${limitClause} ${offsetClause}`
+    ).trim();
+
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      if (offset !== undefined) stmt.bindInteger(idx++, offset);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: GraphNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node) out.push(node);
+      }
+      // Lex-stable tiebreak on id matches `listNodes` so cross-adapter
+      // parity holds.
+      const sorted = [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      // Cast through `unknown`: the SQL filter pinned `kind = K` so every
+      // surviving row's `kind` discriminator equals K, but TS can't widen
+      // a discriminated-union narrow through an array of GraphNode without
+      // help. The structural invariant is enforced above.
+      return sorted as unknown as readonly NodeOfKind<K>[];
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * All edges, optionally filtered + paged. Result rows are typed
+   * {@link CodeRelation}s. Determinism: ORDER BY `(from_id, to_id, type)`.
+   */
+  async listEdges(opts: ListEdgesOptions = {}): Promise<readonly CodeRelation[]> {
+    const c = this.requireConn();
+    return this.listEdgesInternal(c, opts);
+  }
+
+  /**
+   * Single-type shorthand. Lifts onto {@link listEdges} with the type
+   * pinned. Same ordering contract.
+   */
+  async listEdgesByType(
+    type: RelationType,
+    opts: ListEdgesByTypeOptions = {},
+  ): Promise<readonly CodeRelation[]> {
+    const merged: ListEdgesOptions = {
+      types: [type],
+      ...(opts.fromIds !== undefined ? { fromIds: opts.fromIds } : {}),
+      ...(opts.toIds !== undefined ? { toIds: opts.toIds } : {}),
+      ...(opts.minConfidence !== undefined ? { minConfidence: opts.minConfidence } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    };
+    return this.listEdges(merged);
+  }
+
+  /**
+   * Findings filter. Materializes typed {@link FindingNode}s — the
+   * underlying row goes through {@link rowToGraphNode} so wider columns
+   * (`baseline_state`, `suppressed_json`, `properties_bag`) come back
+   * with the same shape callers see when they read a Finding via
+   * `listNodes`.
+   */
+  async listFindings(opts: ListFindingsOptions = {}): Promise<readonly FindingNode[]> {
+    const c = this.requireConn();
+    const wheres: string[] = ["kind = 'Finding'"];
+    const binds: SqlParam[] = [];
+    if (opts.severity && opts.severity.length > 0) {
+      const ph = opts.severity.map(() => "?").join(", ");
+      wheres.push(`severity IN (${ph})`);
+      for (const s of opts.severity) binds.push(s);
+    }
+    if (opts.ruleId !== undefined) {
+      wheres.push("rule_id = ?");
+      binds.push(opts.ruleId);
+    }
+    if (opts.baselineState && opts.baselineState.length > 0) {
+      const ph = opts.baselineState.map(() => "?").join(", ");
+      wheres.push(`baseline_state IN (${ph})`);
+      for (const s of opts.baselineState) binds.push(s);
+    }
+    if (opts.suppressed === true) {
+      wheres.push("suppressed_json IS NOT NULL");
+    } else if (opts.suppressed === false) {
+      wheres.push("suppressed_json IS NULL");
+    }
+    const limit = clampNonNegativeInt(opts.limit);
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const columnList = NODE_COLUMNS.join(", ");
+    const sql = (
+      `SELECT ${columnList} FROM nodes WHERE ${wheres.join(" AND ")} ` +
+      `ORDER BY id ASC ${limitClause}`
+    ).trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: FindingNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node && node.kind === "Finding") out.push(node as FindingNode);
+      }
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Dependencies filter. `licenseTier` is treated as a license-tier
+   * pre-classification: the caller supplies the bucket(s) of interest
+   * and the adapter joins through a lightweight in-method classifier
+   * keyed on the SPDX `license` column. The classifier rules mirror
+   * the OCH license-audit table so {@link listDependencies} returns
+   * the same set the audit surface reports for that tier.
+   */
+  async listDependencies(opts: ListDependenciesOptions = {}): Promise<readonly DependencyNode[]> {
+    const c = this.requireConn();
+    const wheres: string[] = ["kind = 'Dependency'"];
+    const binds: SqlParam[] = [];
+    if (opts.ecosystem !== undefined) {
+      wheres.push("ecosystem = ?");
+      binds.push(opts.ecosystem);
+    }
+    const limit = clampNonNegativeInt(opts.limit);
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const columnList = NODE_COLUMNS.join(", ");
+    const sql = (
+      `SELECT ${columnList} FROM nodes WHERE ${wheres.join(" AND ")} ` +
+      `ORDER BY id ASC ${limitClause}`
+    ).trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: DependencyNode[] = [];
+      const tierSet =
+        opts.licenseTier && opts.licenseTier.length > 0 ? new Set(opts.licenseTier) : undefined;
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (!node || node.kind !== "Dependency") continue;
+        if (tierSet) {
+          const tier = classifyLicenseTier((node as DependencyNode).license);
+          if (!tierSet.has(tier)) continue;
+        }
+        out.push(node as DependencyNode);
+      }
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /** Routes filter. Methods + URL `pathLike` predicates. */
+  async listRoutes(opts: ListRoutesOptions = {}): Promise<readonly RouteNode[]> {
+    const c = this.requireConn();
+    const wheres: string[] = ["kind = 'Route'"];
+    const binds: SqlParam[] = [];
+    if (opts.methods && opts.methods.length > 0) {
+      const ph = opts.methods.map(() => "?").join(", ");
+      wheres.push(`method IN (${ph})`);
+      for (const m of opts.methods) binds.push(m);
+    }
+    if (opts.pathLike !== undefined) {
+      wheres.push("url LIKE ?");
+      binds.push(`%${opts.pathLike}%`);
+    }
+    const limit = clampNonNegativeInt(opts.limit);
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const columnList = NODE_COLUMNS.join(", ");
+    const sql = (
+      `SELECT ${columnList} FROM nodes WHERE ${wheres.join(" AND ")} ` +
+      `ORDER BY id ASC ${limitClause}`
+    ).trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: RouteNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node && node.kind === "Route") out.push(node as RouteNode);
+      }
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Repo-node by id. Returns `undefined` when no row matches OR when the
+   * row is not `kind = 'Repo'` (the caller never has to downcast).
+   */
+  async getRepoNode(id: string): Promise<RepoNode | undefined> {
+    const c = this.requireConn();
+    const columnList = NODE_COLUMNS.join(", ");
+    const stmt = await c.prepare(
+      `SELECT ${columnList} FROM nodes WHERE id = ? AND kind = 'Repo' LIMIT 1`,
+    );
+    try {
+      stmt.bindVarchar(1, id);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const first = raw[0];
+      if (!first) return undefined;
+      const node = rowToGraphNode(first);
+      if (!node || node.kind !== "Repo") return undefined;
+      return node as RepoNode;
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Specialized finder backing `analysis/impact.ts:131-135` —
+   * `WHERE entry_point_id = ?`. Returns every {@link GraphNode} whose
+   * `entry_point_id` column matches the supplied id, with `id ASC`
+   * ordering matching the rest of the finder family.
+   */
+  async listNodesByEntryPoint(entryPointId: string): Promise<readonly GraphNode[]> {
+    const c = this.requireConn();
+    const columnList = NODE_COLUMNS.join(", ");
+    const stmt = await c.prepare(
+      `SELECT ${columnList} FROM nodes WHERE entry_point_id = ? ORDER BY id ASC`,
+    );
+    try {
+      stmt.bindVarchar(1, entryPointId);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: GraphNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node) out.push(node);
+      }
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Specialized finder backing `analysis/rename.ts:51,59` —
+   * `WHERE name = ?` with optional `kinds` / `filePath` narrowing.
+   * Returns rehydrated {@link GraphNode}s (full column set) so the
+   * caller has access to start/end lines and other wide-column fields
+   * that rename.ts needs to populate {@link SymbolLocation}.
+   */
+  async listNodesByName(
+    name: string,
+    opts: ListNodesByNameOptions = {},
+  ): Promise<readonly GraphNode[]> {
+    const c = this.requireConn();
+    const kinds = opts.kinds;
+    if (kinds !== undefined && kinds.length === 0) return [];
+    const limit = clampNonNegativeInt(opts.limit);
+    const columnList = NODE_COLUMNS.join(", ");
+    const wheres: string[] = ["name = ?"];
+    const binds: SqlParam[] = [name];
+    if (kinds && kinds.length > 0) {
+      wheres.push(`kind IN (${kinds.map(() => "?").join(", ")})`);
+      for (const k of kinds) binds.push(k);
+    }
+    if (opts.filePath !== undefined) {
+      wheres.push("file_path = ?");
+      binds.push(opts.filePath);
+    }
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const sql = (
+      `SELECT ${columnList} FROM nodes WHERE ${wheres.join(" AND ")} ` +
+      `ORDER BY id ASC ${limitClause}`
+    ).trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      const out: GraphNode[] = [];
+      for (const row of raw) {
+        const node = rowToGraphNode(row);
+        if (node) out.push(node);
+      }
+      return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Counts grouped by kind. When `kinds` is supplied, missing kinds are
+   * still present in the result with count `0` — keeps the caller from
+   * having to special-case "kind not present in graph".
+   */
+  async countNodesByKind(kinds?: readonly NodeKind[]): Promise<Map<NodeKind, number>> {
+    const c = this.requireConn();
+    const out = new Map<NodeKind, number>();
+    if (kinds !== undefined && kinds.length === 0) return out;
+    let sql = "SELECT kind, COUNT(*) AS n FROM nodes";
+    const binds: SqlParam[] = [];
+    if (kinds && kinds.length > 0) {
+      const ph = kinds.map(() => "?").join(", ");
+      sql += ` WHERE kind IN (${ph})`;
+      for (const k of kinds) binds.push(k);
+    }
+    sql += " GROUP BY kind ORDER BY kind ASC";
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      const reader = await stmt.runAndReadAll();
+      const rows = reader.getRowObjects();
+      for (const r of rows) {
+        const row = r as Record<string, unknown>;
+        const kindVal = row["kind"];
+        const n = row["n"];
+        if (typeof kindVal === "string") {
+          const num = typeof n === "bigint" ? Number(n) : Number(n ?? 0);
+          out.set(kindVal as NodeKind, num);
+        }
+      }
+      // Backfill zeros for kinds the caller asked about but which had no rows.
+      if (kinds) {
+        for (const k of kinds) {
+          if (!out.has(k)) out.set(k, 0);
+        }
+      }
+      return out;
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /** Counts grouped by edge type. Symmetric to {@link countNodesByKind}. */
+  async countEdgesByType(types?: readonly RelationType[]): Promise<Map<RelationType, number>> {
+    const c = this.requireConn();
+    const out = new Map<RelationType, number>();
+    if (types !== undefined && types.length === 0) return out;
+    let sql = "SELECT type, COUNT(*) AS n FROM relations";
+    const binds: SqlParam[] = [];
+    if (types && types.length > 0) {
+      const ph = types.map(() => "?").join(", ");
+      sql += ` WHERE type IN (${ph})`;
+      for (const t of types) binds.push(t);
+    }
+    sql += " GROUP BY type ORDER BY type ASC";
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      const reader = await stmt.runAndReadAll();
+      const rows = reader.getRowObjects();
+      for (const r of rows) {
+        const row = r as Record<string, unknown>;
+        const typeVal = row["type"];
+        const n = row["n"];
+        if (typeof typeVal === "string") {
+          const num = typeof n === "bigint" ? Number(n) : Number(n ?? 0);
+          out.set(typeVal as RelationType, num);
+        }
+      }
+      if (types) {
+        for (const t of types) {
+          if (!out.has(t)) out.set(t, 0);
+        }
+      }
+      return out;
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Stream every embedding row in deterministic order. Implemented as an
+   * `async function*` so the caller can `for await` over the stream
+   * without materializing the full table — backs `pack/embeddings-sidecar`
+   * Parquet writer.
+   *
+   * Order: `(node_id ASC, granularity ASC, chunk_index ASC)`. Optional
+   * `kindFilter` joins through the `nodes` table on `embeddings.node_id =
+   * nodes.id` and narrows by kind. Empty `kindFilter` yields zero rows.
+   */
+  async *listEmbeddings(opts: ListEmbeddingsOptions = {}): AsyncIterable<EmbeddingRow> {
+    const c = this.requireConn();
+    const kinds = opts.kindFilter;
+    if (kinds !== undefined && kinds.length === 0) return;
+    const limit = clampNonNegativeInt(opts.limit);
+
+    const baseSelect =
+      "SELECT e.node_id, e.granularity, e.chunk_index, e.start_line, e.end_line, e.vector, e.content_hash";
+    const fromClause =
+      kinds && kinds.length > 0
+        ? "FROM embeddings e JOIN nodes n ON n.id = e.node_id"
+        : "FROM embeddings e";
+    const wheres: string[] = [];
+    const binds: SqlParam[] = [];
+    if (kinds && kinds.length > 0) {
+      const ph = kinds.map(() => "?").join(", ");
+      wheres.push(`n.kind IN (${ph})`);
+      for (const k of kinds) binds.push(k);
+    }
+    const whereClause = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const sql = (
+      `${baseSelect} ${fromClause} ${whereClause} ` +
+      `ORDER BY e.node_id ASC, e.granularity ASC, e.chunk_index ASC ${limitClause}`
+    ).trim();
+
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      const reader = await stmt.runAndReadAll();
+      const raw = normalizeRows(reader.getRowObjects());
+      for (const r of raw) {
+        const row = r as Record<string, unknown>;
+        const vec = row["vector"];
+        let vector: Float32Array;
+        if (vec instanceof Float32Array) vector = vec;
+        else if (Array.isArray(vec)) vector = Float32Array.from(vec.map((v) => Number(v)));
+        else continue;
+        const nodeId = String(row["node_id"]);
+        const granularityRaw = String(row["granularity"]);
+        const granularity =
+          granularityRaw === "file" || granularityRaw === "community" ? granularityRaw : "symbol";
+        const chunkVal = row["chunk_index"];
+        const chunkIndex = typeof chunkVal === "bigint" ? Number(chunkVal) : Number(chunkVal ?? 0);
+        const startVal = row["start_line"];
+        const endVal = row["end_line"];
+        const baseRow: EmbeddingRow = {
+          nodeId,
+          granularity,
+          chunkIndex,
+          ...(startVal !== null && startVal !== undefined
+            ? { startLine: typeof startVal === "bigint" ? Number(startVal) : Number(startVal) }
+            : {}),
+          ...(endVal !== null && endVal !== undefined
+            ? { endLine: typeof endVal === "bigint" ? Number(endVal) : Number(endVal) }
+            : {}),
+          vector,
+          contentHash: String(row["content_hash"] ?? ""),
+        };
+        yield baseRow;
+      }
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Traverse ancestors of `fromId` along the supplied edge types up to
+   * `maxDepth`. Replaces the `WITH RECURSIVE` patterns in
+   * `analysis/impact.ts` and `mcp/tools/query.ts`.
+   */
+  async traverseAncestors(opts: AncestorTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.traverseDirectional(opts, "up");
+  }
+
+  /** Symmetric of {@link traverseAncestors} — walks descendants. */
+  async traverseDescendants(opts: DescendantTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.traverseDirectional(opts, "down");
+  }
+
+  /**
+   * Producer-consumer edges across repos. Implements the FETCHES + Route
+   * + Repo join in one statement. Determinism: ORDER BY
+   * `(consumer_repo_uri, producer_repo_uri, http_method, http_path)`.
+   *
+   * Repo membership is resolved by walking the `Repo` row whose `id` is
+   * the prefix of the consumer/producer node ids. The current ingestion
+   * stamps `repo_uri` directly on every node via the AC-M6-1 column —
+   * we read it inline rather than re-traversing the graph.
+   */
+  async listConsumerProducerEdges(
+    opts: { readonly repoUris?: readonly string[] } = {},
+  ): Promise<readonly ConsumerProducerEdge[]> {
+    const c = this.requireConn();
+    // FETCHES edges connect any consumer node (Function/Method/etc.) to a
+    // Route node owned by the producer. We join Route metadata directly,
+    // and pull the Repo `repo_uri` for both endpoints by joining a
+    // narrowed `repos` view to the relations table.
+    const wheres: string[] = ["r.type = 'FETCHES'"];
+    const binds: SqlParam[] = [];
+    if (opts.repoUris && opts.repoUris.length > 0) {
+      const ph = opts.repoUris.map(() => "?").join(", ");
+      wheres.push(`(consumer.repo_uri IN (${ph}) OR producer.repo_uri IN (${ph}))`);
+      for (const u of opts.repoUris) binds.push(u);
+      for (const u of opts.repoUris) binds.push(u);
+    }
+    const sql = `
+      SELECT
+        r.from_id      AS consumer_node_id,
+        consumer.repo_uri AS consumer_repo_uri,
+        r.to_id        AS producer_node_id,
+        producer.repo_uri AS producer_repo_uri,
+        producer.http_method AS http_method,
+        producer.http_path   AS http_path
+      FROM relations r
+      JOIN nodes consumer ON consumer.id = r.from_id
+      JOIN nodes producer ON producer.id = r.to_id
+      WHERE ${wheres.join(" AND ")} AND producer.kind = 'Operation'
+      ORDER BY consumer_repo_uri ASC, producer_repo_uri ASC,
+               http_method ASC, http_path ASC, r.id ASC`.trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      const reader = await stmt.runAndReadAll();
+      const rows = reader.getRowObjects();
+      const out: ConsumerProducerEdge[] = [];
+      for (const r of rows) {
+        const row = r as Record<string, unknown>;
+        out.push({
+          consumerNodeId: String(row["consumer_node_id"] ?? ""),
+          consumerRepoUri: String(row["consumer_repo_uri"] ?? ""),
+          producerNodeId: String(row["producer_node_id"] ?? ""),
+          producerRepoUri: String(row["producer_repo_uri"] ?? ""),
+          httpMethod: String(row["http_method"] ?? ""),
+          httpPath: String(row["http_path"] ?? ""),
+        });
+      }
+      return out;
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Shared `listEdges` body — used by {@link listEdges} and
+   * {@link listEdgesByType}. Determinism: ORDER BY `(from_id, to_id,
+   * type)` then a JS-side stable tiebreak on `id` so two adapters agree
+   * byte-for-byte even when the engine collation differs.
+   */
+  private async listEdgesInternal(
+    c: DuckDBConnection,
+    opts: ListEdgesOptions,
+  ): Promise<readonly CodeRelation[]> {
+    const wheres: string[] = [];
+    const binds: SqlParam[] = [];
+    if (opts.types && opts.types.length > 0) {
+      const ph = opts.types.map(() => "?").join(", ");
+      wheres.push(`type IN (${ph})`);
+      for (const t of opts.types) binds.push(t);
+    }
+    if (opts.fromIds && opts.fromIds.length > 0) {
+      const ph = opts.fromIds.map(() => "?").join(", ");
+      wheres.push(`from_id IN (${ph})`);
+      for (const f of opts.fromIds) binds.push(f);
+    }
+    if (opts.toIds && opts.toIds.length > 0) {
+      const ph = opts.toIds.map(() => "?").join(", ");
+      wheres.push(`to_id IN (${ph})`);
+      for (const t of opts.toIds) binds.push(t);
+    }
+    if (opts.minConfidence !== undefined) {
+      wheres.push("confidence >= ?");
+      binds.push(opts.minConfidence);
+    }
+    const limit = clampNonNegativeInt(opts.limit);
+    const offset = clampNonNegativeInt(opts.offset);
+    const whereClause = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")}` : "";
+    const limitClause = limit !== undefined ? "LIMIT ?" : "";
+    const offsetClause = offset !== undefined ? "OFFSET ?" : "";
+    const sql = (
+      `SELECT id, from_id, to_id, type, confidence, reason, step ` +
+      `FROM relations ${whereClause} ` +
+      `ORDER BY from_id ASC, to_id ASC, type ASC, id ASC ${limitClause} ${offsetClause}`
+    ).trim();
+    const stmt = await c.prepare(sql);
+    try {
+      let idx = 1;
+      for (const b of binds) bindParam(stmt, idx++, b);
+      if (limit !== undefined) stmt.bindInteger(idx++, limit);
+      if (offset !== undefined) stmt.bindInteger(idx++, offset);
+      const reader = await stmt.runAndReadAll();
+      const rows = reader.getRowObjects();
+      const out: CodeRelation[] = [];
+      for (const r of rows) {
+        const row = r as Record<string, unknown>;
+        const stepVal = row["step"];
+        // Match the AC-A-2 step-zero sentinel: DuckDB stores `INT NOT NULL
+        // DEFAULT 0` for absent step values; collapse 0 to "field absent"
+        // so the wire shape matches the source `CodeRelation`.
+        const step =
+          stepVal === null || stepVal === undefined || Number(stepVal) === 0
+            ? undefined
+            : Number(stepVal);
+        const reasonVal = row["reason"];
+        const reason =
+          typeof reasonVal === "string" && reasonVal.length > 0 ? reasonVal : undefined;
+        out.push({
+          id: String(row["id"] ?? "") as CodeRelation["id"],
+          from: String(row["from_id"] ?? "") as CodeRelation["from"],
+          to: String(row["to_id"] ?? "") as CodeRelation["to"],
+          type: String(row["type"] ?? "") as RelationType,
+          confidence: Number(row["confidence"] ?? 0),
+          ...(reason !== undefined ? { reason } : {}),
+          ...(step !== undefined ? { step } : {}),
+        });
+      }
+      return out;
+    } finally {
+      stmt.destroySync();
+    }
+  }
+
+  /**
+   * Shared body for {@link traverseAncestors} / {@link traverseDescendants}.
+   * Reuses the existing recursive-CTE machinery via a thin wrapper —
+   * direction is "up" for ancestors and "down" for descendants.
+   */
+  private async traverseDirectional(
+    opts: AncestorTraversalOptions | DescendantTraversalOptions,
+    direction: "up" | "down",
+  ): Promise<readonly TraverseResult[]> {
+    if (opts.edgeTypes.length === 0) return [];
+    const traverseQuery: TraverseQuery = {
+      startId: opts.fromId,
+      relationTypes: opts.edgeTypes,
+      direction,
+      maxDepth: opts.maxDepth,
+      ...(opts.minConfidence !== undefined ? { minConfidence: opts.minConfidence } : {}),
+    };
+    return this.traverse(traverseQuery);
   }
 
   async search(q: SearchQuery): Promise<readonly SearchResult[]> {
@@ -1259,104 +2034,17 @@ export class DuckDbStore implements IGraphStore {
 // ----------------------------------------------------------------------------
 
 /**
- * Canonical column ordering for the `nodes` table. Must match the
- * CREATE TABLE in schema-ddl.ts. Used by both the static INSERT statement and
- * the UPSERT DO UPDATE SET clause.
- */
-const NODE_COLUMNS: readonly string[] = [
-  "id",
-  "kind",
-  "name",
-  "file_path",
-  "start_line",
-  "end_line",
-  "is_exported",
-  "signature",
-  "parameter_count",
-  "return_type",
-  "declared_type",
-  "owner",
-  "url",
-  "method",
-  "tool_name",
-  "content",
-  "content_hash",
-  "inferred_label",
-  "symbol_count",
-  "cohesion",
-  "keywords",
-  "entry_point_id",
-  "step_count",
-  "level",
-  "response_keys",
-  "description",
-  // Finding
-  "severity",
-  "rule_id",
-  "scanner_id",
-  "message",
-  "properties_bag",
-  // Dependency
-  "version",
-  "license",
-  "lockfile_source",
-  "ecosystem",
-  // Operation
-  "http_method",
-  "http_path",
-  "summary",
-  "operation_id",
-  // Contributor
-  "email_hash",
-  "email_plain",
-  // ProjectProfile
-  "languages_json",
-  "frameworks_json",
-  "iac_types_json",
-  "api_contracts_json",
-  "manifests_json",
-  "src_dirs_json",
-  // File ownership (H.5) + Community ownership (H.4)
-  "orphan_grade",
-  "is_orphan",
-  "truck_factor",
-  "ownership_drift_30d",
-  "ownership_drift_90d",
-  "ownership_drift_365d",
-  // v1.2 extensions (append-only). New columns MUST go to the end of this
-  // list and the tail of the CREATE TABLE in schema-ddl.ts — reordering
-  // rewrites every `VALUES (?, ?, ...)` slot and breaks existing graphs.
-  "deadness",
-  "coverage_percent",
-  "covered_lines_json",
-  "cyclomatic_complexity",
-  "nesting_depth",
-  "nloc",
-  "halstead_volume",
-  "input_schema_json",
-  "partial_fingerprint",
-  "baseline_state",
-  "suppressed_json",
-  // Repo (AC-M6-1). Append-only so existing VALUES (?, ?, ...) slot
-  // ordering stays stable.
-  "origin_url",
-  "repo_uri",
-  "default_branch",
-  "commit_sha",
-  "index_time",
-  "repo_group",
-  "visibility",
-  "indexer",
-  "language_stats_json",
-];
-
-/**
- * Convert a GraphNode into the row ordering expected by the `nodes` table
- * DDL. Each slot is either a typed scalar, an array (for `TEXT[]` columns),
- * or `null`. Field reads are defensive bracket-access so unknown / future
- * NodeKinds fall through to NULL-valued columns.
+ * Convert a GraphNode into the positional row ordering expected by the
+ * `nodes` table DDL. Each slot is either a typed scalar, an array (for
+ * `TEXT[]` columns), or `null`.
  *
- * Field/column aliasing:
+ * The body of this function is now a thin projection from
+ * {@link nodeToColumns} (in `column-encode.ts`) into the canonical
+ * `NODE_COLUMNS` order — keeping the local name `nodeToRow` so the call
+ * sites in `insertNodes` continue to read naturally and so unrelated
+ * adapter-internal references (e.g. JSDoc in `rowToGraphNode`) stay valid.
+ *
+ * Field/column aliasing handled inside `nodeToColumns`:
  *   - `OperationNode.method` → `http_method` column (not `method`, which is
  *     reserved for RouteNode).
  *   - `OperationNode.path`   → `http_path`   column.
@@ -1365,252 +2053,8 @@ const NODE_COLUMNS: readonly string[] = [
  *   `method`/`path` when `kind === "Operation"`.
  */
 function nodeToRow(node: GraphNode): readonly (SqlParam | readonly string[])[] {
-  const n = node as GraphNode & Record<string, unknown>;
-  const isOperation = node.kind === "Operation";
-  return [
-    node.id,
-    node.kind,
-    node.name,
-    node.filePath,
-    numberOrNull(n["startLine"]),
-    numberOrNull(n["endLine"]),
-    booleanOrNull(n["isExported"]),
-    stringOrNull(n["signature"]),
-    numberOrNull(n["parameterCount"]),
-    stringOrNull(n["returnType"]),
-    stringOrNull(n["declaredType"]),
-    stringOrNull(n["owner"]),
-    stringOrNull(n["url"]),
-    // Route.method → method; Operation.method goes to http_method instead.
-    isOperation ? null : stringOrNull(n["method"]),
-    stringOrNull(n["toolName"]),
-    stringOrNull(n["content"]),
-    stringOrNull(n["contentHash"]),
-    stringOrNull(n["inferredLabel"]),
-    numberOrNull(n["symbolCount"]),
-    numberOrNull(n["cohesion"]),
-    stringArrayOrNull(n["keywords"]),
-    stringOrNull(n["entryPointId"]),
-    numberOrNull(n["stepCount"]),
-    numberOrNull(n["level"]),
-    stringArrayOrNull(n["responseKeys"]),
-    stringOrNull(n["description"]),
-    // Finding
-    stringOrNull(n["severity"]),
-    stringOrNull(n["ruleId"]),
-    stringOrNull(n["scannerId"]),
-    stringOrNull(n["message"]),
-    jsonObjectOrNull(n["propertiesBag"]),
-    // Dependency
-    stringOrNull(n["version"]),
-    stringOrNull(n["license"]),
-    stringOrNull(n["lockfileSource"]),
-    stringOrNull(n["ecosystem"]),
-    // Operation — OperationNode uses .method / .path on the type.
-    isOperation ? stringOrNull(n["method"]) : null,
-    isOperation ? stringOrNull(n["path"]) : null,
-    stringOrNull(n["summary"]),
-    stringOrNull(n["operationId"]),
-    // Contributor
-    stringOrNull(n["emailHash"]),
-    stringOrNull(n["emailPlain"]),
-    // ProjectProfile (JSON-encoded array fields)
-    jsonArrayOrNull(n["languages"]),
-    // `frameworks_json` is the polymorphic column: legacy rows store a
-    // flat `string[]`, v2.0 rows store `{ flat, detected }` so the
-    // structured `FrameworkDetection[]` survives a round-trip. Read-back
-    // at `packages/mcp/src/tools/project-profile.ts` handles both shapes.
-    frameworksJsonOrNull(n["frameworks"], n["frameworksDetected"]),
-    jsonArrayOrNull(n["iacTypes"]),
-    jsonArrayOrNull(n["apiContracts"]),
-    jsonArrayOrNull(n["manifests"]),
-    jsonArrayOrNull(n["srcDirs"]),
-    // File ownership (H.5) + Community ownership (H.4)
-    stringOrNull(n["orphanGrade"]),
-    booleanOrNull(n["isOrphan"]),
-    numberOrNull(n["truckFactor"]),
-    numberOrNull(n["ownershipDrift30d"]),
-    numberOrNull(n["ownershipDrift90d"]),
-    numberOrNull(n["ownershipDrift365d"]),
-    // v1.2 extensions. Each column is populated by a single phase and stays
-    // NULL for kinds the phase doesn't touch:
-    //   - `deadness`: dead-code phase (callables). Hyphenated
-    //     `unreachable-export` is rewritten here into the schema's
-    //     underscored form so consumers query a single spelling.
-    //   - `coverage_percent` / `covered_lines_json`: coverage phase. File
-    //     nodes carry the numeric array (flattened to JSON), callables may
-    //     carry an already-serialised string — prefer the string.
-    //   - `cyclomatic_complexity` / `nesting_depth` / `nloc` /
-    //     `halstead_volume`: complexity phase (callables).
-    //   - `input_schema_json`: tools phase (Tool nodes).
-    //   - `partial_fingerprint` / `baseline_state` / `suppressed_json`:
-    //     SARIF ingest (Finding nodes).
-    stringOrNull(normalizeDeadness(n["deadness"])),
-    numberOrNull(n["coveragePercent"]),
-    coveredLinesOrNull(n["coveredLines"], n["coveredLinesJson"]),
-    numberOrNull(n["cyclomaticComplexity"]),
-    numberOrNull(n["nestingDepth"]),
-    numberOrNull(n["nloc"]),
-    numberOrNull(n["halsteadVolume"]),
-    stringOrNull(n["inputSchemaJson"]),
-    stringOrNull(n["partialFingerprint"]),
-    stringOrNull(n["baselineState"]),
-    stringOrNull(n["suppressedJson"]),
-    // Repo (AC-M6-1). Each column is populated only when `node.kind === "Repo"`
-    // and stays NULL for every other kind. `originUrl` / `defaultBranch` /
-    // `group` are nullable on the interface and use `stringOrNullLiteralNull`
-    // so the write preserves a deliberate `null` without coercing to empty.
-    repoStringOrNull(n, "originUrl"),
-    stringOrNull(n["repoUri"]),
-    repoStringOrNull(n, "defaultBranch"),
-    stringOrNull(n["commitSha"]),
-    stringOrNull(n["indexTime"]),
-    repoStringOrNull(n, "group"),
-    stringOrNull(n["visibility"]),
-    stringOrNull(n["indexer"]),
-    // languageStats is a Record<string, number>. Use canonicalJson so keys
-    // are sorted — mirrors the byte-stable serialization used in graphHash.
-    languageStatsJsonOrNull(n["languageStats"]),
-  ];
-}
-
-/**
- * Resolve a RepoNode field whose interface-level type is `string | null`.
- *
- * `stringOrNull` coerces `null` and empty strings alike to NULL, which loses
- * the signal that `originUrl` / `defaultBranch` / `group` were *explicitly*
- * null vs simply absent. For the Repo columns that distinction doesn't
- * matter at the storage layer (both round-trip to SQL NULL and the reader
- * reconstructs a `null` field), so we collapse to `stringOrNull`'s behaviour
- * but name the helper so the intent is explicit at call sites.
- */
-function repoStringOrNull(n: Record<string, unknown>, key: string): string | null {
-  const v = n[key];
-  if (v === null || v === undefined) return null;
-  if (typeof v === "string" && v.length > 0) return v;
-  return null;
-}
-
-/**
- * Serialize `RepoNode.languageStats` (`Record<string, number>`) to byte-stable
- * JSON. Returns `null` for non-object / empty inputs so the column stays NULL
- * for non-Repo rows.
- */
-function languageStatsJsonOrNull(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v !== "object" || Array.isArray(v)) return null;
-  if (Object.keys(v as object).length === 0) return null;
-  // canonicalJson sorts object keys deterministically, matching graphHash.
-  return canonicalJson(v);
-}
-
-/**
- * Translate the hyphenated `unreachable-export` produced by the analysis
- * helper into the underscored form the `deadness` column stores. Every
- * other value (`live` / `dead`) already matches the schema enum.
- */
-function normalizeDeadness(v: unknown): unknown {
-  if (v === "unreachable-export") return "unreachable_export";
-  return v;
-}
-
-/**
- * Resolve the value for the `covered_lines_json` column. File nodes carry a
- * `coveredLines: readonly number[]` field (flattened via canonical JSON);
- * callables carry an already-serialised `coveredLinesJson` string. Prefer
- * the string when present so we don't re-stringify work the caller already
- * did.
- */
-function coveredLinesOrNull(coveredLines: unknown, coveredLinesJson: unknown): string | null {
-  if (typeof coveredLinesJson === "string" && coveredLinesJson.length > 0) {
-    return coveredLinesJson;
-  }
-  return jsonArrayOrNull(coveredLines);
-}
-
-/**
- * Dedupe by the caller-provided id extractor, keeping the LAST occurrence.
- * Protects against DuckDB UPSERT issue 8147 (two rows with the same primary
- * key in one INSERT cannot both fire ON CONFLICT). The caller-driven id
- * function also lets us reuse this for both nodes and relations.
- */
-function dedupeLastById<T>(items: readonly T[], idOf: (t: T) => string): readonly T[] {
-  const seen = new Map<string, T>();
-  for (const item of items) {
-    seen.set(idOf(item), item);
-  }
-  return Array.from(seen.values());
-}
-
-function numberOrNull(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function stringOrNull(v: unknown): string | null {
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
-
-function booleanOrNull(v: unknown): boolean | null {
-  return typeof v === "boolean" ? v : null;
-}
-
-function stringArrayOrNull(v: unknown): readonly string[] | null {
-  if (!Array.isArray(v)) return null;
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(item);
-  }
-  return out.length > 0 ? out : null;
-}
-
-/**
- * Serialize an array of primitives (strings / numbers / booleans / null) or
- * arbitrary JSON-safe records to a canonical JSON string. Returns `null` for
- * any input that is not an array. Object values are serialized verbatim via
- * `JSON.stringify`, preserving nested structure. Values that are already a
- * string are passed through unchanged so callers can pre-canonicalize.
- */
-function jsonArrayOrNull(v: unknown): string | null {
-  if (typeof v === "string") return v;
-  if (!Array.isArray(v)) return null;
-  return JSON.stringify(v);
-}
-
-/**
- * Serialize the polymorphic `frameworks_json` column.
- *
- * Two generations coexist:
- *   - Legacy v1.0 graphs (before P05) wrote a flat `string[]` via
- *     `jsonArrayOrNull`. Reader code must accept that shape unchanged.
- *   - v2.0 graphs (after P05) write `{ flat: string[], detected: FrameworkDetection[] }`.
- *
- * The encoding is JSON in both cases. When the node carries no structured
- * detections (`frameworksDetected` absent or empty) we emit the legacy
- * flat-array shape so existing read paths continue to work without a
- * version bump. The read side in `packages/mcp/src/tools/project-profile.ts`
- * sniffs the shape.
- */
-function frameworksJsonOrNull(flat: unknown, detected: unknown): string | null {
-  const flatArr = Array.isArray(flat) ? flat.filter((x): x is string => typeof x === "string") : [];
-  const detectedArr = Array.isArray(detected) ? detected : [];
-  if (detectedArr.length === 0) {
-    // Preserve the legacy wire shape when there is nothing structured to emit.
-    return JSON.stringify(flatArr);
-  }
-  return JSON.stringify({ flat: flatArr, detected: detectedArr });
-}
-
-/**
- * Serialize a Record<string, unknown> (or a pre-serialized JSON string) into
- * a JSON string for storage in a polymorphic TEXT column. Returns `null` for
- * null / undefined / non-object / non-string inputs.
- */
-function jsonObjectOrNull(v: unknown): string | null {
-  if (typeof v === "string") return v;
-  if (v === null || v === undefined) return null;
-  if (typeof v !== "object") return null;
-  if (Array.isArray(v)) return null;
-  return JSON.stringify(v);
+  const cols = nodeToColumns(node);
+  return NODE_COLUMNS.map((key) => cols[key] as SqlParam | readonly string[] | null);
 }
 
 function bindParam(
@@ -2049,4 +2493,54 @@ function isSafeAbsolutePath(p: string): boolean {
   if (typeof p !== "string" || p.length === 0) return false;
   if (!p.startsWith("/")) return false;
   return /^[A-Za-z0-9/_\-.]+$/.test(p);
+}
+
+/**
+ * Classify a SPDX-ish license string into one of the five
+ * {@link ListDependenciesOptions.licenseTier} buckets. Used by
+ * {@link DuckDbStore.listDependencies} (and the symmetric graph-db
+ * adapter helper) to satisfy the typed `licenseTier` filter without
+ * the consumer pre-classifying every row.
+ *
+ * The match list mirrors the OCH `license_audit` rules — keep the two
+ * surfaces in lockstep so a tier filter on `listDependencies` returns
+ * the same set the audit reports for the same tier.
+ */
+export function classifyLicenseTier(
+  license: string | undefined,
+): "permissive" | "weak-copyleft" | "strong-copyleft" | "proprietary" | "unknown" {
+  if (!license || license.trim().length === 0) return "unknown";
+  const lower = license.trim().toLowerCase();
+  // Strong copyleft — GPL/AGPL family.
+  if (/(^|\b|-)agpl(-|$)/i.test(lower) || /(^|\b|-)gpl(-|$)/i.test(lower)) {
+    return "strong-copyleft";
+  }
+  // Weak copyleft — LGPL, MPL, EPL, CDDL, CC-BY-SA.
+  if (
+    /(^|\b|-)lgpl(-|$)/i.test(lower) ||
+    /(^|\b)mpl(-|$)/i.test(lower) ||
+    /(^|\b)epl(-|$)/i.test(lower) ||
+    /(^|\b)cddl(-|$)/i.test(lower) ||
+    /(^|\b)cc-by-sa(-|$)/i.test(lower)
+  ) {
+    return "weak-copyleft";
+  }
+  // Permissive — MIT/Apache/BSD/ISC/0BSD/Unlicense/CC0/Zlib.
+  if (
+    /(^|\b)mit(\b|-|$)/.test(lower) ||
+    /(^|\b)apache(-|$)/i.test(lower) ||
+    /(^|\b)bsd(-|$)/i.test(lower) ||
+    /(^|\b)isc(\b|-|$)/.test(lower) ||
+    /(^|\b)0bsd(\b|$)/.test(lower) ||
+    /(^|\b)unlicense(\b|$)/.test(lower) ||
+    /(^|\b)cc0(\b|-|$)/.test(lower) ||
+    /(^|\b)zlib(\b|$)/.test(lower)
+  ) {
+    return "permissive";
+  }
+  // Proprietary markers.
+  if (/(^|\b)(proprietary|commercial|see license)(\b|$)/i.test(lower)) {
+    return "proprietary";
+  }
+  return "unknown";
 }

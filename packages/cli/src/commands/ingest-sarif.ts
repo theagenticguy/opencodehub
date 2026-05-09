@@ -24,13 +24,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-  type FindingNode,
-  KnowledgeGraph,
-  makeNodeId,
-  type NodeId,
-  type NodeKind,
-} from "@opencodehub/core-types";
+import { type FindingNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
 import {
   applyBaselineState,
   enrichWithFingerprints,
@@ -39,7 +33,12 @@ import {
   type SarifResult,
   type SarifRun,
 } from "@opencodehub/sarif";
-import { DuckDbStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
+import {
+  type IGraphStore,
+  openStore,
+  resolveDbPath,
+  resolveRepoMetaDir,
+} from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 import {
   ENCLOSING_SYMBOL_KINDS,
@@ -98,21 +97,21 @@ export async function runIngestSarif(
   }
 
   const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath);
+  const composed = await openStore({ path: dbPath, backend: "auto" });
   let graph: KnowledgeGraph;
   let summary: BuildSummary;
   try {
-    await store.open();
-    await store.createSchema();
+    await composed.graph.open();
+    await composed.graph.createSchema();
     // Pull the per-file symbol index out of the store once so every
     // SARIF result can resolve its enclosing symbol without a round
     // trip. Restricts to URIs that actually appear in the SARIF log
     // and to the code-kind allow set shared with `buildFindingsGraph`.
-    const nodesByFile = await loadNodesByFileForSarif(store, log.runs);
+    const nodesByFile = await loadNodesByFileForSarif(composed.graph, log.runs);
     ({ graph, summary } = buildFindingsGraph(log.runs, nodesByFile));
-    await store.bulkLoad(graph, { mode: "upsert" });
+    await composed.graph.bulkLoad(graph, { mode: "upsert" });
   } finally {
-    await store.close();
+    await composed.close();
   }
 
   const out: IngestSarifSummary = {
@@ -413,39 +412,34 @@ function collectSarifUris(runs: readonly SarifRun[]): readonly string[] {
  * before symbol-level linkage existed.
  */
 async function loadNodesByFileForSarif(
-  store: DuckDbStore,
+  graph: IGraphStore,
   runs: readonly SarifRun[],
 ): Promise<NodesByFile> {
   const uris = collectSarifUris(runs);
   if (uris.length === 0) return new Map();
-  const kinds = [...ENCLOSING_SYMBOL_KINDS];
-  const uriPlaceholders = uris.map(() => "?").join(",");
-  const kindPlaceholders = kinds.map(() => "?").join(",");
-  const sql =
-    `SELECT id, file_path, start_line, end_line, kind FROM nodes ` +
-    `WHERE file_path IN (${uriPlaceholders}) AND kind IN (${kindPlaceholders})`;
-  const params = [...uris, ...kinds];
-  const rows = await store.query(sql, params);
+  // Fan one round-trip per code kind in the allow-set, narrowed by
+  // `filePath` set. `listNodesByKind` returns the typed node shape
+  // (`NodeOfKind<K>`) — the row projection only needs id / filePath /
+  // startLine / endLine / kind, all of which are present on every
+  // ENCLOSING_SYMBOL_KINDS member (LocatedNode subset).
+  const uriSet = new Set(uris);
   const projected: NodeRow[] = [];
-  for (const r of rows) {
-    const id = r["id"];
-    const filePath = r["file_path"];
-    const startLine = r["start_line"];
-    const endLine = r["end_line"];
-    const kind = r["kind"];
-    if (typeof id !== "string" || id.length === 0) continue;
-    if (typeof filePath !== "string" || filePath.length === 0) continue;
-    if (typeof kind !== "string" || kind.length === 0) continue;
-    const start = Number(startLine);
-    const end = Number(endLine);
-    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-    projected.push({
-      id: id as NodeId,
-      filePath,
-      startLine: start,
-      endLine: end,
-      kind: kind as NodeKind,
-    });
+  for (const kind of ENCLOSING_SYMBOL_KINDS) {
+    const nodes = await graph.listNodesByKind(kind);
+    for (const n of nodes) {
+      if (!uriSet.has(n.filePath)) continue;
+      const startLine = (n as unknown as { startLine?: number }).startLine;
+      const endLine = (n as unknown as { endLine?: number }).endLine;
+      if (typeof startLine !== "number" || !Number.isFinite(startLine)) continue;
+      if (typeof endLine !== "number" || !Number.isFinite(endLine)) continue;
+      projected.push({
+        id: n.id,
+        filePath: n.filePath,
+        startLine,
+        endLine,
+        kind: n.kind,
+      });
+    }
   }
   return indexNodesByFile(projected);
 }

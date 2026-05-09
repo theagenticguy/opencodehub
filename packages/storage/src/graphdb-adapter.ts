@@ -21,24 +21,46 @@
  * query / search / vectorSearch / traverse → close.
  */
 
-import type { GraphNode, KnowledgeGraph, NodeId, RelationType } from "@opencodehub/core-types";
-import { canonicalJson } from "@opencodehub/core-types";
+import type {
+  CodeRelation,
+  DependencyNode,
+  FindingNode,
+  GraphNode,
+  KnowledgeGraph,
+  NodeId,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
+} from "@opencodehub/core-types";
+import { dedupeLastById, NODE_COLUMNS, nodeToColumns } from "./column-encode.js";
 import { assertReadOnlyCypher } from "./cypher-guard.js";
+import { classifyLicenseTier } from "./duckdb-adapter.js";
 import { GraphDbPool, type GraphDbPoolConfig } from "./graphdb-pool.js";
 import { generateSchemaDdl, getAllRelationTypes } from "./graphdb-schema.js";
 import type {
+  AncestorTraversalOptions,
   BulkLoadOptions,
   BulkLoadStats,
-  CochangeLookupOptions,
-  CochangeRow,
+  ConsumerProducerEdge,
+  DescendantTraversalOptions,
   EmbeddingRow,
+  GraphDialect,
   IGraphStore,
+  ListDependenciesOptions,
+  ListEdgesByTypeOptions,
+  ListEdgesOptions,
+  ListEmbeddingsOptions,
+  ListFindingsOptions,
+  ListNodesByKindOptions,
+  ListNodesByNameOptions,
   ListNodesOptions,
+  ListRoutesOptions,
   SearchQuery,
   SearchResult,
   SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -63,13 +85,15 @@ const DEFAULT_EMBEDDING_DIM = 768;
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 /**
- * Thrown by every method that has not been wired yet. Remaining stubs are
- * in the query / search / embedding / cochange / summary surfaces —
- * sibling commits of AC-M3-3 and AC-M3-4 replace them.
+ * Thrown by adapter surfaces that are not yet wired. AC-A-1 deleted the
+ * cochange + summary stubs from this adapter (those methods now live on
+ * {@link ITemporalStore}, never on the graph adapter). The class export
+ * is retained because downstream packages still import it for typed
+ * fallback handling on graph-only failure modes.
  */
 export class NotImplementedError extends Error {
   constructor(method: string) {
-    super(`graph-db: ${method} not yet wired (AC-M3-3/4)`);
+    super(`graph-db: ${method} not yet wired`);
     this.name = "NotImplementedError";
   }
 }
@@ -92,90 +116,15 @@ export class GraphDbBindingError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Column layouts — kept in lock-step with graphdb-schema.ts CREATE NODE TABLE
-// CodeNode body. Adding a column means: (1) extend the schema DDL,
-// (2) append it to NODE_COLUMNS, (3) append the reader in nodeToParams,
-// (4) append the column → field mapping in ROUND_TRIP_COLUMN_MAP. Order
-// matters because both directions are index-aligned with the prepared
-// statement parameter list.
+// Column layouts — `NODE_COLUMNS` lives in `./column-encode.ts` and is the
+// canonical column ordering shared with the DuckDB adapter. Adding a column
+// means: (1) extend the schema DDL in `graphdb-schema.ts` AND
+// `schema-ddl.ts`, (2) append it to `NODE_COLUMNS` in `column-encode.ts`,
+// (3) append the writer slot in `nodeToColumns` in `column-encode.ts`,
+// (4) append the reader in `ROUND_TRIP_COLUMN_MAP` below + the readback
+// path. Order matters because both directions are index-aligned with the
+// prepared statement parameter list.
 // ---------------------------------------------------------------------------
-
-const NODE_COLUMNS: readonly string[] = [
-  "id",
-  "kind",
-  "name",
-  "file_path",
-  "start_line",
-  "end_line",
-  "is_exported",
-  "signature",
-  "parameter_count",
-  "return_type",
-  "declared_type",
-  "owner",
-  "url",
-  "method",
-  "tool_name",
-  "content",
-  "content_hash",
-  "inferred_label",
-  "symbol_count",
-  "cohesion",
-  "keywords",
-  "entry_point_id",
-  "step_count",
-  "level",
-  "response_keys",
-  "description",
-  "severity",
-  "rule_id",
-  "scanner_id",
-  "message",
-  "properties_bag",
-  "version",
-  "license",
-  "lockfile_source",
-  "ecosystem",
-  "http_method",
-  "http_path",
-  "summary",
-  "operation_id",
-  "email_hash",
-  "email_plain",
-  "languages_json",
-  "frameworks_json",
-  "iac_types_json",
-  "api_contracts_json",
-  "manifests_json",
-  "src_dirs_json",
-  "orphan_grade",
-  "is_orphan",
-  "truck_factor",
-  "ownership_drift_30d",
-  "ownership_drift_90d",
-  "ownership_drift_365d",
-  "deadness",
-  "coverage_percent",
-  "covered_lines_json",
-  "cyclomatic_complexity",
-  "nesting_depth",
-  "nloc",
-  "halstead_volume",
-  "input_schema_json",
-  "partial_fingerprint",
-  "baseline_state",
-  "suppressed_json",
-  // Repo (AC-M6-1). Append-only so existing parameter slots stay stable.
-  "origin_url",
-  "repo_uri",
-  "default_branch",
-  "commit_sha",
-  "index_time",
-  "repo_group",
-  "visibility",
-  "indexer",
-  "language_stats_json",
-];
 
 /** Edge rel-table property columns. Matches graphdb-schema.ts. */
 const EDGE_COLUMNS: readonly string[] = ["id", "confidence", "reason", "step"];
@@ -264,6 +213,13 @@ function buildEmbeddingCreateCypher(): string {
 // ---------------------------------------------------------------------------
 
 export class GraphDbStore implements IGraphStore {
+  /**
+   * Cypher dialect marker introduced by AC-A-1. The graph-db backend
+   * speaks Cypher natively; the optional {@link IGraphStore.execCypher}
+   * escape hatch is wired below so community tooling that needs raw
+   * Cypher (APOC analogues, etc.) can call through.
+   */
+  readonly dialect: GraphDialect = "cypher";
   private readonly path: string;
   private readonly readOnly: boolean;
   private readonly embeddingDim: number;
@@ -573,6 +529,9 @@ export class GraphDbStore implements IGraphStore {
     // has not been opened yet. Saves callers a defensive .open() when
     // they know the kinds list is empty.
     if (kinds !== undefined && kinds.length === 0) return [];
+    const idsRaw = opts.ids;
+    if (idsRaw !== undefined && idsRaw.length === 0) return [];
+    const ids = idsRaw !== undefined ? Array.from(new Set(idsRaw)) : undefined;
     const pool = this.requirePool();
     const limit = clampNonNegativeIntGd(opts.limit);
     const offset = clampNonNegativeIntGd(opts.offset);
@@ -582,15 +541,32 @@ export class GraphDbStore implements IGraphStore {
     const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
 
     const params: SqlParam[] = [];
-    let kindPredicate = "";
+    const wheres: string[] = [];
+    let next = 1;
     if (kinds && kinds.length > 0) {
       const phs: string[] = [];
-      for (let i = 0; i < kinds.length; i += 1) {
-        phs.push(`$p${i + 1}`);
-        params.push(kinds[i] ?? "");
+      for (const k of kinds) {
+        phs.push(`$p${next}`);
+        params.push(k);
+        next += 1;
       }
-      kindPredicate = `WHERE n.kind IN [${phs.join(", ")}] `;
+      wheres.push(`n.kind IN [${phs.join(", ")}]`);
     }
+    if (ids !== undefined && ids.length > 0) {
+      const phs: string[] = [];
+      for (const id of ids) {
+        phs.push(`$p${next}`);
+        params.push(id);
+        next += 1;
+      }
+      wheres.push(`n.id IN [${phs.join(", ")}]`);
+    }
+    if (opts.filePath !== undefined) {
+      wheres.push(`n.file_path = $p${next}`);
+      params.push(opts.filePath);
+      next += 1;
+    }
+    const wherePredicate = wheres.length > 0 ? `WHERE ${wheres.join(" AND ")} ` : "";
     // SKIP / LIMIT bound via inline literals after the clampNonNegativeInt
     // guard has confirmed they are finite non-negative integers — no
     // injection risk because `Number.isFinite` + `Math.floor` enforce a
@@ -600,7 +576,7 @@ export class GraphDbStore implements IGraphStore {
     if (limit !== undefined) pagination += `LIMIT ${limit} `;
 
     const cypher = (
-      `MATCH (n:CodeNode) ${kindPredicate}` +
+      `MATCH (n:CodeNode) ${wherePredicate}` +
       `RETURN ${returnList} ` +
       `ORDER BY n.id ASC ${pagination}`
     ).trim();
@@ -614,6 +590,558 @@ export class GraphDbStore implements IGraphStore {
     // Lex-stable tiebreak on id so DuckStore + GraphDbStore agree
     // byte-for-byte when graphHash is computed over the result.
     return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  // --------------------------------------------------------------------------
+  // Typed finders — AC-A-6 service-layer foundation
+  // --------------------------------------------------------------------------
+  //
+  // Cypher stays LOCAL to this file — never exported. Determinism: node
+  // finders ORDER BY n.id ASC + JS-side lex tiebreak; edge finders ORDER BY
+  // (from, to, type); the consumer-producer finder orders by (consumer
+  // repo, producer repo, method, path).
+
+  /** Single-kind shorthand. Mirror of {@link DuckDbStore.listNodesByKind}. */
+  async listNodesByKind<K extends NodeKind>(
+    kind: K,
+    opts: ListNodesByKindOptions = {},
+  ): Promise<readonly NodeOfKind<K>[]> {
+    const pool = this.requirePool();
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const offset = clampNonNegativeIntGd(opts.offset);
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+
+    const wheres: string[] = ["n.kind = $p1"];
+    const params: SqlParam[] = [kind];
+    let next = 2;
+    if (opts.filePath !== undefined) {
+      wheres.push(`n.file_path = $p${next}`);
+      params.push(opts.filePath);
+      next += 1;
+    }
+    if (opts.filePathLike !== undefined) {
+      wheres.push(`n.file_path CONTAINS $p${next}`);
+      params.push(opts.filePathLike);
+      next += 1;
+    }
+    let pagination = "";
+    if (offset !== undefined) pagination += `SKIP ${offset} `;
+    if (limit !== undefined) pagination += `LIMIT ${limit} `;
+    const cypher = (
+      `MATCH (n:CodeNode) WHERE ${wheres.join(" AND ")} ` +
+      `RETURN ${returnList} ORDER BY n.id ASC ${pagination}`
+    ).trim();
+
+    const rows = await pool.query(cypher, params);
+    const out: GraphNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node) out.push(node);
+    }
+    const sorted = [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return sorted as unknown as readonly NodeOfKind<K>[];
+  }
+
+  /** All edges, optionally filtered + paged. Mirrors DuckDb ordering. */
+  async listEdges(opts: ListEdgesOptions = {}): Promise<readonly CodeRelation[]> {
+    const pool = this.requirePool();
+    return this.listEdgesInternalGd(pool, opts);
+  }
+
+  /** Single-type shorthand. Pins the type and forwards to {@link listEdges}. */
+  async listEdgesByType(
+    type: RelationType,
+    opts: ListEdgesByTypeOptions = {},
+  ): Promise<readonly CodeRelation[]> {
+    const merged: ListEdgesOptions = {
+      types: [type],
+      ...(opts.fromIds !== undefined ? { fromIds: opts.fromIds } : {}),
+      ...(opts.toIds !== undefined ? { toIds: opts.toIds } : {}),
+      ...(opts.minConfidence !== undefined ? { minConfidence: opts.minConfidence } : {}),
+      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    };
+    return this.listEdges(merged);
+  }
+
+  /** Findings filter. Mirrors {@link DuckDbStore.listFindings} on Cypher. */
+  async listFindings(opts: ListFindingsOptions = {}): Promise<readonly FindingNode[]> {
+    const pool = this.requirePool();
+    const wheres: string[] = ["n.kind = 'Finding'"];
+    const params: SqlParam[] = [];
+    let next = 1;
+    if (opts.severity && opts.severity.length > 0) {
+      const phs: string[] = [];
+      for (const s of opts.severity) {
+        phs.push(`$p${next}`);
+        params.push(s);
+        next += 1;
+      }
+      wheres.push(`n.severity IN [${phs.join(", ")}]`);
+    }
+    if (opts.ruleId !== undefined) {
+      wheres.push(`n.rule_id = $p${next}`);
+      params.push(opts.ruleId);
+      next += 1;
+    }
+    if (opts.baselineState && opts.baselineState.length > 0) {
+      const phs: string[] = [];
+      for (const s of opts.baselineState) {
+        phs.push(`$p${next}`);
+        params.push(s);
+        next += 1;
+      }
+      wheres.push(`n.baseline_state IN [${phs.join(", ")}]`);
+    }
+    if (opts.suppressed === true) {
+      wheres.push("n.suppressed_json IS NOT NULL");
+    } else if (opts.suppressed === false) {
+      wheres.push("n.suppressed_json IS NULL");
+    }
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const limitClause = limit !== undefined ? `LIMIT ${limit} ` : "";
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const cypher = (
+      `MATCH (n:CodeNode) WHERE ${wheres.join(" AND ")} ` +
+      `RETURN ${returnList} ORDER BY n.id ASC ${limitClause}`
+    ).trim();
+    const rows = await pool.query(cypher, params);
+    const out: FindingNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node && node.kind === "Finding") out.push(node as FindingNode);
+    }
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Dependencies filter. License classification matches DuckDb. */
+  async listDependencies(opts: ListDependenciesOptions = {}): Promise<readonly DependencyNode[]> {
+    const pool = this.requirePool();
+    const wheres: string[] = ["n.kind = 'Dependency'"];
+    const params: SqlParam[] = [];
+    let next = 1;
+    if (opts.ecosystem !== undefined) {
+      wheres.push(`n.ecosystem = $p${next}`);
+      params.push(opts.ecosystem);
+      next += 1;
+    }
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const limitClause = limit !== undefined ? `LIMIT ${limit} ` : "";
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const cypher = (
+      `MATCH (n:CodeNode) WHERE ${wheres.join(" AND ")} ` +
+      `RETURN ${returnList} ORDER BY n.id ASC ${limitClause}`
+    ).trim();
+    const rows = await pool.query(cypher, params);
+    const tierSet =
+      opts.licenseTier && opts.licenseTier.length > 0 ? new Set(opts.licenseTier) : undefined;
+    const out: DependencyNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (!node || node.kind !== "Dependency") continue;
+      if (tierSet) {
+        const tier = classifyLicenseTier((node as DependencyNode).license);
+        if (!tierSet.has(tier)) continue;
+      }
+      out.push(node as DependencyNode);
+    }
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Routes filter. Mirrors {@link DuckDbStore.listRoutes} on Cypher. */
+  async listRoutes(opts: ListRoutesOptions = {}): Promise<readonly RouteNode[]> {
+    const pool = this.requirePool();
+    const wheres: string[] = ["n.kind = 'Route'"];
+    const params: SqlParam[] = [];
+    let next = 1;
+    if (opts.methods && opts.methods.length > 0) {
+      const phs: string[] = [];
+      for (const m of opts.methods) {
+        phs.push(`$p${next}`);
+        params.push(m);
+        next += 1;
+      }
+      wheres.push(`n.method IN [${phs.join(", ")}]`);
+    }
+    if (opts.pathLike !== undefined) {
+      wheres.push(`n.url CONTAINS $p${next}`);
+      params.push(opts.pathLike);
+      next += 1;
+    }
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const limitClause = limit !== undefined ? `LIMIT ${limit} ` : "";
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const cypher = (
+      `MATCH (n:CodeNode) WHERE ${wheres.join(" AND ")} ` +
+      `RETURN ${returnList} ORDER BY n.id ASC ${limitClause}`
+    ).trim();
+    const rows = await pool.query(cypher, params);
+    const out: RouteNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node && node.kind === "Route") out.push(node as RouteNode);
+    }
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Repo-node by id. Returns `undefined` when row is missing or non-Repo. */
+  async getRepoNode(id: string): Promise<RepoNode | undefined> {
+    const pool = this.requirePool();
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const rows = await pool.query(
+      `MATCH (n:CodeNode {id: $p1, kind: 'Repo'}) RETURN ${returnList} LIMIT 1`,
+      [id],
+    );
+    const first = rows[0];
+    if (!first) return undefined;
+    const node = recordToGraphNode(first as Record<string, unknown>);
+    if (!node || node.kind !== "Repo") return undefined;
+    return node as RepoNode;
+  }
+
+  /**
+   * Specialized finder for `analysis/impact.ts:131-135`. Cypher mirror of
+   * the DuckDB `WHERE entry_point_id = ?` predicate; the property name is
+   * the snake-cased column the writer emits via `nodeToParams`.
+   */
+  async listNodesByEntryPoint(entryPointId: string): Promise<readonly GraphNode[]> {
+    const pool = this.requirePool();
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const cypher = `MATCH (n:CodeNode) WHERE n.entry_point_id = $p1 RETURN ${returnList} ORDER BY n.id ASC`;
+    const rows = await pool.query(cypher, [entryPointId]);
+    const out: GraphNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node) out.push(node);
+    }
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /**
+   * Specialized finder for `analysis/rename.ts:51,59` — `WHERE name = ?`
+   * with optional `kinds` / `filePath` narrowing. Mirrors
+   * {@link DuckDbStore.listNodesByName} exactly.
+   */
+  async listNodesByName(
+    name: string,
+    opts: ListNodesByNameOptions = {},
+  ): Promise<readonly GraphNode[]> {
+    const kinds = opts.kinds;
+    if (kinds !== undefined && kinds.length === 0) return [];
+    const pool = this.requirePool();
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const returnList = NODE_COLUMNS.map((c) => `n.${c} AS ${c}`).join(", ");
+    const wheres: string[] = ["n.name = $p1"];
+    const params: SqlParam[] = [name];
+    let next = 2;
+    if (kinds && kinds.length > 0) {
+      const phs: string[] = [];
+      for (const k of kinds) {
+        phs.push(`$p${next}`);
+        params.push(k);
+        next += 1;
+      }
+      wheres.push(`n.kind IN [${phs.join(", ")}]`);
+    }
+    if (opts.filePath !== undefined) {
+      wheres.push(`n.file_path = $p${next}`);
+      params.push(opts.filePath);
+      next += 1;
+    }
+    const limitClause = limit !== undefined ? `LIMIT ${limit} ` : "";
+    const cypher = (
+      `MATCH (n:CodeNode) WHERE ${wheres.join(" AND ")} ` +
+      `RETURN ${returnList} ORDER BY n.id ASC ${limitClause}`
+    ).trim();
+    const rows = await pool.query(cypher, params);
+    const out: GraphNode[] = [];
+    for (const row of rows) {
+      const node = recordToGraphNode(row as Record<string, unknown>);
+      if (node) out.push(node);
+    }
+    return [...out].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /** Counts grouped by kind. Same backfill semantics as DuckDb. */
+  async countNodesByKind(kinds?: readonly NodeKind[]): Promise<Map<NodeKind, number>> {
+    const pool = this.requirePool();
+    const out = new Map<NodeKind, number>();
+    if (kinds !== undefined && kinds.length === 0) return out;
+    const params: SqlParam[] = [];
+    let predicate = "";
+    if (kinds && kinds.length > 0) {
+      const phs: string[] = [];
+      for (let i = 0; i < kinds.length; i += 1) {
+        phs.push(`$p${i + 1}`);
+        params.push(kinds[i] ?? "");
+      }
+      predicate = `WHERE n.kind IN [${phs.join(", ")}] `;
+    }
+    const cypher = `MATCH (n:CodeNode) ${predicate}RETURN n.kind AS kind, count(n) AS n ORDER BY kind ASC`;
+    const rows = await pool.query(cypher, params);
+    for (const r of rows) {
+      const row = r as Record<string, unknown>;
+      const kindVal = row["kind"];
+      const n = row["n"];
+      if (typeof kindVal === "string") {
+        const num = typeof n === "bigint" ? Number(n) : Number(n ?? 0);
+        out.set(kindVal as NodeKind, num);
+      }
+    }
+    if (kinds) {
+      for (const k of kinds) {
+        if (!out.has(k)) out.set(k, 0);
+      }
+    }
+    return out;
+  }
+
+  /** Counts grouped by edge type. Walks every relation kind (no per-type rel-table fan-out). */
+  async countEdgesByType(types?: readonly RelationType[]): Promise<Map<RelationType, number>> {
+    const pool = this.requirePool();
+    const out = new Map<RelationType, number>();
+    if (types !== undefined && types.length === 0) return out;
+    const allTypes: readonly RelationType[] =
+      types && types.length > 0 ? types : (getAllRelationTypes() as readonly RelationType[]);
+    // The graph-db schema partitions edges into per-type rel tables, so a
+    // single MATCH across every label is the cheapest count path. We loop
+    // per type and aggregate — N is bounded (~24) and one round-trip per
+    // label is amortized against the rest of the query workload.
+    for (const t of allTypes) {
+      const rows = await pool.query(`MATCH ()-[r:${t}]->() RETURN count(r) AS n`);
+      const first = rows[0] as Record<string, unknown> | undefined;
+      const n = first?.["n"];
+      const num = typeof n === "bigint" ? Number(n) : Number(n ?? 0);
+      out.set(t, num);
+    }
+    return out;
+  }
+
+  /**
+   * Stream embeddings via Cypher MATCH against the `Embedding` nodes.
+   * `async function*` so the caller can `for await` without
+   * materializing the full row set.
+   */
+  async *listEmbeddings(opts: ListEmbeddingsOptions = {}): AsyncIterable<EmbeddingRow> {
+    const kinds = opts.kindFilter;
+    if (kinds !== undefined && kinds.length === 0) return;
+    const pool = this.requirePool();
+    const limit = clampNonNegativeIntGd(opts.limit);
+
+    const params: SqlParam[] = [];
+    let next = 1;
+    let matchAndPredicate = "MATCH (e:Embedding)";
+    if (kinds && kinds.length > 0) {
+      const phs: string[] = [];
+      for (const k of kinds) {
+        phs.push(`$p${next}`);
+        params.push(k);
+        next += 1;
+      }
+      matchAndPredicate = `MATCH (e:Embedding)-[:EMBEDS]->(n:CodeNode) WHERE n.kind IN [${phs.join(", ")}]`;
+    }
+    const limitClause = limit !== undefined ? `LIMIT ${limit}` : "";
+    const cypher =
+      `${matchAndPredicate} ` +
+      `RETURN e.node_id AS node_id, e.granularity AS granularity, ` +
+      `e.chunk_index AS chunk_index, e.start_line AS start_line, ` +
+      `e.end_line AS end_line, e.vector AS vector, ` +
+      `e.content_hash AS content_hash ` +
+      `ORDER BY e.node_id ASC, e.granularity ASC, e.chunk_index ASC ${limitClause}`;
+    const rows = await pool.query(cypher, params);
+    for (const r of rows) {
+      const row = r as Record<string, unknown>;
+      const vec = row["vector"];
+      let vector: Float32Array;
+      if (vec instanceof Float32Array) vector = vec;
+      else if (Array.isArray(vec)) vector = Float32Array.from(vec.map((v) => Number(v)));
+      else continue;
+      const granularityRaw = String(row["granularity"]);
+      const granularity =
+        granularityRaw === "file" || granularityRaw === "community" ? granularityRaw : "symbol";
+      const chunkVal = row["chunk_index"];
+      const chunkIndex = typeof chunkVal === "bigint" ? Number(chunkVal) : Number(chunkVal ?? 0);
+      const startVal = row["start_line"];
+      const endVal = row["end_line"];
+      const baseRow: EmbeddingRow = {
+        nodeId: String(row["node_id"]),
+        granularity,
+        chunkIndex,
+        ...(startVal !== null && startVal !== undefined
+          ? { startLine: typeof startVal === "bigint" ? Number(startVal) : Number(startVal) }
+          : {}),
+        ...(endVal !== null && endVal !== undefined
+          ? { endLine: typeof endVal === "bigint" ? Number(endVal) : Number(endVal) }
+          : {}),
+        vector,
+        contentHash: String(row["content_hash"] ?? ""),
+      };
+      yield baseRow;
+    }
+  }
+
+  /** Replaces `WITH RECURSIVE ... USING KEY (ancestor_id)` — see {@link DuckDbStore.traverseAncestors}. */
+  async traverseAncestors(opts: AncestorTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.traverseDirectionalGd(opts, "up");
+  }
+
+  /** Symmetric of {@link traverseAncestors}. */
+  async traverseDescendants(opts: DescendantTraversalOptions): Promise<readonly TraverseResult[]> {
+    return this.traverseDirectionalGd(opts, "down");
+  }
+
+  /**
+   * Producer-consumer edges across repos. Cypher mirror of the DuckDB
+   * FETCHES + Operation join. The graph-db schema collapses every node
+   * kind into a single `:CodeNode` label, so this is a simple two-hop
+   * pattern with property predicates rather than a true table join.
+   */
+  async listConsumerProducerEdges(
+    opts: { readonly repoUris?: readonly string[] } = {},
+  ): Promise<readonly ConsumerProducerEdge[]> {
+    const pool = this.requirePool();
+    const params: SqlParam[] = [];
+    let next = 1;
+    let repoPredicate = "";
+    if (opts.repoUris && opts.repoUris.length > 0) {
+      const phs: string[] = [];
+      for (const u of opts.repoUris) {
+        phs.push(`$p${next}`);
+        params.push(u);
+        next += 1;
+      }
+      repoPredicate = ` AND (consumer.repo_uri IN [${phs.join(", ")}] OR producer.repo_uri IN [${phs.join(", ")}])`;
+    }
+    const cypher =
+      `MATCH (consumer:CodeNode)-[r:FETCHES]->(producer:CodeNode) ` +
+      `WHERE producer.kind = 'Operation'${repoPredicate} ` +
+      `RETURN consumer.id AS consumer_node_id, ` +
+      `consumer.repo_uri AS consumer_repo_uri, ` +
+      `producer.id AS producer_node_id, ` +
+      `producer.repo_uri AS producer_repo_uri, ` +
+      `producer.http_method AS http_method, ` +
+      `producer.http_path AS http_path, ` +
+      `r.id AS r_id ` +
+      `ORDER BY consumer_repo_uri ASC, producer_repo_uri ASC, ` +
+      `http_method ASC, http_path ASC, r_id ASC`;
+    const rows = await pool.query(cypher, params);
+    const out: ConsumerProducerEdge[] = [];
+    for (const r of rows) {
+      const row = r as Record<string, unknown>;
+      out.push({
+        consumerNodeId: String(row["consumer_node_id"] ?? ""),
+        consumerRepoUri: String(row["consumer_repo_uri"] ?? ""),
+        producerNodeId: String(row["producer_node_id"] ?? ""),
+        producerRepoUri: String(row["producer_repo_uri"] ?? ""),
+        httpMethod: String(row["http_method"] ?? ""),
+        httpPath: String(row["http_path"] ?? ""),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Shared `listEdges` body. The graph-db schema partitions edges into
+   * per-type rel tables, so a no-types query needs to walk every label —
+   * we fall back to the canonical relation list and emit one MATCH per
+   * type, then merge + sort. With a `types` filter the pattern is one
+   * MATCH per requested type, which keeps the round-trip cost
+   * proportional to the filter set.
+   */
+  private async listEdgesInternalGd(
+    pool: GraphDbPool,
+    opts: ListEdgesOptions,
+  ): Promise<readonly CodeRelation[]> {
+    const allTypes: readonly RelationType[] =
+      opts.types && opts.types.length > 0
+        ? opts.types
+        : (getAllRelationTypes() as readonly RelationType[]);
+    const minConfidence = opts.minConfidence;
+    const limit = clampNonNegativeIntGd(opts.limit);
+    const offset = clampNonNegativeIntGd(opts.offset);
+
+    const collected: CodeRelation[] = [];
+    for (const t of allTypes) {
+      const params: SqlParam[] = [];
+      let next = 1;
+      const wheres: string[] = [];
+      if (opts.fromIds && opts.fromIds.length > 0) {
+        const phs: string[] = [];
+        for (const f of opts.fromIds) {
+          phs.push(`$p${next}`);
+          params.push(f);
+          next += 1;
+        }
+        wheres.push(`a.id IN [${phs.join(", ")}]`);
+      }
+      if (opts.toIds && opts.toIds.length > 0) {
+        const phs: string[] = [];
+        for (const id of opts.toIds) {
+          phs.push(`$p${next}`);
+          params.push(id);
+          next += 1;
+        }
+        wheres.push(`b.id IN [${phs.join(", ")}]`);
+      }
+      if (minConfidence !== undefined) {
+        wheres.push(`r.confidence >= $p${next}`);
+        params.push(minConfidence);
+        next += 1;
+      }
+      const wherePart = wheres.length > 0 ? ` WHERE ${wheres.join(" AND ")}` : "";
+      const cypher =
+        `MATCH (a:CodeNode)-[r:${t}]->(b:CodeNode)${wherePart} ` +
+        `RETURN a.id AS from_id, b.id AS to_id, r.id AS r_id, ` +
+        `r.confidence AS confidence, r.reason AS reason, r.step AS step`;
+      const rows = await pool.query(cypher, params);
+      for (const row of rows) {
+        const rec = row as Record<string, unknown>;
+        const stepVal = rec["step"];
+        const step = stepVal === null || stepVal === undefined ? undefined : Number(stepVal);
+        const reasonVal = rec["reason"];
+        const reason =
+          typeof reasonVal === "string" && reasonVal.length > 0 ? reasonVal : undefined;
+        collected.push({
+          id: String(rec["r_id"] ?? "") as CodeRelation["id"],
+          from: String(rec["from_id"] ?? "") as CodeRelation["from"],
+          to: String(rec["to_id"] ?? "") as CodeRelation["to"],
+          type: t,
+          confidence: Number(rec["confidence"] ?? 0),
+          ...(reason !== undefined ? { reason } : {}),
+          ...(step !== undefined && step !== 0 ? { step } : {}),
+        });
+      }
+    }
+    // Final ordering: (from, to, type, id) — same key order DuckDb uses.
+    collected.sort((x, y) => {
+      if (x.from !== y.from) return x.from < y.from ? -1 : 1;
+      if (x.to !== y.to) return x.to < y.to ? -1 : 1;
+      if (x.type !== y.type) return x.type < y.type ? -1 : 1;
+      if (x.id !== y.id) return x.id < y.id ? -1 : 1;
+      return 0;
+    });
+    const start = offset ?? 0;
+    const end = limit !== undefined ? start + limit : collected.length;
+    return collected.slice(start, end);
+  }
+
+  /**
+   * Shared body for ancestor/descendant traversal. Defers to the existing
+   * {@link traverse} method which handles the variable-length pattern
+   * inlining for the native graph-db engine.
+   */
+  private async traverseDirectionalGd(
+    opts: AncestorTraversalOptions | DescendantTraversalOptions,
+    direction: "up" | "down",
+  ): Promise<readonly TraverseResult[]> {
+    if (opts.edgeTypes.length === 0) return [];
+    const traverseQuery: TraverseQuery = {
+      startId: opts.fromId,
+      relationTypes: opts.edgeTypes,
+      direction,
+      maxDepth: opts.maxDepth,
+      ...(opts.minConfidence !== undefined ? { minConfidence: opts.minConfidence } : {}),
+    };
+    return this.traverse(traverseQuery);
   }
 
   async search(q: SearchQuery): Promise<readonly SearchResult[]> {
@@ -875,44 +1403,47 @@ export class GraphDbStore implements IGraphStore {
   }
 
   // --------------------------------------------------------------------------
-  // CochangeStore (deferred to AC-M3-4)
+  // execCypher — IGraphStore optional escape hatch (AC-A-1)
   // --------------------------------------------------------------------------
 
-  async bulkLoadCochanges(_rows: readonly CochangeRow[]): Promise<void> {
-    throw new NotImplementedError("bulkLoadCochanges");
-  }
-
-  async lookupCochangesForFile(
-    _file: string,
-    _opts?: CochangeLookupOptions,
-  ): Promise<readonly CochangeRow[]> {
-    throw new NotImplementedError("lookupCochangesForFile");
-  }
-
-  async lookupCochangesBetween(_fileA: string, _fileB: string): Promise<CochangeRow | undefined> {
-    throw new NotImplementedError("lookupCochangesBetween");
-  }
-
-  // --------------------------------------------------------------------------
-  // SymbolSummaryStore (deferred to AC-M3-4)
-  // --------------------------------------------------------------------------
-
-  async bulkLoadSymbolSummaries(_rows: readonly SymbolSummaryRow[]): Promise<void> {
-    throw new NotImplementedError("bulkLoadSymbolSummaries");
-  }
-
-  async lookupSymbolSummary(
-    _nodeId: string,
-    _contentHash: string,
-    _promptVersion: string,
-  ): Promise<SymbolSummaryRow | undefined> {
-    throw new NotImplementedError("lookupSymbolSummary");
-  }
-
-  async lookupSymbolSummariesByNode(
-    _nodeIds: readonly string[],
-  ): Promise<readonly SymbolSummaryRow[]> {
-    throw new NotImplementedError("lookupSymbolSummariesByNode");
+  /**
+   * {@link IGraphStore.execCypher} implementation. Delegates to the
+   * pre-existing {@link query} method which already enforces read-only
+   * Cypher via {@link assertReadOnlyCypher}.
+   *
+   * OCH core never calls this — it exists so community tooling that
+   * needs raw Cypher (e.g. APOC analogues on a Neo4j adapter fork) can
+   * route through `OpenStoreResult.graph.execCypher(...)`. The signature
+   * accepts a `Record<string, unknown>` params bag (Cypher's bound-name
+   * model) rather than the positional `SqlParam[]` shape the legacy
+   * `query` method takes.
+   */
+  async execCypher(
+    statement: string,
+    params: Record<string, unknown> = {},
+  ): Promise<readonly Record<string, unknown>[]> {
+    if (!this.pool) {
+      throw new Error("graph-db: execCypher called before open()");
+    }
+    assertReadOnlyCypher(statement);
+    // Lower-cast to readonly SqlParam[] expected by the existing pool API.
+    // The pool driver accepts a record of named params or a positional list;
+    // we forward a positional list extracted from the values for now.
+    const positional: SqlParam[] = [];
+    for (const v of Object.values(params)) {
+      if (
+        v === null ||
+        typeof v === "string" ||
+        typeof v === "number" ||
+        typeof v === "boolean" ||
+        typeof v === "bigint"
+      ) {
+        positional.push(v as SqlParam);
+      } else {
+        positional.push(JSON.stringify(v));
+      }
+    }
+    return this.pool.query(statement, positional, { timeoutMs: this.defaultTimeoutMs });
   }
 
   // --------------------------------------------------------------------------
@@ -1014,169 +1545,18 @@ interface EdgeRow {
   readonly step?: number;
 }
 
-function dedupeLastById<T>(items: readonly T[], idOf: (t: T) => string): readonly T[] {
-  const seen = new Map<string, T>();
-  for (const item of items) seen.set(idOf(item), item);
-  return [...seen.values()];
-}
-
 /**
  * Convert a GraphNode into the positional parameter list matching
- * NODE_COLUMNS. `null` is used for any field the node does not carry.
- * Arrays are passed through as string[] — the native binding accepts a JS
- * array directly for the STRING[] column type.
+ * `NODE_COLUMNS` (now exported from `./column-encode.ts`). The body is a
+ * thin projection from the canonical column-keyed map produced by
+ * {@link nodeToColumns} into the positional shape the native binding
+ * expects. `null` is used for any field the node does not carry. Arrays
+ * are passed through as `string[]` — the native binding accepts a JS array
+ * directly for the STRING[] column type.
  */
 function nodeToParams(node: GraphNode): readonly SqlParam[] {
-  const n = node as GraphNode & Record<string, unknown>;
-  const isOperation = node.kind === "Operation";
-  return [
-    node.id,
-    node.kind,
-    node.name,
-    node.filePath,
-    numberOrNull(n["startLine"]),
-    numberOrNull(n["endLine"]),
-    booleanOrNull(n["isExported"]),
-    stringOrNull(n["signature"]),
-    numberOrNull(n["parameterCount"]),
-    stringOrNull(n["returnType"]),
-    stringOrNull(n["declaredType"]),
-    stringOrNull(n["owner"]),
-    stringOrNull(n["url"]),
-    // Route.method → method; Operation.method goes to http_method below.
-    isOperation ? null : stringOrNull(n["method"]),
-    stringOrNull(n["toolName"]),
-    stringOrNull(n["content"]),
-    stringOrNull(n["contentHash"]),
-    stringOrNull(n["inferredLabel"]),
-    numberOrNull(n["symbolCount"]),
-    numberOrNull(n["cohesion"]),
-    stringArrayOrNull(n["keywords"]) as unknown as SqlParam,
-    stringOrNull(n["entryPointId"]),
-    numberOrNull(n["stepCount"]),
-    numberOrNull(n["level"]),
-    stringArrayOrNull(n["responseKeys"]) as unknown as SqlParam,
-    stringOrNull(n["description"]),
-    stringOrNull(n["severity"]),
-    stringOrNull(n["ruleId"]),
-    stringOrNull(n["scannerId"]),
-    stringOrNull(n["message"]),
-    jsonObjectOrNull(n["propertiesBag"]),
-    stringOrNull(n["version"]),
-    stringOrNull(n["license"]),
-    stringOrNull(n["lockfileSource"]),
-    stringOrNull(n["ecosystem"]),
-    // Operation kind uses its `.method` / `.path` fields.
-    isOperation ? stringOrNull(n["method"]) : null,
-    isOperation ? stringOrNull(n["path"]) : null,
-    stringOrNull(n["summary"]),
-    stringOrNull(n["operationId"]),
-    stringOrNull(n["emailHash"]),
-    stringOrNull(n["emailPlain"]),
-    jsonArrayOrNull(n["languages"]),
-    jsonArrayOrNull(n["frameworks"]),
-    jsonArrayOrNull(n["iacTypes"]),
-    jsonArrayOrNull(n["apiContracts"]),
-    jsonArrayOrNull(n["manifests"]),
-    jsonArrayOrNull(n["srcDirs"]),
-    stringOrNull(n["orphanGrade"]),
-    booleanOrNull(n["isOrphan"]),
-    numberOrNull(n["truckFactor"]),
-    numberOrNull(n["ownershipDrift30d"]),
-    numberOrNull(n["ownershipDrift90d"]),
-    numberOrNull(n["ownershipDrift365d"]),
-    stringOrNull(normalizeDeadness(n["deadness"])),
-    numberOrNull(n["coveragePercent"]),
-    coveredLinesOrNull(n["coveredLines"], n["coveredLinesJson"]),
-    numberOrNull(n["cyclomaticComplexity"]),
-    numberOrNull(n["nestingDepth"]),
-    numberOrNull(n["nloc"]),
-    numberOrNull(n["halsteadVolume"]),
-    stringOrNull(n["inputSchemaJson"]),
-    stringOrNull(n["partialFingerprint"]),
-    stringOrNull(n["baselineState"]),
-    stringOrNull(n["suppressedJson"]),
-    // Repo (AC-M6-1). Populated only when `node.kind === "Repo"`; NULL for
-    // every other kind.
-    repoStringOrNull(n, "originUrl"),
-    stringOrNull(n["repoUri"]),
-    repoStringOrNull(n, "defaultBranch"),
-    stringOrNull(n["commitSha"]),
-    stringOrNull(n["indexTime"]),
-    repoStringOrNull(n, "group"),
-    stringOrNull(n["visibility"]),
-    stringOrNull(n["indexer"]),
-    languageStatsJsonOrNull(n["languageStats"]),
-  ];
-}
-
-/**
- * Resolve a RepoNode field whose interface-level type is `string | null`.
- * Named helper keeps intent explicit at the call site — the collapse is the
- * same as `stringOrNull`, but we surface the semantic separately.
- */
-function repoStringOrNull(n: Record<string, unknown>, key: string): string | null {
-  const v = n[key];
-  if (v === null || v === undefined) return null;
-  if (typeof v === "string" && v.length > 0) return v;
-  return null;
-}
-
-/**
- * Serialize `RepoNode.languageStats` to byte-stable canonical JSON (sorted
- * keys). NULL for non-object / empty inputs so the column stays NULL for
- * every non-Repo row.
- */
-function languageStatsJsonOrNull(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v !== "object" || Array.isArray(v)) return null;
-  if (Object.keys(v as object).length === 0) return null;
-  return canonicalJson(v);
-}
-
-function normalizeDeadness(v: unknown): unknown {
-  if (v === "unreachable-export") return "unreachable_export";
-  return v;
-}
-
-function coveredLinesOrNull(coveredLines: unknown, coveredLinesJson: unknown): string | null {
-  if (typeof coveredLinesJson === "string" && coveredLinesJson.length > 0) {
-    return coveredLinesJson;
-  }
-  return jsonArrayOrNull(coveredLines);
-}
-
-function numberOrNull(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function stringOrNull(v: unknown): string | null {
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
-
-function booleanOrNull(v: unknown): boolean | null {
-  return typeof v === "boolean" ? v : null;
-}
-
-function stringArrayOrNull(v: unknown): readonly string[] | null {
-  if (!Array.isArray(v)) return null;
-  const out: string[] = [];
-  for (const item of v) if (typeof item === "string") out.push(item);
-  return out.length > 0 ? out : null;
-}
-
-function jsonArrayOrNull(v: unknown): string | null {
-  if (typeof v === "string") return v;
-  if (!Array.isArray(v)) return null;
-  return JSON.stringify(v);
-}
-
-function jsonObjectOrNull(v: unknown): string | null {
-  if (typeof v === "string") return v;
-  if (v === null || v === undefined) return null;
-  if (typeof v !== "object") return null;
-  if (Array.isArray(v)) return null;
-  return JSON.stringify(v);
+  const cols = nodeToColumns(node);
+  return NODE_COLUMNS.map((key) => cols[key] as SqlParam);
 }
 
 /**

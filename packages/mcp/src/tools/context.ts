@@ -31,6 +31,8 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { GraphNode } from "@opencodehub/core-types";
+import type { IGraphStore, Store } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -206,7 +208,7 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
       if (nameInput !== undefined) resolveArgs.name = nameInput;
       if (args.kind !== undefined) resolveArgs.kind = args.kind;
       if (filePathHint !== undefined) resolveArgs.filePath = filePathHint;
-      const resolution = await resolveTarget(store, resolveArgs);
+      const resolution = await resolveTarget(store.graph, resolveArgs);
 
       if (resolution.kind === "not_found") {
         const label = nameInput ?? uid ?? "(unknown)";
@@ -247,13 +249,13 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
         breakdownEdges,
         owner,
       ] = await Promise.all([
-        fetchCategorizedEdges(store, target.id, "incoming"),
-        fetchCategorizedEdges(store, target.id, "outgoing"),
-        fetchProcessParticipation(store, target.id),
+        fetchCategorizedEdges(store.graph, target.id, "incoming"),
+        fetchCategorizedEdges(store.graph, target.id, "outgoing"),
+        fetchProcessParticipation(store.graph, target.id),
         fetchCochangePartners(store, target),
-        fetchLinkedOperations(store, target),
-        fetchConfidenceBreakdownEdges(store, target.id),
-        fetchOwner(store, target.id),
+        fetchLinkedOperations(store.graph, target),
+        fetchConfidenceBreakdownEdges(store.graph, target.id),
+        fetchOwner(store.graph, target.id),
       ]);
       const confidenceBreakdown = computeConfidenceBreakdown(breakdownEdges);
 
@@ -392,66 +394,69 @@ type ResolveOutcome =
  * `kind` and `filePath` as filters and return every match up to 25 rows.
  */
 async function resolveTarget(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   args: { uid?: string; name?: string; kind?: string; filePath?: string },
 ): Promise<ResolveOutcome> {
   if (args.uid) {
-    const rows = (await store.query(
-      "SELECT id, name, kind, file_path, start_line, end_line, content FROM nodes WHERE id = ? LIMIT 1",
-      [args.uid],
-    )) as ReadonlyArray<Record<string, unknown>>;
-    const row = rows[0];
-    if (!row) return { kind: "not_found" };
+    const list = await graph.listNodes({ ids: [args.uid], limit: 1 });
+    const node = list[0];
+    if (!node) return { kind: "not_found" };
     return {
       kind: "resolved",
-      target: rowToNode(row),
-      startLine: toLineOrNull(row["start_line"]),
-      endLine: toLineOrNull(row["end_line"]),
-      content: stringOrNull(row["content"]),
+      target: nodeToRow(node),
+      startLine: toLineOrNull(getProp(node, "startLine")),
+      endLine: toLineOrNull(getProp(node, "endLine")),
+      content: stringOrNull(getProp(node, "content")),
     };
   }
 
   if (!args.name) return { kind: "not_found" };
 
-  const params: (string | number)[] = [args.name];
-  let sql =
-    "SELECT id, name, kind, file_path, start_line, end_line, content FROM nodes WHERE name = ?";
-  if (args.kind) {
-    sql += " AND kind = ?";
-    params.push(args.kind);
+  // listNodesByName narrows by name + optional kinds. The filePath
+  // substring filter is applied in TS post-finder because the typed
+  // option only supports exact-match.
+  type NodeKindUnion = Parameters<IGraphStore["listNodesByKind"]>[0];
+  const listOpts = args.kind !== undefined ? { kinds: [args.kind as NodeKindUnion] } : {};
+  let candidates = await graph.listNodesByName(args.name, listOpts);
+  if (args.filePath !== undefined) {
+    const sub = args.filePath;
+    candidates = candidates.filter((n) => n.filePath.includes(sub));
   }
-  if (args.filePath) {
-    sql += " AND file_path LIKE ?";
-    params.push(`%${args.filePath}%`);
-  }
-  sql += " ORDER BY file_path LIMIT 25";
-  const rows = (await store.query(sql, params)) as ReadonlyArray<Record<string, unknown>>;
+  // Match prior ORDER BY file_path LIMIT 25.
+  const sorted = [...candidates].sort((a, b) =>
+    a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0,
+  );
+  const sliced = sorted.slice(0, 25);
 
-  if (rows.length === 0) return { kind: "not_found" };
-  if (rows.length > 1) {
+  if (sliced.length === 0) return { kind: "not_found" };
+  if (sliced.length > 1) {
     return {
       kind: "ambiguous",
-      candidates: rows.map(rowToNode),
+      candidates: sliced.map(nodeToRow),
     };
   }
-  const row = rows[0];
-  if (!row) return { kind: "not_found" };
+  const node = sliced[0];
+  if (!node) return { kind: "not_found" };
   return {
     kind: "resolved",
-    target: rowToNode(row),
-    startLine: toLineOrNull(row["start_line"]),
-    endLine: toLineOrNull(row["end_line"]),
-    content: stringOrNull(row["content"]),
+    target: nodeToRow(node),
+    startLine: toLineOrNull(getProp(node, "startLine")),
+    endLine: toLineOrNull(getProp(node, "endLine")),
+    content: stringOrNull(getProp(node, "content")),
   };
 }
 
-function rowToNode(r: Record<string, unknown>): NodeRow {
+function nodeToRow(n: GraphNode): NodeRow {
   return {
-    id: String(r["id"]),
-    name: String(r["name"]),
-    kind: String(r["kind"]),
-    filePath: String(r["file_path"] ?? ""),
+    id: n.id,
+    name: n.name,
+    kind: n.kind,
+    filePath: n.filePath,
   };
+}
+
+function getProp(n: GraphNode, key: string): unknown {
+  return (n as unknown as Record<string, unknown>)[key];
 }
 
 function toLineOrNull(raw: unknown): number | null {
@@ -479,24 +484,37 @@ function capContent(raw: string | null): string | undefined {
  * or `from_id` (outgoing) side of the join.
  */
 async function fetchCategorizedEdges(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   targetId: string,
   direction: "incoming" | "outgoing",
 ): Promise<readonly CategorizedNodeRow[]> {
-  const placeholders = CATEGORY_EDGE_TYPES.map(() => "?").join(",");
-  const whereKey = direction === "incoming" ? "r.to_id" : "r.from_id";
-  const joinKey = direction === "incoming" ? "r.from_id" : "r.to_id";
-  const sql = `SELECT r.type AS rel_type, n.id, n.name, n.kind, n.file_path FROM relations r JOIN nodes n ON n.id = ${joinKey} WHERE ${whereKey} = ? AND r.type IN (${placeholders}) LIMIT 200`;
-  const rows = (await store.query(sql, [targetId, ...CATEGORY_EDGE_TYPES])) as ReadonlyArray<
-    Record<string, unknown>
-  >;
-  return rows.map((r) => ({
-    relType: String(r["rel_type"] ?? ""),
-    id: String(r["id"]),
-    name: String(r["name"]),
-    kind: String(r["kind"]),
-    filePath: String(r["file_path"] ?? ""),
-  }));
+  const filter = direction === "incoming" ? { toIds: [targetId] } : { fromIds: [targetId] };
+  const edges = await graph.listEdges({
+    types: CATEGORY_EDGE_TYPES,
+    ...filter,
+    limit: 200,
+  });
+  if (edges.length === 0) return [];
+  const partnerIds = Array.from(
+    new Set(edges.map((e) => (direction === "incoming" ? e.from : e.to))),
+  );
+  const partners = await graph.listNodes({ ids: partnerIds });
+  const byId = new Map<string, GraphNode>();
+  for (const n of partners) byId.set(n.id, n);
+  const out: CategorizedNodeRow[] = [];
+  for (const e of edges) {
+    const partnerId = direction === "incoming" ? e.from : e.to;
+    const partner = byId.get(partnerId);
+    if (!partner) continue;
+    out.push({
+      relType: e.type,
+      id: partner.id,
+      name: partner.name,
+      kind: partner.kind,
+      filePath: partner.filePath,
+    });
+  }
+  return out;
 }
 
 function bucketize(rows: readonly CategorizedNodeRow[]): CategoryBuckets {
@@ -547,24 +565,45 @@ interface ProcessParticipation {
  * `kind = 'Process'`.
  */
 async function fetchProcessParticipation(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   targetId: string,
 ): Promise<readonly ProcessParticipation[]> {
-  const rows = (await store.query(
-    "SELECT DISTINCT p.id AS id, p.name AS name, p.inferred_label AS label, r.step AS step FROM relations r JOIN nodes p ON (p.id = r.from_id OR p.id = r.to_id) WHERE (r.from_id = ? OR r.to_id = ?) AND r.type = 'PROCESS_STEP' AND p.kind = 'Process' ORDER BY r.step LIMIT 20",
-    [targetId, targetId],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map((r) => {
-    const rawLabel = r["label"];
-    const rawName = r["name"];
+  const [outEdges, inEdges] = await Promise.all([
+    graph.listEdgesByType("PROCESS_STEP", { fromIds: [targetId] }),
+    graph.listEdgesByType("PROCESS_STEP", { toIds: [targetId] }),
+  ]);
+  const partnerIds = new Set<string>();
+  for (const e of [...outEdges, ...inEdges]) {
+    const id = e.from === targetId ? e.to : e.from;
+    partnerIds.add(id);
+  }
+  if (partnerIds.size === 0) return [];
+  const partners = await graph.listNodes({ ids: [...partnerIds] });
+  const partnerById = new Map<string, GraphNode>();
+  for (const p of partners) partnerById.set(p.id, p);
+  const dedup = new Map<string, { label: string; step: number | null }>();
+  for (const e of [...outEdges, ...inEdges]) {
+    const partnerId = e.from === targetId ? e.to : e.from;
+    const partner = partnerById.get(partnerId);
+    if (!partner || partner.kind !== "Process") continue;
+    if (dedup.has(partner.id)) continue;
+    const inferredLabel = (partner as unknown as { inferredLabel?: string }).inferredLabel;
     const label =
-      typeof rawLabel === "string" && rawLabel.length > 0 ? rawLabel : String(rawName ?? "");
-    return {
-      id: String(r["id"]),
-      label,
-      step: toLineOrNull(r["step"]),
-    };
+      typeof inferredLabel === "string" && inferredLabel.length > 0 ? inferredLabel : partner.name;
+    dedup.set(partner.id, { label, step: toLineOrNull(e.step) });
+  }
+  const items = Array.from(dedup.entries()).map(([id, v]) => ({
+    id,
+    label: v.label,
+    step: v.step,
+  }));
+  items.sort((a, b) => {
+    const as = a.step ?? Number.POSITIVE_INFINITY;
+    const bs = b.step ?? Number.POSITIVE_INFINITY;
+    if (as !== bs) return as - bs;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+  return items.slice(0, 20);
 }
 
 /**
@@ -572,15 +611,27 @@ async function fetchProcessParticipation(
  * previous tool's behaviour: any of HAS_METHOD / HAS_PROPERTY / CONTAINS
  * pointing at the target counts as an owner edge.
  */
-async function fetchOwner(
-  store: import("@opencodehub/storage").IGraphStore,
-  targetId: string,
-): Promise<readonly NodeRow[]> {
-  const rows = (await store.query(
-    "SELECT n.id, n.name, n.kind, n.file_path FROM relations r JOIN nodes n ON n.id = r.from_id WHERE r.to_id = ? AND r.type IN ('HAS_METHOD','HAS_PROPERTY','CONTAINS') LIMIT 5",
-    [targetId],
-  )) as ReadonlyArray<Record<string, unknown>>;
-  return rows.map(rowToNode);
+async function fetchOwner(graph: IGraphStore, targetId: string): Promise<readonly NodeRow[]> {
+  const edges = await graph.listEdges({
+    types: ["HAS_METHOD", "HAS_PROPERTY", "CONTAINS"],
+    toIds: [targetId],
+    limit: 5,
+  });
+  if (edges.length === 0) return [];
+  const fromIds = Array.from(new Set(edges.map((e) => e.from)));
+  const partners = await graph.listNodes({ ids: fromIds });
+  const byId = new Map<string, GraphNode>();
+  for (const n of partners) byId.set(n.id, n);
+  const out: NodeRow[] = [];
+  const seen = new Set<string>();
+  for (const e of edges) {
+    if (seen.has(e.from)) continue;
+    seen.add(e.from);
+    const node = byId.get(e.from);
+    if (!node) continue;
+    out.push(nodeToRow(node));
+  }
+  return out;
 }
 
 /**
@@ -594,13 +645,10 @@ async function fetchOwner(
  * weaker than chance) are dropped. This is a statistical (git-history)
  * signal, not a call-graph dependency.
  */
-async function fetchCochangePartners(
-  store: import("@opencodehub/storage").IGraphStore,
-  target: NodeRow,
-): Promise<CochangePartner[]> {
+async function fetchCochangePartners(store: Store, target: NodeRow): Promise<CochangePartner[]> {
   const file = target.filePath;
   if (file.length === 0) return [];
-  const rows = await store.lookupCochangesForFile(file, { limit: 10 });
+  const rows = await store.temporal.lookupCochangesForFile(file, { limit: 10 });
   const out: CochangePartner[] = [];
   for (const r of rows) {
     const partner = r.sourceFile === file ? r.targetFile : r.sourceFile;
@@ -621,29 +669,42 @@ async function fetchCochangePartners(
  * handler can call unconditionally.
  */
 async function fetchLinkedOperations(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   target: NodeRow,
 ): Promise<LinkedOperation[]> {
   if (target.kind !== "Route") return [];
 
-  const rows = (await store.query(
-    "SELECT n.id, n.file_path, n.http_method, n.http_path, n.summary, n.operation_id FROM relations r JOIN nodes n ON n.id = r.from_id WHERE r.to_id = ? AND r.type = 'HANDLES_ROUTE' AND n.kind = 'Operation' ORDER BY n.http_method, n.http_path LIMIT 20",
-    [target.id],
-  )) as ReadonlyArray<Record<string, unknown>>;
+  const edges = await graph.listEdgesByType("HANDLES_ROUTE", { toIds: [target.id], limit: 20 });
+  if (edges.length === 0) return [];
+  const fromIds = Array.from(new Set(edges.map((e) => e.from)));
+  const partners = await graph.listNodes({ ids: fromIds });
+  const byId = new Map<string, GraphNode>();
+  for (const p of partners) byId.set(p.id, p);
 
   const out: LinkedOperation[] = [];
-  for (const r of rows) {
-    const summary = r["summary"];
-    const operationId = r["operation_id"];
+  for (const e of edges) {
+    const partner = byId.get(e.from);
+    if (!partner || partner.kind !== "Operation") continue;
+    const opAny = partner as unknown as Record<string, unknown>;
+    const httpMethod =
+      typeof opAny["httpMethod"] === "string" ? (opAny["httpMethod"] as string) : "";
+    const httpPath = typeof opAny["httpPath"] === "string" ? (opAny["httpPath"] as string) : "";
+    const summary = typeof opAny["summary"] === "string" ? (opAny["summary"] as string) : undefined;
+    const operationId =
+      typeof opAny["operationId"] === "string" ? (opAny["operationId"] as string) : undefined;
     out.push({
-      id: String(r["id"]),
-      method: String(r["http_method"] ?? ""),
-      path: String(r["http_path"] ?? ""),
-      filePath: String(r["file_path"] ?? ""),
+      id: partner.id,
+      method: httpMethod,
+      path: httpPath,
+      filePath: partner.filePath,
       ...(typeof summary === "string" && summary.length > 0 ? { summary } : {}),
       ...(typeof operationId === "string" && operationId.length > 0 ? { operationId } : {}),
     });
   }
+  out.sort((a, b) => {
+    if (a.method !== b.method) return a.method < b.method ? -1 : 1;
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  });
   return out;
 }
 
@@ -655,19 +716,21 @@ async function fetchLinkedOperations(
  * tally.
  */
 async function fetchConfidenceBreakdownEdges(
-  store: import("@opencodehub/storage").IGraphStore,
+  graph: IGraphStore,
   targetId: string,
 ): Promise<readonly EdgeConfidenceSource[]> {
-  const placeholders = CONFIDENCE_EDGE_TYPES.map(() => "?").join(",");
-  const rows = (await store.query(
-    `SELECT confidence, reason FROM relations WHERE (from_id = ? OR to_id = ?) AND type IN (${placeholders})`,
-    [targetId, targetId, ...CONFIDENCE_EDGE_TYPES],
-  )) as ReadonlyArray<Record<string, unknown>>;
-
+  const [fromEdges, toEdges] = await Promise.all([
+    graph.listEdges({ types: CONFIDENCE_EDGE_TYPES, fromIds: [targetId] }),
+    graph.listEdges({ types: CONFIDENCE_EDGE_TYPES, toIds: [targetId] }),
+  ]);
   const out: EdgeConfidenceSource[] = [];
-  for (const r of rows) {
-    const confidenceRaw = Number(r["confidence"] ?? 0);
-    const reasonRaw = r["reason"];
+  const seen = new Set<string>();
+  for (const e of [...fromEdges, ...toEdges]) {
+    const key = `${e.from}|${e.to}|${e.type}|${e.step ?? 0}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const confidenceRaw = Number(e.confidence ?? 0);
+    const reasonRaw = e.reason;
     out.push({
       confidence: Number.isFinite(confidenceRaw) ? confidenceRaw : 0,
       ...(typeof reasonRaw === "string" && reasonRaw.length > 0 ? { reason: reasonRaw } : {}),

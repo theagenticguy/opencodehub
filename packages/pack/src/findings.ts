@@ -2,10 +2,12 @@
  * BOM body item: salient SARIF findings (AC-M5-5 — item 8/9).
  *
  * Groups `Finding` nodes by `(severity, ruleId)`. Severity is the SARIF
- * 2.1.0 `level` enum ONLY: `error | warning | note | none`. NULL/undefined
- * coerces to `"none"`. Suppressed rows are skipped via the same rehydration
+ * 2.1.0 `level` enum ONLY: `error | warning | note | none`. The typed
+ * `FindingNode` already narrows `severity` to that enum, but
+ * `listFindings()` reports any unrecognised value as `"none"` here for
+ * defence in depth. Suppressed rows are skipped via the same rehydration
  * pattern used in `packages/analysis/src/verdict.ts:614-626` — we parse
- * `suppressed_json` into a minimal `{suppressions: [...]}` shape and
+ * `suppressedJson` into a minimal `{suppressions: [...]}` shape and
  * delegate to `sarif.isSuppressed()` so the "non-empty suppressions[]"
  * definition stays single-sourced in `@opencodehub/sarif`.
  *
@@ -16,11 +18,12 @@
  *   - Within each group, examples sort by `nodeId ASC` and are capped at
  *     `examplesPerGroup` (default 3).
  *
- * The SQL pulls every finding row in a single round-trip — pack output
- * sizes are bounded by `examplesPerGroup * groupCount` so we don't push
- * the LIMIT into the database.
+ * `listFindings()` returns every Finding node in one round-trip — pack
+ * output sizes are bounded by `examplesPerGroup * groupCount` so we
+ * never push a LIMIT into the database.
  */
 
+import type { FindingNode } from "@opencodehub/core-types";
 import type { SarifResult } from "@opencodehub/sarif";
 import { isSuppressed } from "@opencodehub/sarif";
 import type { IGraphStore } from "@opencodehub/storage";
@@ -59,11 +62,6 @@ export interface FindingsOpts {
   readonly examplesPerGroup?: number;
 }
 
-/** SQL hoisted to a constant so test mocks can pattern-match it. */
-const FINDINGS_SQL =
-  "SELECT id, file_path, start_line, rule_id, severity, message, suppressed_json " +
-  "FROM nodes WHERE kind = 'Finding' ORDER BY id ASC";
-
 /**
  * Build the salient-findings BOM slice.
  *
@@ -74,24 +72,26 @@ export async function buildFindings(opts: FindingsOpts): Promise<readonly Findin
   const { store } = opts;
   const examplesCap = clampExamples(opts.examplesPerGroup);
 
-  const rows = (await store.query(FINDINGS_SQL)) as ReadonlyArray<Record<string, unknown>>;
+  const rows = await store.listFindings();
 
   const groups = new Map<
     string,
     { severity: FindingSeverity; ruleId: string; rows: FindingExample[] }
   >();
   for (const row of rows) {
-    if (isRowSuppressed(row)) continue;
-    const id = stringField(row, "id");
+    if (isFindingSuppressed(row)) continue;
+    const id = row.id;
     if (id.length === 0) continue;
-    const ruleId = stringField(row, "rule_id");
-    const severity = coerceSeverity(row["severity"]);
+    const ruleId = row.ruleId;
+    const severity = coerceSeverity(row.severity);
     const key = `${severity}\0${ruleId}`;
     const example: FindingExample = {
       nodeId: id,
-      ...optionalString(row, "message", "message"),
-      ...optionalString(row, "file_path", "filePath"),
-      ...optionalInt(row, "start_line", "startLine"),
+      ...(row.message.length > 0 ? { message: row.message } : {}),
+      ...(row.filePath.length > 0 ? { filePath: row.filePath } : {}),
+      ...(typeof row.startLine === "number" && Number.isFinite(row.startLine)
+        ? { startLine: Math.trunc(row.startLine) }
+        : {}),
     };
     const existing = groups.get(key);
     if (existing === undefined) {
@@ -125,10 +125,10 @@ function clampExamples(n: number | undefined): number {
 /**
  * Mirror the `isRowSuppressed` helper from `packages/analysis/src/verdict.ts`.
  * Re-implemented here (rather than imported) because verdict.ts does not
- * export it.
+ * export it. Operates on the typed FindingNode's `suppressedJson`.
  */
-function isRowSuppressed(row: Record<string, unknown>): boolean {
-  const raw = row["suppressed_json"];
+function isFindingSuppressed(row: FindingNode): boolean {
+  const raw = row.suppressedJson;
   if (typeof raw !== "string" || raw.length === 0) return false;
   let parsed: unknown;
   try {
@@ -141,43 +141,13 @@ function isRowSuppressed(row: Record<string, unknown>): boolean {
   return isSuppressed(result);
 }
 
-/** Coerce a raw severity value to the SARIF level enum. NULL → "none". */
+/** Coerce a raw severity value to the SARIF level enum. */
 function coerceSeverity(raw: unknown): FindingSeverity {
   if (typeof raw !== "string") return "none";
   if (raw === "error" || raw === "warning" || raw === "note" || raw === "none") {
     return raw;
   }
   return "none";
-}
-
-function stringField(row: Record<string, unknown>, key: string): string {
-  const v = row[key];
-  return typeof v === "string" ? v : "";
-}
-
-function optionalString(
-  row: Record<string, unknown>,
-  rowKey: string,
-  outKey: keyof FindingExample,
-): Partial<FindingExample> {
-  const v = row[rowKey];
-  if (typeof v !== "string" || v.length === 0) return {};
-  return { [outKey]: v } as Partial<FindingExample>;
-}
-
-function optionalInt(
-  row: Record<string, unknown>,
-  rowKey: string,
-  outKey: keyof FindingExample,
-): Partial<FindingExample> {
-  const v = row[rowKey];
-  if (typeof v === "number" && Number.isFinite(v)) {
-    return { [outKey]: Math.trunc(v) } as Partial<FindingExample>;
-  }
-  if (typeof v === "bigint") {
-    return { [outKey]: Number(v) } as Partial<FindingExample>;
-  }
-  return {};
 }
 
 function compareGroups(a: FindingGroup, b: FindingGroup): number {

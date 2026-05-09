@@ -10,27 +10,15 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeEdgeLike,
+  type FakeNodeLike,
+  getToolHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "../test-utils.js";
 import type { ToolContext } from "./shared.js";
 import { registerSignatureTool } from "./signature.js";
 
@@ -49,120 +37,37 @@ interface FakeStoreInput {
   readonly edges: readonly HasMethodEdge[];
 }
 
-function makeFakeStore(input: FakeStoreInput): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-
-      // Member fetch: relations JOIN nodes WHERE from_id = ?
-      if (text.startsWith("SELECT n.id, n.name, n.kind, n.file_path, n.start_line")) {
-        const ownerId = String(params[0] ?? "");
-        const childIds = new Set(input.edges.filter((e) => e.from === ownerId).map((e) => e.to));
-        const matching = input.nodes.filter((n) => childIds.has(String(n["id"])));
-        return matching.slice().sort((a, b) => {
-          const sa = typeof a["start_line"] === "number" ? (a["start_line"] as number) : 0;
-          const sb = typeof b["start_line"] === "number" ? (b["start_line"] as number) : 0;
-          if (sa !== sb) return sa - sb;
-          return String(a["name"]).localeCompare(String(b["name"]));
-        });
-      }
-
-      // Target resolve: SELECT id, name, kind, file_path ... WHERE name = ? / id = ?
-      if (text.startsWith("SELECT id, name, kind, file_path, start_line")) {
-        const byUid = text.includes("WHERE id = ?");
-        let out = input.nodes.slice();
-        if (byUid) {
-          const uid = String(params[0] ?? "");
-          out = out.filter((n) => String(n["id"]) === uid);
-        } else {
-          const name = String(params[0] ?? "");
-          out = out.filter((n) => String(n["name"]) === name);
-          let pi = 1;
-          if (text.includes("AND kind = ?")) {
-            const kind = String(params[pi++] ?? "");
-            out = out.filter((n) => String(n["kind"]) === kind);
-          }
-          if (text.includes("AND file_path LIKE ?")) {
-            const needle = String(params[pi++] ?? "").replace(/%/g, "");
-            out = out.filter((n) => String(n["file_path"] ?? "").includes(needle));
-          }
-        }
-        return out
-          .slice()
-          .sort((a, b) => String(a["file_path"]).localeCompare(String(b["file_path"])));
-      }
-
-      throw new Error(`unsupported sql in fake store: ${text}`);
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
-  return api;
-}
-
 async function withHarness(
   input: FakeStoreInput,
-  fn: (ctx: ToolContext, server: McpServer) => Promise<void>,
+  fn: (
+    ctx: ToolContext,
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-sig-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: input.nodes.length,
-          edgeCount: input.edges.length,
-          lastCommit: "abc123",
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () => makeFakeStore(input));
-    const ctx: ToolContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { tools: {} } },
-    );
-    try {
+  const nodes: FakeNodeLike[] = input.nodes.map(
+    (n) =>
+      ({
+        ...n,
+        id: String(n["id"]),
+        name: typeof n["name"] === "string" ? (n["name"] as string) : "",
+        kind: typeof n["kind"] === "string" ? (n["kind"] as string) : "",
+      }) as unknown as FakeNodeLike,
+  );
+  const edges: FakeEdgeLike[] = input.edges.map((e) => ({
+    type: e.type,
+    from: e.from,
+    to: e.to,
+  }));
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-mcp-sig-",
+      storeFactory: () => makeFakeGraphStore({ nodes, edges }),
+    },
+    async ({ server, pool, home }) => {
+      const ctx: ToolContext = { pool, home };
       await fn(ctx, server);
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-}
-
-type RegisteredTool = { handler: (args: unknown, extra: unknown) => Promise<CallToolResult> };
-
-function getHandler(server: McpServer, name: string): RegisteredTool["handler"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internal field for test-only access
-  const map = (server as any)._registeredTools as Record<string, RegisteredTool>;
-  const entry = map[name];
-  assert.ok(entry, `tool not registered: ${name}`);
-  return entry.handler.bind(entry);
+    },
+  );
 }
 
 function textOf(result: CallToolResult): string {
@@ -232,7 +137,7 @@ test("signature: class with 3 methods → 4-line (or 5-line) stub with member si
     },
     async (ctx, server) => {
       registerSignatureTool(server, ctx);
-      const handler = getHandler(server, "signature");
+      const handler = getToolHandler(server, "signature");
       const result = await handler({ repo: "fakerepo", name: "Foo" }, {});
       const sc = result.structuredContent as {
         target: { name: string; kind: string };
@@ -276,7 +181,7 @@ test("signature: standalone function → single signature stub", async () => {
     },
     async (ctx, server) => {
       registerSignatureTool(server, ctx);
-      const handler = getHandler(server, "signature");
+      const handler = getToolHandler(server, "signature");
       const result = await handler({ repo: "fakerepo", name: "add" }, {});
       const sc = result.structuredContent as {
         target: { name: string; kind: string };
@@ -310,7 +215,7 @@ test("signature: unknown name → empty result with next-step hint", async () =>
     },
     async (ctx, server) => {
       registerSignatureTool(server, ctx);
-      const handler = getHandler(server, "signature");
+      const handler = getToolHandler(server, "signature");
       const result = await handler({ repo: "fakerepo", name: "doesNotExist" }, {});
       const sc = result.structuredContent as {
         target: unknown;
@@ -355,7 +260,7 @@ test("signature: ambiguous name → candidate-list disambiguation arm", async ()
     },
     async (ctx, server) => {
       registerSignatureTool(server, ctx);
-      const handler = getHandler(server, "signature");
+      const handler = getToolHandler(server, "signature");
       const result = await handler({ repo: "fakerepo", name: "Foo" }, {});
       const sc = result.structuredContent as {
         target: unknown;

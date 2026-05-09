@@ -14,27 +14,14 @@
  */
 
 import { strict as assert } from "node:assert";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { KnowledgeGraph } from "@opencodehub/core-types";
-import type {
-  BulkLoadStats,
-  DuckDbStore,
-  EmbeddingRow,
-  SearchQuery,
-  SearchResult,
-  SqlParam,
-  StoreMeta,
-  TraverseQuery,
-  TraverseResult,
-  VectorQuery,
-  VectorResult,
-} from "@opencodehub/storage";
-import { ConnectionPool } from "../connection-pool.js";
+import {
+  type FakeEdgeLike,
+  type FakeNodeLike,
+  getResourceHandler,
+  makeFakeGraphStore,
+  withMcpHarness,
+} from "../test-utils.js";
 import { registerRepoClusterResource } from "./repo-cluster.js";
 import type { ResourceContext } from "./repos.js";
 
@@ -53,145 +40,63 @@ interface FakeMember {
   communityId: string;
 }
 
-function makeFakeStore(
+/**
+ * Convert FakeCommunity / FakeMember test seeds into typed-finder-friendly
+ * nodes + MEMBER_OF edges so `listNodesByKind`, `listEdgesByType`, and
+ * `listNodes({ ids })` produce the same data the production tool reads.
+ */
+function buildFakeGraph(
   communities: readonly FakeCommunity[],
   members: readonly FakeMember[],
-): DuckDbStore {
-  const api = {
-    open: async () => {},
-    close: async () => {},
-    createSchema: async () => {},
-    bulkLoad: async (_g: KnowledgeGraph): Promise<BulkLoadStats> => ({
-      nodeCount: 0,
-      edgeCount: 0,
-      durationMs: 0,
-    }),
-    upsertEmbeddings: async (_r: readonly EmbeddingRow[]): Promise<void> => {},
-    query: async (
-      sql: string,
-      params: readonly SqlParam[] = [],
-    ): Promise<readonly Record<string, unknown>[]> => {
-      const text = sql.replace(/\s+/g, " ").trim();
-
-      // Exact-match resolver (name OR inferred_label).
-      if (
-        text.startsWith(
-          "SELECT id, name, inferred_label FROM nodes WHERE kind = 'Community' AND (name = ? OR inferred_label = ?)",
-        )
-      ) {
-        const target = String(params[0] ?? "");
-        const found = communities.find((c) => c.name === target || c.inferredLabel === target);
-        return found
-          ? [
-              {
-                id: found.id,
-                name: found.name,
-                inferred_label: found.inferredLabel ?? null,
-              },
-            ]
-          : [];
-      }
-
-      // Member lookup via MEMBER_OF.
-      if (
-        text.startsWith(
-          "SELECT n.id AS id, n.name AS name, n.kind AS kind, n.file_path AS file_path FROM relations r JOIN nodes n ON n.id = r.from_id WHERE r.type = 'MEMBER_OF' AND r.to_id = ?",
-        )
-      ) {
-        const communityId = String(params[0]);
-        const limit = Number(params[1] ?? 100);
-        return members
-          .filter((m) => m.communityId === communityId)
-          .sort((a, b) => {
-            if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
-            if (a.name !== b.name) return a.name < b.name ? -1 : 1;
-            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-          })
-          .slice(0, limit)
-          .map((m) => ({
-            id: m.id,
-            name: m.name,
-            kind: m.kind,
-            file_path: m.filePath,
-          }));
-      }
-
-      // Candidate-listing for the not-found envelope.
-      if (text.startsWith("SELECT name, inferred_label FROM nodes WHERE kind = 'Community'")) {
-        return communities.map((c) => ({
-          name: c.name,
-          inferred_label: c.inferredLabel ?? null,
-        }));
-      }
-      throw new Error(`unsupported sql: ${text}`);
-    },
-    search: async (_q: SearchQuery): Promise<readonly SearchResult[]> => [],
-    vectorSearch: async (_q: VectorQuery): Promise<readonly VectorResult[]> => [],
-    traverse: async (_q: TraverseQuery): Promise<readonly TraverseResult[]> => [],
-    getMeta: async (): Promise<StoreMeta | undefined> => undefined,
-    setMeta: async (_m: StoreMeta): Promise<void> => {},
-    healthCheck: async () => ({ ok: true }),
-    bulkLoadCochanges: async (_rows: readonly unknown[]): Promise<void> => {},
-    lookupCochangesForFile: async () => [],
-    lookupCochangesBetween: async () => undefined,
-  } as unknown as DuckDbStore;
-  return api;
+): { nodes: FakeNodeLike[]; edges: FakeEdgeLike[] } {
+  const nodes: FakeNodeLike[] = [];
+  for (const c of communities) {
+    nodes.push({
+      id: c.id,
+      kind: "Community",
+      name: c.name,
+      filePath: "",
+      inferredLabel: c.inferredLabel,
+      symbolCount: c.symbolCount ?? 0,
+    });
+  }
+  for (const m of members) {
+    nodes.push({
+      id: m.id,
+      kind: m.kind,
+      name: m.name,
+      filePath: m.filePath,
+    });
+  }
+  const edges: FakeEdgeLike[] = members.map((m) => ({
+    type: "MEMBER_OF",
+    fromId: m.id,
+    toId: m.communityId,
+  }));
+  return { nodes, edges };
 }
 
 async function withHarness(
   communities: readonly FakeCommunity[],
   members: readonly FakeMember[],
-  fn: (server: McpServer, ctx: ResourceContext, repoName: string) => Promise<void>,
+  fn: (
+    server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+    ctx: ResourceContext,
+    repoName: string,
+  ) => Promise<void>,
 ): Promise<void> {
-  const home = await mkdtemp(resolve(tmpdir(), "codehub-cluster-test-"));
-  try {
-    const repoPath = resolve(home, "fakerepo");
-    await mkdir(repoPath, { recursive: true });
-    const regDir = resolve(home, ".codehub");
-    await mkdir(regDir, { recursive: true });
-    await writeFile(
-      resolve(regDir, "registry.json"),
-      JSON.stringify({
-        fakerepo: {
-          name: "fakerepo",
-          path: repoPath,
-          indexedAt: "2026-04-18T00:00:00Z",
-          nodeCount: 0,
-          edgeCount: 0,
-        },
-      }),
-    );
-    const pool = new ConnectionPool({ max: 2, ttlMs: 60_000 }, async () =>
-      makeFakeStore(communities, members),
-    );
-    const ctx: ResourceContext = { pool, home };
-    const server = new McpServer(
-      { name: "test", version: "0.0.0" },
-      { capabilities: { resources: {} } },
-    );
-    try {
-      await fn(server, ctx, "fakerepo");
-    } finally {
-      await pool.shutdown();
-    }
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-}
-
-type ResourceRegistry = {
-  readCallback: (
-    uri: URL,
-    vars: Record<string, string>,
-    extra: unknown,
-  ) => Promise<ReadResourceResult>;
-};
-function getResourceHandler(server: McpServer, name: string): ResourceRegistry["readCallback"] {
-  // biome-ignore lint/suspicious/noExplicitAny: SDK internals for test-only access
-  const map = (server as any)._registeredResourceTemplates as Record<string, ResourceRegistry>;
-  const entry = map[name];
-  assert.ok(entry, `resource template not registered: ${name}`);
-  return entry.readCallback.bind(entry);
+  const graph = buildFakeGraph(communities, members);
+  await withMcpHarness(
+    {
+      tmpPrefix: "codehub-cluster-test-",
+      serverCapabilities: { resources: {} },
+      storeFactory: () => makeFakeGraphStore({ nodes: graph.nodes, edges: graph.edges }),
+    },
+    async ({ server, pool, home, repoName }) => {
+      const ctx: ResourceContext = { pool, home };
+      await fn(server, ctx, repoName);
+    },
+  );
 }
 
 test("repo-cluster: resolves by Community.name and lists MEMBER_OF symbols", async () => {

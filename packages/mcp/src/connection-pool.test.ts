@@ -1,14 +1,15 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import type { DuckDbStore } from "@opencodehub/storage";
+import type { Store } from "@opencodehub/storage";
 import { ConnectionPool } from "./connection-pool.js";
 
 /**
  * Fake store with just enough surface for the pool to exercise acquire
- * / release / shutdown semantics without standing up DuckDB.
+ * / release / shutdown semantics without standing up the underlying
+ * databases. Mirrors the `OpenStoreResult.close()` contract.
  */
 function makeFakeStore(path: string): {
-  store: DuckDbStore;
+  store: Store;
   isClosed: () => boolean;
   closeCount: () => number;
 } {
@@ -16,11 +17,12 @@ function makeFakeStore(path: string): {
   let closeCalls = 0;
   const store = {
     path,
+    backend: "duck" as const,
     close: async () => {
       closeCalls += 1;
       closed = true;
     },
-  } as unknown as DuckDbStore;
+  } as unknown as Store;
   return { store, isClosed: () => closed, closeCount: () => closeCalls };
 }
 
