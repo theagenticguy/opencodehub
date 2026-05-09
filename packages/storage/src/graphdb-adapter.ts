@@ -2,12 +2,11 @@
  * Graph-database backend for {@link IGraphStore} (phase-2 implementation).
  *
  * This adapter is the second implementation behind the `IGraphStore` seam.
- * DuckDbStore remains the default through M7; this file ships the full
- * lifecycle + bulk-load surface so `CODEHUB_STORE=lbug` can already drive a
- * round-trip-clean graph write. Query, search, vector, and embedding
- * surfaces follow in AC-M3-3 sibling commits.
+ * DuckDbStore remains the default; this file ships the full lifecycle +
+ * bulk-load surface so `CODEHUB_STORE=lbug` can already drive a
+ * round-trip-clean graph write.
  *
- * Design notes (spec 004 §Architectural decisions):
+ * Design notes:
  *   1. Rel tables are polymorphic per edge kind — one named rel table per
  *      relation type, each with multiple `FROM/TO` pairs. The DDL lives in
  *      {@link graphdb-schema.ts}; this file never emits DDL inline.
@@ -85,11 +84,10 @@ const DEFAULT_EMBEDDING_DIM = 768;
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 /**
- * Thrown by adapter surfaces that are not yet wired. AC-A-1 deleted the
- * cochange + summary stubs from this adapter (those methods now live on
- * {@link ITemporalStore}, never on the graph adapter). The class export
- * is retained because downstream packages still import it for typed
- * fallback handling on graph-only failure modes.
+ * Thrown by adapter surfaces that are not yet wired. The cochange + symbol
+ * summary surfaces live on {@link ITemporalStore}, never on the graph
+ * adapter. The class export is retained because downstream packages still
+ * import it for typed fallback handling on graph-only failure modes.
  */
 export class NotImplementedError extends Error {
   constructor(method: string) {
@@ -101,8 +99,7 @@ export class NotImplementedError extends Error {
 /**
  * Missing peer-binding error. Surfaced when the native `@ladybugdb/core`
  * module is not available on the current platform (no prebuilt binary, or
- * the package was pruned by a `--production` install). The message
- * satisfies spec 004 §S-M3-2.
+ * the package was pruned by a `--production` install).
  */
 export class GraphDbBindingError extends Error {
   constructor(cause: unknown) {
@@ -147,8 +144,8 @@ const EMBEDDING_COLUMNS: readonly string[] = [
 
 /**
  * Column → node-field descriptors used by the round-trip readback path.
- * AC-M3-3 Commit 4's `rebuildGraphFromStore` walks this list so the
- * returned graph carries the same field set the bulk writer ingested.
+ * `rebuildGraphFromStore` walks this list so the returned graph carries
+ * the same field set the bulk writer ingested.
  */
 export const ROUND_TRIP_COLUMN_MAP: readonly (readonly [
   string,
@@ -214,10 +211,10 @@ function buildEmbeddingCreateCypher(): string {
 
 export class GraphDbStore implements IGraphStore {
   /**
-   * Cypher dialect marker introduced by AC-A-1. The graph-db backend
-   * speaks Cypher natively; the optional {@link IGraphStore.execCypher}
-   * escape hatch is wired below so community tooling that needs raw
-   * Cypher (APOC analogues, etc.) can call through.
+   * Cypher dialect marker. The graph-db backend speaks Cypher natively;
+   * the optional {@link IGraphStore.execCypher} escape hatch is wired
+   * below so community tooling that needs raw Cypher (APOC analogues,
+   * etc.) can call through.
    */
   readonly dialect: GraphDialect = "cypher";
   private readonly path: string;
@@ -245,10 +242,10 @@ export class GraphDbStore implements IGraphStore {
 
   async open(): Promise<void> {
     if (this.pool?.isOpen()) return;
-    // Surface missing-binding failures as a typed error per spec 004 §S-M3-2.
-    // The pool's own lazy import would produce a raw module-not-found error
-    // otherwise. When the caller injected a `binding` in `poolConfig` (tests)
-    // we skip the probe — the fake already provides the types.
+    // Surface missing-binding failures as a typed error so the pool's own
+    // lazy import doesn't produce a raw module-not-found error. When the
+    // caller injected a `binding` in `poolConfig` (tests) we skip the
+    // probe — the fake already provides the types.
     if (!this.poolConfig.binding) {
       try {
         await import("@ladybugdb/core");
@@ -381,7 +378,7 @@ export class GraphDbStore implements IGraphStore {
       // "explicit zero". DuckDbStore stores 0 in both cases because the
       // column is NOT NULL; the graph-db schema declares it as nullable
       // INT32 and the canonical-JSON hash stays stable across backends as
-      // long as both adapters agree on the sentinel (AC-M3-4 gate).
+      // long as both adapters agree on the sentinel.
       const params: SqlParam[] = [
         e.from,
         e.to,
@@ -498,10 +495,10 @@ export class GraphDbStore implements IGraphStore {
     if (!this.pool) {
       throw new Error("graph-db: query called before open()");
     }
-    // Refuse write keywords so the user surface stays read-only. A full
-    // Cypher-guard lands in AC-M3-5; this minimal deny-list matches the
-    // DuckDB backend's assertReadOnlySql approach and trips every write
-    // verb the native binding accepts.
+    // Refuse write keywords so the user surface stays read-only. The
+    // full Cypher-guard lives in `cypher-guard.ts`; this call mirrors
+    // the DuckDB backend's `assertReadOnlySql` approach and trips every
+    // write verb the native binding accepts.
     assertReadOnlyCypher(sql);
     const timeoutMs = opts?.timeoutMs ?? this.defaultTimeoutMs;
     return this.pool.query(sql, params, { timeoutMs });
@@ -593,7 +590,7 @@ export class GraphDbStore implements IGraphStore {
   }
 
   // --------------------------------------------------------------------------
-  // Typed finders — AC-A-6 service-layer foundation
+  // Typed finders — service-layer foundation
   // --------------------------------------------------------------------------
   //
   // Cypher stays LOCAL to this file — never exported. Determinism: node
@@ -1410,7 +1407,7 @@ export class GraphDbStore implements IGraphStore {
   }
 
   // --------------------------------------------------------------------------
-  // execCypher — IGraphStore optional escape hatch (AC-A-1)
+  // execCypher — IGraphStore optional escape hatch
   // --------------------------------------------------------------------------
 
   /**

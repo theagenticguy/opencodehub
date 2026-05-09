@@ -1,5 +1,5 @@
 /**
- * Tests for the framework-labelled file tree (AC-M5-4 — item 3/9).
+ * Tests for the framework-labelled file tree (item 3/9).
  *
  * Covers:
  *   - A. Determinism: two consecutive calls return deep-equal output.

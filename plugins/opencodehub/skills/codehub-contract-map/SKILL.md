@@ -14,7 +14,7 @@ Standalone group-only skill. Renders `group_contracts` into a Markdown + Mermaid
 ## Preconditions
 
 1. A `<group-name>` positional argument is required. If missing or if `mcp__opencodehub__group_list` does not return the name, refuse with:
-   `Contract map requires a named group — run 'codehub group list' to see registered groups.` (Spec 001 AC-3-4.)
+   `Contract map requires a named group — run 'codehub group list' to see registered groups.`
 2. `mcp__opencodehub__group_status({group})` must return `fresh: true` for every member. If any member is stale, abort and name each stale repo.
 
 ## Arguments
@@ -32,8 +32,8 @@ Default output path:
 1. Run the preconditions. Refuse on missing/unknown group.
 2. `mcp__opencodehub__group_list` — confirm `<group-name>` exists; read member list.
 3. `mcp__opencodehub__group_status({group})` — confirm freshness per member. Abort with named stale repos otherwise.
-4. `mcp__opencodehub__group_contracts({group})` — the spine. Returns `{consumerRepo, consumerRepoUri, consumerSymbol, producerRepo, producerRepoUri, producerRoute, method, path}` per row (legacy `consumerRepo`/`producerRepo` are the registry names; the `*RepoUri` siblings are the Sourcegraph-style cross-repo handle added in AC-M6-4 and are the preferred handle going forward).
-5. If `group_contracts` returns `[]` (zero inter-repo contracts): still write the artifact with a `No inter-repo contracts detected` banner and an empty matrix. Do not error. (Spec 001 AC-5-5.)
+4. `mcp__opencodehub__group_contracts({group})` — the spine. Returns `{consumerRepo, consumerRepoUri, consumerSymbol, producerRepo, producerRepoUri, producerRoute, method, path}` per row (legacy `consumerRepo`/`producerRepo` are the registry names; the `*RepoUri` siblings are the Sourcegraph-style cross-repo handle and are the preferred handle going forward).
+5. If `group_contracts` returns `[]` (zero inter-repo contracts): still write the artifact with a `No inter-repo contracts detected` banner and an empty matrix. Do not error.
 6. `mcp__opencodehub__group_query({group, text: "api handlers"})` — disambiguate producer-side locations.
 7. For each member repo: `mcp__opencodehub__route_map({repo})` for handler-path citations.
 8. Build the consumer/producer matrix: rows = producers, columns = consumers, cell = contract count.

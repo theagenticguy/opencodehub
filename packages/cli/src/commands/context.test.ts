@@ -1,8 +1,8 @@
 /**
  * Tests for `codehub context` CLI command.
  *
- * Post AC-A-6e the command consumes the composed `Store` envelope and
- * routes graph reads through `store.graph.<typed-finder>`. The fake
+ * The command consumes the composed `Store` envelope and routes graph
+ * reads through `store.graph.<typed-finder>`. The fake
  * below implements just the finders `runContext` calls
  * (`listNodes`, `listNodesByName`, `listEdgesByType`, `traverse`,
  * `search`, `close`) over an in-memory fixture, so the tests stay tied

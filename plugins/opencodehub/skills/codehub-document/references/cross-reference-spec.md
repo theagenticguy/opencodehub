@@ -27,12 +27,12 @@ The assembler scans only between backtick pairs — never raw prose.
 6. **Append** a `## See also` footer to every doc with ≥ 1 sibling. Use Markdown reference-style links, not inline URLs.
 7. **Group mode**: for every `cross-repo/*.md` file, additionally append `## See also (other repos in group)` listing relative paths into sibling repos' generated docs (e.g., `../../billing/.codehub/docs/reference/public-api.md`).
 8. **Dedup** sibling paths across both footer sections.
-9. **Strip** any YAML frontmatter blocks on generated docs and record a `frontmatter_removed: [<path>]` entry in `.docmeta.json` (per spec AC-5-3).
+9. **Strip** any YAML frontmatter blocks on generated docs and record a `frontmatter_removed: [<path>]` entry in `.docmeta.json`.
 10. **Write** `README.md` (landing page with the "Prose is LLM-generated; structure is graph-derived" disclaimer) and `.docmeta.json` (schema below).
 
 ## `.docmeta.json` schema
 
-The file carries a `schema_version` integer. **v2 is the current schema** (ships with AC-M6-3); v1 files on disk remain readable — the orchestrator lazily upgrades them on the next regeneration by re-running Phase E and writing v2. v2 adds one new field — `cross_repo_links[]` — populated in group mode from the `group_cross_repo_links` MCP tool. All v1 fields carry through unchanged.
+The file carries a `schema_version` integer. **v2 is the current schema**; v1 files on disk remain readable — the orchestrator lazily upgrades them on the next regeneration by re-running Phase E and writing v2. v2 adds one new field — `cross_repo_links[]` — populated in group mode from the `group_cross_repo_links` MCP tool. All v1 fields carry through unchanged.
 
 ```json
 {

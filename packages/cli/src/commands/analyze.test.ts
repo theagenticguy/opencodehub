@@ -163,7 +163,7 @@ test("resolveSummariesEnabled: explicit --no-summaries turns it off", () => {
   assert.equal(resolveSummariesEnabled(false, {}), false);
 });
 
-test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=1 kills the phase (SUM-S-001)", () => {
+test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=1 kills the phase", () => {
   assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "1" }), false);
 });
 
@@ -182,7 +182,7 @@ test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=0 does not kill the phas
 });
 
 // ---------------------------------------------------------------------------
-// Dirty-tree bypass on the analyze fast-path (T-M1-1 / EARS requirement).
+// Dirty-tree bypass on the analyze fast-path.
 // ---------------------------------------------------------------------------
 
 test("checkFastPath: dirty working tree bypasses the fast-path even when HEAD matches", async () => {

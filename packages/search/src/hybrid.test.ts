@@ -45,8 +45,8 @@ class StubStore implements IGraphStore {
   vectorQueries: VectorQuery[] = [];
   /**
    * Fixture File-node rows the zoom path resolves through `listNodesByKind('File')`.
-   * The pre-AC-A-6d shape captured raw `{id, file_path}` query rows; the
-   * post-migration shape is the typed FileNode contract — `id` + `filePath`.
+   * The pre-typed-finder shape captured raw `{id, file_path}` query
+   * rows; the typed shape is the FileNode contract — `id` + `filePath`.
    */
   fileNodes: FileNode[] = [];
   /** Captured `listNodesByKind` calls so tests can assert tier + filter shape. */

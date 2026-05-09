@@ -137,7 +137,7 @@ async function runParse(
   );
 
   // Partition the candidates by provider kind. Regex-provider languages
-  // (currently only `cobol` via T-M4-5) bypass the worker pool entirely —
+  // (currently only `cobol`) bypass the worker pool entirely —
   // they carry no tree-sitter grammar, so the content-addressed parse
   // cache, the piscina worker, the unified-query evaluator, and the
   // three-tier resolver chain are all skipped. The regex handler lower
@@ -612,7 +612,7 @@ async function runParse(
     }
   }
 
-  // ---- Regex-provider dispatch: COBOL (T-M4-5). -------------------------
+  // ---- Regex-provider dispatch: COBOL. ----------------------------------
   //
   // COBOL files bypass the tree-sitter worker pool entirely. `parseCobolFile`
   // returns `CobolElement` records that we map to `CodeElement` graph nodes

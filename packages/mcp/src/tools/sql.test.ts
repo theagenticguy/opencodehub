@@ -30,9 +30,8 @@ import { registerSqlTool } from "./sql.js";
 
 /**
  * Captured call to `temporal.exec()` (SQL path) or `graph.execCypher()`
- * (Cypher path). The original test recorded "store.query" — post AC-A-6c
- * the SQL path routes through `temporal.exec()` and the Cypher path
- * routes through `graph.execCypher()`.
+ * (Cypher path). The SQL path routes through `temporal.exec()` and the
+ * Cypher path routes through `graph.execCypher()`.
  */
 interface ExecCall {
   readonly statement: string;
@@ -405,12 +404,11 @@ test("sql: cypher read path tolerates an unknown keyword that is NOT a write ver
 });
 
 test("sql: cypher timeout_ms is forwarded to store.query opts", async () => {
-  // The original test asserted the SQL `timeout_ms` was forwarded to a
-  // `query()` call's third arg. Post AC-A-6c the SQL path routes through
-  // `temporal.exec(sql, params, { timeoutMs })`. The tool currently does
-  // NOT forward `timeout_ms` to the cypher path — `execCypher` only
-  // accepts (statement, params). To preserve test intent we exercise the
-  // SQL path here and assert the `opts.timeoutMs` plumbing.
+  // The SQL path routes through `temporal.exec(sql, params,
+  // { timeoutMs })`. The tool currently does NOT forward `timeout_ms`
+  // to the cypher path — `execCypher` only accepts (statement, params).
+  // To preserve test intent we exercise the SQL path here and assert
+  // the `opts.timeoutMs` plumbing.
   await withHarness(
     {
       rows: [{ x: 1 }],

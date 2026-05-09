@@ -1,5 +1,5 @@
 /**
- * Tests for the findings BOM body (AC-M5-5 — item 8/9).
+ * Tests for the findings BOM body (item 8/9).
  *
  * Covers:
  *   - A. Determinism across two consecutive calls.

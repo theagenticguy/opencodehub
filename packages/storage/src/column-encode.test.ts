@@ -1,11 +1,10 @@
 /**
  * Unit tests for `./column-encode.ts` — every encoder and every sentinel.
  *
- * The hoist is a pure refactor (AC-A-2); these tests pin the helper-level
- * contracts so a future edit to `column-encode.ts` cannot silently change
- * behaviour without tripping a focused failure here. The cross-adapter
- * round-trip is covered by `graph-hash-parity.test.ts`; this file owns the
- * unit-level shape.
+ * These tests pin the helper-level contracts so a future edit to
+ * `column-encode.ts` cannot silently change behaviour without tripping
+ * a focused failure here. The cross-adapter round-trip is covered by
+ * `graph-hash-parity.test.ts`; this file owns the unit-level shape.
  */
 
 import assert from "node:assert/strict";
@@ -187,8 +186,8 @@ test("frameworksJsonOrNull: legacy flat shape when frameworksDetected is absent/
   assert.equal(frameworksJsonOrNull([], undefined), "[]");
 });
 
-test("frameworksJsonOrNull: returns null when both flat and detected are absent (AC-A-7)", () => {
-  // AC-A-7 fix: nodes that never declared `frameworks` (every kind except
+test("frameworksJsonOrNull: returns null when both flat and detected are absent", () => {
+  // Nodes that never declared `frameworks` (every kind except
   // ProjectProfile in practice) must store SQL NULL — otherwise the
   // public-interface parity rebuilder re-attaches a spurious
   // `frameworks: []` field and graphHash byte-identity breaks across the

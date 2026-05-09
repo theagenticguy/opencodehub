@@ -1,5 +1,5 @@
 /**
- * Tests for the xrefs BOM body (AC-M5-5 — item 6/9).
+ * Tests for the xrefs BOM body (item 6/9).
  *
  * Covers:
  *   - A. Determinism across two consecutive calls.

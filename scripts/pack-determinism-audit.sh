@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/pack-determinism-audit.sh — shell-level pack determinism gate (AC-M5-8).
+# scripts/pack-determinism-audit.sh — shell-level pack determinism gate.
 #
 # Runs `codehub code-pack` twice against the same repo with identical args,
 # then `diff -r`'s the two output directories. PASS = byte-identical;
@@ -8,7 +8,7 @@
 # This is the shell-level companion to `packages/pack/src/pack-determinism.test.ts`.
 # The TS test pins the in-memory generatePack contract; this script pins the
 # real CLI binary against a real DuckStore — together they cover both layers
-# of the U2 invariant.
+# of the byte-identity invariant.
 #
 # Usage:
 #   bash scripts/pack-determinism-audit.sh              # uses repo root
@@ -46,7 +46,7 @@ OUT_A="$TMP/pack-a"
 OUT_B="$TMP/pack-b"
 
 # Run the CLI twice with identical args. The two output dirs MUST match
-# byte-for-byte (U2 / E-M5-3).
+# byte-for-byte.
 node "$CLI" code-pack "$REPO" \
   --budget 50000 \
   --tokenizer "openai:o200k_base@tiktoken-0.8.0" \

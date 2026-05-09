@@ -121,7 +121,7 @@ export async function resolveRepo(
   let entry: RegistryEntry | undefined;
   let resolvedName: string | undefined;
 
-  // `repo_uri` wins when both are provided (per AC-M6-2 §5).
+  // `repo_uri` wins when both are provided.
   if (repoUri !== undefined) {
     const wanted = normalizeRepoUri(repoUri);
     for (const key of names) {
@@ -189,10 +189,10 @@ function normalizeResolveArg(arg: ResolveRepoArg): {
  * Build the structured AMBIGUOUS_REPO error with a `choices[]` payload
  * derived from registry entries.
  *
- * TODO(M7 / AC-M6-1): once `RepoNode` lands in core-types and the registry
- * is reshaped to expose `default_branch` + `group`, switch this to pull
- * those fields from the node instead of defaulting to `null`. For now
- * they're placeholders so the wire shape is stable.
+ * Once the registry is reshaped to expose `default_branch` + `group`
+ * from the persisted RepoNode, switch this to pull those fields from
+ * the node instead of defaulting to `null`. For now they're
+ * placeholders so the wire shape is stable.
  */
 function buildAmbiguousError(
   registry: Record<string, RegistryEntry>,
@@ -227,8 +227,9 @@ function buildAmbiguousError(
  *   - Else, fall back to `local:<sha256(path)[:12]>` so two local repos
  *     with colliding short names still have distinct URIs.
  *
- * M7 will replace this with the registry-backed RepoNode.repo_uri once
- * AC-M6-1 lands. Kept deterministic so tests can assert exact values.
+ * Future work will replace this with the registry-backed
+ * RepoNode.repo_uri. Kept deterministic so tests can assert exact
+ * values.
  */
 export function deriveRepoUri(entry: RegistryEntry): string {
   if (entry.name.includes("/")) return entry.name;

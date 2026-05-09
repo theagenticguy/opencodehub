@@ -716,7 +716,7 @@ describe("parsePhase (cache key determinism)", () => {
   });
 });
 
-describe("parsePhase — COBOL regex hot path (T-M4-5)", () => {
+describe("parsePhase — COBOL regex hot path", () => {
   let repo: string;
 
   beforeEach(async () => {

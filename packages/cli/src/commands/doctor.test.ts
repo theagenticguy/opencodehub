@@ -119,9 +119,9 @@ test("embedder weights check reports ok when fp32 weights present", async () => 
   }
 });
 
-// DOC-E-002 — the int8 file on disk is `model_int8.onnx` (underscore),
-// per `embedder/src/paths.ts:49`. The doctor check must use the same
-// spelling; a hyphen-vs-underscore mismatch is how this historically
+// The int8 file on disk is `model_int8.onnx` (underscore), per
+// `embedder/src/paths.ts:49`. The doctor check must use the same spelling;
+// a hyphen-vs-underscore mismatch is how this historically
 // false-negative'd.
 test("embedder weights check reports ok when int8 weights present (underscore filename)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-emb-int8-"));
@@ -141,9 +141,9 @@ test("embedder weights check reports ok when int8 weights present (underscore fi
   }
 });
 
-// DOC-E-002 (negative control) — the old hyphenated `model-int8.onnx`
-// must NOT count as a match. If it did, we'd silently accept a stale
-// artefact the embedder can't actually load.
+// Negative control — the old hyphenated `model-int8.onnx` must NOT count
+// as a match. If it did, we'd silently accept a stale artefact the
+// embedder can't actually load.
 test("embedder weights check reports warn when only hyphenated int8 file is present", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-emb-hyphen-"));
   try {
@@ -160,7 +160,7 @@ test("embedder weights check reports warn when only hyphenated int8 file is pres
   }
 });
 
-// DOC-E-001 — the tree-sitter and duckdb checks resolve from the CLI's own
+// The tree-sitter and duckdb checks resolve from the CLI's own
 // node_modules first, then fall back to --repoRoot. In a workspace install
 // the CLI's own resolution context already sees the dependencies (hoisted
 // or otherwise), so passing a non-existent --repoRoot should still succeed
@@ -198,10 +198,10 @@ test("native-binding checks tolerate a missing --repoRoot fallback (workspace in
   }
 });
 
-// DOC-E-001 (wiring) — runDoctor should thread `repoRoot` through
-// DoctorOptions so the --repoRoot CLI flag has a visible effect on check
-// construction. We don't need to actually execute the checks — just
-// confirm the override is accepted and the report still comes back.
+// Wiring — runDoctor should thread `repoRoot` through DoctorOptions so the
+// --repoRoot CLI flag has a visible effect on check construction. We don't
+// need to actually execute the checks — just confirm the override is
+// accepted and the report still comes back.
 test("runDoctor accepts --repoRoot override via DoctorOptions", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-reporoot-"));
   try {

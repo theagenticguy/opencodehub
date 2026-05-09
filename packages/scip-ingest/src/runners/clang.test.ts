@@ -1,5 +1,5 @@
 /**
- * Tests for the scip-clang adapter (AC-M4-1).
+ * Tests for the scip-clang adapter.
  *
  * Coverage mirrors the other adapter contracts:
  *   1. `buildCommand("clang", ...)` shell shape matches scip-clang v0.4.0:

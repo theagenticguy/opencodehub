@@ -1,5 +1,5 @@
 /**
- * Repo-node phase (AC-M6-1) — emits one first-class `RepoNode` per graph.
+ * Repo-node phase — emits one first-class `RepoNode` per graph.
  *
  * Runs after the `profile` phase so we can inherit `ProjectProfileNode.languages`
  * when deriving `languageStats`. Probes three git endpoints via
@@ -10,14 +10,13 @@
  *
  * All probes fail-safe: when git is absent, the repo is not a git working
  * tree, or the command exits non-zero, the phase returns a deterministic
- * `local:<sha256(abs-path)[:12]>` handle (S-M6-1). The phase never throws on
- * git failures — it downgrades to the local-only shape.
+ * `local:<sha256(abs-path)[:12]>` handle. The phase never throws on git
+ * failures — it downgrades to the local-only shape.
  *
  * `indexTime` is populated inside this phase but is explicitly kept out of
- * graphHash determinism inputs by the spec (W-M6-1) — graphHash hashes the
- * node verbatim, so callers that need fixture-stable hashes must freeze
- * `indexTime` at the fixture level or omit the phase from the determinism
- * gate.
+ * graphHash determinism inputs — graphHash hashes the node verbatim, so
+ * callers that need fixture-stable hashes must freeze `indexTime` at the
+ * fixture level or omit the phase from the determinism gate.
  */
 
 import { execFile } from "node:child_process";
@@ -102,8 +101,8 @@ export const defaultGitProbe: GitProbe = {
 /**
  * Fixed sentinel used when we can't resolve a deterministic per-commit
  * timestamp. Anchored to the Unix epoch so it clearly signals "unknown" and
- * carries NO run-to-run variance — this is the core of W-M6-1's determinism
- * guarantee when the phase runs outside a git working tree.
+ * carries NO run-to-run variance — this preserves graphHash determinism when
+ * the phase runs outside a git working tree.
  */
 const UNKNOWN_INDEX_TIME = "1970-01-01T00:00:00Z";
 
@@ -114,9 +113,10 @@ const UNKNOWN_INDEX_TIME = "1970-01-01T00:00:00Z";
  * unavailable or the repo is not a git working tree.
  *
  * graphHash determinism requires this: `new Date().toISOString()` would
- * inject wall-clock noise into every node, breaking W-M6-1 on any pipeline
- * run where the repo-node phase is active. Pinning to the HEAD commit time
- * gives us "stable per commit" without excluding the field from graphHash.
+ * inject wall-clock noise into every node, breaking determinism on any
+ * pipeline run where the repo-node phase is active. Pinning to the HEAD
+ * commit time gives us "stable per commit" without excluding the field
+ * from graphHash.
  */
 async function probeCommitTime(repoPath: string): Promise<string> {
   const out = await tryGit(repoPath, ["show", "-s", "--format=%cI", "HEAD"]);
@@ -193,7 +193,7 @@ function finalizeRepoUri(host: string, path: string): string | null {
   return `${cleanHost}/${cleanPath}`;
 }
 
-/** `local:<sha256(absolute-path)[:12]>` — the S-M6-1 fallback handle. */
+/** `local:<sha256(absolute-path)[:12]>` — fallback handle when no git remote exists. */
 export function deriveLocalRepoUri(absolutePath: string): string {
   const digest = createHash("sha256").update(absolutePath, "utf8").digest("hex");
   return `local:${digest.slice(0, 12)}`;
@@ -239,7 +239,7 @@ export async function runRepoNodePhase(input: RepoNodePhaseInput): Promise<RepoN
   const id = makeNodeId("Repo", "", "repo");
 
   // `indexTime` must be deterministic per commit — `new Date().toISOString()`
-  // would poison graphHash with wall-clock noise, which W-M6-1 forbids. The
+  // would poison graphHash with wall-clock noise, breaking determinism. The
   // injected `now` override wins when the caller wants a fixture-stable
   // value (tests); otherwise we read the HEAD commit timestamp so two runs
   // at the same commit produce byte-identical RepoNodes.
@@ -289,8 +289,9 @@ export const repoNodePhase: PipelinePhase<RepoNodePhaseOutput> = {
     const out = await runRepoNodePhase({
       repoPath: ctx.repoPath,
       // The pipeline does not yet thread group / visibility / indexer through
-      // PipelineOptions — reserve those for a later AC. For now we surface
-      // deterministic defaults that match the RepoNode interface contract.
+      // PipelineOptions — that wiring lands in a later iteration. For now we
+      // surface deterministic defaults that match the RepoNode interface
+      // contract.
       indexer: `opencodehub@${resolveIndexerVersion()}`,
       detectedLanguages,
     });

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// AC-A-6a — typed-finder tests for both adapters.
+// Typed-finder tests for both adapters.
 //
 // Each finder is exercised against a small fixture loaded into a DuckDbStore.
 // Where the native graph-db binding is available, the same fixture is loaded
@@ -8,8 +8,8 @@
 // results (so the cross-adapter Liskov contract holds for the finder family
 // the same way it does for `listNodes` / `bulkLoad`).
 //
-// Per the AC-A-6a packet anti-goal #1, NO consumer is touched here — the
-// fixtures and assertions live entirely inside `packages/storage`.
+// Fixtures and assertions live entirely inside `packages/storage`; no
+// consumer package is touched here.
 
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -267,10 +267,10 @@ function buildFinderFixture(): { graph: KnowledgeGraph; ids: FixtureIds } {
 
   // FETCHES edge from a consumer Function on the consumer side to the
   // Operation on the producer side. The producer carries a `repo_uri`
-  // matching `repoProducer.repoUri` via the AC-M6-1 column. We synthesize
-  // the cross-repo wiring by adding an Operation node whose `repo_uri`
-  // column will be set after node insertion through the bulkLoad column
-  // encoder.
+  // matching `repoProducer.repoUri` via the persisted Repo column. We
+  // synthesize the cross-repo wiring by adding an Operation node whose
+  // `repo_uri` column will be set after node insertion through the
+  // bulkLoad column encoder.
   g.addEdge({ from: fnFoo, to: op1, type: "FETCHES", confidence: 0.95 });
 
   return {
@@ -647,7 +647,7 @@ test("DuckDb listConsumerProducerEdges returns the FETCHES + Operation join", as
   // those columns NULL on Function/Operation nodes (only Repo nodes carry
   // repo_uri today), so the cross-repo predicate resolves to the empty
   // string for both endpoints. This test confirms the SHAPE of the result
-  // — the full cross-repo join is exercised by the AC-M6-1 / AC-M6-3
+  // — the full cross-repo join is exercised by the cross-repo contract
   // integration suites, which run against repos whose ingestion has
   // populated repo_uri on every node.
   await withDuckStore(async (store) => {

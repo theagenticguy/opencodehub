@@ -239,7 +239,7 @@ function compareDeadSymbol(a: DeadSymbol, b: DeadSymbol): number {
 }
 
 async function fetchSymbols(store: IGraphStore): Promise<readonly SymbolRow[]> {
-  // AC-A-6b: typed `listNodes({kinds: SYMBOL_KINDS})` replaces a `WHERE kind
+  // Typed `listNodes({kinds: SYMBOL_KINDS})` replaces a `WHERE kind
   // IN (...)` raw SELECT. The narrowed kind set guarantees every returned
   // node carries `start_line`/`is_exported` (Function/Method/etc. are all
   // LocatedNodes), so the JS-side coercion is a one-shot cast.
@@ -271,7 +271,7 @@ async function fetchReferrers(
   ids: readonly string[],
 ): Promise<readonly ReferrerRow[]> {
   if (ids.length === 0) return [];
-  // AC-A-6b: typed `listEdges({types, toIds})` replaces a raw `WHERE r.to_id
+  // Typed `listEdges({types, toIds})` replaces a raw `WHERE r.to_id
   // IN (...) AND r.type IN (...)` SELECT joined to nodes. The TS-side join
   // hydrates source-file metadata via `listNodes({ids})`.
   const edges = await store.listEdges({
@@ -301,7 +301,7 @@ async function fetchCommunityMembership(
   ids: readonly string[],
 ): Promise<readonly MembershipRow[]> {
   if (ids.length === 0) return [];
-  // AC-A-6b: typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
+  // Typed `listEdgesByType("MEMBER_OF", {fromIds})` replaces a
   // `WHERE type = 'MEMBER_OF' AND from_id IN (...)` raw SELECT.
   const edges = await store.listEdgesByType("MEMBER_OF", { fromIds: ids });
   const out: MembershipRow[] = [];

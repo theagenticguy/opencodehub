@@ -1,10 +1,10 @@
 /**
- * Round-trip parity tests for {@link GraphDbStore} (spec 004 §AC-M3-3).
+ * Round-trip parity tests for {@link GraphDbStore}.
  *
  * These tests verify that a knowledge graph survives a bulk-load + rebuild
- * cycle byte-identical under `graphHash`. The AC-M3-4 CI gate pairs this
- * with the DuckDbStore round-trip to guarantee cross-backend parity; this
- * file establishes the correctness half.
+ * cycle byte-identical under `graphHash`. A CI gate pairs this with the
+ * DuckDbStore round-trip to guarantee cross-backend parity; this file
+ * establishes the correctness half.
  *
  * Three fixture sizes:
  *   - small: 2 files + 8 functions + 15 edges (mixed DEFINES / CALLS).
@@ -268,7 +268,7 @@ const NODE_COLUMN_MAP: readonly (readonly [string, string, "number" | "string" |
   ["content_hash", "contentHash", "string"],
   ["email_hash", "emailHash", "string"],
   ["email_plain", "emailPlain", "string"],
-  // Repo (AC-M6-1). See graph-hash-parity.test.ts for the parallel mapping.
+  // Repo. See graph-hash-parity.test.ts for the parallel mapping.
   ["origin_url", "originUrl", "string"],
   ["repo_uri", "repoUri", "string"],
   ["default_branch", "defaultBranch", "string"],
@@ -463,7 +463,7 @@ test("every declared edge kind round-trips at least one row", async () => {
   assert.equal(rebuilt, original, "graphHash parity broken for all-kinds fixture");
 });
 
-test("round-trip parity: RepoNode fixture (AC-M6-1 first-class repo entity)", async () => {
+test("round-trip parity: RepoNode fixture (first-class repo entity)", async () => {
   if (!(await hasNativeBinding())) {
     assert.ok(true, "native binding unavailable — skipping round-trip");
     return;
@@ -492,7 +492,7 @@ test("round-trip parity: RepoNode fixture (AC-M6-1 first-class repo entity)", as
   assert.equal(rebuilt, original, "graphHash parity broken for RepoNode fixture");
 });
 
-test("round-trip parity: RepoNode with explicit-null origin / branch / group (S-M6-1)", async () => {
+test("round-trip parity: RepoNode with explicit-null origin / branch / group", async () => {
   if (!(await hasNativeBinding())) {
     assert.ok(true, "native binding unavailable — skipping round-trip");
     return;
@@ -515,11 +515,7 @@ test("round-trip parity: RepoNode with explicit-null origin / branch / group (S-
     languageStats: {},
   } as unknown as GraphNode);
   const { original, rebuilt } = await runRoundTrip(g);
-  assert.equal(
-    rebuilt,
-    original,
-    "graphHash parity broken for RepoNode no-remote fixture (S-M6-1)",
-  );
+  assert.equal(rebuilt, original, "graphHash parity broken for RepoNode no-remote fixture");
 });
 
 test("round-trip is deterministic across independent writes of the same graph", async () => {

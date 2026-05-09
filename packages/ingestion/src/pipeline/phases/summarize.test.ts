@@ -541,7 +541,7 @@ describe("summarizePhase — phase name constant", () => {
   });
 });
 
-describe("summarizePhase — credential soft-fail (SUM-UN-001)", () => {
+describe("summarizePhase — credential soft-fail", () => {
   it("returns skippedReason=no-credentials when the summarizer throws NoCredentialsError", async () => {
     const graph = new KnowledgeGraph();
     const funcId = makeNodeId("Function", "src/a.py", "alpha") as NodeId;
@@ -571,8 +571,8 @@ describe("summarizePhase — credential soft-fail (SUM-UN-001)", () => {
 
     // Fake summarizer whose first call throws a credential-missing error.
     // The phase must convert that into a soft-fail (no rows, no failure
-    // counter) because SUM-UN-001 guarantees analyze stays green for
-    // contributors without AWS credentials.
+    // counter) so analyze stays green for contributors without AWS
+    // credentials.
     const credErr = new Error("Could not load credentials from any providers");
     (credErr as { name: string }).name = "CredentialsProviderError";
     const adapter: SummarizerAdapter = {

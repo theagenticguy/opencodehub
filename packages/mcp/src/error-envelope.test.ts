@@ -56,7 +56,7 @@ test("toolError round-trips AMBIGUOUS_REPO with hint", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-M6-2 — structured AMBIGUOUS_REPO with choices[] + total_matches.
+// Structured AMBIGUOUS_REPO with choices[] + total_matches.
 // ---------------------------------------------------------------------------
 
 test("toolAmbiguousRepoError populates structured fields alongside legacy ones", () => {
@@ -82,7 +82,7 @@ test("toolAmbiguousRepoError populates structured fields alongside legacy ones",
   assert.ok(detail.message.includes("2 repos"));
   assert.ok(detail.hint?.includes("alpha"));
 
-  // New structured contract — AC-M6-2 §5.
+  // Structured contract — error_code + jsonrpc_code + counts.
   assert.equal(detail.error_code, "AMBIGUOUS_REPO");
   assert.equal(detail.jsonrpc_code, -32602);
   assert.equal(detail.total_matches, 2);

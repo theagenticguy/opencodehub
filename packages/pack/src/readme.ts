@@ -1,15 +1,15 @@
 /**
- * BOM body item: README.md with the determinism contract (AC-M5-5 — item 9 partial).
+ * BOM body item: README.md with the determinism contract (item 9 partial).
  *
  * Pure-string renderer; deterministic by construction. The README pastes
- * the M5 determinism contract verbatim and interpolates the manifest's
+ * the determinism contract verbatim and interpolates the manifest's
  * commit / tokenizer / class / pack hash so consumers can verify byte
  * identity without parsing `manifest.json`.
  *
  * Determinism contract:
  *   - Pure function of `manifest` + `bomItemPaths`. No clocks, no random
  *     ids, no environment lookups.
- *   - LF-only line endings (W-M5-4).
+ *   - LF-only line endings.
  *   - `bomItemPaths` is rendered alpha-sorted; the function does NOT
  *     mutate the caller's array.
  */

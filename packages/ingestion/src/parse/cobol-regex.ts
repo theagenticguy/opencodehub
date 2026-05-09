@@ -23,14 +23,14 @@
  *   Columns 73-80 identification (ignored)
  *
  * The default parse path runs at ≤ 1 ms on 1000-line fixtures; a p50
- * regression in that number is a graph-ingestion regression (T-M4-5 SC).
+ * regression in that number is a graph-ingestion regression.
  *
  * ## Anti-goals
  *
  *   - NOT a full parse: `PERFORM ... THRU ... VARYING`, `COPY ... REPLACING
  *     ==tag== BY ==value==`, and nested `EXEC SQL` blocks are all resolved
- *     heuristically. The deep-parse path (ProLeap, T-M4-6) owns the precise
- *     AST.
+ *     heuristically. The deep-parse path (ProLeap, when wired in) owns the
+ *     precise AST.
  *   - NOT free-format aware: the 99% legacy estate is fixed-format;
  *     free-format COBOL (column-0 start) lands with the ProLeap backend.
  *   - NO filesystem I/O, NO subprocesses, NO external deps. The function

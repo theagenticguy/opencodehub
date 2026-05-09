@@ -1,5 +1,5 @@
 /**
- * Tests for the `repo-node` phase (AC-M6-1).
+ * Tests for the `repo-node` phase.
  *
  * Covers:
  *   - RepoNode output shape conforms to the core-types interface.
@@ -142,7 +142,7 @@ describe("runRepoNodePhase", () => {
     assert.equal(repoNode.name, "github.com/acme/example");
   });
 
-  it("falls back to local:<hash> when no origin remote exists (S-M6-1)", async () => {
+  it("falls back to local:<hash> when no origin remote exists", async () => {
     const probe = stubProbe({
       originUrl: async () => null,
       defaultBranch: async () => null,

@@ -1,5 +1,5 @@
 /**
- * Tests for the AST-chunker BOM body (AC-M5-5 — item 5/9).
+ * Tests for the AST-chunker BOM body (item 5/9).
  *
  * Covers:
  *   - A. Determinism on the strict path (mock chonkie that returns fixed chunks).
@@ -108,7 +108,7 @@ test("C. CRLF input yields offsets against the LF-normalized text", async () => 
   const fromCrlf = await buildAstChunks(crlf, { _loadChonkie: makeFakeLoader() });
   const fromLf = await buildAstChunks(lf, { _loadChonkie: makeFakeLoader() });
   // After CRLF→LF the texts are byte-identical, so the chunks must match
-  // byte-for-byte regardless of input line-ending style (W-M5-4).
+  // byte-for-byte regardless of input line-ending style.
   assert.equal(canonicalJson(fromCrlf.chunks), canonicalJson(fromLf.chunks));
   assert.equal(fromCrlf.chunks[0]?.startByte, 0);
   assert.equal(fromCrlf.chunks[0]?.endByte, 4);

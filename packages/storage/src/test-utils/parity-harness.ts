@@ -1,14 +1,13 @@
 /**
- * Public-interface parity harness (architecture-revised.md §AC-A-7).
+ * Public-interface parity harness.
  *
- * Hoists what used to live in `graph-hash-parity.test.ts` as a pair of
- * hand-written per-backend rebuild helpers — each issuing raw SQL or
- * Cypher — into one backend-agnostic rebuilder that uses ONLY public
- * {@link IGraphStore} methods: {@link IGraphStore.listNodes} and
- * {@link IGraphStore.listEdges}.
+ * One backend-agnostic rebuilder that uses ONLY public {@link IGraphStore}
+ * methods: {@link IGraphStore.listNodes} and {@link IGraphStore.listEdges}.
+ * Replaces a pair of hand-written per-backend rebuild helpers — each
+ * issuing raw SQL or Cypher — with a single dialect-free path.
  *
- * After this AC, a community AGE / Memgraph / Neo4j / Neptune adapter can
- * prove conformance by importing {@link assertGraphParity} and running it
+ * A community AGE / Memgraph / Neo4j / Neptune adapter can prove
+ * conformance by importing {@link assertGraphParity} and running it
  * against its own `IGraphStore` implementation — no per-backend SQL
  * dialect required, no escape hatch into `query()` or `execCypher()`.
  *

@@ -55,8 +55,8 @@ import type { EmbedderFactory, ToolContext } from "./shared.js";
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns post AC-A-6c.
- * The same instance backs both `graph` and `temporal` because DuckDbStore
+ * (`OpenStoreResult`) that the connection pool returns. The same
+ * instance backs both `graph` and `temporal` because DuckDbStore
  * implements both interfaces over a single connection in production.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {

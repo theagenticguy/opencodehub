@@ -13,9 +13,9 @@ import { repoUriForEntry } from "../repo-uri-for-entry.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
 
 /**
- * One repo entry as surfaced by `group_list`. `repo_uri` is additive per
- * AC-M6-4 and is the authoritative cross-repo handle going forward; the
- * legacy `name` field stays through M7 so existing consumers keep working.
+ * One repo entry as surfaced by `group_list`. `repo_uri` is the
+ * authoritative cross-repo handle going forward; the legacy `name`
+ * field is additive so existing consumers keep working.
  */
 interface GroupRepoSummary {
   readonly name: string;
@@ -40,7 +40,7 @@ export async function runGroupList(ctx: ToolContext): Promise<ToolResult> {
       const repos: GroupRepoSummary[] = [];
       for (const r of g.repos) {
         const entry: RegistryEntry | undefined = registry[r.name];
-        // Prefer the graph-backed RepoNode.repoUri (AC-M6-1) when the repo
+        // Prefer the graph-backed RepoNode.repoUri when the repo
         // is registered; otherwise fall back to deriveRepoUri against a
         // synthetic entry built from the group record so orphan references
         // still receive a stable `local:<hash>`.

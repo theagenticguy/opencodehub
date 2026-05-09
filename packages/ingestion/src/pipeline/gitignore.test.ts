@@ -1,5 +1,5 @@
 /**
- * Nested `.gitignore` regression suite — DET-E-004 and DET-U-003.
+ * Nested `.gitignore` regression suite.
  *
  * Builds a 3-level fixture where each layer either ignores or re-includes
  * paths the parent layer decided. The loader must stack rules from repo

@@ -61,10 +61,10 @@ export async function runGroupSyncTool(ctx: ToolContext, args: GroupSyncArgs): P
     );
     const inputs: SyncRepoInput[] = [];
     const missing: string[] = [];
-    // AC-M6-4: additive per-repo `{name, repo_uri}` rows surfaced in the
-    // structured response so agents that consume `group_sync` can key on
-    // the new handle without re-running `group_list`. Legacy top-level
-    // `repos: string[]` (from `ContractRegistry`) stays intact.
+    // Additive per-repo `{name, repo_uri}` rows surfaced in the
+    // structured response so agents that consume `group_sync` can key
+    // on the new handle without re-running `group_list`. Legacy top-
+    // level `repos: string[]` (from `ContractRegistry`) stays intact.
     const reposWithUri: { readonly name: string; readonly repo_uri: string }[] = [];
     for (const repo of sortedRepos) {
       const hit = registry[repo.name];
@@ -114,7 +114,7 @@ export async function runGroupSyncTool(ctx: ToolContext, args: GroupSyncArgs): P
           crossLinkCount: registryResult.crossLinks.length,
           missingRepos: missing,
           repos: registryResult.repos,
-          // AC-M6-4 additive field — per-repo `{name, repo_uri}` rows.
+          // Additive field — per-repo `{name, repo_uri}` rows.
           reposWithUri,
         },
         next,

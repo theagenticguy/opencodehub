@@ -1,19 +1,20 @@
 /**
- * Tests for the @opencodehub/pack public entry (AC-M5-1 + AC-M5-5).
+ * Tests for the @opencodehub/pack public entry.
  *
- * AC-M5-1 only wired the scaffold — those two tests still pin the public
- * surface (`generatePack` is a function and returns a Promise). AC-M5-5
- * adds end-to-end determinism + payload-shape coverage:
+ * The first block pins the public surface (`generatePack` is a function
+ * and returns a Promise). The E2E tests below cover end-to-end
+ * determinism + payload-shape:
  *
  *   E2E-A. Two consecutive `generatePack` runs against the same fixture
  *          and the same `outDir` produce byte-identical files. The
  *          manifest's `pack_hash` is identical too.
  *   E2E-B. Anthropic tokenizer ids downgrade `determinism_class` to
- *          `best_effort`. (S-M5-2)
+ *          `best_effort`.
  *   E2E-C. The chunker's degraded fallback flips `determinism_class` to
- *          `degraded` even when the tokenizer is non-Anthropic. (S-M5-1)
+ *          `degraded` even when the tokenizer is non-Anthropic.
  *   E2E-D. The expected 9 files (8 BOM bodies + manifest) appear on disk
- *          after a successful run; no Parquet sidecar — that's T-W3-1.
+ *          after a successful run; the Parquet sidecar is owned by a
+ *          separate test variant.
  *   E2E-E. The on-disk manifest's `files[]` lists every BOM item we
  *          wrote (excluding the manifest itself + readme).
  */
@@ -28,7 +29,7 @@ import type { GraphNode } from "@opencodehub/core-types";
 import type { IGraphStore, ITemporalStore, ListNodesOptions, Store } from "@opencodehub/storage";
 import { generatePack } from "./index.js";
 
-describe("@opencodehub/pack public entry (AC-M5-1 scaffold)", () => {
+describe("@opencodehub/pack public entry", () => {
   it("exports generatePack as a function", () => {
     assert.equal(typeof generatePack, "function");
   });
@@ -154,8 +155,8 @@ const COMMON_INTERNAL = {
   duckdbVersion: "1.1.3",
   grammarCommits: { typescript: "b".repeat(40) },
   // Provide a deterministic chonkie loader for the strict path so tests
-  // never depend on the real `@chonkiejs/core` install (the worktree
-  // native-binding lesson — onnxruntime-node may not rebuild cleanly).
+  // never depend on the real `@chonkiejs/core` install (worktree native
+  // bindings such as onnxruntime-node may not rebuild cleanly).
   chonkieLoader: async () => ({
     version: "0.0.9",
     CodeChunker: {
@@ -182,11 +183,11 @@ async function runFixture(
     },
     {
       ...COMMON_INTERNAL,
-      // AC-A-4 widened the seam to `Store`, but tests that don't exercise
-      // the sidecar can still pass a graph-only store via `graphOnly`.
-      // generatePack auto-wraps it into a Store with backend: "duck" and
-      // a no-op temporal — the sidecar's COPY-helper probe finds nothing
-      // and resolves to absent (S-M5-3).
+      // The seam accepts a composed `Store`, but tests that don't
+      // exercise the sidecar can still pass a graph-only store via
+      // `graphOnly`. generatePack auto-wraps it into a Store with
+      // backend: "duck" and a no-op temporal — the sidecar's COPY-helper
+      // probe finds nothing and resolves to absent.
       graphOnly: makeFixtureStore(),
       chunkerFiles: FIXTURE_FILES,
       ...internalOverrides,
@@ -283,7 +284,7 @@ test("E2E-D. expected 9 files appear on disk after a run; no Parquet sidecar", a
     ]) {
       assert.ok(names.has(n), `missing BOM file: ${n}`);
     }
-    // No Parquet sidecar — T-W3-1 owns it.
+    // No Parquet sidecar in this variant — covered by a dedicated test.
     for (const n of names) {
       assert.ok(!n.endsWith(".parquet"), `unexpected Parquet file: ${n}`);
     }
@@ -330,7 +331,7 @@ test("E2E-F. production store path throws cleanly when no internal store provide
         budgetTokens: 64,
         tokenizerId: "openai:o200k_base@0.8.0",
       }),
-      /AC-M5-7/,
+      /production store lookup is wired by the CLI/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -338,7 +339,7 @@ test("E2E-F. production store path throws cleanly when no internal store provide
 });
 
 // ---------------------------------------------------------------------------
-// AC-M5-6 — sidecar wiring. The fixture store does not implement
+// Sidecar wiring. The fixture store does not implement
 // `exportEmbeddingsParquet`, so the sidecar resolves to `absent: true`; the
 // manifest must therefore NOT list `embeddings.parquet` and the file must
 // NOT exist on disk. When the store DOES implement the export hook, the
@@ -357,7 +358,7 @@ test("E2E-G. sidecar absent — manifest.files[] does not list embeddings.parque
     const entries = await readdir(dir);
     assert.ok(
       !entries.includes("embeddings.parquet"),
-      "absent sidecar must not produce a file on disk (S-M5-3)",
+      "absent sidecar must not produce a file on disk",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -368,10 +369,10 @@ test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides
   const dir = await tempDir();
   try {
     // Inject a Store whose graph view duck-types the @internal COPY
-    // helper. AC-A-4's `writeEmbeddingsSidecar` narrows on
-    // `backend === "duck"` and finds the helper attached to the graph
-    // view. The fake writes 4 magic bytes ("PAR1") to the path so we
-    // can verify the hash round-trips into manifest.files[].
+    // helper. `writeEmbeddingsSidecar` narrows on `backend === "duck"`
+    // and finds the helper attached to the graph view. The fake writes
+    // 4 magic bytes ("PAR1") to the path so we can verify the hash
+    // round-trips into manifest.files[].
     const baseStore = makeFixtureStore() as unknown as Record<string, unknown>;
     baseStore["exportEmbeddingsParquet"] = async (absPath: string) => {
       await (await import("node:fs/promises")).writeFile(

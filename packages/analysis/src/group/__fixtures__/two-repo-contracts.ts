@@ -1,5 +1,5 @@
 /**
- * Synthetic 2-repo cross-repo-contracts fixture (AC-M6-5 quickcheck).
+ * Synthetic 2-repo cross-repo-contracts quickcheck fixture.
  *
  * Models a producer/consumer pair across two repos in the same group:
  *   - `api-svc`   — HTTP route producer + gRPC service producer
@@ -18,9 +18,9 @@
  *      consumer to producer; consumer_of points from producer to consumer)
  *   4. Two runs on the same input are byte-identical (determinism contract)
  *
- * All `repo_uri` values follow the Sourcegraph host/path scheme codified
- * by AC-M6-1 (`packages/core-types/src/nodes.ts:524-552`) — see ADR 0012
- * for the rationale.
+ * All `repo_uri` values follow the Sourcegraph host/path scheme — see
+ * `packages/core-types/src/nodes.ts` for the typed RepoNode and ADR
+ * 0012 for the rationale.
  */
 
 import type { ComputeCrossRepoLinksOpts } from "../cross-repo-links.js";

@@ -71,8 +71,8 @@ const RELATION_KINDS: readonly string[] = [
 ];
 
 /**
- * Exported for AC-M3-3/4 round-trip tests so they can compare against the
- * same source of truth as the DDL emitter.
+ * Exported for the round-trip parity tests so they can compare against
+ * the same source of truth as the DDL emitter.
  */
 export function getAllRelationTypes(): readonly string[] {
   return RELATION_KINDS;
@@ -203,17 +203,15 @@ export function generateSchemaDdl(opts: GraphDbSchemaOptions = {}): string {
   PRIMARY KEY (id)
 )`);
 
-  // AC-A-1 — Cochange + SymbolSummary NODE TABLEs deleted. The graph
-  // adapter never stored cochange / symbol-summary data; the M3+M6
-  // reframe (AC-A-3) routes those rows to a paired DuckDB-backed
-  // ITemporalStore on every deployment, so the Cypher schema no longer
-  // needs to declare them.
+  // Cochange + SymbolSummary live exclusively on the paired DuckDB-backed
+  // ITemporalStore — the graph adapter never stores those rows, so the
+  // Cypher schema does not declare them.
   // -------------------------------------------------------------------------
-  // Rel tables — one per edge kind. FROM/TO is CodeNode on both sides; an
-  // AC-M3-3 follow-up may narrow the endpoints per kind once the node-kind
-  // split lands. We DO NOT emit a single CodeRelation rel table with a type
-  // column — that defeats the predicate push-down the graph-db gives us (spec
-  // 004 §Architectural decisions #1).
+  // Rel tables — one per edge kind. FROM/TO is CodeNode on both sides;
+  // a future schema revision may narrow the endpoints per kind once the
+  // node-kind split lands. We DO NOT emit a single CodeRelation rel
+  // table with a type column — that defeats the predicate push-down the
+  // graph-db gives us.
   // -------------------------------------------------------------------------
   for (const kind of RELATION_KINDS) {
     statements.push(`CREATE REL TABLE IF NOT EXISTS ${kind} (

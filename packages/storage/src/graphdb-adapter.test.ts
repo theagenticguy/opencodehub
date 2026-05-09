@@ -55,14 +55,14 @@ test("GraphDbStore honours option overrides", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Surface separation (AC-A-1): cochange + symbol-summary methods removed
+// Surface separation: cochange + symbol-summary methods live on ITemporalStore
 // ---------------------------------------------------------------------------
 
 test("GraphDbStore no longer exposes cochange or symbol-summary methods", () => {
-  // Per AC-A-1 the temporal surface (cochanges + symbol summaries) lives
-  // exclusively on `ITemporalStore`; `GraphDbStore` is graph-only and
-  // does not even declare these names. The runtime check guards against
-  // accidental re-introduction of the merged shape.
+  // The temporal surface (cochanges + symbol summaries) lives exclusively
+  // on `ITemporalStore`; `GraphDbStore` is graph-only and does not even
+  // declare these names. The runtime check guards against accidental
+  // re-introduction of the merged shape.
   const s = new GraphDbStore("/tmp/graph.db");
   const removed: readonly string[] = [
     "bulkLoadCochanges",
@@ -76,7 +76,7 @@ test("GraphDbStore no longer exposes cochange or symbol-summary methods", () => 
     assert.equal(
       typeof (s as unknown as Record<string, unknown>)[name],
       "undefined",
-      `GraphDbStore must not expose ${name} after AC-A-1`,
+      `GraphDbStore must not expose ${name}`,
     );
   }
   // NotImplementedError is still exported for adapter-internal use even
@@ -84,7 +84,7 @@ test("GraphDbStore no longer exposes cochange or symbol-summary methods", () => 
   assert.equal(typeof NotImplementedError, "function");
 });
 
-test("query before open rejects with a clear error (pool-wired in AC-M3-2)", async () => {
+test("query before open rejects with a clear error", async () => {
   const s = new GraphDbStore("/tmp/graph.db");
   await assert.rejects(() => s.query("RETURN 1"), /before open/);
 });
@@ -162,9 +162,9 @@ test("resolveStoreBackend rejects unknown CODEHUB_STORE values", () => {
 
 test("openStore composes a DuckDbStore graph + temporal pair when backend=duck", async () => {
   const store = await openStore({ path: ":memory:", backend: "duck" });
-  // AC-A-1: the duck backend wires BOTH views to the same DuckDbStore
-  // instance. Identity check — not just constructor-name — pins the
-  // single-connection invariant.
+  // The duck backend wires BOTH views to the same DuckDbStore instance.
+  // Identity check — not just constructor-name — pins the single-
+  // connection invariant.
   assert.equal(store.backend, "duck");
   assert.equal(store.graph.constructor.name, "DuckDbStore");
   assert.equal(store.temporal.constructor.name, "DuckDbStore");
@@ -175,10 +175,10 @@ test("openStore composes a DuckDbStore graph + temporal pair when backend=duck",
 });
 
 test("openStore composes GraphDbStore + DuckDbStore pair when backend=lbug", async () => {
-  // AC-A-3 tightens the artifact split: the graph file is renamed to
-  // `graph.lbug` and the temporal file is its sibling `temporal.duckdb`
-  // inside the same directory, regardless of the legacy filename the
-  // caller supplies (typically `<repo>/.codehub/graph.duckdb`).
+  // The graph file is renamed to `graph.lbug` and the temporal file is
+  // its sibling `temporal.duckdb` inside the same directory, regardless
+  // of the legacy filename the caller supplies (typically
+  // `<repo>/.codehub/graph.duckdb`).
   const store = await openStore({ path: "/tmp/och-test/graph.duckdb", backend: "lbug" });
   assert.equal(store.backend, "lbug");
   assert.equal(store.graph.constructor.name, "GraphDbStore");
@@ -188,12 +188,12 @@ test("openStore composes GraphDbStore + DuckDbStore pair when backend=lbug", asy
 });
 
 // ---------------------------------------------------------------------------
-// Integration: createSchema + bulkLoad (AC-M3-3 Commit 1)
+// Integration: createSchema + bulkLoad
 // ---------------------------------------------------------------------------
 //
 // These tests require the native binding. On platforms without the prebuilt
 // `.node` the suite gracefully skips; every one of the code paths still gets
-// exercised by the unit tests above plus the AC-M3-4 round-trip suite.
+// exercised by the unit tests above plus the round-trip suite.
 
 test("createSchema runs the full DDL against a fresh store", async () => {
   if (!(await hasNativeBinding())) {
@@ -377,7 +377,7 @@ test("bulkLoad cycles through every declared edge kind without fault", async () 
 });
 
 // ---------------------------------------------------------------------------
-// Cypher write-guard (AC-M3-3 Commit 2)
+// Cypher write-guard
 // ---------------------------------------------------------------------------
 
 test("assertReadOnlyCypher accepts plain MATCH ... RETURN", () => {
@@ -571,10 +571,9 @@ test("search: BM25 index finds a distinct symbol name", async () => {
   }
 });
 
-// NOTE: a real vectorSearch integration test lands in AC-M3-3 Commit 3
-// alongside upsertEmbeddings — the vector query path is already wired here
-// but it needs at least one embedding row to return non-empty results, and
-// upsertEmbeddings is still a stub at this commit.
+// A real vectorSearch integration test lives below alongside
+// upsertEmbeddings — the vector query path needs at least one embedding
+// row to return non-empty results.
 
 test("vectorSearch rejects vectors with the wrong dimension", async () => {
   const store = new GraphDbStore("/tmp/graph-vec-dim.db", { embeddingDim: 4 });
@@ -646,7 +645,7 @@ test("healthCheck returns ok once the pool is open", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration: upsertEmbeddings + listEmbeddingHashes (AC-M3-3 Commit 3)
+// Integration: upsertEmbeddings + listEmbeddingHashes
 // ---------------------------------------------------------------------------
 
 test("upsertEmbeddings dimension mismatch throws without touching the store", async () => {
@@ -1132,7 +1131,7 @@ test("listNodes() cross-adapter parity: DuckStore ≡ GraphDbStore on the shared
 });
 
 // ---------------------------------------------------------------------------
-// v1.0 community-adapter conformance suite (AC-A-11)
+// v1.0 community-adapter conformance suite
 //
 // GraphDb is graph-only; it MUST satisfy every block of the shared v1.0
 // conformance contract. Binding probe is performed once at module load
