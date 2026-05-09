@@ -1,3 +1,16 @@
+min_version: 2.1.6
+assert_lefthook_installed: true
+glob_matcher: doublestar
+
+output:
+  - meta
+  - summary
+  - failure
+  - execution_info
+
+templates:
+  pnpm: pnpm exec
+
 pre-commit:
   parallel: true
   jobs:
@@ -5,18 +18,49 @@ pre-commit:
       glob: "*.{ts,tsx,js,jsx,json,jsonc}"
       run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
+      priority: 1
+      fail_text: "biome check failed — fix the lint errors above, then re-stage."
+
     - name: banned-strings
       run: bash scripts/check-banned-strings.sh
+      glob: "**/*.{ts,tsx,js,jsx,md,yaml,yml,json}"
+      priority: 2
+      fail_text: "banned-strings check failed — see scripts/check-banned-strings.sh."
+
+    - name: pnpm-lock-sync
+      run: "pnpm install --frozen-lockfile --lockfile-only"
+      glob: "{pnpm-lock.yaml,package.json,pnpm-workspace.yaml}"
+      priority: 3
+      fail_text: "pnpm-lock is stale — run 'pnpm install' then re-stage."
 
 commit-msg:
   jobs:
     - name: commitlint
       run: pnpm exec commitlint --edit {1}
+      fail_text: "Commit message is not conventional — see commitlint.config.mjs for rules."
 
 pre-push:
   parallel: true
   jobs:
     - name: typecheck
       run: pnpm -r exec tsc --noEmit
+      skip:
+        - merge
+        - rebase
+      files: "git diff --name-only @{push} HEAD || git diff --name-only HEAD~"
+      fail_text: "tsc --noEmit failed — run 'mise run typecheck' to reproduce."
+
     - name: test
       run: pnpm -r test
+      skip:
+        - merge
+        - rebase
+      files: "git diff --name-only @{push} HEAD || git diff --name-only HEAD~"
+      fail_text: "tests failed — run 'mise run test' locally before pushing."
+
+    - name: verdict
+      run: "{pnpm} codehub verdict --base origin/main --head HEAD --exit-code"
+      skip:
+        - merge
+        - rebase
+      fail_text: "codehub verdict failed — run 'mise run och:self-verdict' locally to reproduce."
