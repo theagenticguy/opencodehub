@@ -1,59 +1,67 @@
+# Release Please.
+#
+# Runs on every push to main. release-please reads conventional commits
+# since the last tag and either updates an existing release PR or opens a
+# new one. When that PR is merged, release-please cuts the tag and
+# publishes a GitHub release.
+#
+# Trigger model split:
+#
+#   push:main          -> release-please.yml         (this file: open/update PR)
+#   pull_request       -> pre-release-gate.yml       (block merge if scans fail)
+#   release:published  -> release.yml                (build, SBOM, sign, attest)
+#   workflow_call      -> release.yml                (inline fallback below)
+#
+# Why the inline fallback: the default GITHUB_TOKEN does NOT fire downstream
+# `release: [published]` events. Without a `RELEASE_PLEASE_PAT` configured,
+# release.yml would silently never run on the natural release flow. Calling
+# it directly via `workflow_call` after `release_created` is true makes the
+# pipeline correct regardless of the token type. See
+# `.erpaval/solutions/conventions/release-published-event-needs-pat-or-inline.md`
+# and docs/RELEASE.md.
+
 name: Release Please
 
 on:
   push:
     branches: [main]
 
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+# Top-level least-privilege; the release-please job opts into the writes
+# it needs explicitly. (Scorecard Token-Permissions)
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create release branch + cut release/tag
+      pull-requests: write  # open/update the release PR
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5
         id: release
         with:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - uses: actions/checkout@v6
-        if: ${{ steps.release.outputs.release_created }}
-        with:
-          fetch-depth: 0
-
-      - uses: jdx/mise-action@v4
-        if: ${{ steps.release.outputs.release_created }}
-
-      - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created }}
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        if: ${{ steps.release.outputs.release_created }}
-        run: pnpm -r build
-
-      - name: Analyze repo
-        if: ${{ steps.release.outputs.release_created }}
-        run: pnpm exec node packages/cli/dist/index.js analyze .
-
-      - name: Generate code-pack
-        if: ${{ steps.release.outputs.release_created }}
-        run: pnpm exec node packages/cli/dist/index.js code-pack . --budget 100000 --tokenizer "openai:o200k_base@tiktoken-0.8.0" --out-dir /tmp/pack
-
-      - name: Tar code-pack
-        if: ${{ steps.release.outputs.release_created }}
-        run: tar -czf opencodehub-pack.tar.gz -C /tmp/pack .
-
-      - uses: actions/upload-artifact@v7
-        if: ${{ steps.release.outputs.release_created }}
-        with:
-          name: opencodehub-pack
-          path: opencodehub-pack.tar.gz
-
-      - name: Attach code-pack to release
-        if: ${{ steps.release.outputs.release_created }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.release.outputs.tag_name }}" opencodehub-pack.tar.gz --clobber
+  # When release-please cut a release, hand off to release.yml. Calling
+  # it via `workflow_call` (instead of relying on `release: published`)
+  # bypasses the default-GITHUB_TOKEN downstream-event suppression rule.
+  release:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
