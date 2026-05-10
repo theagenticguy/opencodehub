@@ -118,6 +118,10 @@ export default defineConfig({
           autogenerate: { directory: "start-here" },
         },
         {
+          label: "Agents",
+          autogenerate: { directory: "agents" },
+        },
+        {
           label: "User Guide",
           autogenerate: { directory: "guides" },
         },
