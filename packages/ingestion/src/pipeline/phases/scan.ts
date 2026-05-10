@@ -188,25 +188,24 @@ async function walk(repoRoot: string, relDir: string, p: WalkParams): Promise<vo
     if (!entry.isFile()) continue;
 
     const absPath = path.join(absDir, name);
-    let stat: import("node:fs").Stats;
-    try {
-      stat = await fs.stat(absPath);
-    } catch (err) {
-      p.onWarn(`scan: cannot stat ${absPath}: ${(err as Error).message}`);
-      continue;
-    }
-
-    if (stat.size > p.byteCapPerFile) {
-      p.onWarn(`scan: skipping ${relPath} (${stat.size} bytes > cap ${p.byteCapPerFile})`);
-      continue;
-    }
-
+    // Open once and stat through the handle so the size check and the read
+    // operate on the same file descriptor — eliminates the TOCTOU window
+    // (js/file-system-race) that a path-based `stat` then `readFile` opens.
     let buf: Buffer;
+    let handle: import("node:fs").promises.FileHandle | undefined;
     try {
-      buf = await fs.readFile(absPath);
+      handle = await fs.open(absPath, "r");
+      const stat = await handle.stat();
+      if (stat.size > p.byteCapPerFile) {
+        p.onWarn(`scan: skipping ${relPath} (${stat.size} bytes > cap ${p.byteCapPerFile})`);
+        continue;
+      }
+      buf = await handle.readFile();
     } catch (err) {
       p.onWarn(`scan: cannot read ${absPath}: ${(err as Error).message}`);
       continue;
+    } finally {
+      if (handle !== undefined) await handle.close().catch(() => undefined);
     }
 
     if (looksBinary(buf)) continue;

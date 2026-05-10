@@ -18,9 +18,16 @@ import type { Contract, ContractType } from "./types.js";
 /** Normalize a URL template so `:id`, `{id}`, trailing slashes collapse. */
 export function normalizeHttpPath(raw: string): string {
   const trimmed = raw.trim();
-  const noQuery = trimmed.replace(/\?.*$/, "");
+  // Strip a query string with a non-regex `indexOf` — `\?.*$` would walk
+  // every '?' on inputs like '????????' and burn polynomial time.
+  const q = trimmed.indexOf("?");
+  const noQuery = q >= 0 ? trimmed.slice(0, q) : trimmed;
   const braces = noQuery.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}");
-  const noTrailing = braces.replace(/\/+$/, "");
+  // Strip trailing slashes character-by-character to avoid `\/+$` cost on
+  // pathological input.
+  let end = braces.length;
+  while (end > 0 && braces.charCodeAt(end - 1) === 47 /* '/' */) end -= 1;
+  const noTrailing = braces.slice(0, end);
   if (noTrailing.length === 0) return "/";
   return noTrailing.startsWith("/") ? noTrailing : `/${noTrailing}`;
 }
@@ -62,8 +69,13 @@ const PY_METHOD_DECORATOR_RE = new RegExp(
   `@\\s*[A-Za-z_][A-Za-z0-9_]*\\.(${JS_HTTP_VERBS})\\s*\\(\\s*['"]([^'"]+)['"]`,
   "g",
 );
+// `[^'"]{1,256}` and `[^\]]{1,256}` cap the path and methods literals at 256
+// characters to bound worst-case regex work. Real-world Flask/FastAPI route
+// strings stay well under that cap, and the alternative — an open-ended
+// `+` — is what triggered js/polynomial-redos on inputs like
+// `@A.route("!",methods=[\\\\...`.
 const PY_ROUTE_DECORATOR_RE =
-  /@\s*[A-Za-z_][A-Za-z0-9_]*\.route\s*\(\s*['"]([^'"]+)['"](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?/g;
+  /@\s*[A-Za-z_][A-Za-z0-9_]*\.route\s*\(\s*['"]([^'"]{1,256})['"](?:\s*,\s*methods\s*=\s*\[([^\]]{1,256})\])?/g;
 
 /** Python `requests.get('/url', ...)`. */
 const PY_REQUESTS_RE = new RegExp(

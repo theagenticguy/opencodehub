@@ -193,11 +193,7 @@ function relaxedToJson(literal: string): string | undefined {
     if (ch === "'") {
       const end = findStringEnd(literal, i, 0x27);
       if (end === -1) return undefined;
-      const inner = literal
-        .slice(i + 1, end)
-        .replace(/\\'/g, "'")
-        .replace(/"/g, '\\"');
-      out += `"${inner}"`;
+      out += `"${jsSingleQuotedToJsonInner(literal.slice(i + 1, end))}"`;
       i = end + 1;
       continue;
     }
@@ -235,6 +231,68 @@ function relaxedToJson(literal: string): string | undefined {
     }
     out += ch ?? "";
     i += 1;
+  }
+  return out;
+}
+
+/**
+ * Translate the *inside* of a JS single-quoted string literal into the
+ * inside of a JSON double-quoted string literal, character by character:
+ *
+ *   - `\'` (a JS-only escape) becomes `'` — not legal inside a JSON
+ *     double-quoted string.
+ *   - JSON-recognized escapes (`\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`,
+ *     `\t`, `\uXXXX`) pass through unchanged.
+ *   - Any other `\X` JS escape that JSON does not understand has its
+ *     leading backslash doubled so the parser sees the literal characters.
+ *   - A bare `"` is escaped to `\"`.
+ *
+ * The character-by-character pass replaces a chained `replace()` sequence
+ * that doubled every `\` and broke valid escapes like `\n`. Without the
+ * pass, an input containing `\"` would have produced malformed JSON —
+ * the js/incomplete-sanitization defect.
+ */
+function jsSingleQuotedToJsonInner(inner: string): string {
+  const JSON_SIMPLE_ESCAPE = /^["\\/bfnrt]$/;
+  const HEX = /^[0-9a-fA-F]$/;
+  let out = "";
+  for (let i = 0; i < inner.length; i += 1) {
+    const ch = inner[i];
+    if (ch === "\\") {
+      const next = inner[i + 1] ?? "";
+      if (next === "'") {
+        // JS-only escape — drop the backslash, keep the quote.
+        out += "'";
+        i += 1;
+        continue;
+      }
+      if (JSON_SIMPLE_ESCAPE.test(next)) {
+        // Pass `\\`, `\"`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t` through.
+        out += `\\${next}`;
+        i += 1;
+        continue;
+      }
+      if (
+        next === "u" &&
+        HEX.test(inner[i + 2] ?? "") &&
+        HEX.test(inner[i + 3] ?? "") &&
+        HEX.test(inner[i + 4] ?? "") &&
+        HEX.test(inner[i + 5] ?? "")
+      ) {
+        out += inner.slice(i, i + 6);
+        i += 5;
+        continue;
+      }
+      // Unknown JS escape (e.g. `\x41`, `\0`) or a stray backslash —
+      // double it so the literal `\` survives the JSON parser.
+      out += "\\\\";
+      continue;
+    }
+    if (ch === '"') {
+      out += '\\"';
+      continue;
+    }
+    out += ch;
   }
   return out;
 }

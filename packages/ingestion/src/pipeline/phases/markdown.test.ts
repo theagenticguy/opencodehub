@@ -133,8 +133,17 @@ describe("markdownPhase", () => {
     const refs = [...ctx.graph.edges()].filter((e) => e.type === "REFERENCES");
     // README -> docs/guide.md (intro + Usage), README -> docs/api.md, guide.md -> README.md.
     assert.ok(refs.length >= 3);
-    // External link should not have produced a reference.
-    const externalMatches = refs.filter((e) => (e.to as string).includes("example.com"));
+    // External link should not have produced a reference. Match the exact
+    // host with `URL` parsing rather than `.includes("example.com")`, which
+    // a crafted host like `example.com.evil.test` would slip past
+    // (js/incomplete-url-substring-sanitization).
+    const externalMatches = refs.filter((e) => {
+      try {
+        return new URL(e.to as string).hostname === "example.com";
+      } catch {
+        return false;
+      }
+    });
     assert.equal(externalMatches.length, 0);
   });
 

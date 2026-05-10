@@ -1,0 +1,351 @@
+# OpenCodeHub Release pipeline.
+#
+# Triggered when a release-please tag is published. Builds every package,
+# generates a CycloneDX SBOM, runs the OCH self-scan + analyze + code-pack
+# against the released SHA, signs every artifact with Sigstore cosign
+# (keyless / OIDC), generates SLSA Level 3 provenance, and attaches every
+# artifact + signature + provenance bundle to the GitHub release.
+#
+# Trigger model:
+#
+#   release: types: [published]
+#     Fires when a release-please-cut release is published. Note: the
+#     default GITHUB_TOKEN does NOT fire downstream `release: published`
+#     events. To make this path work in the natural release-please flow,
+#     either (a) configure `RELEASE_PLEASE_PAT` for release-please-action
+#     so the publish identity is a real user, or (b) rely on the
+#     `workflow_call` invocation below from release-please.yml. See
+#     docs/RELEASE.md and `.erpaval/solutions/conventions/
+#     release-published-event-needs-pat-or-inline.md`.
+#
+#   workflow_call (with `tag` input)
+#     release-please.yml invokes this workflow inline after a successful
+#     `release_created`, so the artifact pipeline runs even when no PAT
+#     is configured.
+#
+#   workflow_dispatch (with `tag` input)
+#     Manual hotfix / re-build path documented in docs/RELEASE.md.
+#
+# Every job anchors to the released commit SHA so SBOM, attestations, and
+# signatures all reference a single immutable hash.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build artifacts for (must already be created as a release)."
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re)build artifacts for. Must already exist as a release."
+        required: true
+        type: string
+
+# A release is anchored to one tag. Cancelling in-progress runs on the
+# same tag avoids two builds racing to upload assets.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: true
+
+# Top-level: read-only. Per-job grants escalate where strictly required.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 0. Resolve the tag + commit SHA we're releasing. Every downstream job
+  #    threads `needs.resolve.outputs.sha` so SBOM, attestations, and
+  #    signatures all reference one immutable hash.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve release tag + SHA
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      sha: ${{ steps.t.outputs.sha }}
+    steps:
+      - id: t
+        env:
+          EVT_TAG: ${{ github.event.release.tag_name }}
+          IN_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${EVT_TAG:-}" ]; then
+            TAG="$EVT_TAG"
+          elif [ -n "${IN_TAG:-}" ]; then
+            TAG="$IN_TAG"
+          else
+            echo "no tag in event payload or inputs" >&2
+            exit 1
+          fi
+          # Resolve tag -> commit SHA via the GitHub API.
+          REF_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")
+          SHA=$(echo "$REF_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['object']['sha'])")
+          TYPE=$(echo "$REF_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['object']['type'])")
+          # Annotated tag object -> dereference to the underlying commit.
+          if [ "$TYPE" = "tag" ]; then
+            SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${SHA}" --jq '.object.sha')
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved $TAG -> $SHA"
+
+  # ---------------------------------------------------------------------------
+  # 1. Build packages, generate SBOM, run OCH self-scan, build code-pack.
+  #    All on the released SHA. Outputs a single artifact bundle that the
+  #    sign / attest / upload jobs consume.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build, SBOM, code-pack
+    needs: resolve
+    runs-on: ubuntu-latest
+    outputs:
+      pack-sha256: ${{ steps.hashes.outputs.pack }}
+      sbom-sha256: ${{ steps.hashes.outputs.sbom }}
+      sarif-sha256: ${{ steps.hashes.outputs.sarif }}
+      hashes-b64: ${{ steps.hashes.outputs.b64 }}
+    steps:
+      - name: Checkout released SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Provision toolchain (mise)
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm -r build
+
+      - name: Analyze repository (OCH self-index)
+        run: pnpm exec node packages/cli/dist/index.js analyze .
+
+      - name: Self-scan (writes .codehub/scan.sarif)
+        run: pnpm exec node packages/cli/dist/index.js scan .
+
+      - name: Generate code-pack
+        run: |
+          pnpm exec node packages/cli/dist/index.js code-pack . \
+            --budget 100000 \
+            --tokenizer "openai:o200k_base@tiktoken-0.8.0" \
+            --out-dir /tmp/pack
+
+      - name: Tar code-pack
+        run: tar -czf opencodehub-pack.tar.gz -C /tmp/pack .
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          npx -y @cyclonedx/cdxgen@11 \
+            -t pnpm \
+            -o SBOM.cdx.json \
+            --spec-version 1.5 \
+            -p
+
+      - name: Stage artifact bundle
+        run: |
+          mkdir -p artifacts
+          cp opencodehub-pack.tar.gz artifacts/
+          cp SBOM.cdx.json artifacts/
+          if [ -f .codehub/scan.sarif ]; then
+            cp .codehub/scan.sarif artifacts/och-scan.sarif
+          fi
+          ls -la artifacts/
+
+      # Compute per-file SHA-256 once. Reused by:
+      #   - the SLSA generator's base64-subjects input,
+      #   - the cosign sign-blob job for transparency,
+      #   - the operator's runbook verification commands.
+      - name: Compute artifact SHA-256 hashes
+        id: hashes
+        run: |
+          set -euo pipefail
+          cd artifacts
+          PACK=$(sha256sum opencodehub-pack.tar.gz | awk '{print $1}')
+          SBOM=$(sha256sum SBOM.cdx.json | awk '{print $1}')
+          SARIF=""
+          if [ -f och-scan.sarif ]; then
+            SARIF=$(sha256sum och-scan.sarif | awk '{print $1}')
+          fi
+          echo "pack=$PACK" >> "$GITHUB_OUTPUT"
+          echo "sbom=$SBOM" >> "$GITHUB_OUTPUT"
+          echo "sarif=$SARIF" >> "$GITHUB_OUTPUT"
+          # base64-encoded sha256sum-formatted lines for slsa-github-generator.
+          if [ -f och-scan.sarif ]; then
+            B64=$(sha256sum opencodehub-pack.tar.gz SBOM.cdx.json och-scan.sarif | base64 -w0)
+          else
+            B64=$(sha256sum opencodehub-pack.tar.gz SBOM.cdx.json | base64 -w0)
+          fi
+          echo "b64=$B64" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-artifacts
+          path: artifacts/
+          retention-days: 30
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 2. SLSA Level 3 provenance.
+  #
+  #    The SLSA generator is a reusable workflow. Reusable workflows MUST
+  #    be referenced by a release tag (the SLSA project signs each release
+  #    and the trusted-builder model hashes the workflow at the referenced
+  #    tag); SHA pinning short-circuits SLSA's own trust model. This is
+  #    the documented exception to repo-wide SHA pinning. See
+  #    https://github.com/slsa-framework/slsa-github-generator#referencing-slsa-builders-and-generators
+  # ---------------------------------------------------------------------------
+  provenance:
+    name: SLSA L3 provenance
+    needs: [resolve, build]
+    permissions:
+      id-token: write       # mint OIDC token for the trusted builder
+      contents: write       # generator can attach .intoto.jsonl to the release
+      actions: read         # required by slsa-verifier inside the generator
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes-b64 }}
+      upload-assets: true
+      upload-tag-name: ${{ needs.resolve.outputs.tag }}
+      provenance-name: opencodehub-${{ needs.resolve.outputs.tag }}.intoto.jsonl
+
+  # ---------------------------------------------------------------------------
+  # 3. Cosign keyless signing of every artifact.
+  #
+  #    Sigstore keyless flow: the workflow's OIDC token authenticates to
+  #    Fulcio, Fulcio mints a short-lived cert bound to the workflow's
+  #    identity, cosign signs the artifact, the signature + cert + Rekor
+  #    log entry land in a `.sig.bundle` file. No long-lived secrets.
+  # ---------------------------------------------------------------------------
+  sign:
+    name: Sign artifacts (cosign keyless)
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write       # required for OIDC -> Fulcio
+      contents: write       # required to upload .sig.bundle to the release
+    steps:
+      - name: Download artifact bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@1aa8e0f2454b781fbf0fbf306a4c9533a0c57409  # v3.7.0
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: Sign each artifact (keyless, bundle format)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for f in opencodehub-pack.tar.gz SBOM.cdx.json och-scan.sarif; do
+            if [ -f "$f" ]; then
+              echo "Signing $f"
+              cosign sign-blob --yes \
+                --bundle "$f.sig.bundle" \
+                "$f"
+            fi
+          done
+          ls -la
+
+      - name: Upload signed bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-artifacts-signed
+          path: artifacts/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach artifacts + signatures to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for f in \
+            opencodehub-pack.tar.gz \
+            opencodehub-pack.tar.gz.sig.bundle \
+            SBOM.cdx.json \
+            SBOM.cdx.json.sig.bundle \
+            och-scan.sarif \
+            och-scan.sarif.sig.bundle; do
+            if [ -f "$f" ]; then
+              gh release upload "$TAG" "$f" --clobber
+            fi
+          done
+
+  # ---------------------------------------------------------------------------
+  # 4. Upload SARIF to GitHub code-scanning at the released SHA so
+  #    findings are linked to the tag, not only to `main`.
+  # ---------------------------------------------------------------------------
+  publish-sarif:
+    name: Publish OCH self-scan SARIF
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Download artifact bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Upload SARIF to code scanning
+        if: hashFiles('artifacts/och-scan.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9887d98ae49f1f598651b556d8c8f02f3ea065cb  # codeql-bundle-v2.25.4
+        with:
+          sarif_file: artifacts/och-scan.sarif
+          category: opencodehub-release
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          sha: ${{ needs.resolve.outputs.sha }}
+
+  # ---------------------------------------------------------------------------
+  # 5. npm publish (DRY-RUN ONLY).
+  #
+  #    Gated by the `OCH_NPM_PUBLISH_ENABLED` repo variable (default
+  #    unset = disabled) until @opencodehub/* packages flip to public on
+  #    npm. When that happens: set the variable to `true`, configure the
+  #    OIDC trust relationship for npmjs.org provenance, and drop the
+  #    `--dry-run` from `pnpm -r publish`. Provenance ties the npm
+  #    release back to the same SLSA attestation generated above.
+  # ---------------------------------------------------------------------------
+  npm-publish:
+    name: npm publish (gated, dry-run scaffolding)
+    # Gated until @opencodehub/* packages flip to public on npm. The gate
+    # is a vars-based feature flag rather than a literal `if: false` so
+    # actionlint accepts it; flipping the repo / org variable
+    # `OCH_NPM_PUBLISH_ENABLED=true` is the single switch to enable.
+    if: vars.OCH_NPM_PUBLISH_ENABLED == 'true'
+    needs: [resolve, build, sign, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # required for npm publish --provenance
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - name: Publish (dry-run)
+        run: pnpm -r publish --provenance --access public --no-git-checks --dry-run
