@@ -13,6 +13,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm -r build
+
+      - name: Analyze repo
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm exec node packages/cli/dist/index.js analyze .
+
+      - name: Generate code-pack
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm exec node packages/cli/dist/index.js code-pack . --budget 100000 --tokenizer "openai:o200k_base@tiktoken-0.8.0" --out-dir /tmp/pack
+
+      - name: Tar code-pack
+        if: ${{ steps.release.outputs.release_created }}
+        run: tar -czf opencodehub-pack.tar.gz -C /tmp/pack .
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          name: opencodehub-pack
+          path: opencodehub-pack.tar.gz
+
+      - name: Attach code-pack to release
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.release.outputs.tag_name }}" opencodehub-pack.tar.gz --clobber
