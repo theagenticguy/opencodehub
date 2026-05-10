@@ -3,6 +3,10 @@ dist/
 .tsbuildinfo
 *.tsbuildinfo
 
+# Astro / Starlight build artifacts (packages/docs/)
+.astro/
+packages/docs/dist/
+
 # Python (eval package)
 .venv/
 __pycache__/
