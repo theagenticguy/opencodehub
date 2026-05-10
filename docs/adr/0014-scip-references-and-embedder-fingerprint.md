@@ -7,9 +7,9 @@
 
 ## Context
 
-Two unrelated holes in v1.0 finalize, both routing through a shared one-time graphHash content delta. They land in a single ADR per spec.md§Q7 because the fixture-regeneration cost is paid once.
+Two unrelated holes in v1.0 finalize, both routing through a shared one-time graphHash content delta. They land in a single ADR because the fixture-regeneration cost is paid once.
 
-### Hole A — Embedder rebuild-on-switch silent corruption (AC-C-3)
+### Hole A — Embedder rebuild-on-switch silent corruption
 
 The `embeddings` table on disk is populated by ONE specific embedder at index time. The currently-shipped store_meta schema (`packages/storage/src/schema-ddl.ts:172-183`) records `schema_version, last_commit, indexed_at, node_count, edge_count, stats_json, cache_hit_ratio, cache_size_bytes, last_compaction` — but NOT which embedder produced the vectors.
 
@@ -17,7 +17,7 @@ Failure mode: an operator runs `codehub analyze` with the local ONNX `gte-modern
 
 There is no test suite that catches this; there is no error envelope at the query path.
 
-### Hole B — SCIP REFERENCES + TYPE_OF unwired (AC-C-5)
+### Hole B — SCIP REFERENCES + TYPE_OF unwired
 
 `packages/scip-ingest/src/derive.ts` already correctly:
 - Emits CALLS edges via `deriveEdges` for function-like SCIP occurrences (`derive.ts:128-152`).
@@ -39,9 +39,9 @@ The combined effect: every existing OCH index understates the call/reference gra
 3. `Store.getMeta()` returns the persisted value via the new `StoreMeta.embedderModelId?: string` field.
 4. At query time (cli `runQuery`, MCP `runQuery`), read `meta.embedderModelId`, compare to `embedder.modelId`:
    - Equal → proceed.
-   - Persisted is `undefined` (pre-AC-C-3 store) → proceed; the operator is trusted to know what they indexed.
+   - Persisted is `undefined` (store written before this ADR) → proceed; the operator is trusted to know what they indexed.
    - Mismatch + force flag set → proceed.
-   - Mismatch + no force flag → refuse. CLI prints to stderr and `process.exit(2)` per E-C-3. MCP returns a `EMBEDDER_MISMATCH` envelope via `toolError` per the same hint string.
+   - Mismatch + no force flag → refuse. CLI prints to stderr and `process.exit(2)`. MCP returns a `EMBEDDER_MISMATCH` envelope via `toolError` using the same hint string.
 5. Frozen remediation hint string lives in `packages/embedder/src/fingerprint.ts` as `EMBEDDER_MISMATCH_HINT`. Both surfaces import it so the message can never drift.
 6. CLI `--force-backend-mismatch` flag and MCP `force_backend_mismatch` tool input give the operator an override path. Default `false`.
 
@@ -64,7 +64,7 @@ The `assertEmbedderCompatible(persistedModelId, currentModelId, force)` helper l
 
 ### Cross-track sequencing
 
-This ADR is shared with AC-C-3 (Hole A) and AC-C-5 (Hole B). They land in the same Track C PR; the fixture regen runs once for both.
+Hole A and Hole B land in the same Track C PR; the fixture regen runs once for both.
 
 ### Migration cost
 
@@ -84,8 +84,8 @@ For Hole B, every existing store needs a `codehub analyze --force` to pick up th
 - **Force re-index on EVERY embedder env-var change.** Too aggressive for SageMaker→ONNX fallbacks during dev. The override flag exists for that case.
 
 ### Hole B
-- **Insert TYPE_OF mid-union next to IMPLEMENTS.** Violates W-A-2 + the `edges.ts:29-32` append-only comment. Would break every existing graphHash on every existing OCH index, even for content with no IMPLEMENTS / TYPE_OF / REFERENCES. Rejected.
-- **Split AC-C-5 into a sibling PR after Track C.** Considered in `pr-split-analysis.md` Option (b). Rejected because the fixture-regeneration cost would be paid twice (once for the v1.0 finalize hash bump that ships SCIP REFERENCES, once for the next ADR adding TYPE_OF). Bundling them is cheaper.
+- **Insert TYPE_OF mid-union next to IMPLEMENTS.** Violates the `edges.ts:29-32` append-only comment. Would break every existing graphHash on every existing OCH index, even for content with no IMPLEMENTS / TYPE_OF / REFERENCES. Rejected.
+- **Split Hole B into a sibling PR after Track C.** Considered and rejected because the fixture-regeneration cost would be paid twice (once for the v1.0 finalize hash bump that ships SCIP REFERENCES, once for the next ADR adding TYPE_OF). Bundling them is cheaper.
 
 ## Validation
 
@@ -98,9 +98,14 @@ For Hole B, every existing store needs a `codehub analyze --force` to pick up th
 
 ## References
 
-- `.erpaval/specs/006-v1-finalize/spec.md§AC-C-3, §AC-C-5, §E-C-3, §E-C-4, §W-A-2`
-- `.erpaval/sessions/session-33f24f/research-detectsecrets-scip.yaml` (SCIP role enum + Relationship message)
-- `.erpaval/solutions/architecture-patterns/scip-callee-definition-site.md`
-- `.erpaval/solutions/conventions/scip-0-indexed-vs-graph-1-indexed.md`
-- `docs/adr/0011-graph-db-backend.md` (M3+M6 IGraphStore precedent)
-- `docs/adr/0013-m7-default-flip-and-abstraction.md` (M7 LadybugDB default flip)
+- `packages/embedder/src/fingerprint.ts` — `assertEmbedderCompatible`,
+  the frozen `EMBEDDER_MISMATCH_HINT` string.
+- `packages/scip-ingest/src/derive.ts` — REFERENCES emission and the
+  `is_implementation`/`is_type_definition` collector.
+- `packages/ingestion/src/pipeline/phases/scip-index.ts` — `emitEdges`
+  and the new `emitRelations` sibling.
+- `packages/core-types/src/edges.ts` — append-only `RelationType`
+  union; `TYPE_OF` lands at position 25.
+- `docs/adr/0011-graph-db-backend.md` — `IGraphStore` precedent.
+- `docs/adr/0013-m7-default-flip-and-abstraction.md` — M7 LadybugDB
+  default flip.

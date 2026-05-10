@@ -1,7 +1,12 @@
 # ADR 0013 — M7 default-flip + storage abstraction (LadybugDB phase-2)
 
-- Status: **Proposed** — 2026-05-09 (flips to **Accepted** on the
-  `feat/v1-finalize-track-a` merge).
+> Note: there is a sibling ADR — `0013-parse-runtime-wasm-default.md` —
+> that landed concurrently and shares the same number. Both are kept
+> in-tree because they were authored in parallel branches and accepted
+> on the same release. The next ADR uses 0014.
+
+- Status: **Accepted** — 2026-05-09 (Proposed) → flipped on the
+  `feat/v1-finalize-track-a` merge (PR #71).
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-finalize-track-a`.
 - Supersedes nothing. Extends ADR 0011 (LadybugDB phase-1) by flipping
@@ -87,7 +92,7 @@ promise. The probe never blocks synchronously and never re-runs.
 
 Track A landed three structural changes that this ADR records.
 
-### Split `IGraphStore` into graph-only + `ITemporalStore` (AC-A-1)
+### Split `IGraphStore` into graph-only + `ITemporalStore`
 
 `packages/storage/src/interface.ts` now exports two interfaces:
 
@@ -105,16 +110,16 @@ interfaces structurally and is returned twice (one connection serves
 both). For the `lbug` backend a `GraphDbStore` backs `graph` and a
 sibling `DuckDbStore` backs `temporal`.
 
-### Hoisted column encoders + sentinel coercions (AC-A-2)
+### Hoisted column encoders + sentinel coercions
 
 `packages/storage/src/column-encode.ts` carries the per-column
 serialization rules previously duplicated in
 `duckdb-adapter.ts:bulkLoad` and `graphdb-adapter.ts:bulkLoad`. The
 hoist resolves the `step: 0` vs `step: null` parity asymmetry (ADR
-0011 §graphHash invariant captured the workaround; AC-A-2 makes it a
-shared encoder so both adapters cannot drift).
+0011 §graphHash invariant captured the workaround; the shared encoder
+prevents the two adapters from drifting).
 
-### Public-interface parity harness + community-adapter conformance suite (AC-A-7, AC-A-11)
+### Public-interface parity harness + community-adapter conformance suite
 
 `packages/storage/src/test-utils/parity-harness.ts` exports
 `rebuildFromStore(graph: IGraphStore): Promise<KnowledgeGraph>` and
@@ -156,25 +161,25 @@ The 2 specialized finders are `loadXrefs(opts)` and
 `loadSkeleton(opts)` — both compose multiple typed finders behind a
 single call to keep the pack layer's I/O contract narrow.
 
-## 108-site SQL migration (AC-A-6 a/b/c/d)
+## 108-site SQL migration
 
 The migration landed in four sub-commits, sequenced sequentially to
 keep each commit reviewable:
 
-| Sub-commit | Package | Sites |
-|---|---|---|
-| AC-A-6a | `analysis/` | 27 |
-| AC-A-6b | `mcp/` | 46 |
-| AC-A-6c | `pack/` + `wiki/` | 15 |
-| AC-A-6d | `cli/` | 20 |
+| Package | Sites |
+|---|---|
+| `analysis/` | 27 |
+| `mcp/` | 46 |
+| `pack/` + `wiki/` | 15 |
+| `cli/` | 20 |
 
 Total: **108 raw-SQL call sites** replaced with typed-finder calls.
 Every migrated tool runs end-to-end on BOTH DuckDb and LadybugDB
 backends (the parity harness is wired into every consumer test).
 `packages/analysis/src/test-utils.ts` was rewritten from a
 DuckDB-dialect regex fake into a typed `IGraphStore` fake that
-implements the finder surface (AC-A-6 sub-task), unblocking the rest
-of the consumer-side migration.
+implements the finder surface, unblocking the rest of the
+consumer-side migration.
 
 ## Dual-artifact detection
 
@@ -203,8 +208,8 @@ identifiers are reserved for out-of-tree adapter packages. The escape
 hatch is:
 
 - A community adapter implements `IGraphStore` directly. The
-  conformance suite (AC-A-11) is the contract: pass it, claim
-  conformance.
+  conformance suite (`packages/storage/src/test-utils/conformance.ts`)
+  is the contract: pass it, claim conformance.
 - The optional `execCypher?(query, params?, opts?)` hook on
   `IGraphStore` lets adapters with a Cypher-native query path expose
   it for the `sql` MCP tool's `cypher` input mode without leaking
@@ -290,20 +295,15 @@ of `@opencodehub/storage` required.
 
 ## Status
 
-- **Proposed**: 2026-05-09 (Track A AC-A-9 commit).
+- **Proposed**: 2026-05-09 (Track A authoring commit).
 - **Accepted**: on merge of `feat/v1-finalize-track-a` → `main` (the PR
-  that ships AC-A-9 alongside AC-A-1 through AC-A-11).
+  that shipped this ADR alongside the rest of Track A's deliverables).
 - **Superseded**: not on the v1.0 roadmap. M8+ may add new edge kinds
   or community-backend extension points; those changes get follow-up
   ADRs.
 
 ## References
 
-- Spec: `.erpaval/specs/006-v1-finalize/architecture-revised.md`
-  §AC-A-1 (interface split), §AC-A-2 (column encoders), §AC-A-3
-  (`ITemporalStore` route), §AC-A-6 (108-SQL migration), §AC-A-7
-  (parity harness), §AC-A-8 (`describeArtifacts`), §AC-A-9 (this ADR
-  + the default flip), §AC-A-11 (conformance suite).
 - Code:
   - `packages/storage/src/interface.ts` — `IGraphStore` + `ITemporalStore`
     type definitions; the typed-finder method surface.
@@ -322,7 +322,8 @@ of `@opencodehub/storage` required.
   - `packages/storage/src/resolver.test.ts` — async resolver +
     dual-artifact detection.
   - `packages/storage/src/graph-hash-parity.test.ts` — graph-hash
-    parity gate (continues to enforce ADR 0011's W-M3-1).
+    parity gate (continues to enforce ADR 0011's byte-identity
+    invariant).
   - `packages/storage/src/temporal-parity.test.ts` — round-trip
     parity for `ITemporalStore` adapters.
   - `packages/storage/src/interface.test.ts` — interface-level
@@ -334,7 +335,7 @@ of `@opencodehub/storage` required.
   - ADR 0011 — LadybugDB phase-1. This ADR is its M7 follow-up.
   - ADR 0012 — Repo as a first-class graph node. The M6 federation
     surface routes through the new typed finders via this ADR's
-    AC-A-6 migration.
+    108-site SQL migration.
 
 ## Provenance
 
@@ -356,15 +357,15 @@ checksums because the two artifacts are written by different engines
 and have different on-disk representations. mtime is the only stable
 signal.
 
-## Empirical evidence — graphHash parity audit (AC-A-10)
+## Empirical evidence — graphHash parity audit
 
 The whole-pipeline parity gate is `scripts/m7-parity-audit.sh`. It runs
 `codehub analyze --force` against the same corpus under
 `CODEHUB_STORE=duck` and `CODEHUB_STORE=lbug`, then compares the
 `graph <hash>` summary line emitted by each invocation. This is the
-end-to-end companion to the in-memory `assertGraphParity` harness
-(AC-A-7); together they pin U1 (graphHash byte-identity) from both
-layers — fixtures and a real on-disk analyze.
+end-to-end companion to the in-memory `assertGraphParity` harness;
+together they pin graphHash byte-identity from both layers — fixtures
+and a real on-disk analyze.
 
 The script is wired into `scripts/acceptance.sh` as gate 17 (the final
 gate). Sample outputs follow.
