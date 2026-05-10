@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/m7-parity-audit.sh — graphHash byte-identity audit across backends (AC-A-10).
+# scripts/m7-parity-audit.sh — graphHash byte-identity audit across backends.
 #
 # Runs `codehub analyze --force` on the same corpus under BOTH:
 #   - `CODEHUB_STORE=duck`  → DuckDB legacy graph store
@@ -7,8 +7,8 @@
 #
 # Then extracts the `graph <hash>` line from each invocation's stderr and
 # asserts byte-identity. This is the whole-pipeline end-to-end companion to
-# the in-memory `assertGraphParity` harness (AC-A-7) — together they pin the
-# U1 (graphHash byte-identity) invariant from BOTH layers: in-memory
+# the in-memory `assertGraphParity` harness — together they pin the
+# graphHash byte-identity invariant from BOTH layers: in-memory
 # fixtures AND a real `codehub analyze` against a real corpus on disk.
 #
 # Usage:
