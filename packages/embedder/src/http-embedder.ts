@@ -191,7 +191,14 @@ async function postEmbedding(
  * connection failure there surfaces as a normal `Error`.
  */
 export function openHttpEmbedder(cfg: HttpEmbedderConfig): Embedder {
-  const baseUrl = cfg.endpointUrl.replace(/\/+$/, "");
+  // Trim trailing slashes character-by-character — `\/+$` would walk
+  // every '/' on inputs like `https://host/////` and burn polynomial
+  // time (js/polynomial-redos).
+  let trimEnd = cfg.endpointUrl.length;
+  while (trimEnd > 0 && cfg.endpointUrl.charCodeAt(trimEnd - 1) === 47 /* '/' */) {
+    trimEnd -= 1;
+  }
+  const baseUrl = cfg.endpointUrl.slice(0, trimEnd);
   // Accept both a bare host (https://host) and a fully-qualified
   // `/v1/embeddings` URL. Only append `/embeddings` when the base does not
   // already end in that segment.

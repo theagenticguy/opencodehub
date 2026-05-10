@@ -69,20 +69,16 @@ export function parseDiffHunks(diff: string): ReadonlyMap<string, readonly Chang
   const out = new Map<string, ChangedHunk[]>();
   let currentFile: string | undefined;
   const lines = diff.split("\n");
+  // Match the "+++ b/<path>" header. Handle the rare "+++ /dev/null" case
+  // (file deleted) by clearing currentFile so subsequent hunks don't land
+  // under a stale path.
+  const plusPlus = /^\+\+\+\s+(?:b\/)?(.+)$/;
   // Hunk header: @@ -OLDSTART[,OLDCOUNT] +NEWSTART[,NEWCOUNT] @@
   const hunkRe = /^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,(\d+))?\s+@@/;
   for (const line of lines) {
-    // Detect the "+++ b/<path>" header without a regex — a leading literal
-    // check + slice avoids polynomial backtracking on lines like
-    // "+++\t\t\t..." that a `\s+` quantifier would chew through.
-    if (line.startsWith("+++ ") || line.startsWith("+++\t")) {
-      // Skip the "+++" prefix and any run of horizontal whitespace.
-      let i = 3;
-      while (i < line.length && (line.charCodeAt(i) === 32 || line.charCodeAt(i) === 9)) {
-        i += 1;
-      }
-      let path = line.slice(i);
-      if (path.startsWith("b/")) path = path.slice(2);
+    const headerMatch = plusPlus.exec(line);
+    if (headerMatch) {
+      const path = headerMatch[1];
       if (path && path !== "/dev/null") {
         currentFile = path;
         if (!out.has(path)) out.set(path, []);
