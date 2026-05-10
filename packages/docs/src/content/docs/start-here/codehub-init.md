@@ -19,12 +19,11 @@ the plugin automatically.
 
 ```bash title="codehub init (from a clean repo)"
 $ codehub init
-codehub init: installed 28 file(s) under .claude/
+codehub init: installed plugin assets under .claude/
 codehub init: wrote hooks to /path/to/repo/.claude/settings.json
 codehub setup (claude-code): wrote MCP entry to /path/to/repo/.mcp.json
 codehub init: appended ".codehub/" to .gitignore
 codehub init: seeded opencodehub.policy.yaml (all rules commented out)
-codehub init: 28 file(s) into .claude/ · .mcp.json (wrote) · .gitignore updated · opencodehub.policy.yaml seeded
 Next: run 'codehub analyze' to build the graph, then restart Claude Code.
 ```
 
@@ -32,30 +31,25 @@ Next: run 'codehub analyze' to build the graph, then restart Claude Code.
 
 ```
 .claude/
-├── agents/                        # 7 agents
-│   ├── code-analyst.md            # pre-existing analysis subagent
-│   ├── doc-architecture.md        # artifact-factory subagents …
-│   ├── doc-reference.md
-│   ├── doc-behavior.md
-│   ├── doc-analysis.md
-│   ├── doc-diagrams.md
-│   └── doc-cross-repo.md          # … group mode only
+├── agents/
+│   └── code-analyst.md            # graph-grounded analysis subagent
 ├── commands/                      # 5 slash commands
 │   ├── probe.md
 │   ├── verdict.md
 │   ├── owners.md
 │   ├── audit-deps.md
 │   └── rename.md
-├── hooks/                         # PostToolUse scripts
+├── hooks/                         # PostToolUse / Stop scripts
 │   ├── augment.sh                 # enriches Bash/Grep/Glob with graph context
 │   └── docs-staleness.sh          # non-blocking "/codehub-document --refresh" hint
-├── settings.json                  # hooks config (project-scope equivalent of user-plugin hooks.json)
-└── skills/                        # 10 skills
-    ├── codehub-document/          # artifact factory skills …
+├── settings.json                  # project-scope hooks config
+└── skills/                        # 11 skills
+    ├── codehub-document/          # artifact factory skills
     ├── codehub-pr-description/
     ├── codehub-onboarding/
     ├── codehub-contract-map/
-    ├── opencodehub-guide/         # … analysis skills
+    ├── codehub-code-pack/
+    ├── opencodehub-guide/         # analysis skills
     ├── opencodehub-exploring/
     ├── opencodehub-impact-analysis/
     ├── opencodehub-debugging/

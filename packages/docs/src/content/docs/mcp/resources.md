@@ -1,6 +1,6 @@
 ---
 title: MCP resources
-description: The seven MCP resources the opencodehub server publishes.
+description: The seven MCP resources the opencodehub server publishes alongside its 29 tools.
 sidebar:
   order: 30
 ---
@@ -22,3 +22,9 @@ data via the corresponding tool.
 
 Each resource returns JSON. Implementations live under
 `packages/mcp/src/resources/`.
+
+Per-repo resources accept the same `repo` (registry name) or
+`repo_uri` (Sourcegraph-style URI) qualifier as the per-repo tools,
+and surface the same `AMBIGUOUS_REPO` envelope when neither is
+provided and more than one repo is registered. See
+[MCP overview](/opencodehub/mcp/overview/) for the resolution rules.
