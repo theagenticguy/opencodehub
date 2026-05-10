@@ -126,7 +126,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace
-        run: pnpm -r build
+        # Skip @opencodehub/docs — its build runs astro + playwright. The
+        # release flow only needs the OCH workspace TS packages built; the
+        # docs build runs on the dedicated `pages.yml` workflow.
+        run: pnpm --filter '!@opencodehub/docs' -r build
 
       - name: Analyze repository (OCH self-index)
         run: pnpm exec node packages/cli/dist/index.js analyze .
@@ -346,6 +349,6 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
+      - run: pnpm --filter '!@opencodehub/docs' -r build
       - name: Publish (dry-run)
-        run: pnpm -r publish --provenance --access public --no-git-checks --dry-run
+        run: pnpm --filter '!@opencodehub/docs' -r publish --provenance --access public --no-git-checks --dry-run
