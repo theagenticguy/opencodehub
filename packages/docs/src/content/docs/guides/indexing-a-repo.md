@@ -14,9 +14,8 @@ root.
 
 The default backend is **LadybugDB** for the graph half +
 **DuckDB** for the temporal sibling. Set `CODEHUB_STORE=duck` to
-force the legacy single-file DuckDB layout. See
-[Storage backend](/opencodehub/architecture/storage-backend/) and
-[Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/).
+force the single-file DuckDB layout. See
+[Storage backend](/opencodehub/architecture/storage-backend/).
 
 ## Basic indexing
 

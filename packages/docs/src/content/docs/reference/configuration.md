@@ -82,9 +82,7 @@ exact files depend on the backend selected at index time.
 | `scan.sarif` | SARIF output from `codehub scan`. |
 
 When both `graph.lbug` and `graph.duckdb` exist as siblings, the
-newer-`mtime` file wins. See [Migrating from
-DuckDB](/opencodehub/guides/migrating-from-duckdb/) for the migration
-recipe.
+newer-`mtime` file wins.
 
 Safe to delete and rebuild at any time via `codehub clean` +
 `codehub analyze`.

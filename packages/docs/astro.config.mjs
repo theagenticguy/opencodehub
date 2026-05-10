@@ -74,7 +74,7 @@ export default defineConfig({
               label: "user-guide",
               paths: ["start-here/**", "guides/**"],
               description:
-                "User-facing pages only: install, quick-start, editor integration guides, group + migration guides.",
+                "User-facing pages only: install, quick-start, editor integration guides, group and indexing guides.",
             },
             {
               label: "agents",

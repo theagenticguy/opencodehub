@@ -112,15 +112,11 @@ commit produce the same hash. The CI parity gate that landed with M7
 asserts this on every PR that touches `packages/storage`.
 
 The implication: a developer can switch backends on a working repo
-without re-indexing, as long as both artifact files exist. See
-[Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/)
-for the recipe.
+without re-indexing, as long as both artifact files exist.
 
 ## See also
 
-- [ADR 0011 — LadybugDB (phase-1)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
-- [ADR 0013 (M7) — Default-flip + interface segregation](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
+- [ADR 0011 — LadybugDB graph backend](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
+- [ADR 0013 — Storage default + interface segregation](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 - [Configuration](/opencodehub/reference/configuration/) — env vars
   and on-disk layout.
-- [Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/)
-  — how to move an existing index.
