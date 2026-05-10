@@ -243,8 +243,11 @@ function renderMarkdownTable(rows: readonly Record<string, unknown>[]): string {
 function formatCell(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "string") {
-    // Escape pipes so the markdown table renders.
-    return v.replace(/\|/g, "\\|").replace(/\n/g, " ");
+    // Escape pipes so the markdown table renders. Escape `\` first so a
+    // pre-existing `\` in the value cannot pair with the appended `\|` to
+    // form `\\|` (which renders as `\` + literal pipe instead of an
+    // escaped pipe — js/incomplete-sanitization).
+    return v.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
   }
   if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
     return String(v);

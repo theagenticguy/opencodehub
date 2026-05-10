@@ -183,13 +183,17 @@ export function extractPropertyAccesses(
   //
   // `(?<![A-Za-z_$\w])` anchors the receiver to a fresh identifier start.
   // Named-capture groups chosen to read naturally at the use site.
+  // Note the `[\w$]` lookbehind: `\w` already covers `[A-Za-z0-9_]`, so
+  // adding `A-Z`/`a-z` to the class would create the suspicious-overlapping
+  // ranges that triggered js/overly-large-range. The `$` is the only
+  // identifier character `\w` doesn't include in JS regex semantics.
   const memberRe = new RegExp(
-    `(?<![A-Za-z_$\\w])(?<receiver>[A-Za-z_$][\\w$]*)\\s*\\??${sep}(?<name>[A-Za-z_$][\\w$]*)`,
+    `(?<![\\w$])(?<receiver>[A-Za-z_$][\\w$]*)\\s*\\??${sep}(?<name>[A-Za-z_$][\\w$]*)`,
     "g",
   );
 
   const subscriptRe =
-    /(?<![A-Za-z_$\w])(?<receiver>[A-Za-z_$][\w$]*)\s*\[\s*(?<quote>['"])(?<name>[A-Za-z_$][\w$]*)\k<quote>\s*\]/g;
+    /(?<![\w$])(?<receiver>[A-Za-z_$][\w$]*)\s*\[\s*(?<quote>['"])(?<name>[A-Za-z_$][\w$]*)\k<quote>\s*\]/g;
 
   // Pre-compile a regex that decides if the substring AFTER a member match
   // begins with an assignment operator. Longest-match-first so `+=` wins

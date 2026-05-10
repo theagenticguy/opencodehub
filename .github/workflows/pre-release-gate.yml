@@ -1,0 +1,141 @@
+# Pre-release gate.
+#
+# This workflow runs on the release-please PR (branches starting with
+# `release-please--`) and adds tag-blocking checks ON TOP of the existing
+# CI / CodeQL / Semgrep / OSV / OCH self-scan / Scorecard suite. The
+# existing scans already attach to every PR via their own workflows; this
+# file does NOT duplicate them. It runs the additional checks that only
+# matter at release time:
+#
+#   - npm-audit at high+ severity
+#   - pnpm lockfile integrity (frozen + no lifecycle scripts)
+#   - detect-secrets full sweep
+#   - license allowlist re-assertion
+#   - aggregate "all checks green" gate that blocks merge if anything failed
+#
+# The aggregator job is the required status check on the release branch.
+# Configure branch protection on `main` to require this job's name (the
+# job key, not the display name) before merging release PRs.
+#
+# Operator runbook: docs/RELEASE.md.
+
+name: Pre-Release Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+concurrency:
+  group: pre-release-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The whole workflow only fires on release-please-authored PRs. We
+  # short-circuit on every other PR via the `if:` on each job so we don't
+  # waste runner minutes; the aggregator below treats "skipped" as pass.
+  npm-audit:
+    name: npm audit (high+)
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - name: Run pnpm audit at high+ severity
+        run: pnpm audit --audit-level=high --prod
+
+  lockfile-integrity:
+    name: pnpm-lock integrity
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      # Frozen + ignore-scripts is the strictest install path: any lockfile
+      # drift, missing entry, or sneaky postinstall fails the job.
+      - name: Install with frozen lockfile and no lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+  detect-secrets:
+    name: detect-secrets full sweep
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install detect-secrets
+        run: pip install --user 'detect-secrets==1.5.0'
+      - name: Sweep tracked tree
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          # The repo already ships .secrets.baseline (per Track B). The
+          # release gate re-asserts that no NEW secrets have crept in.
+          if [ -f .secrets.baseline ]; then
+            detect-secrets scan --baseline .secrets.baseline
+          else
+            detect-secrets scan --all-files > /tmp/scan.json
+            FOUND=$(python3 -c "import json,sys; d=json.load(open('/tmp/scan.json')); n=sum(len(v) for v in d.get('results',{}).values()); print(n)")
+            if [ "$FOUND" != "0" ]; then
+              echo "detect-secrets found $FOUND potential secrets" >&2
+              cat /tmp/scan.json
+              exit 1
+            fi
+          fi
+
+  licenses-reassert:
+    name: License allowlist re-assert
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: license allowlist
+        run: >
+          pnpm exec license-checker-rseidelsohn
+          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD'
+          --excludePrivatePackages
+          --production
+
+  # ---------------------------------------------------------------------------
+  # Aggregator. ALWAYS runs (even on non-release PRs) so the required check
+  # name resolves uniformly. On non-release PRs every dependency is skipped
+  # and the aggregator is a no-op pass. On release PRs every dependency
+  # must succeed.
+  # ---------------------------------------------------------------------------
+  pre-release-gate:
+    name: Pre-release gate (aggregate)
+    needs:
+      - npm-audit
+      - lockfile-integrity
+      - detect-secrets
+      - licenses-reassert
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate dependency results
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS"
+          # Fail if any dependency was failure / cancelled. Skipped is
+          # treated as pass so non-release PRs do not get blocked.
+          FAILED=$(echo "$NEEDS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(','.join(k for k,v in d.items() if v.get('result') in ('failure','cancelled')))")
+          if [ -n "$FAILED" ]; then
+            echo "pre-release gate FAILED: $FAILED" >&2
+            exit 1
+          fi
+          echo "pre-release gate OK"

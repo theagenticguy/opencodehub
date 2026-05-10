@@ -69,5 +69,8 @@ function yaml(value: string): string {
   // Very small YAML scalar quoter: wrap in double quotes if the value
   // contains characters that would confuse a loose YAML parser.
   if (/^[A-Za-z0-9._\-/]+$/.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
+  // Escape `\` first so a literal `\` in the value cannot pair with the
+  // following `"` to form an unintended `\"` escape sequence in the
+  // emitted YAML scalar (js/incomplete-sanitization).
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }

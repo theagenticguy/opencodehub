@@ -880,10 +880,18 @@ function runCommand(
   timeoutMs: number | undefined,
 ): Promise<CommandOutcome> {
   return new Promise((res) => {
+    // `shell: false` is explicit — the cmd + args are passed to the OS
+    // exec call as separate argv entries and never reach a shell parser.
+    // Every `cmd` value is a fixed indexer name (see buildCommand) and
+    // `args` is constructed as an array of literal flags + resolved
+    // paths, so user-controlled path segments cannot inject shell
+    // metacharacters. The explicit `shell: false` is what tells CodeQL
+    // (js/shell-command-*) that this is not a shell invocation.
     const child = spawn(cmd, args as string[], {
       cwd,
       env: { ...process.env, ...envOverlay },
       stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
     });
     let stdout = "";
     let stderr = "";

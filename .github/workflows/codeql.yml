@@ -8,27 +8,31 @@ on:
   schedule:
     - cron: "27 4 * * 3"
 
+# Top-level least-privilege; the analyze job opts into the writes
+# CodeQL needs (security-events) explicitly. (Scorecard Token-Permissions)
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
         language: [javascript-typescript, python]
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/autobuild@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4
+      - uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4
         with:
           category: "/language:${{ matrix.language }}"

@@ -455,7 +455,11 @@ export function shortHash(input: string): string {
 }
 
 export function escapePipe(raw: string): string {
-  return raw.replace(/\|/g, "\\|");
+  // Escape `\` first so a literal `\` in the cell text cannot combine
+  // with the appended `\|` to produce `\\|` (which renders as `\` +
+  // literal pipe and breaks the markdown table — js/incomplete-
+  // sanitization).
+  return raw.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 export function contributorDisplay(c: {

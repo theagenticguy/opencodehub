@@ -358,17 +358,27 @@ function registryPathCheck(home: string): Check {
     name: "registry path",
     async run() {
       const regPath = join(home, ".codehub", "registry.json");
+      // Single attempt: branch on `ENOENT` for the missing-file case so
+      // the existence check and the read share one syscall — closes the
+      // TOCTOU gap flagged by js/file-system-race.
+      let raw: string;
       try {
-        await access(regPath);
-      } catch {
+        raw = await readFile(regPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          return {
+            status: "warn",
+            message: `~/.codehub/registry.json missing`,
+            hint: "run `codehub analyze` in any git repo to create the registry",
+          };
+        }
         return {
-          status: "warn",
-          message: `~/.codehub/registry.json missing`,
-          hint: "run `codehub analyze` in any git repo to create the registry",
+          status: "fail",
+          message: `registry read failed: ${err instanceof Error ? err.message : String(err)}`,
+          hint: "delete ~/.codehub/registry.json and re-run `codehub analyze`",
         };
       }
       try {
-        const raw = await readFile(regPath, "utf8");
         const parsed = JSON.parse(raw) as unknown;
         if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
           return {
@@ -385,7 +395,7 @@ function registryPathCheck(home: string): Check {
       } catch (err) {
         return {
           status: "fail",
-          message: `registry read failed: ${err instanceof Error ? err.message : String(err)}`,
+          message: `registry parse failed: ${err instanceof Error ? err.message : String(err)}`,
           hint: "delete ~/.codehub/registry.json and re-run `codehub analyze`",
         };
       }
