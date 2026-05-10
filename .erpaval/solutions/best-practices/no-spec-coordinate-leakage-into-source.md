@@ -48,11 +48,19 @@ LLM clients then pick up and start citing back; the leakage compounds.
   ("graphHash parity: medium-with-empty-keywords ([] vs absent)") over
   the AC ("AC-C-2: graphHash..."). The behavior survives renames; AC
   numbers don't.
-- **Sweep before commit.** Run `rg -n "AC-[A-Z]-[0-9]" packages/`
+- **Sweep before commit.** Run `rg -n "AC-[A-Z]-[0-9]" packages/ scripts/`
   against your branch before PR-open. Anything that hits is a
   candidate for rephrase. If the comment NEEDS to cite the AC, use a
   short reference at the end like "(AC-C-5)" rather than leading with
   it.
+- **Sweep scope is `packages/` and `scripts/`, NOT `docs/adr/*`.** PR #74
+  (`f09d804`) carved out `docs/adr/*` as the explicit place where
+  coordinates ARE permanent decision rationale. A docs-refresh subagent
+  that sees the sweep regex without the scope qualifier will scrub
+  ADRs by default — DO NOT. Brief docs subagents explicitly that ADR
+  text retains coordinates. See the
+  `parallel-docs-subagent-overscrubs-adrs.md` lesson for the failure
+  mode.
 - **The test fakes are the trap.** When a Wave subagent edits a test
   fake, it tends to add `// AC-XXX: stubs ...` because it's writing
   the comment WITH the AC packet open in front of it. Sweep test files

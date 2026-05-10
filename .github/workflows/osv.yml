@@ -1,10 +1,12 @@
 name: OSV-Scanner
 
+# The push/pull_request runs were moved to `ci.yml`'s `osv` job so the
+# GitHub code-scanning advanced-setup configuration (which is pinned to
+# `ci.yml:osv`) finds them. This standalone workflow keeps the weekly
+# cron + manual dispatch path so OSV advisory-data updates are picked
+# up between PRs.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
   schedule:
     - cron: "33 5 * * 2"
 
