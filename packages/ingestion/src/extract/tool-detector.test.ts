@@ -98,3 +98,12 @@ test("canonicalizeObjectLiteral: handles trailing commas + single quotes", () =>
   const out = canonicalizeObjectLiteral("{ a: 1, b: 'two', }");
   assert.equal(out, '{"a":1,"b":"two"}');
 });
+
+test("canonicalizeObjectLiteral: preserves JS escapes when transcribing", () => {
+  // `\\` (one backslash) should round-trip as one backslash; `\n` should
+  // stay a newline; `\"` inside a single-quoted source should survive as
+  // an escaped quote in the JSON output. These cases failed under the
+  // earlier `replace(/"/g, '\\"')`-only sanitization (CodeQL alert #131).
+  const out = canonicalizeObjectLiteral("{ a: 'a\\\\b', b: 'c\\nd', c: 'e\\\"f' }");
+  assert.equal(out, '{"a":"a\\\\b","b":"c\\nd","c":"e\\"f"}');
+});
