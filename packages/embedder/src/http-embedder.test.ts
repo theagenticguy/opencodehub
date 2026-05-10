@@ -23,6 +23,38 @@ import {
   tryOpenHttpEmbedder,
 } from "./index.js";
 
+/**
+ * Snapshot-and-wipe every `CODEHUB_EMBEDDING_*` env var so tests are
+ * hermetic against an operator shell that exports `*_SAGEMAKER_ENDPOINT`,
+ * `*_URL`, `*_MODEL`, etc. Returns a restorer the caller invokes from
+ * `afterEach` (or a `finally`). Mirrors the existing originalHome pattern
+ * but covers the full `CODEHUB_EMBEDDING_*` namespace, since selection
+ * precedence in `tryOpenHttpEmbedder` checks SageMaker env BEFORE the HTTP
+ * env vars — a leaked `*_SAGEMAKER_ENDPOINT` flips a `null` assertion to
+ * a `Promise<Embedder>` and the case fails.
+ */
+function sanitizeEmbeddingEnv(): () => void {
+  const saved: Record<string, string | undefined> = {};
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith("CODEHUB_EMBEDDING_")) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  }
+  return () => {
+    // Wipe any keys the test set so they do not leak across cases.
+    for (const k of Object.keys(process.env)) {
+      if (k.startsWith("CODEHUB_EMBEDDING_") && !(k in saved)) {
+        delete process.env[k];
+      }
+    }
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+}
+
 /** Build a fetch mock that returns a JSON body with the given embedding. */
 function makeFetchMockOk(embedding: readonly number[]): typeof fetch {
   return async (_url, _init): Promise<Response> => {
@@ -352,26 +384,13 @@ describe("openHttpEmbedder: malformed body", () => {
 // ────────────────────────────────────────────────────────────────────
 
 describe("readHttpEmbedderConfigFromEnv", () => {
-  let originals: Record<string, string | undefined>;
+  let restoreEnv: () => void;
 
   beforeEach(() => {
-    originals = {
-      url: process.env["CODEHUB_EMBEDDING_URL"],
-      model: process.env["CODEHUB_EMBEDDING_MODEL"],
-      dims: process.env["CODEHUB_EMBEDDING_DIMS"],
-      key: process.env["CODEHUB_EMBEDDING_API_KEY"],
-    };
-    delete process.env["CODEHUB_EMBEDDING_URL"];
-    delete process.env["CODEHUB_EMBEDDING_MODEL"];
-    delete process.env["CODEHUB_EMBEDDING_DIMS"];
-    delete process.env["CODEHUB_EMBEDDING_API_KEY"];
+    restoreEnv = sanitizeEmbeddingEnv();
   });
   afterEach(() => {
-    for (const [k, v] of Object.entries(originals)) {
-      const envKey = `CODEHUB_EMBEDDING_${k === "key" ? "API_KEY" : k.toUpperCase()}`;
-      if (v === undefined) delete process.env[envKey];
-      else process.env[envKey] = v;
-    }
+    restoreEnv();
   });
 
   it("returns null when URL or MODEL is unset", () => {
@@ -429,6 +448,15 @@ describe("readHttpEmbedderConfigFromEnv", () => {
 // ────────────────────────────────────────────────────────────────────
 
 describe("openEmbedder factory", () => {
+  let restoreEnv: () => void;
+
+  beforeEach(() => {
+    restoreEnv = sanitizeEmbeddingEnv();
+  });
+  afterEach(() => {
+    restoreEnv();
+  });
+
   it("picks HTTP when endpointUrl is set", async () => {
     const embedder = await openEmbedder({
       endpointUrl: "https://embed.example/v1",
@@ -482,22 +510,13 @@ describe("openEmbedder factory", () => {
 });
 
 describe("tryOpenHttpEmbedder", () => {
-  let originals: Record<string, string | undefined>;
+  let restoreEnv: () => void;
 
   beforeEach(() => {
-    originals = {
-      url: process.env["CODEHUB_EMBEDDING_URL"],
-      model: process.env["CODEHUB_EMBEDDING_MODEL"],
-    };
-    delete process.env["CODEHUB_EMBEDDING_URL"];
-    delete process.env["CODEHUB_EMBEDDING_MODEL"];
+    restoreEnv = sanitizeEmbeddingEnv();
   });
   afterEach(() => {
-    for (const [k, v] of Object.entries(originals)) {
-      const envKey = `CODEHUB_EMBEDDING_${k.toUpperCase()}`;
-      if (v === undefined) delete process.env[envKey];
-      else process.env[envKey] = v;
-    }
+    restoreEnv();
   });
 
   it("returns null when env is not configured", () => {
