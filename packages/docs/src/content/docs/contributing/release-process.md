@@ -77,16 +77,11 @@ Hidden sections still land in git history and still trigger a patch bump
 format: `<package-name>-v<semver>` (e.g. `@opencodehub/cli-v0.4.2`) plus
 a root tag `root-v0.4.2`.
 
-## Breaking changes on 0.x
+## Breaking changes
 
-While OpenCodeHub sits on `0.x.y`, a `feat!` or `BREAKING CHANGE:`
-footer bumps the **minor** version, not the major. That is intentional:
-the 0.x prefix signals "not yet stable" and we want the freedom to break
-things without forcing a 1.0 → 2.0 stampede.
-
-After the first 1.0.0 release, the same signals bump the major version.
-See the breaking-change section in
-[Commit conventions](/opencodehub/contributing/commit-conventions/#breaking-changes-on-0x).
+A `feat!` or `BREAKING CHANGE:` footer bumps the major version. See
+the breaking-change section in
+[Commit conventions](/opencodehub/contributing/commit-conventions/#breaking-changes).
 
 ## What you do when your PR lands
 
