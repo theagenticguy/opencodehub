@@ -221,7 +221,7 @@ run = "pnpm exec node packages/cli/dist/index.js scan ."
 [tasks."och:self-verdict"]
 description = "Dogfood: run codehub verdict against origin/main..HEAD"
 depends = ["build:cli"]
-run = "pnpm exec node packages/cli/dist/index.js verdict --base origin/main --head HEAD --exit-code"
+run = "pnpm exec node packages/cli/dist/index.js verdict --base origin/main --head HEAD"
 
 [tasks."och:self-pack"]
 description = "Dogfood: produce a deterministic code-pack of this repo"

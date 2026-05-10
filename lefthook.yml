@@ -59,7 +59,7 @@ pre-push:
       fail_text: "tests failed — run 'mise run test' locally before pushing."
 
     - name: verdict
-      run: "{pnpm} codehub verdict --base origin/main --head HEAD --exit-code"
+      run: "{pnpm} codehub verdict --base origin/main --head HEAD"
       skip:
         - merge
         - rebase

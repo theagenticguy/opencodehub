@@ -45,7 +45,7 @@ jobs:
       - name: License-tier gate
         id: license
         run: |
-          VERDICT=$(pnpm exec node packages/cli/dist/index.js verdict --json | jq -r '.gates.license_audit // "ALLOW"')
+          VERDICT=$(pnpm exec node packages/cli/dist/index.js verdict --json 2>/dev/null | jq -r '.gates.license_audit // "ALLOW"')
           echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
 
       - name: Open license BLOCK issue
