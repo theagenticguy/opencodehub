@@ -65,7 +65,7 @@ git, every teammate who clones the repo gets the plugin automatically.
 No per-machine install step.
 
 If you prefer the manual path — just the MCP config, no project-scope
-plugin — use the legacy `setup` flow:
+plugin — use `codehub setup`:
 
 ```bash title="manual: MCP config only"
 codehub setup --editors claude-code
@@ -80,9 +80,9 @@ codehub analyze
 `analyze` writes the graph to `.codehub/` under the repo root and
 registers the repo in `~/.codehub/registry.json`. By default the graph
 lands in `.codehub/graph.lbug` (LadybugDB) with `.codehub/temporal.duckdb`
-alongside it; if `@ladybugdb/core` is unavailable the analyze falls
-back to the single-file `.codehub/graph.duckdb` layout. Add
-`--embeddings` to compute semantic vectors for hybrid search, or
+alongside it; if `@ladybugdb/core` cannot load on the current platform,
+analyze falls back to the single-file `.codehub/graph.duckdb` layout.
+Add `--embeddings` to compute semantic vectors for hybrid search, or
 `--offline` to guarantee zero network sockets.
 
 ## 5. Ask the agent

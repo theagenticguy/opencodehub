@@ -5,10 +5,11 @@ sidebar:
   order: 25
 ---
 
-OpenCodeHub's M7 storage layer is two narrow interfaces, two adapters,
+OpenCodeHub's storage layer is two narrow interfaces, two adapters,
 and a probe. The default is LadybugDB for the graph half and DuckDB
-for the temporal half. The legacy single-file DuckDB layout is still
-available as a fallback.
+for the temporal half. A single-file DuckDB layout is available as an
+opt-in fallback for environments where the LadybugDB binding cannot
+load.
 
 ## The interfaces
 
@@ -24,10 +25,10 @@ available as a fallback.
 Splitting the interfaces lets community adapters implement only the
 half they have an engine for. A graph-only Neo4j adapter does not have
 to handle cochange queries; a DuckDB-only deployment does not have to
-implement Cypher. ADR 0013 (M7) describes the call-site refactor that
-made this work — 108 raw-SQL call sites across `analysis/`, `mcp/`,
-`pack/`, `wiki/`, and `cli/` now route through the typed finders on
-the interfaces.
+implement Cypher. ADR 0013 records the call-site refactor that made
+this work — 108 raw-SQL call sites across `analysis/`, `mcp/`,
+`pack/`, `wiki/`, and `cli/` route through the typed finders on the
+interfaces.
 
 ## The two adapters that ship
 
@@ -41,10 +42,10 @@ Two artifacts on disk:
 | `<repo>/.codehub/temporal.duckdb` | Cochanges, symbol-summary cache — everything `ITemporalStore` owns. |
 
 The graph half speaks Cypher natively and stores each edge kind in
-its own physical layout, which is the part of the M7 motivation that
-DuckDB's polymorphic `relations` table could not match.
+its own physical layout — the part of the motivation that DuckDB's
+polymorphic `relations` table could not match.
 
-### Single DuckDB file (legacy / fallback)
+### Single DuckDB file (opt-in fallback)
 
 | File | Holds |
 |---|---|
@@ -108,19 +109,15 @@ ADR 0013 names the four explicitly.
 
 The `graphHash` invariant holds across both adapters. A repo indexed
 into LadybugDB and the same repo indexed into DuckDB at the same
-commit produce the same hash. The CI parity gate that landed with M7
-asserts this on every PR that touches `packages/storage`.
+commit produce the same hash. A CI parity gate asserts this on every
+PR that touches `packages/storage`.
 
 The implication: a developer can switch backends on a working repo
-without re-indexing, as long as both artifact files exist. See
-[Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/)
-for the recipe.
+without re-indexing, as long as both artifact files exist.
 
 ## See also
 
-- [ADR 0011 — LadybugDB (phase-1)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
-- [ADR 0013 (M7) — Default-flip + interface segregation](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
+- [ADR 0011 — LadybugDB graph backend](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
+- [ADR 0013 — Storage default + interface segregation](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 - [Configuration](/opencodehub/reference/configuration/) — env vars
   and on-disk layout.
-- [Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/)
-  — how to move an existing index.

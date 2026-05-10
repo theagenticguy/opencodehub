@@ -14,8 +14,8 @@ can connect to over stdio.
 - **Transport:** stdio (JSON-RPC over stdin/stdout)
 - **Launch command:** `codehub mcp`
 - **Capabilities:** `tools` and `resources`. The server does not
-  advertise `prompts` — the canned-prompts surface was removed in v1
-  in favour of the Claude Code plugin's skills.
+  advertise `prompts` — the canned-prompts surface lives as Claude
+  Code skills shipped by `plugins/opencodehub/` instead.
 - **Tool count:** 29 (registered in `packages/mcp/src/server.ts`)
 
 Clients spawn the `codehub mcp` process and exchange JSON-RPC frames
@@ -93,8 +93,7 @@ Error responses instead carry `isError: true`,
   and metadata. See [tools](/opencodehub/mcp/tools/).
 - **7 resources** — structured views over repos, clusters, and
   processes. See [resources](/opencodehub/mcp/resources/).
-- **0 prompts** — the v1 surface is intentionally empty. The
-  pre-baked playbooks formerly served from `prompts/` now live as
-  Claude Code [skills](/opencodehub/skills/) shipped by
-  `plugins/opencodehub/`. See [prompts](/opencodehub/mcp/prompts/) for
-  the rationale.
+- **0 prompts** — the v1 surface is intentionally empty. Pre-baked
+  playbooks live as Claude Code [skills](/opencodehub/skills/) shipped
+  by `plugins/opencodehub/`. See [prompts](/opencodehub/mcp/prompts/)
+  for the rationale.

@@ -1,6 +1,6 @@
 ---
 title: Cross-repo federation
-description: Repo as a first-class graph node, the group registry, the AMBIGUOUS_REPO envelope, and the M5 / M6 design.
+description: Repo as a first-class graph node, the group registry, the AMBIGUOUS_REPO envelope, and the cross-repo group_* MCP surface.
 sidebar:
   order: 27
 ---

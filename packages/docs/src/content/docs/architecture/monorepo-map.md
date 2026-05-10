@@ -52,7 +52,7 @@ Think of it as two layers:
 Orchestrators import leaves; leaves do not import orchestrators. The
 TypeScript project-references graph enforces this via `tsc --noEmit`.
 
-## Storage — the M7 segregation
+## Storage — interface segregation
 
 `@opencodehub/storage` exposes two narrow interfaces — `IGraphStore`
 (graph workload: nodes, edges, embeddings, multi-hop traversal) and
@@ -63,7 +63,7 @@ adapters implement them:
   artifacts on disk (`graph.lbug` + `temporal.duckdb`), backed by a
   Cypher-emitting dialect for the graph half and DuckDB SQL for the
   temporal half.
-- **Single DuckDB file** — the legacy fallback. One artifact
+- **Single DuckDB file** — the opt-in fallback. One artifact
   (`graph.duckdb`) backs both interfaces.
 
 See [Storage backend](/opencodehub/architecture/storage-backend/) for

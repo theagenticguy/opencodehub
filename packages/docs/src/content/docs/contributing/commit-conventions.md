@@ -93,13 +93,10 @@ Meta-scopes cover cross-cutting changes:
 | `repo`     | Root-level repo files (`.gitignore`, `mise.toml`, etc.)   |
 | `release`  | Release-please-authored PRs only                          |
 
-## Breaking changes on 0.x
+## Breaking changes
 
-OpenCodeHub is pre-1.0. The breaking-change rule is version-dependent:
-
-- **On 0.x:** `feat!` and a `BREAKING CHANGE:` footer both bump the
-  **minor** version (0.4.2 → 0.5.0).
-- **After 1.0.0:** the same signals bump the **major** version.
+A `feat!` and a `BREAKING CHANGE:` footer both bump the **major**
+version.
 
 The `!` form is the short one:
 

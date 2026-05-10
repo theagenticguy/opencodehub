@@ -14,9 +14,8 @@ root.
 
 The default backend is **LadybugDB** for the graph half +
 **DuckDB** for the temporal sibling. Set `CODEHUB_STORE=duck` to
-force the legacy single-file DuckDB layout. See
-[Storage backend](/opencodehub/architecture/storage-backend/) and
-[Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/).
+force the single-file DuckDB layout. See
+[Storage backend](/opencodehub/architecture/storage-backend/).
 
 ## Basic indexing
 
@@ -94,7 +93,7 @@ On the default LadybugDB layout:
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
 
-On the legacy DuckDB layout, `graph.duckdb` replaces both
+On the single-file DuckDB fallback, `graph.duckdb` replaces both
 `graph.lbug` and `temporal.duckdb`.
 
 ## Other useful flags

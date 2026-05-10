@@ -49,7 +49,8 @@ The lessons that shape this codebase the most include:
 - `architecture-patterns/scip-monorepo-dist-src-alias.md` — the
   TypeScript monorepo `dist/` ↔ `src/` alias pattern.
 - `architecture-patterns/igraphstore-itemporalstore-segregation.md`
-  — why M7 split the storage interface in two.
+  — why the storage interface is split into `IGraphStore` and
+  `ITemporalStore`.
 - `architecture-patterns/typed-finders-replace-raw-sql-in-consumers.md`
   — the call-site refactor that lets the graph backend swap
   underneath consumer packages.
