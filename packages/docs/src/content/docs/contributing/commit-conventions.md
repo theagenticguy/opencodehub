@@ -63,21 +63,25 @@ are visible.
 
 Workspace-package scopes map 1:1 to `packages/<scope>/`:
 
-| Scope         | Package                             |
-|---------------|-------------------------------------|
-| `analysis`    | `@opencodehub/analysis`             |
-| `cli`         | `@opencodehub/cli` (bin: `codehub`) |
-| `core-types`  | `@opencodehub/core-types`           |
-| `embedder`    | `@opencodehub/embedder`             |
-| `gym`         | `@opencodehub/gym`                  |
-| `ingestion`   | `@opencodehub/ingestion`            |
-| `mcp`         | `@opencodehub/mcp`                  |
-| `sarif`       | `@opencodehub/sarif`                |
-| `scanners`    | `@opencodehub/scanners`             |
-| `scip-ingest` | `@opencodehub/scip-ingest`          |
-| `search`      | `@opencodehub/search`               |
-| `storage`     | `@opencodehub/storage`              |
-| `summarizer`  | `@opencodehub/summarizer`           |
+| Scope | Package |
+|---|---|
+| `analysis` | `@opencodehub/analysis` |
+| `cli` | `@opencodehub/cli` (bin: `codehub`) |
+| `cobol-proleap` | `@opencodehub/cobol-proleap` |
+| `core-types` | `@opencodehub/core-types` |
+| `embedder` | `@opencodehub/embedder` |
+| `frameworks` | `@opencodehub/frameworks` |
+| `ingestion` | `@opencodehub/ingestion` |
+| `mcp` | `@opencodehub/mcp` |
+| `pack` | `@opencodehub/pack` |
+| `policy` | `@opencodehub/policy` |
+| `sarif` | `@opencodehub/sarif` |
+| `scanners` | `@opencodehub/scanners` |
+| `scip-ingest` | `@opencodehub/scip-ingest` |
+| `search` | `@opencodehub/search` |
+| `storage` | `@opencodehub/storage` |
+| `summarizer` | `@opencodehub/summarizer` |
+| `wiki` | `@opencodehub/wiki` |
 
 Meta-scopes cover cross-cutting changes:
 

@@ -5,11 +5,12 @@ sidebar:
   order: 60
 ---
 
-OpenCodeHub ships 15 tree-sitter language providers today: TypeScript,
-TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin,
-Swift, PHP, and Dart. Five of them (TypeScript, Python, Go, Rust, Java)
-are further upgraded with SCIP indexers for compiler-grade cross-module
-edges.
+OpenCodeHub ships 15 GA tree-sitter language providers today:
+TypeScript, TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++,
+Ruby, Kotlin, Swift, PHP, and Dart. Most of them are further
+upgraded with SCIP indexers for compiler-grade cross-module edges
+(scip-typescript, scip-python, scip-go, rust-analyzer, scip-java,
+scip-dotnet, scip-clang, scip-kotlin, scip-ruby).
 
 Adding a new language is four steps. The registry is compile-time
 exhaustive, so the TypeScript build fails if you forget step three.

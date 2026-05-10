@@ -35,30 +35,18 @@ cross-package versions and peer ranges consistent.
 
 ## Versioned vs. unversioned packages
 
-`.release-please-config.json` declares 10 versioned packages. They each
-get their own `package-name` and their own tag.
+`.release-please-config.json` declares the versioned packages. Each
+gets its own `package-name` and its own tag of the form
+`@opencodehub/<name>-vN.N.N`. Plus the root component `opencodehub`
+tagged as `root-vN.N.N`.
 
-| Package                    | Tag prefix                     |
-|----------------------------|--------------------------------|
-| `@opencodehub/analysis`    | `@opencodehub/analysis-vN.N.N` |
-| `@opencodehub/cli`         | `@opencodehub/cli-vN.N.N`      |
-| `@opencodehub/core-types`  | `@opencodehub/core-types-vN.N.N` |
-| `@opencodehub/embedder`    | `@opencodehub/embedder-vN.N.N` |
-| `@opencodehub/ingestion`   | `@opencodehub/ingestion-vN.N.N` |
-| `@opencodehub/mcp`         | `@opencodehub/mcp-vN.N.N`      |
-| `@opencodehub/sarif`       | `@opencodehub/sarif-vN.N.N`    |
-| `@opencodehub/scanners`    | `@opencodehub/scanners-vN.N.N` |
-| `@opencodehub/search`      | `@opencodehub/search-vN.N.N`   |
-| `@opencodehub/storage`     | `@opencodehub/storage-vN.N.N`  |
-
-Plus the root component `opencodehub` tagged as `root-vN.N.N`.
-
-Four packages are intentionally unversioned: `@opencodehub/gym`,
-`@opencodehub/scip-ingest`, `@opencodehub/summarizer`, and the Python
-`packages/eval` harness. They ride along with the monorepo version but do
-not publish tags of their own. The gym and eval are harness code, not
-product. `scip-ingest` and `summarizer` are internal dependencies with no
-external consumer at v1.0 — they will start versioning once a public
+The current versioned set covers the externally-consumable surface:
+`analysis`, `cli`, `core-types`, `embedder`, `ingestion`, `mcp`,
+`sarif`, `scanners`, `search`, `storage`. Auxiliary packages
+(`scip-ingest`, `summarizer`, `frameworks`, `pack`, `policy`, `wiki`,
+`cobol-proleap`, `docs`) ride along with the monorepo version but do
+not publish independent tags — they are internal-only or have no
+external contract yet. They will start versioning once a public
 contract exists.
 
 ## Changelog sections

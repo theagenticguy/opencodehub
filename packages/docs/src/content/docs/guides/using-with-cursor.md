@@ -64,7 +64,7 @@ questions like "What is the blast radius of `validateUser`?" or "Find
 me everything related to the auth token refresh flow." Cursor will
 call the codehub MCP tools directly and return structured results.
 
-See [MCP tools](/opencodehub/mcp/tools/) for the full catalogue of 28
+See [MCP tools](/opencodehub/mcp/tools/) for the full catalogue of 29
 tools.
 
 ## Multi-editor setup

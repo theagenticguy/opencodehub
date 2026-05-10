@@ -93,7 +93,7 @@ entries in `.mcp.json` are preserved.
 
 ## Next
 
-- [MCP tools](/opencodehub/mcp/tools/) — the full catalogue of 28 tools
+- [MCP tools](/opencodehub/mcp/tools/) — the full catalogue of 29 tools
   Claude Code will see.
 - [MCP overview](/opencodehub/mcp/overview/) — server name, transport,
   envelope conventions.

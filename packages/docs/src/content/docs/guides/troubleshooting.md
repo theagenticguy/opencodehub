@@ -5,11 +5,12 @@ sidebar:
   order: 90
 ---
 
-## Native build failures (tree-sitter or DuckDB)
+## Native build failures
 
-Symptoms: `pnpm install` fails while building `tree-sitter`,
-`@duckdb/node-api`, or any other native addon. Error mentions
-`node-gyp`, `python`, a C/C++ compiler, or `Visual Studio Build Tools`.
+Symptoms: `pnpm install` fails while building `@duckdb/node-api` or
+the optional native tree-sitter N-API addon. Error mentions
+`node-gyp`, `python`, a C/C++ compiler, or `Visual Studio Build
+Tools`.
 
 Fix:
 
@@ -19,12 +20,14 @@ codehub doctor
 
 `doctor` checks Node version, the platform's C/C++ toolchain, and
 whether each native module can load. Follow the remediation hints it
-prints. As a fallback, run any indexing command with `--wasm-only`
-(which sets `OCH_WASM_ONLY=1`) to skip native tree-sitter bindings:
+prints.
 
-```bash title="force WASM tree-sitter"
-codehub analyze --wasm-only
-```
+The default parse runtime is `web-tree-sitter` (WASM) on both Node 22
+and Node 24, so a missing C/C++ toolchain does not break analyze
+itself — only the optional native opt-in via `OCH_NATIVE_PARSER=1` is
+affected. `@duckdb/node-api` still has a native binding requirement
+on the legacy DuckDB layout; if it cannot load, set `CODEHUB_STORE=lbug`
+to use the graph-database backend instead, which has its own platform packages.
 
 ## Stale index
 
@@ -45,15 +48,17 @@ rebuilds from scratch regardless of the no-op short-circuit. Run
 ## `AMBIGUOUS_REPO` error from MCP tools
 
 Symptoms: an MCP tool returns an error envelope with
-`error.code: "AMBIGUOUS_REPO"`.
+`error_code: "AMBIGUOUS_REPO"`.
 
-Cause: you have more than one repo indexed in
-`~/.codehub/registry.json`, and the tool call did not include a `repo`
+Cause: you have more than one repo indexed and the tool call did not
+include a `repo` (registry name) or `repo_uri` (Sourcegraph-style URI)
 argument.
 
-Fix: pass a `repo` argument to every per-repo tool call. The value is
-the repo name from `codehub list`. If you are driving the server from
-an agent, tell the agent to include `repo` every time.
+Fix: read the structured-error envelope's `choices[]` and retry with
+one of the `repo_uri` values. The list is capped at 10; check
+`total_matches` to know if it was truncated. See
+[error codes](/opencodehub/reference/error-codes/#ambiguous_repo-envelope)
+for the exact shape.
 
 ## Windows quirks
 
@@ -70,14 +75,16 @@ If you must stay on native Windows:
 3. `npm config set msvs_version 2022` and `npm config set python
    python3.12`.
 4. Re-run `pnpm install --frozen-lockfile`.
-5. If anything still fails, fall back to `codehub analyze --wasm-only`.
+5. The default parse runtime is WASM, so analyze itself should work
+   without the native toolchain — only `@duckdb/node-api` and the
+   optional `OCH_NATIVE_PARSER=1` native addon need a native build.
 
 ## The index is missing a language I expected
 
-Check [supported languages](/opencodehub/reference/languages/). If the
-language is listed but returns no symbols, the grammar may have
-failed to load natively; retry with `--wasm-only`. If the language is
-not listed, it is not yet registered — see
+Check [supported languages](/opencodehub/reference/languages/). The
+default WASM runtime should produce results for every registered
+language without a native toolchain. If the language is not listed,
+it is not yet registered — see
 [adding a language provider](/opencodehub/contributing/adding-a-language-provider/).
 
 ## More help

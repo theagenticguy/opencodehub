@@ -24,13 +24,14 @@ agents call over JSON-RPC. The scope is captured in
 - Apache-2.0 end to end, with every transitive runtime dep on the
   permissive allowlist.
 - Local, offline-capable, deterministic index.
-- Fifteen tree-sitter languages, with SCIP indexers upgrading five of
-  them (TypeScript, Python, Go, Rust, Java) to compiler-grade edges.
+- Fifteen GA tree-sitter languages, with SCIP indexers upgrading
+  TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin, and Ruby to
+  compiler-grade edges.
 
 Explicit non-goals:
 
-- No hosted service. DuckDB is embedded and the MCP server is a stdio
-  process.
+- No hosted service. The default storage stack is embedded and the
+  MCP server is a stdio process.
 - No Rust port before we can measure it is needed (see
   [ADR 0002](/opencodehub/architecture/adrs/)).
 

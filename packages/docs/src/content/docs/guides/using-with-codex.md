@@ -65,5 +65,5 @@ MCP servers are left alone.
 
 ## Next
 
-- [MCP tools](/opencodehub/mcp/tools/) — the catalogue of 28 tools
+- [MCP tools](/opencodehub/mcp/tools/) — the catalogue of 29 tools
   Codex will see.

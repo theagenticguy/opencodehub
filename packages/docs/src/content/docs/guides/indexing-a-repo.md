@@ -5,10 +5,18 @@ sidebar:
   order: 10
 ---
 
-`codehub analyze` is the full indexing pipeline: parse with tree-sitter
-(and SCIP for the five languages that have indexers), resolve imports
-and inheritance, detect processes and clusters, build BM25 and HNSW
-indexes, and write everything to `.codehub/` under the repo root.
+`codehub analyze` is the full indexing pipeline: parse with
+tree-sitter (and SCIP for every language with a pinned indexer —
+TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin, Ruby), resolve
+imports and inheritance, detect processes and clusters, build BM25
+and HNSW indexes, and write everything to `.codehub/` under the repo
+root.
+
+The default backend is **graph-database backend** for the graph half +
+**DuckDB** for the temporal sibling. Set `CODEHUB_STORE=duck` to
+force the legacy single-file DuckDB layout. See
+[Storage backend](/opencodehub/architecture/storage-backend/) and
+[Migrating from DuckDB](/opencodehub/guides/migrating-from-duckdb/).
 
 ## Basic indexing
 
@@ -75,13 +83,19 @@ symbol participates in. The default granularity is `symbol`.
 
 ## What lives in `.codehub/`
 
+The contents depend on the storage backend selected at index time.
+On the default the graph-database backend layout:
+
 | Path | Purpose |
 |---|---|
-| `graph.duckdb` | The DuckDB database with symbols, edges, processes, and embeddings. |
-| `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins). |
+| `graph.lbug` | graph-database backend — symbols, edges, embeddings, BM25 + HNSW indexes. |
+| `temporal.duckdb` | DuckDB sibling — cochanges, symbol-summary cache. |
+| `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins, embedder modelId). |
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
-| `sbom.cdx.json` | CycloneDX SBOM when `codehub analyze --sbom` has run. |
-| `coverage/` | Coverage bridge artefacts when `--coverage` has run. |
+| `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
+
+On the legacy DuckDB layout, `graph.duckdb` replaces both
+`graph.lbug` and `temporal.duckdb`.
 
 ## Other useful flags
 
@@ -91,8 +105,8 @@ symbol participates in. The default granularity is `symbol`.
   (default on; capped by `--max-summaries`, default auto = 10% of
   callables, hard cap 500).
 - `--skills` — generate Claude Code skills from the graph.
-- `--wasm-only` — force the WASM fallback for every tree-sitter
-  grammar (sets `OCH_WASM_ONLY=1`).
+- `--native-parser` — opt into the native tree-sitter N-API addon on
+  Node 22 (the default runtime is `web-tree-sitter` / WASM).
 - `--strict-detectors` — fail the build if a detector (DET-O-001)
   regresses.
 - `--verbose` — noisier logs.
