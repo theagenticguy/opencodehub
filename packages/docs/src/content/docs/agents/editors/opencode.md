@@ -1,0 +1,83 @@
+---
+title: OpenCode
+description: Wire OpenCodeHub into OpenCode via opencode.json.
+sidebar:
+  order: 5
+---
+
+import { LinkCard } from "@astrojs/starlight/components";
+
+OpenCode reads its MCP servers from a single project-scope JSON file
+at the repo root. The shape differs from Claude Code / Cursor /
+Windsurf — pay attention to the keys.
+
+## Config file
+
+- **Project:** `opencode.json` (or `opencode.jsonc` for comments) at
+  the repo root.
+
+## Snippet
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "codehub": {
+      "type": "local",
+      "command": ["codehub", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Three things differ from the typical Claude / Cursor shape:
+
+- The top-level key is **`mcp`**, not `mcpServers`.
+- `type` is required, set to `"local"` for stdio servers.
+- `command` is a **single array** containing the binary and its args
+  — there is no separate `args` field.
+- The env-var key is **`environment`**, not `env`.
+
+If you need env vars:
+
+```json title="opencode.json — with environment"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "codehub": {
+      "type": "local",
+      "command": ["codehub", "mcp"],
+      "enabled": true,
+      "environment": {
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}
+```
+
+## Verification
+
+1. Restart OpenCode (or reload the workspace).
+2. Open a chat session.
+3. Ask: `which OpenCodeHub tools do you see?`
+4. Expect 29 tools under `mcp__opencodehub__*`.
+
+OpenCode logs MCP server stderr to its dev console — open it if the
+server fails to register.
+
+## Caveats
+
+- The `$schema` URL gives you autocomplete and validation in editors
+  that respect JSON Schema. Keep it.
+- `enabled: false` disables the server without removing the entry —
+  useful when triaging.
+- OpenCode supports stdio MCP servers; OpenCodeHub is stdio, so this
+  matches.
+
+<LinkCard
+  title="Idiomatic prompts"
+  href="/opencodehub/agents/idiomatic-prompts/"
+  description="Five copy-paste prompts to test the wiring."
+/>
