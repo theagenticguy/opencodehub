@@ -58,8 +58,16 @@ pre-push:
       files: "git diff --name-only @{push} HEAD || git diff --name-only HEAD~"
       fail_text: "tests failed — run 'mise run test' locally before pushing."
 
+    # Guard the verdict gate on a present index so the hook degrades
+    # gracefully on dev boxes that haven't run `codehub analyze` yet —
+    # mirrors the SKIP behaviour of scripts/pack-determinism-audit.sh.
     - name: verdict
-      run: "{pnpm} codehub verdict --base origin/main --head HEAD"
+      run: |
+        if [ -f .codehub/graph.duckdb ] || [ -f .codehub/graph.lbug ]; then
+          {pnpm} codehub verdict --base origin/main --head HEAD
+        else
+          echo "verdict skipped: no .codehub/graph.duckdb or graph.lbug (run 'mise run och:self-analyze' first)"
+        fi
       skip:
         - merge
         - rebase
