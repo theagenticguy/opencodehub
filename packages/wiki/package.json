@@ -23,7 +23,7 @@
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",
-    "write-file-atomic": "7.0.1"
+    "write-file-atomic": "8.0.0"
   },
   "devDependencies": {
     "@types/node": "25.6.0",
