@@ -1,0 +1,77 @@
+---
+title: Cursor
+description: Wire OpenCodeHub into Cursor via a per-project MCP config.
+sidebar:
+  order: 2
+---
+
+import { LinkCard, Tabs, TabItem } from "@astrojs/starlight/components";
+
+Cursor reads MCP servers from one of two JSON files. Project scope is
+checked into the repo; global scope sits in your home directory.
+
+## Config file
+
+- **Project:** `.cursor/mcp.json`
+- **Global:** `~/.cursor/mcp.json`
+
+The two files use identical shape; project scope wins when both
+define the same server name.
+
+## Snippet
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "codehub": {
+      "command": "codehub",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+That is the entire config. `codehub mcp` runs the stdio MCP server
+and registers all 29 tools under `mcp__opencodehub__*`.
+
+If `codehub` is not on your shell PATH (Cursor inherits the GUI app's
+environment, not your shell's), substitute the absolute path:
+
+```json title=".cursor/mcp.json — absolute path"
+{
+  "mcpServers": {
+    "codehub": {
+      "command": "/usr/local/bin/codehub",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Find the path with `which codehub` in your terminal.
+
+## Verification
+
+1. Restart Cursor (the agent only loads MCP servers at startup).
+2. Open the chat panel.
+3. Ask: `which OpenCodeHub tools do you see?`
+4. Expect 29 tools listed under `mcp__opencodehub__*`.
+
+If you see zero tools, check Cursor's MCP debug pane (Settings → MCP)
+for the server's stderr. The most common cause is `codehub` not being
+resolvable from Cursor's process — fix with the absolute-path snippet
+above.
+
+## Caveats
+
+- Cursor supports stdio transport for MCP. OpenCodeHub is stdio-only,
+  so this matches.
+- Restart required after editing the config — Cursor does not hot-reload.
+- The Composer agent and the Chat panel both pick up MCP tools; per-tool
+  approval prompts apply on first call.
+
+<LinkCard
+  title="Tool decision matrix"
+  href="/opencodehub/agents/tool-decision-matrix/"
+  description="Once tools are wired, this is what to feed your prompts toward."
+/>

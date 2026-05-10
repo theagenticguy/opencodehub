@@ -12,13 +12,18 @@
 set -euo pipefail
 
 # Literal strings we reject outright. Case-insensitive.
+#
+# Removed at v1: `ladybug` and `kuzu`. LadybugDB is now the default graph
+# backend (M7, ADR 0013); the bare product name is critical prose surface
+# for end-user docs, slash-command help, and the public site. `kuzu` is
+# retained as historical lineage in cross-link prose ("LadybugDB is the
+# open-source successor to the pre-1.0 Kuzu codebase") and ADRs already
+# cite it for provenance.
 BANNED_LITERALS=(
   'STEP_IN_PROCESS'
   'heuristicLabel'
   'codeprobe'
   'STEP_IN_FLOW'
-  'kuzu'
-  'ladybug'
   'duckpgq'
 )
 
@@ -56,18 +61,14 @@ EXCLUDES=(
 
 fail=0
 
-# Per-literal allowlist of tolerated substrings. The `ladybug` literal is
-# exempt when it appears exclusively as part of the scoped npm package
-# identifier `@ladybugdb/...` — that is a manifest/import surface, not a
-# source-level identifier (spec 004 §Banned-string sensitivities). Every
-# OTHER occurrence of `ladybug` (class names, variable names, prose) still
-# fails the sweep.
+# Per-literal allowlist of tolerated substrings. Currently empty after the
+# v1 removal of the `ladybug` literal (LadybugDB is now the default backend
+# and a first-class product name in docs); kept as a hook for future
+# situational allowlists.
 #
 # Indexed by literal. A line is only forgiven if EVERY banned-literal match
 # on that line is covered by the tolerated pattern.
-declare -A LITERAL_ALLOWLIST_REGEX=(
-  ['ladybug']='@ladybugdb[/A-Za-z0-9_-]*'
-)
+declare -A LITERAL_ALLOWLIST_REGEX=()
 
 # Literal-string sweep (case-insensitive).
 for pat in "${BANNED_LITERALS[@]}"; do

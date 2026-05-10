@@ -1,0 +1,62 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      # NOTE: --ignore-scripts removed so sharp's native binary download
+      # and Playwright's chromium install (via rehype-mermaid) are allowed.
+      - run: pnpm install --frozen-lockfile
+      # rehype-mermaid renders ```mermaid fences to inline SVG at build
+      # time using Playwright chromium. --with-deps installs the apt
+      # libraries Playwright needs on ubuntu-latest. Do not use --with-deps
+      # on dev machines.
+      - run: pnpm --filter @opencodehub/docs exec playwright install chromium --with-deps
+      # mise-action@v4 writes NODE_ENV=development to $GITHUB_ENV, which
+      # takes precedence over job-level env. Override at the step level
+      # (step env beats $GITHUB_ENV) to force Astro into production mode
+      # so Starlight wires Pagefind instead of shipping the dev stub
+      # ("Search is only available in production builds").
+      # mise-action@v4 writes NODE_ENV=development to $GITHUB_ENV at setup
+      # time. Inline `env VAR=val` and step-level env: don't reach astro's
+      # Vite compilation reliably — Vite resolves `import.meta.env.DEV` at
+      # bundle time from process.env.NODE_ENV that the Vite module sees.
+      # Override $GITHUB_ENV directly so every subsequent step (including
+      # the Node process spawned by pnpm → astro) inherits production.
+      - run: echo "NODE_ENV=production" >> "$GITHUB_ENV"
+      - run: pnpm -F @opencodehub/docs build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5
+        with:
+          path: packages/docs/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5

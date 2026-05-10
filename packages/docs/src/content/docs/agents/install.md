@@ -1,0 +1,124 @@
+---
+title: Install OpenCodeHub for any MCP agent
+description: Generic install path that any MCP-speaking coding agent can follow.
+sidebar:
+  order: 2
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+This page is editor-agnostic. It gets `codehub` on your PATH, indexes a
+target repo, and points you at the per-editor wiring. If you only use
+Claude Code, you can stop after step 5 — `codehub init` writes the
+right config and links the plugin.
+
+## 1. Prerequisites
+
+- **Node** 22 (with native tree-sitter) or 24 (WASM default).
+- **pnpm** 10 or newer.
+- **git**.
+- Optional: [`mise`](https://mise.jdx.dev) — recommended for the
+  per-project tool versions and the `cli:link` task.
+
+## 2. Clone and install
+
+```bash title="clone the repo and install workspace deps"
+git clone https://github.com/theagenticguy/opencodehub
+cd opencodehub
+pnpm install --frozen-lockfile
+```
+
+## 3. Put `codehub` on your PATH
+
+```bash title="link the CLI"
+mise run cli:link
+```
+
+`cli:link` resolves the workspace `@opencodehub/cli` package and links
+its bin into your shell. Verify with `codehub --version`.
+
+If you do not use `mise`, run `pnpm -F @opencodehub/cli link --global`
+inside the checkout.
+
+## 4. Initialize a target repo
+
+```bash title="run inside the repo you want to index"
+cd /path/to/your/repo
+codehub init
+```
+
+`codehub init` is idempotent. It writes:
+
+- `.mcp.json` — local-scope MCP server entry pointing at the codehub
+  binary. Picked up by Claude Code, Cursor (when symlinked into
+  `.cursor/mcp.json`), and any other agent that reads the standard
+  project-scope MCP file.
+- `.claude/` — links the OpenCodeHub plugin so Claude Code gets slash
+  commands, the `code-analyst` subagent, and 11 skills.
+- `.gitignore` — appends `.codehub/` so the local graph and temporal
+  store stay out of version control.
+- `opencodehub.policy.yaml` — seed policy file (license tiers, risk
+  thresholds). Edit to taste, commit if you want repo-wide policy.
+
+## 5. Build the first index
+
+```bash title="initial analyze"
+codehub analyze
+```
+
+Expect 30 seconds for a small TypeScript service, 1–3 minutes for a
+medium monorepo, 5–10 minutes the first time on a large repo (after
+which incremental analyzes are sub-second per file). Output is written
+to `.codehub/` next to the project root.
+
+The default storage backend is the graph database backend
+(`graph.lbug` + `temporal.duckdb`). DuckDB is the legacy fallback.
+Set `CODEHUB_STORE=duck` to force the legacy single-file layout, or
+`CODEHUB_STORE=lbug` to require the graph backend. See
+[ADR 0013](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md).
+
+## 6. Verify the install
+
+```bash title="health check"
+codehub doctor
+```
+
+`codehub doctor` prints the active toolchain: tree-sitter native
+binding, DuckDB native binding, optional graph-database binding, and
+which embedding backend is in effect (SageMaker → HTTP → local ONNX,
+in that precedence). All three native bindings should report OK on
+Node 22; on Node 24 the WASM parser is the default and the native
+tree-sitter binding may be missing — that is expected.
+
+## 7. Wire your editor
+
+The per-editor pages give you the config snippet, the path it goes
+into, and the verification step.
+
+<CardGrid>
+  <LinkCard
+    title="Claude Code"
+    href="/opencodehub/agents/editors/claude-code/"
+    description="The deepest integration. Plugin, slash commands, subagent, skills."
+  />
+  <LinkCard
+    title="Cursor"
+    href="/opencodehub/agents/editors/cursor/"
+    description=".cursor/mcp.json — local stdio."
+  />
+  <LinkCard
+    title="Codex"
+    href="/opencodehub/agents/editors/codex/"
+    description="codex.toml — applies to CLI and IDE extensions."
+  />
+  <LinkCard
+    title="Windsurf"
+    href="/opencodehub/agents/editors/windsurf/"
+    description="mcp_config.json — Cascade picks it up after restart."
+  />
+  <LinkCard
+    title="OpenCode"
+    href="/opencodehub/agents/editors/opencode/"
+    description="opencode.json — embeds the same stdio entry."
+  />
+</CardGrid>

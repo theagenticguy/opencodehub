@@ -1,0 +1,146 @@
+---
+title: Claude Code
+description: The deepest editor integration — plugin, slash commands, code-analyst subagent, and 11 skills.
+sidebar:
+  order: 1
+---
+
+import { Card, LinkCard } from "@astrojs/starlight/components";
+
+Claude Code gets the full surface: a project-scope MCP server, a
+plugin with five slash commands, a `code-analyst` subagent, and 11
+skills. Everything in this page is shipped at
+[`plugins/opencodehub/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub).
+
+## Install
+
+```bash title="from inside the target repo"
+codehub init
+```
+
+`codehub init` writes a project-scope `.mcp.json`, links the plugin
+under `.claude/`, appends `.codehub/` to `.gitignore`, and seeds
+`opencodehub.policy.yaml`. Restart Claude Code to pick up the changes.
+
+The `.mcp.json` shape:
+
+```json title=".mcp.json"
+{
+  "mcpServers": {
+    "opencodehub": {
+      "command": "codehub",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+`codehub mcp` runs the stdio MCP server. The 29 tools register under
+the `mcp__opencodehub__*` namespace.
+
+## What the plugin ships
+
+The plugin lives at
+[`plugins/opencodehub/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub).
+`codehub init` symlinks it into the target repo's `.claude/` directory.
+
+| Surface | Count | What |
+| --- | --- | --- |
+| Slash commands | 5 | `/probe`, `/verdict`, `/owners`, `/audit-deps`, `/rename` |
+| Subagent | 1 | `code-analyst` |
+| Skills | 11 | listed below |
+| Hooks | 2 | `PreToolUse` augment + `PostToolUse` re-index |
+
+## Slash commands
+
+| Command | Argument | Runs |
+| --- | --- | --- |
+| `/probe <symbol>` | symbol name | `context` + `impact(direction: upstream, depth: 3)`; returns a 5-line brief — what it does, top callers, top callees, blast radius, risk tier. |
+| `/verdict [base-ref]` | optional base ref (defaults to `main`) | `verdict` against the base; returns tier, top drivers, blockers, next action. |
+| `/owners <target>` | symbol or path | `owners`; returns top 3 contributors with commits, last-touched, lines changed, plus the code-owner candidate. |
+| `/audit-deps` | none | `license_audit` + `list_findings`; returns license tier, GPL/strong-copyleft deps, proprietary/unknown deps, security findings. |
+| `/rename <old> <new>` | two names | `rename(dry_run: true)` first, prints diff, asks for confirmation; only writes on explicit `yes`. |
+
+Source for each command:
+[`plugins/opencodehub/commands/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub/commands).
+
+## Subagent: `code-analyst`
+
+The `code-analyst` subagent has access to 16 OCH MCP tools plus
+`Read`/`Grep`/`Glob`. Its rules of engagement:
+
+- **Exploring** — uses `query` for concept jumps and `context` for the
+  360° view.
+- **Impact** — `impact(direction: upstream)` for callers,
+  `direction: downstream` for callees; `api_impact` for public API
+  boundaries; `shape_check` for structural drift.
+- **Ownership** — `owners`; quotes signatures verbatim from
+  `signature` rather than paraphrasing.
+- **Risk** — `verdict`, `list_findings`, `list_findings_delta`,
+  `license_audit`, `list_dead_code`.
+- **Refactors** — `rename` with `dry_run: true` first, never applies
+  without explicit confirmation.
+
+Every claim is grounded in a tool call. If a tool returns nothing, the
+subagent says so — it does not invent coverage.
+
+Source:
+[`plugins/opencodehub/agents/code-analyst.md`](https://github.com/theagenticguy/opencodehub/blob/main/plugins/opencodehub/agents/code-analyst.md).
+
+## Skills
+
+The plugin ships 11 skills. Skills auto-trigger when their description
+matches the user's request, or you can name them explicitly. Pick from
+the table:
+
+| Skill | When to use |
+| --- | --- |
+| `codehub-document` | Long-form codebase docs — architecture book, module map, per-repo reference. Run after `codehub analyze` or after a large merge. |
+| `codehub-pr-description` | PR write-up, branch summary, release notes. Calls `detect_changes` + `verdict` + `owners` + `list_findings_delta`. Refuses on a clean tree. |
+| `codehub-onboarding` | Ranked reading order for new engineers. Pulls `project_profile` + top processes + entry points + owners + centrality. |
+| `codehub-contract-map` | Cross-repo HTTP contract matrix. **Group mode only** — needs a named group. |
+| `codehub-code-pack` | Deterministic 9-item code pack (manifest, skeleton, file-tree, deps, AST chunks, xrefs, embeddings, findings, licenses + readme). Byte-identical for the same `(commit, tokenizer, budget)`. |
+| `opencodehub-impact-analysis` | "Is it safe to change X?" / "What depends on this?" / blast-radius questions. |
+| `opencodehub-pr-review` | "Review this PR", "What does PR #42 change?", "Is this PR safe to merge?" |
+| `opencodehub-exploring` | "How does X work?", "What calls this?", "Show me the auth flow." |
+| `opencodehub-debugging` | "Why is X failing?", "Where does this error come from?", "Trace this bug." |
+| `opencodehub-refactoring` | "Rename this", "Extract this into a module", "Move this." |
+| `opencodehub-guide` | Reference for OpenCodeHub itself — tools, resources, schema. |
+
+Source:
+[`plugins/opencodehub/skills/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub/skills).
+
+## Hooks
+
+The plugin's `hooks.json` registers two hooks:
+
+- **PreToolUse** on `Bash | Grep | Glob` — runs
+  `hooks/augment.sh` (5s timeout) to enrich the call with graph
+  context before the tool fires.
+- **PostToolUse** on `Bash` — re-indexes incrementally after
+  `git commit | merge | rebase | pull`, and runs
+  `hooks/docs-staleness.sh` to flag stale generated docs.
+
+You can disable either by editing `.claude/plugins/opencodehub/hooks.json`
+in the target repo.
+
+## Verifying
+
+In a Claude Code session, ask:
+
+```text
+which OpenCodeHub tools do you see?
+```
+
+The agent should list 29 tools, all under `mcp__opencodehub__*`. If it
+sees zero, the most common causes are: Claude Code wasn't restarted
+after `codehub init`, or `codehub` is not on PATH for the editor's
+process (try launching the editor from a shell that has `codehub`
+resolved, or set `command` to the absolute path in `.mcp.json`).
+
+<LinkCard
+  title="Tool decision matrix"
+  href="/opencodehub/agents/tool-decision-matrix/"
+  description="Pick the right tool for the intent at hand."
+/>

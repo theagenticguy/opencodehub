@@ -34,7 +34,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace
-        run: pnpm -r build
+        # Skip @opencodehub/docs — its build runs astro + playwright; the
+        # self-scan job only needs the OCH workspace built. Pages.yml owns
+        # the docs build.
+        run: pnpm --filter '!@opencodehub/docs' -r build
 
       - name: Analyze repository
         run: pnpm exec node packages/cli/dist/index.js analyze .

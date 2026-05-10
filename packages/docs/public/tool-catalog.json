@@ -1,0 +1,282 @@
+{
+  "$schema": "https://opencodehub.dev/schemas/tool-catalog-v1.json",
+  "version": "1.0.0",
+  "description": "Machine-readable catalog of the 29 MCP tools the OpenCodeHub server registers. Generated to be fetched by an AI coding agent that wants the catalog without scraping the docs.",
+  "server": {
+    "name": "opencodehub",
+    "transport": "stdio",
+    "launch_command": "codehub mcp",
+    "capabilities": ["tools", "resources"]
+  },
+  "tool_count": 29,
+  "families": {
+    "exploration": "High-frequency code-graph tools.",
+    "group": "Cross-repo federation tools (require a named group).",
+    "scan": "Findings, verdict, dead code, license.",
+    "http": "HTTP routes and contracts.",
+    "meta": "Project metadata and packaging."
+  },
+  "tools": [
+    {
+      "name": "list_repos",
+      "family": "exploration",
+      "description": "List all repos indexed on this machine.",
+      "when_to_use": "The agent does not know what repos are indexed.",
+      "when_not_to_use": "You already know the target repo — pass repo_uri directly.",
+      "signature_sketch": "list_repos() -> { repos: Array<{name, repo_uri, default_branch, group?, root, indexed_at, graph_hash}> }",
+      "example": "list_repos()"
+    },
+    {
+      "name": "query",
+      "family": "exploration",
+      "description": "Hybrid BM25 + filter-aware HNSW search over the graph, results grouped by execution-flow process.",
+      "when_to_use": "You want symbols, files, or communities for a natural-language phrase.",
+      "when_not_to_use": "You need precise callers/callees of a known symbol — call context instead.",
+      "signature_sketch": "query({text, repo?, repo_uri?, limit?, granularity?, bm25_only?, goal?, context?}) -> {processes, symbols, next_steps}",
+      "example": "query({text: 'auth token refresh'})"
+    },
+    {
+      "name": "context",
+      "family": "exploration",
+      "description": "360-degree view of one symbol: callers, callees, ACCESSES edges, processes the symbol participates in.",
+      "when_to_use": "You have a specific symbol and need its inbound + outbound graph edges.",
+      "when_not_to_use": "You only have a fuzzy concept — call query first.",
+      "signature_sketch": "context({symbol, repo?, repo_uri?, file_path?, kind?}) -> {target, callers, callees, accesses, processes, next_steps}",
+      "example": "context({symbol: 'validateUser'})"
+    },
+    {
+      "name": "impact",
+      "family": "exploration",
+      "description": "Blast radius for one symbol — direct callers, transitive callers, affected processes, risk tier.",
+      "when_to_use": "You're about to edit a symbol and need to know what depends on it.",
+      "when_not_to_use": "Your change is purely additive (new file, new function with no callers).",
+      "signature_sketch": "impact({symbol, repo?, repo_uri?, depth?, direction?}) -> {target, direct_callers, transitive_callers, affected_processes, risk, confidence, next_steps}",
+      "example": "impact({symbol: 'validateUser', depth: 2})"
+    },
+    {
+      "name": "detect_changes",
+      "family": "exploration",
+      "description": "Map a staged or compared git diff to symbols, files, and processes with risk tiers.",
+      "when_to_use": "After staging edits, before opening a PR.",
+      "when_not_to_use": "Tree is clean — the tool refuses with a helpful error.",
+      "signature_sketch": "detect_changes({repo?, repo_uri?, scope?, compare_ref?, strict?}) -> {symbols, files, processes, max_risk, next_steps}",
+      "example": "detect_changes({scope: 'compare', compare_ref: 'origin/main'})"
+    },
+    {
+      "name": "rename",
+      "family": "exploration",
+      "description": "Coordinated multi-file symbol rename with confidence-tagged edits. Default mode is dry-run.",
+      "when_to_use": "Renaming a symbol used across multiple files.",
+      "when_not_to_use": "The rename is in a single file — let the editor handle it.",
+      "signature_sketch": "rename({from, to, repo?, repo_uri?, dry_run?}) -> {edits, cross_module_refs, next_steps}",
+      "example": "rename({from: 'oldName', to: 'newName'})"
+    },
+    {
+      "name": "sql",
+      "family": "exploration",
+      "description": "Read-only SQL against the graph store. 5-second timeout.",
+      "when_to_use": "Custom view of the graph that no other tool exposes.",
+      "when_not_to_use": "A typed tool (context, impact, query) already covers the question.",
+      "signature_sketch": "sql({query, repo?, repo_uri?}) -> {rows, row_count, next_steps}",
+      "example": "sql({query: 'SELECT name, file_path FROM nodes WHERE kind = ? LIMIT 10', params: ['Class']})"
+    },
+    {
+      "name": "group_list",
+      "family": "group",
+      "description": "List the cross-repo groups configured on this machine.",
+      "when_to_use": "Always safe before fanning out across a fleet.",
+      "when_not_to_use": "You already know the group name.",
+      "signature_sketch": "group_list() -> {groups: Array<{name, description?, member_repo_uris}>}",
+      "example": "group_list()"
+    },
+    {
+      "name": "group_query",
+      "family": "group",
+      "description": "BM25 + RRF over every member repo in a group.",
+      "when_to_use": "One query across an entire fleet of microservices.",
+      "when_not_to_use": "Single-repo query — call query directly.",
+      "signature_sketch": "group_query({group, text, limit?}) -> {group, results: Array<{repo_uri, hits}>, next_steps}",
+      "example": "group_query({group: 'platform', text: 'users endpoint'})"
+    },
+    {
+      "name": "group_status",
+      "family": "group",
+      "description": "Per-repo staleness audit across a group.",
+      "when_to_use": "Before relying on cross-repo answers.",
+      "when_not_to_use": "Single-repo staleness — read the _meta envelope.",
+      "signature_sketch": "group_status({group}) -> {group, repos: Array<{repo_uri, indexed_at, graph_hash, staleness_lag_commits}>}",
+      "example": "group_status({group: 'platform'})"
+    },
+    {
+      "name": "group_contracts",
+      "family": "group",
+      "description": "Cross-repo HTTP contract matrix — producer routes paired with consumer fetches.",
+      "when_to_use": "Mapping route blast-radius across services.",
+      "when_not_to_use": "Single-repo route map — call route_map.",
+      "signature_sketch": "group_contracts({group}) -> {contracts: Array<{producer_repo_uri, route, consumer_repo_uri, handler}>, unresolved_fetches}",
+      "example": "group_contracts({group: 'platform'})"
+    },
+    {
+      "name": "group_cross_repo_links",
+      "family": "group",
+      "description": "Audit trail of every typed cross-repo edge with both endpoints qualified by repo_uri.",
+      "when_to_use": "Auditing cross-repo dependencies.",
+      "when_not_to_use": "Single-repo edges — call context.",
+      "signature_sketch": "group_cross_repo_links({group}) -> {links: Array<{source_repo_uri, target_repo_uri, source_doc_path, target_doc_path, relation}>}",
+      "example": "group_cross_repo_links({group: 'platform'})"
+    },
+    {
+      "name": "group_sync",
+      "family": "group",
+      "description": "Rebuild the cross-repo contract registry and link table after a member has been re-indexed.",
+      "when_to_use": "After codehub analyze on any group member.",
+      "when_not_to_use": "You only re-indexed a non-group repo.",
+      "signature_sketch": "group_sync({group}) -> {group, contracts_written, cross_links_written, next_steps}",
+      "example": "group_sync({group: 'platform'})"
+    },
+    {
+      "name": "scan",
+      "family": "scan",
+      "description": "Run scanners and ingest findings into the graph. Spawns processes (openWorldHint=true).",
+      "when_to_use": "You want fresh SARIF findings.",
+      "when_not_to_use": "Browsing existing findings — call list_findings.",
+      "signature_sketch": "scan({repo?, repo_uri?, scanners?, severity?, concurrency?, timeout_ms?}) -> {scanners_run, sarif_path, summary, next_steps}",
+      "example": "scan({scanners: ['semgrep', 'osv-scanner']})"
+    },
+    {
+      "name": "list_findings",
+      "family": "scan",
+      "description": "List SARIF findings stored in the graph.",
+      "when_to_use": "Browse findings without re-running scanners.",
+      "when_not_to_use": "You need a fresh scan — call scan.",
+      "signature_sketch": "list_findings({repo?, repo_uri?, severity?, tool?}) -> {findings, next_steps}",
+      "example": "list_findings({severity: 'HIGH'})"
+    },
+    {
+      "name": "list_findings_delta",
+      "family": "scan",
+      "description": "Diff the current scan against a baseline SARIF.",
+      "when_to_use": "PR-time delta between current scan and a frozen baseline.",
+      "when_not_to_use": "Single-snapshot view — call list_findings.",
+      "signature_sketch": "list_findings_delta({baseline, repo?, repo_uri?}) -> {new, fixed, unchanged, updated, next_steps}",
+      "example": "list_findings_delta({baseline: '.codehub/baseline.sarif'})"
+    },
+    {
+      "name": "list_dead_code",
+      "family": "scan",
+      "description": "Symbols with zero in-graph references and dead exports.",
+      "when_to_use": "Cleanup pass on a repo.",
+      "when_not_to_use": "Looking for one specific symbol's callers — call context.",
+      "signature_sketch": "list_dead_code({repo?, repo_uri?}) -> {candidates: Array<{id, name, file_path, kind, reason}>}",
+      "example": "list_dead_code()"
+    },
+    {
+      "name": "remove_dead_code",
+      "family": "scan",
+      "description": "Remove specific dead symbols from disk. Default mode is dry-run.",
+      "when_to_use": "After list_dead_code, with explicit targets.",
+      "when_not_to_use": "Speculative cleanup — always dry-run first.",
+      "signature_sketch": "remove_dead_code({repo?, repo_uri?, targets, dry_run?}) -> {removed, skipped, next_steps}",
+      "example": "remove_dead_code({targets: ['oldHelper'], dry_run: true})"
+    },
+    {
+      "name": "license_audit",
+      "family": "scan",
+      "description": "Tier the dependency license posture: copyleft, unknown, proprietary, permissive.",
+      "when_to_use": "Pre-release supply-chain audit.",
+      "when_not_to_use": "You only need the dep list — call dependencies.",
+      "signature_sketch": "license_audit({repo?, repo_uri?}) -> {tiers, dependencies, next_steps}",
+      "example": "license_audit()"
+    },
+    {
+      "name": "verdict",
+      "family": "scan",
+      "description": "5-tier PR decision with a deterministic exit code (0/1/2/3).",
+      "when_to_use": "CI-time merge gate.",
+      "when_not_to_use": "Local exploratory analysis — call detect_changes.",
+      "signature_sketch": "verdict({repo?, repo_uri?, base?, head?}) -> {tier, exit_code, reasons, signals}",
+      "example": "verdict({base: 'main', head: 'HEAD'})"
+    },
+    {
+      "name": "risk_trends",
+      "family": "scan",
+      "description": "Per-community risk trend lines plus a 30-day projection.",
+      "when_to_use": "Quarterly review of where risk is concentrating.",
+      "when_not_to_use": "PR-time decision — call verdict.",
+      "signature_sketch": "risk_trends({repo?, repo_uri?}) -> {communities: Array<{id, name, trend, projection_30d, drivers}>}",
+      "example": "risk_trends()"
+    },
+    {
+      "name": "route_map",
+      "family": "http",
+      "description": "Every HTTP route in the repo with its handler and known consumers.",
+      "when_to_use": "Mapping the API surface.",
+      "when_not_to_use": "Cross-repo map — call group_contracts.",
+      "signature_sketch": "route_map({repo?, repo_uri?}) -> {routes: Array<{method, path, handler, consumers, framework}>}",
+      "example": "route_map()"
+    },
+    {
+      "name": "api_impact",
+      "family": "http",
+      "description": "Blast radius for a route change. Walks FETCHES edges across repos when the repo is in a group.",
+      "when_to_use": "Before changing a public-facing route.",
+      "when_not_to_use": "Internal-only change — call impact.",
+      "signature_sketch": "api_impact({route, repo?, repo_uri?}) -> {route, direct_consumers, transitive_consumers, risk, next_steps}",
+      "example": "api_impact({route: 'POST /users'})"
+    },
+    {
+      "name": "shape_check",
+      "family": "http",
+      "description": "Validate that callers expect the response shape the handler currently returns.",
+      "when_to_use": "Catching contract drift.",
+      "when_not_to_use": "Generic schema validation — use the framework's tooling.",
+      "signature_sketch": "shape_check({route, repo?, repo_uri?}) -> {route, mismatches: Array<{consumer, expected, actual}>, next_steps}",
+      "example": "shape_check({route: 'GET /users/:id'})"
+    },
+    {
+      "name": "tool_map",
+      "family": "http",
+      "description": "List MCP tools defined in the repo (for repos that ship their own MCP server).",
+      "when_to_use": "Documenting an MCP-providing repo.",
+      "when_not_to_use": "The repo doesn't ship an MCP server.",
+      "signature_sketch": "tool_map({repo?, repo_uri?}) -> {tools: Array<{name, file_path, schema, examples}>}",
+      "example": "tool_map()"
+    },
+    {
+      "name": "project_profile",
+      "family": "meta",
+      "description": "Summary profile: language mix, entry points, top processes, owners.",
+      "when_to_use": "First read on an unfamiliar repo.",
+      "when_not_to_use": "You already have a specific question — call query / context.",
+      "signature_sketch": "project_profile({repo?, repo_uri?}) -> {languages, entry_points, top_processes, top_owners, frameworks, ia_types, api_contracts}",
+      "example": "project_profile()"
+    },
+    {
+      "name": "dependencies",
+      "family": "meta",
+      "description": "Dependency inventory.",
+      "when_to_use": "Inventory questions; setup for license_audit.",
+      "when_not_to_use": "License-tier check — call license_audit directly.",
+      "signature_sketch": "dependencies({repo?, repo_uri?}) -> {production, development, peer, by_package_manager}",
+      "example": "dependencies()"
+    },
+    {
+      "name": "owners",
+      "family": "meta",
+      "description": "Top contributors for a node (file or symbol).",
+      "when_to_use": "Routing a PR to the right reviewer.",
+      "when_not_to_use": "Generic CODEOWNERS read — use the file directly.",
+      "signature_sketch": "owners({node, repo?, repo_uri?}) -> {owners: Array<{name, email, share, last_touch}>, bus_factor}",
+      "example": "owners({node: 'src/auth/handler.ts'})"
+    },
+    {
+      "name": "pack_codebase",
+      "family": "meta",
+      "description": "Produce a deterministic LLM-ready code-pack snapshot of the repo.",
+      "when_to_use": "Hand a model the whole repo in one payload.",
+      "when_not_to_use": "Targeted question — call query / context.",
+      "signature_sketch": "pack_codebase({repo?, repo_uri?, path?, style?, compress?, remove_comments?}) -> {output_path, item_count, total_chars, token_estimate, next_steps}",
+      "example": "pack_codebase({style: 'xml'})"
+    }
+  ]
+}

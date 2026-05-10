@@ -1,0 +1,91 @@
+---
+title: OpenCodeHub
+description: Apache-2.0 code intelligence graph + MCP server for AI coding agents — 29 tools, 15 GA languages, deterministic, offline-capable.
+template: splash
+hero:
+  tagline: Graph-aware impact, context, and query for an AI coding agent — local, deterministic, Apache-2.0.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Install
+      link: /opencodehub/start-here/install/
+      icon: right-arrow
+      variant: primary
+    - text: Use
+      link: /opencodehub/mcp/tools/
+      icon: external
+      variant: secondary
+    - text: Develop
+      link: /opencodehub/contributing/dev-loop/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+## What an AI agent gets
+
+<CardGrid>
+  <Card title="impact" icon="puzzle">
+    Blast radius for one symbol — direct callers, transitive callers,
+    affected processes, risk tier — in one MCP call.
+  </Card>
+  <Card title="context" icon="seti:lock">
+    360-degree view of a symbol — callers, callees, ACCESSES edges,
+    participating processes — without grep round-trips.
+  </Card>
+  <Card title="query" icon="approve-check">
+    Hybrid BM25 + filter-aware HNSW search, results grouped by
+    execution-flow process. Fed by a typed graph, not a flat index.
+  </Card>
+</CardGrid>
+
+## Start here
+
+<CardGrid>
+  <LinkCard
+    title="What is OpenCodeHub?"
+    href="/opencodehub/start-here/what-is-opencodehub/"
+    description="The three recurring agent failures it fixes, and how."
+  />
+  <LinkCard
+    title="Install"
+    href="/opencodehub/start-here/install/"
+    description="Node 22 or 24, pnpm 10, mise-recommended. macOS / Linux / Windows."
+  />
+  <LinkCard
+    title="Quick start"
+    href="/opencodehub/start-here/quick-start/"
+    description="Clone to first impact() call in five steps."
+  />
+  <LinkCard
+    title="MCP tool catalog"
+    href="/opencodehub/mcp/tools/"
+    description="All 29 tools — exploration, federation, scan, HTTP, meta."
+  />
+</CardGrid>
+
+## For contributors
+
+<CardGrid>
+  <LinkCard
+    title="Dev loop"
+    href="/opencodehub/contributing/dev-loop/"
+    description="mise install → pnpm install → mise run check."
+  />
+  <LinkCard
+    title="Adding a language provider"
+    href="/opencodehub/contributing/adding-a-language-provider/"
+    description="Four steps: grammar pin, provider, registry, fixture."
+  />
+  <LinkCard
+    title="Architecture overview"
+    href="/opencodehub/architecture/overview/"
+    description="Six-phase pipeline, storage segregation, ADR index."
+  />
+  <LinkCard
+    title="IP hygiene"
+    href="/opencodehub/contributing/ip-hygiene/"
+    description="Clean-room rule, banned-strings sweep, license allowlist."
+  />
+</CardGrid>
