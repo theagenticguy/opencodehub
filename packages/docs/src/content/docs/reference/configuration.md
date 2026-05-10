@@ -16,12 +16,13 @@ mutate global state.
 
 | Variable | Purpose |
 |---|---|
-| `CODEHUB_STORE` | `lbug` forces LadybugDB; `duck` forces the legacy DuckDB single-file layout. Unset (the default) means probe `@ladybugdb/core` and use LadybugDB when the binding is importable, otherwise DuckDB. |
+| `CODEHUB_STORE` | `lbug` forces LadybugDB; `duck` forces the single-file DuckDB layout. Unset (the default) means probe `@ladybugdb/core` and use LadybugDB when the binding is importable, otherwise fall back to DuckDB. |
 | `CODEHUB_HOME` | Override `~/.codehub/` (where the registry, embedder weights, and global state live). |
 | `OCH_VERBOSE` | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
 
-ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) explains
-the M7 flip from DuckDB-default to LadybugDB-default.
+ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) records
+the LadybugDB-default decision and the `IGraphStore` / `ITemporalStore`
+interface segregation.
 
 ### Parse runtime
 
@@ -30,7 +31,7 @@ the M7 flip from DuckDB-default to LadybugDB-default.
 | `OCH_NATIVE_PARSER` | Set to `1` on Node 22 to opt into the native `tree-sitter` N-API addon. The default runtime on Node 22 and Node 24 is `web-tree-sitter` (WASM). |
 
 The `--native-parser` CLI flag is equivalent. ADR
-0013-parse-runtime-wasm-default explains the v1 flip.
+0013-parse-runtime-wasm-default records the WASM-default decision.
 
 ### Embedding backends
 
@@ -73,7 +74,7 @@ exact files depend on the backend selected at index time.
 | `scan.sarif` | SARIF output from `codehub scan`. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
 
-### DuckDB (legacy / fallback)
+### DuckDB (opt-in fallback)
 
 | Path | Purpose |
 |---|---|

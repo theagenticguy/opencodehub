@@ -47,8 +47,8 @@ are pure: inputs in, relations out, no ambient state.
 
 The `graphHash` invariant is **backend-independent**. A repo indexed
 into LadybugDB (`graph.lbug`) and the same repo indexed into the
-legacy DuckDB layout (`graph.duckdb`) at the same commit produce the
-same hash. The M7 parity gate in CI compares the two hashes on every
+single-file DuckDB layout (`graph.duckdb`) at the same commit produce
+the same hash. A parity gate in CI compares the two hashes on every
 PR that touches the storage layer.
 
 ## How we test it

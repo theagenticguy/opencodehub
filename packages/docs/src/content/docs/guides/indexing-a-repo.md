@@ -93,7 +93,7 @@ On the default LadybugDB layout:
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
 
-On the legacy DuckDB layout, `graph.duckdb` replaces both
+On the single-file DuckDB fallback, `graph.duckdb` replaces both
 `graph.lbug` and `temporal.duckdb`.
 
 ## Other useful flags

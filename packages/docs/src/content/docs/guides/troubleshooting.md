@@ -25,8 +25,8 @@ prints.
 The default parse runtime is `web-tree-sitter` (WASM) on both Node 22
 and Node 24, so a missing C/C++ toolchain does not break analyze
 itself — only the optional native opt-in via `OCH_NATIVE_PARSER=1` is
-affected. `@duckdb/node-api` still has a native binding requirement
-on the legacy DuckDB layout; if it cannot load, set `CODEHUB_STORE=lbug`
+affected. `@duckdb/node-api` has a native binding requirement on the
+single-file DuckDB fallback; if it cannot load, set `CODEHUB_STORE=lbug`
 to use LadybugDB instead, which has its own platform packages.
 
 ## Stale index

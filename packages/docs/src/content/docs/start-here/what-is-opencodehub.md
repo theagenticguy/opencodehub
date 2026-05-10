@@ -28,12 +28,13 @@ where does this data flow.
 OpenCodeHub parses your repository with tree-sitter (15 GA languages,
 plus SCIP indexers for TypeScript, Python, Go, Rust, and Java),
 resolves imports and inheritance, and materialises a **typed symbol
-graph**. That graph is stored in LadybugDB, a graph-native database
-(with DuckDB as the temporal sibling, and as the legacy fallback when
-the `@ladybugdb/core` binding is unavailable). BM25 lexical search and
-filter-aware HNSW vector search sit on the same store. A local MCP
-server exposes the graph to any agent that speaks Model Context
-Protocol.
+graph**. That graph is stored in LadybugDB, a graph-native database,
+with DuckDB carrying the temporal sibling (cochanges and the
+symbol-summary cache). DuckDB also serves as a single-file fallback
+for environments where the `@ladybugdb/core` binding cannot load.
+BM25 lexical search and filter-aware HNSW vector search sit on the
+same store. A local MCP server exposes the graph to any agent that
+speaks Model Context Protocol.
 
 ```mermaid
 flowchart LR
@@ -50,11 +51,11 @@ Clustering, execution-flow tracing, and blast-radius analysis all happen
 once at index time. Agents get complete relational context in one tool
 call, not ten round-trips.
 
-## What's new since the v1.0 cut
+## What you get in v1
 
 - **Graph-native storage by default.** LadybugDB is the default backend;
-  a dedicated DuckDB sibling serves the temporal store. The legacy
-  single-file DuckDB layout is still selectable via `CODEHUB_STORE=duck`.
+  a dedicated DuckDB sibling serves the temporal store. A single-file
+  DuckDB layout is the opt-in fallback via `CODEHUB_STORE=duck`.
 - **Cross-repo federation.** Group several indexed repos with `codehub
   group` and query them through the `group_*` MCP tools. The repo is a
   first-class graph node and `repo_uri` carries through every

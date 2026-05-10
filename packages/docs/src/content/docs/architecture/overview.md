@@ -34,8 +34,9 @@ agent queries.
 ## Where the data lives
 
 The default backend is **LadybugDB**, with **DuckDB** as the temporal
-sibling. The legacy single-file DuckDB layout is still supported via
-`CODEHUB_STORE=duck`. See [Storage backend](/opencodehub/architecture/storage-backend/).
+sibling. A single-file DuckDB layout is the opt-in fallback when the
+`@ladybugdb/core` binding cannot load (or when forced via
+`CODEHUB_STORE=duck`). See [Storage backend](/opencodehub/architecture/storage-backend/).
 
 ```mermaid
 flowchart LR
@@ -173,7 +174,7 @@ cheapest configuration that hits all three:
 | 0007–0010 | Artifact factory, document pattern, output conventions, dogfood findings. |
 | 0011 | LadybugDB (phase-1) — graph-native backend behind the `IGraphStore` seam. |
 | 0012 | Repo as a first-class graph node — `repo_uri`, group registry, `AMBIGUOUS_REPO` envelope. |
-| 0013 (M7) | Default-flip + interface segregation — LadybugDB by default, DuckDB temporal sibling. |
+| 0013 (storage) | Storage default + interface segregation — LadybugDB by default, DuckDB temporal sibling. |
 | 0013 (parse) | WASM-default parse runtime on Node 22 and Node 24. |
 | 0014 | SCIP REFERENCES + TYPE_OF emission, embedder modelId stamping. |
 
@@ -184,7 +185,7 @@ See [ADRs](/opencodehub/architecture/adrs/) for the full list.
 - [Monorepo map](/opencodehub/architecture/monorepo-map/) — every
   workspace package and what it owns.
 - [Storage backend](/opencodehub/architecture/storage-backend/) — the
-  M7 default-flip + interface segregation.
+  graph + temporal interface segregation and the resolver.
 - [Cross-repo federation](/opencodehub/architecture/cross-repo-federation/)
   — `repo_uri`, the group registry, and the `AMBIGUOUS_REPO` envelope.
 - [Determinism](/opencodehub/architecture/determinism/) — the
