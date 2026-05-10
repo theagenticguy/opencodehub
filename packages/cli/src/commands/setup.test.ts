@@ -342,10 +342,12 @@ test("setup --plugin copies plugin tree into ~/.claude/plugins/opencodehub", asy
     assert.ok((await stat(p)).isFile(), `missing command: ${cmd}`);
   }
 
-  // The one agent.
+  // The one agent. Read once and infer existence from a successful
+  // `readFile` instead of `stat` + `readFile` (closes the TOCTOU gap
+  // js/file-system-race flags on path-based checks).
   const agentPath = join(targetDir, "agents", "code-analyst.md");
-  assert.ok((await stat(agentPath)).isFile(), "missing code-analyst agent");
   const agentBody = await readFile(agentPath, "utf8");
+  assert.ok(agentBody.length > 0, "missing code-analyst agent");
   assert.match(agentBody, /name: code-analyst/);
 
   // PostToolUse hook.
