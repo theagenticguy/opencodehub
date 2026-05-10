@@ -1,4 +1,7 @@
-<!-- Intentionally synchronized with CLAUDE.md. Edit both files together. -->
+<!-- Intentionally synchronized with CLAUDE.md. Edit both files together.
+     v1 docs sweep: AGENTS.md drops session-local spec coordinates that
+     CLAUDE.md still carries. The substantive guidance is identical. -->
+
 ## OpenCodeHub MCP Tools
 
 This repository has been indexed by OpenCodeHub. When you are working in this
@@ -19,7 +22,7 @@ with the working tree. `codehub status` reports staleness.
 
 ## Full MCP surface
 
-The full MCP surface is **28 tools** (see `packages/mcp/src/server.ts`);
+The full MCP surface is **29 tools** (see `packages/mcp/src/server.ts`);
 the 7 listed above are the high-frequency exploration tools. For the
 full inventory, use the `/opencodehub-guide` skill.
 
@@ -37,12 +40,11 @@ the list was truncated.
 
 See ADR 0012 (`docs/adr/0012-repo-as-first-class-node.md`) for the
 rationale behind `repo_uri` as a first-class node attribute. The
-`repo_uri` shape was promoted to a typed graph attribute by AC-M6-1
-(`packages/core-types/src/nodes.ts:524-552`). `group_cross_repo_links`
-(the AC-M6-3-reframed MCP tool) and the `group_*` family (AC-M6-4) all
-emit `repo_uri` in the same canonical form, so a caller can use any of
-those tools' `repo_uri` outputs as input to `AMBIGUOUS_REPO.choices`
-retries.
+`repo_uri` shape is a typed graph attribute on every `Repo` node
+(`packages/core-types/src/nodes.ts`). `group_cross_repo_links` and
+the `group_*` family of MCP tools all emit `repo_uri` in the same
+canonical form, so a caller can use any of those tools' `repo_uri`
+outputs as input to `AMBIGUOUS_REPO.choices` retries.
 
 Worked example — error envelope, then retry:
 
