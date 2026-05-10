@@ -521,11 +521,12 @@ function resolveFromRoot(repoRoot: string, pkg: string): string | null {
   //    Probing those package.json contexts lets `codehub doctor` resolve
   //    the bindings even when neither the CLI nor the workspace root
   //    declare them as direct deps.
-  const owners = pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/")
-    ? ["packages/storage"]
-    : pkg.startsWith("tree-sitter")
-      ? ["packages/ingestion"]
-      : [];
+  const owners =
+    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/")
+      ? ["packages/storage"]
+      : pkg.startsWith("tree-sitter")
+        ? ["packages/ingestion"]
+        : [];
   for (const owner of owners) {
     try {
       const req = createRequire(join(repoRoot, owner, "package.json"));

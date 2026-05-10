@@ -5,14 +5,18 @@
 # Uses only node (for the server) and python3 (for JSON parsing) — no extra
 # dependencies. Safe to run in CI.
 #
-# Tool roster at v1.0 (19 tools):
-#   Core (7): list_repos, query, context, impact, detect_changes, rename, sql
-#   Groups (4): group_list, group_query, group_status, group_contracts
+# Tool roster at v1.0 (29 tools — see packages/mcp/src/server.ts):
+#   Core (8): list_repos, pack_codebase, query, context, impact,
+#             detect_changes, rename, sql
+#   Groups (6): group_list, group_query, group_status, group_contracts,
+#               group_cross_repo_links, group_sync
 #   Project (1): project_profile
 #   Dependencies (2): dependencies, license_audit
 #   Ownership (1): owners
-#   Findings (2): list_findings, scan
+#   Findings (5): list_findings, list_findings_delta, list_dead_code,
+#                 remove_dead_code, scan
 #   Analysis (2): verdict, risk_trends
+#   Routing/contracts (4): route_map, api_impact, shape_check, tool_map
 #
 # CI / acceptance.sh can override the assertion via the EXPECTED_TOOLS env var
 # when the wire is mid-migration.
@@ -57,7 +61,7 @@ for line in sys.stdin:
 print(tools)
 ')
 
-EXPECTED_TOOLS="${EXPECTED_TOOLS:-19}"
+EXPECTED_TOOLS="${EXPECTED_TOOLS:-29}"
 if [ "$COUNT" = "$EXPECTED_TOOLS" ]; then
   echo "smoke-mcp: PASS ($COUNT tools listed)"
   exit 0
