@@ -223,7 +223,10 @@ function parseYarnLock(text: string): readonly LockfileResolution[] {
   //     version "18.3.1"
   //     …
   const out: LockfileResolution[] = [];
-  const entryRe = /^"?([^"\s@][^"\s]*)@[^"\n]*"?:\s*$/;
+  // Tighten the second char class to exclude `@` so the regex cannot
+  // backtrack across many `@` characters on inputs like `!@@@@@@@@@@`
+  // (js/polynomial-redos).
+  const entryRe = /^"?([^"\s@][^"\s@]*)@[^"\n]*"?:\s*$/;
   const versionRe = /^\s+version\s+"([^"]+)"/;
   const lines = text.split("\n");
   let currentName: string | null = null;
