@@ -33,7 +33,7 @@ Three concrete reasons:
 An input is:
 
 - Source tree contents at the current commit.
-- Toolchain versions (Node 22.x, pnpm 10.33.2, tree-sitter grammars
+- Toolchain versions (Node 22 or 24, pnpm 10.x, tree-sitter grammars
   pinned in `packages/ingestion/package.json`, SCIP indexer versions
   pinned in `.github/workflows/gym.yml` per ADR 0006).
 - OpenCodeHub version (the monorepo version pinned in
@@ -44,6 +44,12 @@ An input is:
 Anything outside that list — wall-clock time, process ID, file-system
 inode ordering — must not influence the hash. The ingestion phases
 are pure: inputs in, relations out, no ambient state.
+
+The `graphHash` invariant is **backend-independent**. A repo indexed
+into the graph-database backend (`graph.lbug`) and the same repo indexed into the
+legacy DuckDB layout (`graph.duckdb`) at the same commit produce the
+same hash. The M7 parity gate in CI compares the two hashes on every
+PR that touches the storage layer.
 
 ## How we test it
 
@@ -65,9 +71,10 @@ Two adjacent gates reinforce the contract:
   locally. Advisory-only today because embeddings do not yet propagate
   into the headline `graphHash`; the gate prints the hashes so a
   reviewer can spot drift manually.
-- **Gym replay (`mise run gym:replay`).** Bit-exact re-invocation of
-  the pinned SCIP indexer against the frozen manifest. Catches drift
-  introduced by an indexer bump before it lands in `main`.
+- **SCIP indexer regression CI** (`.github/workflows/gym.yml`).
+  Bit-exact re-invocation of the pinned SCIP indexers against the
+  frozen baseline. Catches drift introduced by an indexer bump before
+  it lands in `main`.
 
 Full analyze and incremental re-analyze at the same commit must
 produce identical hashes (this is asserted explicitly in the
@@ -77,10 +84,9 @@ incremental byte-identical" invariant called out in ADR 0002.
 ## The `--offline` contract
 
 `codehub analyze --offline` is a separate but related guarantee:
-**zero sockets opened** during the run. The flag sets
-`OCH_WASM_ONLY=1` (which also forces the WASM-only tree-sitter
-runtime path) and disables every non-filesystem I/O path in the
-pipeline.
+**zero sockets opened** during the run. The flag disables every
+non-filesystem I/O path in the pipeline (no SCIP indexer downloads,
+no remote embedder, no Bedrock summarize calls).
 
 "Zero sockets" is the literal, measurable claim. It is testable by
 running under `strace -e connect` or the equivalent on macOS

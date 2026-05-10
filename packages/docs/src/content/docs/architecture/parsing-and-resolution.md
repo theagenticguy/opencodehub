@@ -20,6 +20,20 @@ threads. Each file is hashed and the resulting `ParseCapture[]` is
 cached keyed on `(sha256, grammarSha, SCHEMA_VERSION)`, so a subsequent
 analyze with the same content skips tree-sitter entirely.
 
+The default runtime is `web-tree-sitter` (WASM) on both Node 22 and
+Node 24. The native `tree-sitter` N-API addon is opt-in via
+`OCH_NATIVE_PARSER=1` (or `--native-parser`) on Node 22 dev boxes
+where it is measurably faster on large repos. Kotlin, Swift, and
+Dart ship as `.wasm` blobs vendored at
+`packages/ingestion/vendor/wasms/`; rebuild via
+`bash scripts/build-vendor-wasms.sh` after a grammar bump.
+
+The complexity-metrics phase still uses native tree-sitter for
+cyclomatic-complexity counting. On Node 24 (or Node 22 without the
+native opt-in) it degrades with a one-shot stderr warning; all other
+parsing continues through the WASM path. ADR
+`docs/adr/0013-parse-runtime-wasm-default.md` covers the decision.
+
 `ParseCapture` is the shared per-capture schema emitted by the worker
 — one interface with 7 readonly fields:
 

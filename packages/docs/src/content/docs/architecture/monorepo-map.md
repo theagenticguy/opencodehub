@@ -1,78 +1,74 @@
 ---
 title: Monorepo map
-description: Every OpenCodeHub workspace package, its folder, purpose, versioning, and key exports.
+description: Every OpenCodeHub workspace package, its folder, purpose, and key surface.
 sidebar:
   order: 20
 ---
 
-OpenCodeHub is a pnpm workspace under `packages/*`. Fourteen TypeScript
-packages plus one Python harness (15 total). Ten of the TypeScript
-packages are versioned independently by release-please; the rest are
-internal harnesses or the Starlight docs site that ride along with the
-monorepo version. The Python eval lives outside the pnpm package graph
-entirely.
+OpenCodeHub is a pnpm workspace under `packages/*`. Seventeen
+TypeScript packages plus the documentation site. The CLI is the only
+binary; every other package is a library imported by `cli`, `mcp`,
+`ingestion`, or `analysis`.
 
 ## All packages
 
-| Package                     | Folder                 | Versioned? | Purpose                                                   | Key surface                                    |
-|-----------------------------|------------------------|------------|-----------------------------------------------------------|------------------------------------------------|
-| `@opencodehub/analysis`     | `packages/analysis`    | yes        | `impact`, `rename`, `detect_changes`, staleness logic    | `computeImpact()`, `computeRename()`           |
-| `@opencodehub/cli`          | `packages/cli`         | yes        | User-facing CLI                                           | `codehub` bin                                  |
-| `@opencodehub/core-types`   | `packages/core-types`  | yes        | Shared graph schema, `LanguageId`, determinism primitives | `LanguageId`, `SCIP_PROVENANCE_PREFIXES`       |
-| `@opencodehub/embedder`     | `packages/embedder`    | yes        | Deterministic ONNX embedder (gte-modernbert-base)         | `embed()`, `embedInt8()`                       |
-| `@opencodehub/ingestion`    | `packages/ingestion`   | yes        | 12-phase analyze pipeline, tree-sitter, language providers | `LanguageProvider` registry, pipeline phases   |
-| `@opencodehub/mcp`          | `packages/mcp`         | yes        | stdio MCP server, tools, resources, prompts               | `buildServer()`                                |
-| `@opencodehub/sarif`        | `packages/sarif`       | yes        | SARIF 2.1.0 Zod schemas, merge + enrich                   | `SarifLogSchema`, `mergeSarif()`               |
-| `@opencodehub/scanners`     | `packages/scanners`    | yes        | Priority-1 scanner wrappers (semgrep, osv, etc.)          | Subprocess runners                             |
-| `@opencodehub/search`       | `packages/search`      | yes        | Hybrid BM25 + RRF search                                  | `hybridSearch()`                               |
-| `@opencodehub/storage`      | `packages/storage`     | yes        | DuckDB graph store (`@duckdb/node-api` + `hnsw_acorn` + `fts`) | `IGraphStore`                              |
-| `@opencodehub/docs`         | `packages/docs`        | no         | Starlight documentation site (Astro + starlight-llms-txt)  | `pnpm -F @opencodehub/docs build`             |
-| `@opencodehub/gym`          | `packages/gym`         | no         | SCIP-indexer differential gym + regression gates          | `codehub-gym` bin                              |
-| `@opencodehub/scip-ingest`  | `packages/scip-ingest`  | no         | `.scip` protobuf reader + per-language indexer runners    | `readScipFile()`, per-language runners         |
-| `@opencodehub/summarizer`   | `packages/summarizer`  | no         | Structured code-symbol summarizer (Bedrock Converse + Zod) | `summarizeSymbol()`                           |
-| `opencodehub-eval`          | `packages/eval`        | no (Python) | Parity + regression eval harness (98 core cases)        | `pytest` suite driven by MCP stdio             |
-
-## Versioning
-
-Ten packages get their own tag and changelog via `release-please`. They
-are the public surface — anyone who takes a `peerDependency` on
-OpenCodeHub gets versioned guarantees on these.
-
-The five unversioned packages (`docs`, `gym`, `scip-ingest`,
-`summarizer`, `eval`) are harnesses, the documentation site, or
-internal-only dependencies with no external consumer at v1.0. They move
-in lockstep with the monorepo but do not publish independent tags. See
-[Release process](/opencodehub/contributing/release-process/) for the
-full table.
+| Package | Folder | Purpose |
+|---|---|---|
+| `@opencodehub/analysis` | `packages/analysis` | `impact`, `rename`, `detect_changes`, staleness, group cross-repo links. |
+| `@opencodehub/cli` | `packages/cli` | The `codehub` binary (analyze, setup, mcp, query, context, impact, sql, group, scan, verdict, code-pack, ...). |
+| `@opencodehub/cobol-proleap` | `packages/cobol-proleap` | Optional JVM ProLeap deep-parse bridge for COBOL — gated behind `--allow-build-scripts=proleap`. |
+| `@opencodehub/core-types` | `packages/core-types` | Shared graph schema, `LanguageId`, `RelationType`, determinism primitives. |
+| `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`gte-modernbert-base`), modelId fingerprint, three-backend cascade. |
+| `@opencodehub/frameworks` | `packages/frameworks` | Five-stage framework detector (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry. |
+| `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, summaries, ...). |
+| `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 29 tool registrations, 7 resources, the error envelope, the staleness `_meta` block. |
+| `@opencodehub/pack` | `packages/pack` | Deterministic 9-item code-pack BOM (the artifact attached to every release). |
+| `@opencodehub/policy` | `packages/policy` | `opencodehub.policy.yaml` loader, validator, evaluator. |
+| `@opencodehub/sarif` | `packages/sarif` | SARIF 2.1.0 Zod schemas, merge + enrich, suppressions, baseline diffing. |
+| `@opencodehub/scanners` | `packages/scanners` | Twenty scanner wrappers (semgrep, osv-scanner, bandit, ruff, grype, vulture, pip-audit, npm-audit, biome, betterleaks, detect-secrets, trivy, checkov, hadolint, tflint, spectral, radon, ty, clamav, och self-scan). |
+| `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
+| `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
+| `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the the graph-database backend and DuckDB adapters, the resolver that picks between them. |
+| `@opencodehub/summarizer` | `packages/summarizer` | Structured per-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4). |
+| `@opencodehub/wiki` | `packages/wiki` | Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph. |
+| `@opencodehub/docs` | `packages/docs` | This Starlight documentation site. |
 
 ## The CLI is the only bin
 
 The only packaged executable is `codehub` under `@opencodehub/cli`.
-`@opencodehub/gym` exposes a `codehub-gym` bin for internal harness
-use; it is not distributed separately.
-
-Every other package is a library imported by `cli`, `mcp`, or the
-ingestion pipeline.
+Every other package is a library imported by `cli`, `mcp`, `ingestion`,
+or `analysis`.
 
 ## Dependency direction
 
 Think of it as two layers:
 
 - **Leaf libraries.** `core-types`, `sarif`, `embedder`, `storage`,
-  `search`, `summarizer`, `scip-ingest`.
-- **Orchestrators.** `ingestion`, `analysis`, `scanners`, `mcp`,
-  `gym`, `cli`.
+  `search`, `summarizer`, `scip-ingest`, `frameworks`, `pack`,
+  `policy`, `cobol-proleap`.
+- **Orchestrators.** `ingestion`, `analysis`, `scanners`, `mcp`, `wiki`,
+  `cli`.
 
 Orchestrators import leaves; leaves do not import orchestrators. The
-TypeScript project-references graph enforces this via
-`tsc --noEmit`.
+TypeScript project-references graph enforces this via `tsc --noEmit`.
 
-## Python eval lives outside the graph
+## Storage — the M7 segregation
 
-`packages/eval` is a uv-managed Python project (Python 3.12, pytest,
-anyio, mcp). It sits in the monorepo for colocation but is not in the
-pnpm workspace. Run it with `mise run test:eval`; see
-[Testing](/opencodehub/contributing/testing/#python-eval-harness).
+`@opencodehub/storage` exposes two narrow interfaces — `IGraphStore`
+(graph workload: nodes, edges, embeddings, multi-hop traversal) and
+`ITemporalStore` (temporal workload: cochanges, summary cache). Two
+adapters implement them:
+
+- **graph-database store + DuckDB temporal store** — the default. Two
+  artifacts on disk (`graph.lbug` + `temporal.duckdb`), backed by a
+  Cypher-emitting dialect for the graph half and DuckDB SQL for the
+  temporal half.
+- **Single DuckDB file** — the legacy fallback. One artifact
+  (`graph.duckdb`) backs both interfaces.
+
+See [Storage backend](/opencodehub/architecture/storage-backend/) for
+the resolver, the dual-artifact precedence rule, and the
+community-adapter escape hatch (AGE / Memgraph / Neo4j / Neptune).
 
 ## Related files
 

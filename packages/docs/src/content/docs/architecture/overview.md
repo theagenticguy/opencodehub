@@ -1,6 +1,6 @@
 ---
 title: Architecture overview
-description: Six-phase pipeline from source tree to MCP — parse, resolve, augment, index, cluster, serve — with links to each phase's deep page.
+description: Six-phase pipeline from source tree to MCP — parse, resolve, augment, index, cluster, serve — backed by a graph-native store with deterministic outputs.
 sidebar:
   order: 10
 ---
@@ -23,29 +23,36 @@ flowchart LR
 ```
 
 Fifteen tree-sitter grammars produce a unified `ParseCapture` stream.
-Per-language resolvers turn captures into typed relations. Five SCIP
-indexers upgrade heuristic edges to compiler-grade references where
-available. DuckDB persists the graph, BM25, and HNSW in one embedded
-file. Communities and processes are precomputed. An stdio MCP server
-answers agent queries.
+Per-language resolvers turn captures into typed relations. SCIP
+indexers (TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin,
+Ruby) upgrade heuristic edges to compiler-grade references where
+available. The graph persists into a graph-native the graph-database backend store by
+default, with DuckDB carrying the temporal sibling. Communities and
+processes are precomputed. An stdio MCP server with 29 tools answers
+agent queries.
 
 ## Where the data lives
 
+The default backend is **graph-database backend**, with **DuckDB** as the temporal
+sibling. The legacy single-file DuckDB layout is still supported via
+`CODEHUB_STORE=duck`. See [Storage backend](/opencodehub/architecture/storage-backend/).
+
 ```mermaid
 flowchart LR
-  subgraph duckdb[".codehub/graph.duckdb"]
-    nodes[(nodes)]
-    edges[(edges)]
-    embeddings[(embeddings)]
-    findings[(nodes WHERE<br/>kind='Finding')]
+  subgraph lbug[".codehub/ (default)"]
+    nodes[(graph.lbug<br/>nodes + edges)]
+    embed[(embeddings)]
+    temporal[(temporal.duckdb<br/>cochanges, summary cache)]
   end
-  fts["fts_main_nodes_name<br/>(BM25)"] --- nodes
-  hnsw["idx_embeddings_vec<br/>(HNSW + ACORN)"] --- embeddings
+  fts["BM25 over names + summaries"] --- nodes
+  hnsw["filter-aware HNSW"] --- embed
+  nodes -. round-trip parity .- temporal
 ```
 
-Every tier — symbol, file, community — lives in one `embeddings`
-table keyed by a `granularity` discriminator, so one HNSW index serves
-all three. Findings reuse the `nodes` table with `kind='Finding'`.
+Embeddings live in the same physical store as the graph (one
+`embeddings` table, one HNSW index, three granularities keyed by a
+`granularity` discriminator). Findings reuse the `nodes` table with
+`kind='Finding'`.
 
 ## The six phases
 
@@ -58,15 +65,17 @@ line+col, nodeType). Lines are 1-indexed, columns 0-indexed.
 Fifteen languages are registered via a compile-time exhaustive
 `satisfies Record<LanguageId, LanguageProvider>` table: TypeScript,
 TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin,
-Swift, PHP, Dart.
+Swift, PHP, Dart. The runtime is `web-tree-sitter` (WASM) by default
+on both Node 22 and Node 24; the native N-API addon is opt-in.
 
 See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
 
 ### 2. Resolve — captures to typed relations
 
 One job: turn captures into typed edges (`DEFINES`, `HAS_METHOD`,
-`HAS_PROPERTY`, `IMPORTS`, `EXTENDS`, `IMPLEMENTS`, `CALLS`) by
-resolving names against a per-language symbol scope.
+`HAS_PROPERTY`, `IMPORTS`, `EXTENDS`, `IMPLEMENTS`, `CALLS`,
+`REFERENCES`, `TYPE_OF`) by resolving names against a per-language
+symbol scope.
 
 A three-tier resolver handles the common case (same-file 0.95,
 import-scoped 0.9, global 0.5). Python and the TS family opt into a
@@ -79,30 +88,32 @@ See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
 ### 3. Augment — SCIP indexers upgrade edges
 
 One job: run each repo's SCIP indexer, parse the resulting `.scip`
-protobuf, and emit `CALLS` edges with `confidence=1.0` and
-`reason=scip:<indexer>@<version>`. The `confidence-demote` phase then
-rescales any heuristic edge the SCIP oracle contradicts from 0.5 to
-0.2.
+protobuf, and emit `CALLS`, `REFERENCES`, `IMPLEMENTS`, and `TYPE_OF`
+edges with `confidence=1.0` and `reason=scip:<indexer>@<version>`. The
+`confidence-demote` phase then rescales any heuristic edge the SCIP
+oracle contradicts from 0.5 to 0.2.
 
-Five indexers: scip-typescript 0.4.0, scip-python 0.6.6, scip-go
-v0.2.3, scip-java 0.12.3, rust-analyzer (stable channel). Pins live
-in `.github/workflows/gym.yml`.
+Pinned indexers cover TypeScript / TSX / JavaScript (scip-typescript),
+Python (scip-python), Go (scip-go), Rust (rust-analyzer), Java
+(scip-java), C# (scip-dotnet), C/C++ (scip-clang), Kotlin (scip-kotlin),
+and Ruby (scip-ruby). Pins live in `.github/workflows/gym.yml`.
 
 See [SCIP reconciliation](/opencodehub/architecture/scip-reconciliation/).
 
 ### 4. Index — BM25, HNSW, and scanners
 
-One job: persist the graph into DuckDB with search indexes wired up.
+One job: persist the graph into the selected backend with search
+indexes wired up.
 
-- **`fts`** — BM25 over symbol names, docstrings, file paths.
-- **`hnsw_acorn`** — filter-aware HNSW (ACORN-1 traversal, RaBitQ
-  quantization, 21-30× memory reduction). `vss` is the fallback.
-- **Recursive CTEs with `USING KEY`** — multi-hop graph traversal.
+- **BM25** — over symbol names, signatures, and summaries.
+- **HNSW** — filter-aware, with the granularity discriminator pushed
+  into the predicate so all three tiers (symbol / file / community)
+  share one index without recall collapse.
+- **Multi-hop traversal** — Cypher-emitting dialect on the graph
+  backend; recursive CTEs (`USING KEY`) on the legacy DuckDB layout.
 
-Embeddings are optional, gated on `PipelineOptions.embeddings`. Three
-tiers (symbol, file, community) live in one table under one HNSW
-index. Three backend cascades select one: ONNX local, OpenAI-compat
-HTTP, or SageMaker.
+Embeddings are optional, gated on `PipelineOptions.embeddings`. The
+backend cascade is SageMaker → HTTP / OpenAI-compatible → local ONNX.
 
 Scanners run separately through the `scan` MCP tool, merging SARIF
 onto disk and indexing findings back into the `nodes` table.
@@ -125,12 +136,13 @@ See [Summarization and fusion](/opencodehub/architecture/summarization-and-fusio
 ### 6. Serve — MCP over stdio
 
 One job: expose the graph through an stdio MCP server (`codehub
-mcp`). Every tool returns a structured envelope with `next_steps` and,
-when the index lags HEAD, a `_meta["codehub/staleness"]` block. No
-daemon, no socket, no remote state.
+mcp`). Twenty-nine tools, seven resources, zero canned prompts. Every
+tool returns a structured envelope with `next_steps` and, when the
+index lags HEAD, a `_meta["codehub/staleness"]` block. No daemon, no
+socket, no remote state.
 
-See [MCP tool map](/opencodehub/mcp/tools/) for the full
-tool list.
+See [MCP overview](/opencodehub/mcp/overview/) and
+[MCP tools](/opencodehub/mcp/tools/).
 
 ## Why this shape
 
@@ -139,34 +151,43 @@ callees, processes, and blast radius in one tool call — and needs the
 answer to be reproducible across runs. The six-phase shape is the
 cheapest configuration that hits all three:
 
-- **Local + offline.** DuckDB is embedded. Indexing reads the
-  filesystem, nothing else. `codehub analyze --offline` opens zero
-  sockets.
+- **Local + offline.** The default storage stack is embedded;
+  `codehub analyze --offline` opens zero sockets.
 - **Deterministic.** Phases are pure: same inputs → same outputs,
-  byte-identical `graphHash`. See [Determinism](/opencodehub/architecture/determinism/).
+  byte-identical `graphHash`. The `graphHash` invariant holds across
+  both the the graph-database backend and DuckDB backends. See
+  [Determinism](/opencodehub/architecture/determinism/).
 - **Apache-2.0, every transitive dep on the permissive allowlist.**
-  DuckDB is MIT, `hnsw_acorn` is MIT, tree-sitter is MIT. No BSL, no
-  AGPL, no source-available engines in the core. See
+  No BSL, no AGPL, no source-available engines in the core. See
   [Supply chain](/opencodehub/architecture/supply-chain/).
 
 ## Reference ADRs
 
-| ADR | Topic                                                                       |
-|-----|-----------------------------------------------------------------------------|
-| 0001 | Storage backend selection — why DuckDB + `hnsw_acorn` + `fts`              |
-| 0002 | Rust core deferred to v2.1+ — why v2.0 stays pure TypeScript               |
-| 0004 | Hierarchical embeddings — one table, three granularities, filter-aware HNSW |
-| 0005 | SCIP replaces LSP — compiler-grade edges without long-running language servers |
-| 0006 | SCIP indexer CI pins — current version table per language                  |
+| ADR | Topic |
+|---|---|
+| 0001 | Storage backend selection — DuckDB + `hnsw_acorn` + `fts` (the v1.0 baseline). |
+| 0002 | Rust core deferred — v2.0 stays pure TypeScript. |
+| 0004 | Hierarchical embeddings — one table, three granularities, filter-aware HNSW. |
+| 0005 | SCIP replaces LSP — compiler-grade edges without long-running language servers. |
+| 0006 | SCIP indexer CI pins — current version table per language. |
+| 0007–0010 | Artifact factory, document pattern, output conventions, dogfood findings. |
+| 0011 | graph-database backend (phase-1) — graph-native backend behind the `IGraphStore` seam. |
+| 0012 | Repo as a first-class graph node — `repo_uri`, group registry, `AMBIGUOUS_REPO` envelope. |
+| 0013 (M7) | Default-flip + interface segregation — graph-database backend by default, DuckDB temporal sibling. |
+| 0013 (parse) | WASM-default parse runtime on Node 22 and Node 24. |
+| 0014 | SCIP REFERENCES + TYPE_OF emission, embedder modelId stamping. |
 
-See [ADRs](/opencodehub/architecture/adrs/) for the full list and
-decisions.
+See [ADRs](/opencodehub/architecture/adrs/) for the full list.
 
 ## Related pages
 
 - [Monorepo map](/opencodehub/architecture/monorepo-map/) — every
   workspace package and what it owns.
+- [Storage backend](/opencodehub/architecture/storage-backend/) — the
+  M7 default-flip + interface segregation.
+- [Cross-repo federation](/opencodehub/architecture/cross-repo-federation/)
+  — `repo_uri`, the group registry, and the `AMBIGUOUS_REPO` envelope.
 - [Determinism](/opencodehub/architecture/determinism/) — the
-  reproducibility contract and how it is tested.
+  reproducibility contract.
 - [Supply chain](/opencodehub/architecture/supply-chain/) — SBOM,
-  license allowlist, vulnerability posture.
+  cosign, SLSA L3, license allowlist.

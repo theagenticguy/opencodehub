@@ -1,6 +1,6 @@
 ---
 title: Embeddings
-description: Three backends in a priority cascade, three tiers keyed by a granularity discriminator, one HNSW index with filter-aware ACORN traversal.
+description: Three backends in a priority cascade, three tiers keyed by a granularity discriminator, one HNSW index with filter-aware traversal.
 sidebar:
   order: 50
 ---
@@ -8,9 +8,16 @@ sidebar:
 Embeddings are optional. When enabled, the pipeline produces vectors
 at three granularities (symbol, file, community) from one of three
 backends (ONNX local, HTTP/OpenAI-compat, SageMaker) and persists
-them in one DuckDB table served by one HNSW index. This page covers
-the backend cascade, the tier model, the storage shape, and why
-`WHERE granularity='symbol'` does not collapse recall.
+them in the graph backend's embeddings table served by one HNSW
+index. This page covers the backend cascade, the tier model, the
+storage shape, and why `WHERE granularity='symbol'` does not collapse
+recall.
+
+The persisted modelId is part of the store metadata (ADR 0014). A
+query path that mixes a different embedder than the one that produced
+the stored vectors refuses with `EMBEDDER_MISMATCH` unless the caller
+passes the documented force flag — silent cosine misranking from
+backend swaps is the failure mode this guards against.
 
 ## Backend cascade
 
@@ -108,39 +115,27 @@ for the formula.
 
 ## Single HNSW index
 
-The storage shape is deliberately simple: one `embeddings` table,
-one HNSW index over the `vector` column, one `granularity` column as
-a discriminator. The v1.2 schema adds `granularity DEFAULT 'symbol'`
-so v1.0 files auto-migrate in place.
+The storage shape is deliberately simple: one embeddings table, one
+HNSW index over the `vector` column, one `granularity` column as a
+discriminator. All three tiers share this index. Granularity filtering
+is pushed as `WHERE e.granularity IN (…)` into the index predicate, so
+selective filters narrow the candidate set during traversal rather
+than being applied after the fact.
 
-```sql
-CREATE INDEX idx_embeddings_vec
-  ON embeddings USING HNSW (vector);
-```
+## Filter-aware HNSW
 
-All three tiers share this index. Granularity filtering is pushed as
-`WHERE e.granularity IN (…)` into the ACORN predicate, so selective
-filters narrow the candidate set during traversal rather than being
-applied after the fact.
+The graph backend's HNSW index supports filter-aware traversal — the
+predicate is pushed into the graph walk so filters like
+`WHERE language='python'` or `WHERE granularity='community'` actually
+return results. A naive post-filter walks the top-k by cosine
+distance and drops rows that fail the predicate, which collapses to
+zero recall under selective filters; the OCH index avoids that by
+construction.
 
-## Filter-aware HNSW (ACORN-1)
-
-The `hnsw_acorn` extension's ACORN-1 algorithm is the reason filters
-like `WHERE language='python'` or `WHERE granularity='community'`
-actually return results. Stock `duckdb-vss` post-filters: it walks
-the top-k by cosine distance and drops rows that fail the predicate,
-which collapses to zero recall under selective filters. ACORN pushes
-the predicate into the traversal itself.
-
-Two DuckDB pragmas make this work:
-
-- `SET hnsw_acorn_threshold = 1.0` — force ACORN on every query
-  (default would skip ACORN on low-selectivity predicates).
-- `SET hnsw_enable_experimental_persistence = true` — persist the
-  HNSW index across restarts.
-
-If `hnsw_acorn` fails to install or load (first-run requires network
-to pull from the DuckDB community extension repo), the adapter falls
+On the legacy DuckDB layout, the same property holds via the
+`hnsw_acorn` community extension's ACORN-1 algorithm. If
+`hnsw_acorn` fails to install or load (first-run requires network to
+pull from the DuckDB community extension repo), the adapter falls
 back to `vss` with a post-filter warning. If both fail,
 `vectorExtension='none'` disables vector search entirely — queries
 return zero rows plus a surfaced warning rather than crashing.

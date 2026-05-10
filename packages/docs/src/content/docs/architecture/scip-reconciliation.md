@@ -17,34 +17,38 @@ right.
 
 Three reasons SCIP does not replace the default resolver:
 
-- **Not every language has an indexer.** Only five of the 15 registered
-  providers have a pinned SCIP indexer.
+- **Not every language has an indexer**, and the indexers that exist
+  have different install paths and runtime expectations.
 - **SCIP requires a buildable repo.** Missing dependencies, unsettable
   credentials, or a half-written feature branch all make the indexer
   fall over. The heuristic resolver still produces a usable graph.
-- **Rust and Java need build scripts to run.** SCIP is gated behind
+- **Rust, Java, and the JVM-driven indexers need build scripts to
+  run.** Build-script execution is gated behind
   `CODEHUB_ALLOW_BUILD_SCRIPTS=1`. Heuristic parsing is always safe.
 
-SCIP contributes `CALLS` edges with `confidence=1.0` — the oracle
-tier — and the reconciliation phase rescales any colliding heuristic
-edge to `confidence=0.2` with a `+scip-unconfirmed` suffix on the
-reason.
+SCIP contributes `CALLS`, `REFERENCES`, `IMPLEMENTS`, and `TYPE_OF`
+edges with `confidence=1.0` — the oracle tier — and the reconciliation
+phase rescales any colliding heuristic edge to `confidence=0.2` with a
+`+scip-unconfirmed` suffix on the reason. The REFERENCES + TYPE_OF
+emission landed in ADR 0014.
 
-## Indexer pins
+## Indexer inventory
 
-Versions live in `.github/workflows/gym.yml` so gym replay catches
-drift:
+| Indexer | Languages | Install channel |
+|---|---|---|
+| `scip-typescript` | TypeScript, TSX, JavaScript | `npm install -g @sourcegraph/scip-typescript` |
+| `scip-python` | Python | `uv tool install scip-python` |
+| `scip-go` | Go | `go install github.com/scip-code/scip-go/cmd/scip-go@<pin>` |
+| `rust-analyzer` | Rust | `rustup component add rust-analyzer rust-src` |
+| `scip-java` | Java | `coursier install scip-java` |
+| `scip-dotnet` | C# | `dotnet tool install --global scip-dotnet` |
+| `scip-clang` | C, C++ | Vendor binary; consumes a JSON compilation database. |
+| `scip-kotlin` | Kotlin | `scip-kotlin@^0.6.0` (requires Kotlin 2.2+). |
+| `scip-ruby` | Ruby | `scip-ruby` via gem; reads `sorbet/config` if present. |
 
-| Indexer        | Pin          | Install channel                              |
-|----------------|--------------|----------------------------------------------|
-| scip-typescript| `0.4.0`      | `npm install -g`                             |
-| scip-python    | `0.6.6`      | `uv tool install`                            |
-| scip-go        | `v0.2.3`     | `go install github.com/scip-code/scip-go/cmd/scip-go@...` |
-| scip-java      | `0.12.3`     | `coursier install`                           |
-| rust-analyzer  | `stable`     | `rustup component add rust-analyzer rust-src`|
-
-rust-analyzer tracks the stable channel rather than a pinned tag; ADR
-0006 covers the decision.
+Pins live in `.github/workflows/gym.yml` so gym replay catches drift.
+ADR 0006 covers the rationale for individual pins and install
+channels.
 
 ## The `.scip` ingest path
 
@@ -99,20 +103,11 @@ on confidence; the information is not lost.
 
 Every oracle-derived edge carries a reason of the form
 `scip:<indexer>@<version>`, e.g. `scip:scip-python@0.6.6`. The
-prefix set is declared once in `@opencodehub/core-types`:
-
-```ts
-export const SCIP_PROVENANCE_PREFIXES = [
-  "scip:scip-typescript@",
-  "scip:scip-python@",
-  "scip:scip-go@",
-  "scip:rust-analyzer@",
-  "scip:scip-java@",
-] as const;
-```
-
-Consumers (summarizer trust filter, `verdict`, MCP tools) test against
-this list rather than string-matching ad hoc.
+prefix set is declared once in `@opencodehub/core-types` and consumers
+(summarizer trust filter, `verdict`, MCP tools) test against the
+exported list rather than string-matching ad hoc. New indexers
+(scip-clang, scip-dotnet, scip-kotlin, scip-ruby) are appended to the
+same list as they land.
 
 ## The pipeline slice
 
@@ -159,23 +154,12 @@ concrete bug that was found, fixed, and captured:
   lines. See durable lesson
   `conventions/scip-protobuf-hand-rolled-reader.md`.
 
-## Known limitations
+## Status
 
-Two gaps are tracked for future work rather than hidden:
-
-- **`REFERENCES` edges are demotable but not yet emitted from SCIP.**
-  `emitEdges()` currently only writes `CALLS`. The `confidence-demote`
-  phase already handles `REFERENCES` if they arrive.
-- **Heritage edges from SCIP relationships are not wired in.**
-  `DerivedRelation` exists in `scip-ingest` and carries
-  `IMPLEMENTS` / `TYPE_OF` synthesized from
-  `SymbolInformation.relationships.is_implementation`, but nothing
-  consumes it into the graph yet. The derivation code is ready;
-  `scip-index.ts:emitEdges` needs an additional branch.
-
-Both are partially-vestigial: the plumbing exists, the wiring does
-not. They are not currently blocking, because the heuristic
-`extractHeritage` hook covers the common cases.
+Both `REFERENCES` and `TYPE_OF` are now emitted from SCIP alongside
+`CALLS` and `IMPLEMENTS`. ADR 0014 describes the wire-up that landed
+the missing edge classes plus the embedder-modelId fingerprint
+refusal at query time.
 
 ## Configuration knobs
 

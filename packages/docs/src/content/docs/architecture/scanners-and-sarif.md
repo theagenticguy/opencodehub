@@ -12,49 +12,41 @@ covers the catalog, the license distinction between bundled and
 wrapped tools, how SARIF enrichment stays GHAS-compatible, and how
 baseline diffs get bucketized.
 
-## Scanner tiers
+## Scanner inventory (20)
 
 The catalog at `packages/scanners/src/catalog.ts` is a flat module:
-one exported `ScannerSpec` per tool plus three aggregate arrays.
-Selection is driven by the project profile (languages, IaC types, API
-contracts) and can be overridden with an explicit scanner list.
+one exported `ScannerSpec` per tool plus aggregate arrays. Selection
+is driven by the project profile (languages, IaC types, API contracts)
+and can be overridden with an explicit `scanners` list on the `scan`
+tool. After PR #72 added `detect-secrets`, the inventory is **20
+scanners**:
 
-### Priority-1 (11 scanners)
+| Scanner | Scope |
+|---|---|
+| `semgrep` | Multi-language static analysis. |
+| `betterleaks` | Secrets — permissive license. |
+| `detect-secrets` | Secrets — entropy + pattern based. |
+| `osv-scanner` | Lockfile vulnerability scan against OSV. |
+| `bandit` | Python static security. |
+| `biome` | TS/JS lint + format. |
+| `pip-audit` | Python dependency CVE scan. |
+| `npm-audit` | npm dependency CVE scan. |
+| `ruff` | Python lint + format. |
+| `grype` | Container image + filesystem vulnerability scan. |
+| `checkov-docker-compose` | IaC policy — docker-compose. |
+| `vulture` | Python dead-code detection. |
+| `trivy` | Container / IaC / SBOM scanner. |
+| `checkov` | IaC policy — Terraform, Kubernetes, CloudFormation, Helm. |
+| `hadolint` | Dockerfile lint (subprocess-only — see license note). |
+| `tflint` | Terraform lint (subprocess-only). |
+| `spectral` | OpenAPI / AsyncAPI contract lint. |
+| `radon` | Python complexity + maintainability metrics. |
+| `ty` | Python type checker. |
+| `clamav` | Malware scan — opt-in only. |
 
-Always considered for a default scan; each one is gated on the
-project's detected languages.
-
-- **semgrep** — multi-language static analysis, rule packs for common
-  bugs and insecure patterns.
-- **betterleaks** — secret scanner, permissive license.
-- **osv-scanner** — vulnerability scan against the OSV database
-  keyed on lockfiles.
-- **bandit** — Python static security analyzer.
-- **biome** — JS/TS formatter and linter in one binary.
-- **pip-audit** — Python dependency vulnerability audit.
-- **npm-audit** — npm dependency vulnerability audit.
-- **ruff** — Python lint + format.
-- **grype** — container image and filesystem vulnerability scanner.
-- **checkov-docker-compose** — IaC policy scan scoped to
-  docker-compose files (kept in P1 for every repo with a compose file).
-- **vulture** — Python dead-code detection.
-
-### Priority-2 (8 scanners)
-
-Opt-in or gated by profile fields beyond language:
-
-- **trivy** — broader container / IaC / SBOM scanner.
-- **checkov** — full IaC policy coverage (Terraform, Kubernetes,
-  CloudFormation, Helm).
-- **hadolint** — Dockerfile lint. Invoked as a subprocess only
-  (license note below).
-- **tflint** — Terraform lint. Subprocess-only.
-- **spectral** — OpenAPI / AsyncAPI contract lint.
-- **radon** — Python complexity / maintainability metrics.
-- **ty** — Python type checker.
-- **clamav** — malware scan. Carries the `opt-in` flag so it is
-  excluded from every default gate; explicit `scanners: ["clamav"]`
-  turns it on.
+A 21st scanner — `och self-scan` — is integrated through the OCH
+graph itself (dead code, orphan symbols, group-level findings) and
+runs as a CI workflow rather than through the `scan` tool.
 
 ## License-incompatible wrappers
 
