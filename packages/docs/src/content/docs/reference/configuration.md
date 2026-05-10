@@ -16,12 +16,12 @@ mutate global state.
 
 | Variable | Purpose |
 |---|---|
-| `CODEHUB_STORE` | `lbug` forces the graph-database backend; `duck` forces the legacy DuckDB single-file layout. Unset (the default) means probe `@ladybugdb/core` and use the graph-database backend when the binding is importable, otherwise DuckDB. |
+| `CODEHUB_STORE` | `lbug` forces LadybugDB; `duck` forces the legacy DuckDB single-file layout. Unset (the default) means probe `@ladybugdb/core` and use LadybugDB when the binding is importable, otherwise DuckDB. |
 | `CODEHUB_HOME` | Override `~/.codehub/` (where the registry, embedder weights, and global state live). |
 | `OCH_VERBOSE` | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
 
 ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) explains
-the M7 flip from DuckDB-default to graph-database-default.
+the M7 flip from DuckDB-default to LadybugDB-default.
 
 ### Parse runtime
 
@@ -63,11 +63,11 @@ When none of the above are set, the local ONNX backend
 `codehub analyze` writes everything under `<repo-root>/.codehub/`. The
 exact files depend on the backend selected at index time.
 
-### the graph-database backend (default)
+### LadybugDB (default)
 
 | Path | Purpose |
 |---|---|
-| `graph.lbug` | graph-database backend — nodes, edges, embeddings. |
+| `graph.lbug` | LadybugDB graph store — nodes, edges, embeddings. |
 | `temporal.duckdb` | Sibling DuckDB file — temporal store (cochanges, symbol-summary cache). |
 | `meta.json` | Index metadata: graph hash, node counts, CLI version, backend, embedder model id. |
 | `scan.sarif` | SARIF output from `codehub scan`. |
@@ -78,7 +78,7 @@ exact files depend on the backend selected at index time.
 | Path | Purpose |
 |---|---|
 | `graph.duckdb` | Single DuckDB file — nodes, edges, embeddings, and temporal views in one place. |
-| `meta.json` | Same shape as the the graph-database backend layout. |
+| `meta.json` | Same shape as the LadybugDB layout. |
 | `scan.sarif` | SARIF output from `codehub scan`. |
 
 When both `graph.lbug` and `graph.duckdb` exist as siblings, the

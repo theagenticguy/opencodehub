@@ -79,7 +79,7 @@ codehub analyze
 
 `analyze` writes the graph to `.codehub/` under the repo root and
 registers the repo in `~/.codehub/registry.json`. By default the graph
-lands in `.codehub/graph.lbug` (the graph-database backend) with `.codehub/temporal.duckdb`
+lands in `.codehub/graph.lbug` (LadybugDB) with `.codehub/temporal.duckdb`
 alongside it; if `@ladybugdb/core` is unavailable the analyze falls
 back to the single-file `.codehub/graph.duckdb` layout. Add
 `--embeddings` to compute semantic vectors for hybrid search, or

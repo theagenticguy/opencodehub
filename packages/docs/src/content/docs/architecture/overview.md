@@ -26,14 +26,14 @@ Fifteen tree-sitter grammars produce a unified `ParseCapture` stream.
 Per-language resolvers turn captures into typed relations. SCIP
 indexers (TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin,
 Ruby) upgrade heuristic edges to compiler-grade references where
-available. The graph persists into a graph-native the graph-database backend store by
-default, with DuckDB carrying the temporal sibling. Communities and
+available. The graph persists into LadybugDB by default, with DuckDB
+carrying the temporal sibling. Communities and
 processes are precomputed. An stdio MCP server with 29 tools answers
 agent queries.
 
 ## Where the data lives
 
-The default backend is **graph-database backend**, with **DuckDB** as the temporal
+The default backend is **LadybugDB**, with **DuckDB** as the temporal
 sibling. The legacy single-file DuckDB layout is still supported via
 `CODEHUB_STORE=duck`. See [Storage backend](/opencodehub/architecture/storage-backend/).
 
@@ -155,7 +155,7 @@ cheapest configuration that hits all three:
   `codehub analyze --offline` opens zero sockets.
 - **Deterministic.** Phases are pure: same inputs → same outputs,
   byte-identical `graphHash`. The `graphHash` invariant holds across
-  both the the graph-database backend and DuckDB backends. See
+  both the LadybugDB and DuckDB backends. See
   [Determinism](/opencodehub/architecture/determinism/).
 - **Apache-2.0, every transitive dep on the permissive allowlist.**
   No BSL, no AGPL, no source-available engines in the core. See
@@ -171,9 +171,9 @@ cheapest configuration that hits all three:
 | 0005 | SCIP replaces LSP — compiler-grade edges without long-running language servers. |
 | 0006 | SCIP indexer CI pins — current version table per language. |
 | 0007–0010 | Artifact factory, document pattern, output conventions, dogfood findings. |
-| 0011 | graph-database backend (phase-1) — graph-native backend behind the `IGraphStore` seam. |
+| 0011 | LadybugDB (phase-1) — graph-native backend behind the `IGraphStore` seam. |
 | 0012 | Repo as a first-class graph node — `repo_uri`, group registry, `AMBIGUOUS_REPO` envelope. |
-| 0013 (M7) | Default-flip + interface segregation — graph-database backend by default, DuckDB temporal sibling. |
+| 0013 (M7) | Default-flip + interface segregation — LadybugDB by default, DuckDB temporal sibling. |
 | 0013 (parse) | WASM-default parse runtime on Node 22 and Node 24. |
 | 0014 | SCIP REFERENCES + TYPE_OF emission, embedder modelId stamping. |
 

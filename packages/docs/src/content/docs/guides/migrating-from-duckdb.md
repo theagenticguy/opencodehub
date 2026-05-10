@@ -1,13 +1,13 @@
 ---
-title: Migrating from DuckDB to the graph-database backend
-description: Move an existing OpenCodeHub index from the legacy DuckDB single-file layout to the default graph-database + DuckDB temporal layout.
+title: Migrating from DuckDB to LadybugDB
+description: Move an existing OpenCodeHub index from the legacy DuckDB single-file layout to the default LadybugDB + DuckDB temporal layout.
 sidebar:
   order: 75
 ---
 
 If you indexed a repo before the M7 default-flip, your `.codehub/`
 holds a single `graph.duckdb` file. The default backend is now
-**the graph-database backend + DuckDB temporal** (two artifacts:
+**LadybugDB + DuckDB temporal** (two artifacts:
 `graph.lbug` + `temporal.duckdb`). This guide covers the migration
 options.
 
@@ -22,7 +22,7 @@ codehub analyze
 ```
 
 `codehub analyze` defaults to `CODEHUB_STORE=auto`, which probes
-`@ladybugdb/core` and uses the graph-database backend when the binding is importable.
+`@ladybugdb/core` and uses LadybugDB when the binding is importable.
 The graph hash will match what the legacy DuckDB layout would have
 produced at the same commit (the M7 parity gate enforces this), so
 downstream tooling does not see drift.
@@ -49,7 +49,7 @@ This is useful if you need to keep an older script reading
 (`codehub query`, MCP tools, `verdict`), `CODEHUB_STORE=duck` is the
 only way to keep them on the legacy file.
 
-To force the graph-database backend explicitly (and refuse the fallback):
+To force LadybugDB explicitly (and refuse the fallback):
 
 ```bash
 CODEHUB_STORE=lbug codehub analyze

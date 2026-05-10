@@ -12,7 +12,7 @@ imports and inheritance, detect processes and clusters, build BM25
 and HNSW indexes, and write everything to `.codehub/` under the repo
 root.
 
-The default backend is **graph-database backend** for the graph half +
+The default backend is **LadybugDB** for the graph half +
 **DuckDB** for the temporal sibling. Set `CODEHUB_STORE=duck` to
 force the legacy single-file DuckDB layout. See
 [Storage backend](/opencodehub/architecture/storage-backend/) and
@@ -84,11 +84,11 @@ symbol participates in. The default granularity is `symbol`.
 ## What lives in `.codehub/`
 
 The contents depend on the storage backend selected at index time.
-On the default the graph-database backend layout:
+On the default LadybugDB layout:
 
 | Path | Purpose |
 |---|---|
-| `graph.lbug` | graph-database backend — symbols, edges, embeddings, BM25 + HNSW indexes. |
+| `graph.lbug` | LadybugDB graph store — symbols, edges, embeddings, BM25 + HNSW indexes. |
 | `temporal.duckdb` | DuckDB sibling — cochanges, symbol-summary cache. |
 | `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins, embedder modelId). |
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |

@@ -110,7 +110,7 @@ node packages/cli/dist/index.js doctor
 | Variable | Default | Effect |
 |---|---|---|
 | `OCH_NATIVE_PARSER` | unset | Set to `1` on Node 22 to opt into the native tree-sitter N-API addon. Leave unset to use the WASM default. |
-| `CODEHUB_STORE` | unset | `lbug` (force the graph-database backend), `duck` (force the legacy DuckDB single-file layout), or unset (auto-probe — the graph-database backend when `@ladybugdb/core` is importable, otherwise DuckDB). |
+| `CODEHUB_STORE` | unset | `lbug` (force LadybugDB), `duck` (force the legacy DuckDB single-file layout), or unset (auto-probe — LadybugDB when `@ladybugdb/core` is importable, otherwise DuckDB). |
 | `OCH_VERBOSE` | unset | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
 
 See [Configuration](/opencodehub/reference/configuration/) for the full

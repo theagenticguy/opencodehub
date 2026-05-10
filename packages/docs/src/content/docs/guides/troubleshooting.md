@@ -27,7 +27,7 @@ and Node 24, so a missing C/C++ toolchain does not break analyze
 itself — only the optional native opt-in via `OCH_NATIVE_PARSER=1` is
 affected. `@duckdb/node-api` still has a native binding requirement
 on the legacy DuckDB layout; if it cannot load, set `CODEHUB_STORE=lbug`
-to use the graph-database backend instead, which has its own platform packages.
+to use LadybugDB instead, which has its own platform packages.
 
 ## Stale index
 

@@ -90,9 +90,9 @@ column, Phase 0 schema preflight.
 
 [Read ADR 0010](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0010-dogfood-findings-2026-04-27.md)
 
-### ADR 0011 — graph-database backend (phase-1)
+### ADR 0011 — LadybugDB (phase-1)
 
-Add `@ladybugdb/core` as the opt-in graph-database backend behind the
+Add `@ladybugdb/core` as the opt-in LadybugDB graph backend behind the
 existing `IGraphStore` seam. Default stays on DuckDB through M3 – M6.
 Motivation: recursive-CTE traversals on the polymorphic `relations`
 table do not get faster, and the predicate cannot be pushed into the
@@ -112,10 +112,10 @@ envelope returned by per-repo tools.
 
 ### ADR 0013 — M7 default-flip + storage abstraction
 
-Flip the default to the graph-database backend and segregate `IGraphStore` from
+Flip the default to LadybugDB and segregate `IGraphStore` from
 `ITemporalStore`. The temporal half (cochanges, summary cache) stays
 on DuckDB. Adds the community-adapter escape hatch (AGE / Memgraph /
-Neo4j / Neptune) so OCH does not lock users into the graph-database backend.
+Neo4j / Neptune) so OCH does not lock users into LadybugDB.
 
 [Read ADR 0013 (M7)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 

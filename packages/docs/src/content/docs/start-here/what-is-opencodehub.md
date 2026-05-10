@@ -28,7 +28,7 @@ where does this data flow.
 OpenCodeHub parses your repository with tree-sitter (15 GA languages,
 plus SCIP indexers for TypeScript, Python, Go, Rust, and Java),
 resolves imports and inheritance, and materialises a **typed symbol
-graph**. That graph is stored in a graph-native the graph-database backend database
+graph**. That graph is stored in LadybugDB, a graph-native database
 (with DuckDB as the temporal sibling, and as the legacy fallback when
 the `@ladybugdb/core` binding is unavailable). BM25 lexical search and
 filter-aware HNSW vector search sit on the same store. A local MCP
@@ -52,7 +52,7 @@ call, not ten round-trips.
 
 ## What's new since the v1.0 cut
 
-- **Graph-native storage by default.** the graph-database backend is the default backend;
+- **Graph-native storage by default.** LadybugDB is the default backend;
   a dedicated DuckDB sibling serves the temporal store. The legacy
   single-file DuckDB layout is still selectable via `CODEHUB_STORE=duck`.
 - **Cross-repo federation.** Group several indexed repos with `codehub

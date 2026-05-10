@@ -1,12 +1,12 @@
 ---
 title: Storage backend
-description: graph-database store + DuckDB temporal sibling, the IGraphStore / ITemporalStore segregation, the resolver, and the community-adapter escape hatch.
+description: LadybugDB graph store + DuckDB temporal sibling, the IGraphStore / ITemporalStore segregation, the resolver, and the community-adapter escape hatch.
 sidebar:
   order: 25
 ---
 
 OpenCodeHub's M7 storage layer is two narrow interfaces, two adapters,
-and a probe. The default is the graph-database backend for the graph half and DuckDB
+and a probe. The default is LadybugDB for the graph half and DuckDB
 for the temporal half. The legacy single-file DuckDB layout is still
 available as a fallback.
 
@@ -31,7 +31,7 @@ the interfaces.
 
 ## The two adapters that ship
 
-### Graph-database store + DuckDB temporal store (default)
+### LadybugDB graph store + DuckDB temporal store (default)
 
 Two artifacts on disk:
 
@@ -107,7 +107,7 @@ ADR 0013 names the four explicitly.
 ## Determinism across backends
 
 The `graphHash` invariant holds across both adapters. A repo indexed
-into the graph-database backend and the same repo indexed into DuckDB at the same
+into LadybugDB and the same repo indexed into DuckDB at the same
 commit produce the same hash. The CI parity gate that landed with M7
 asserts this on every PR that touches `packages/storage`.
 
@@ -118,7 +118,7 @@ for the recipe.
 
 ## See also
 
-- [ADR 0011 — graph-database backend (phase-1)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
+- [ADR 0011 — LadybugDB (phase-1)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
 - [ADR 0013 (M7) — Default-flip + interface segregation](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 - [Configuration](/opencodehub/reference/configuration/) — env vars
   and on-disk layout.
