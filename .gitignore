@@ -41,6 +41,4 @@ examples/fixtures/**/.codehub/
 .claude/settings.local.json
 .claude/worktrees/
 .handoff/
-.
-.claude/skills//
 .claude/skills/generated/

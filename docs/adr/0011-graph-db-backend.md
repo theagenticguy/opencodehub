@@ -119,11 +119,9 @@ one `Database` opened `READ_WRITE` for the process, plus a pool of
 it is returned.
 
 The pool adapter at `packages/storage/src/graphdb-pool.ts` (545 LOC)
-encodes that contract. It was lifted from the same-shape adapter in
- and re-audited for the v0.16 API surface — the LadybugDB
-fork's `Connection` lifecycle is materially identical to the Kuzu line
-the  adapter was written against, and the audit did not turn up
-a behavioural change that required a rewrite. Parameters (locked in by
+encodes that contract. The `Connection` lifecycle on `@ladybugdb/core`
+v0.16 is materially identical to the pre-fork Kuzu line, so the pool
+shape is stable across the ABI bump. Parameters (locked in by
 AC-M3-2):
 
 | Parameter | Value | Rationale |
@@ -149,7 +147,7 @@ readable, idiomatic TypeScript:
 - File names: `graphdb-adapter.ts`, `graphdb-schema.ts`,
   `graphdb-pool.ts`, `graphdb-adapter.test.ts`, etc.
 - OCH-native edge kind `PROCESS_STEP` maps to a Cypher rel table named
-  `ProcessStep`, **not** the banned -style `STEP_IN_PROCESS`.
+  `ProcessStep`, **not** the banned `STEP_IN_PROCESS` literal.
 - The npm dependency `@ladybugdb/core` (declared in
   `packages/storage/package.json`) is allowed under a per-literal
   allowlist in `scripts/check-banned-strings.sh` — the package scope is
@@ -235,8 +233,8 @@ two milestones of parallel-work traffic.
 ## Risks
 
 1. **Pre-1.0 library with ABI churn.** `@ladybugdb/core` is at 0.16.1
-   as of 2026-05-04.  pins 0.15.2, so we already know ABI
-   breaks land every few months. Mitigation: pin the exact minor in
+   as of 2026-05-04 and ships ABI breaks every few months at this
+   pre-1.0 cadence. Mitigation: pin the exact minor in
    `packages/storage/package.json` (`^0.16.1` today; bumped
    intentionally, not via `pnpm up`). The opt-in `CODEHUB_STORE=lbug`
    surface means any ABI mismatch shows up cleanly at `GraphDbStore.open()`
@@ -282,8 +280,7 @@ two milestones of parallel-work traffic.
   definition.
 - `packages/storage/src/graph-hash-parity.test.ts` — parity gate, three
   fixtures (small / medium / large), 24-edge-kind sweep.
-- `packages/storage/src/graphdb-pool.ts` — pool adapter, 545 LOC,
-  lifted and re-audited from the  adapter.
+- `packages/storage/src/graphdb-pool.ts` — pool adapter, 545 LOC.
 - `packages/storage/src/graphdb-schema.ts` — polymorphic
   rel-table-per-kind DDL translator.
 - `scripts/check-banned-strings.sh` — guardrail; this ADR's commit

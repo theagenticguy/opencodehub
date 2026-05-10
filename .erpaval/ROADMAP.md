@@ -60,12 +60,12 @@ Sequenced by dependency only. No calendar estimates.
 
 Replace recursive-CTE traversals with polymorphic rel-table-per-edge schema (**corrected 2026-05-05** — the v1 roadmap proposed a single rel-table with a `type` column; LadybugDB docs recommend one named rel table per edge kind with multiple `FROM/TO` pairs for columnar predicate pushdown). Current OCH edge-kind count is **23** (post-M2 additions `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`), not 21 as originally estimated.
 
-LadybugDB = community successor to Kuzu (Apple acquisition). Pre-1.0 with ABI breaks every few months. **Current npm package: `@ladybugdb/core@0.16.1`** (released 2026-05-04, one day before roadmap review).  pins 0.15.2. Source-level naming uses `GraphDbStore` / `graphdb-adapter.ts` / `graphdb-pool.ts` to stay within `scripts/check-banned-strings.sh` limits — the `ladybug` and `kuzu` literals are rejected in tracked source files; the `@ladybugdb/core` dep in `package.json` is permitted under package-scope precedent.
+LadybugDB = community successor to Kuzu (Apple acquisition). Pre-1.0 with ABI breaks every few months. **Current npm package: `@ladybugdb/core@0.16.1`** (released 2026-05-04, one day before roadmap review). Source-level naming uses `GraphDbStore` / `graphdb-adapter.ts` / `graphdb-pool.ts` to stay within `scripts/check-banned-strings.sh` limits — the `ladybug` and `kuzu` literals are rejected in tracked source files; the `@ladybugdb/core` dep in `package.json` is permitted under package-scope precedent.
 
 | Task | Scope | Dependency | Test gate |
 |------|-------|-----------|-----------|
 | T-M3-1 | Implement `LbugStore` behind `IGraphStore` seam, gated by `CODEHUB_STORE=lbug` | M2 | graphHash parity suite |
-| T-M3-2 | Pool-adapter lifted from  `pool-adapter.ts` (612 LOC); LadybugDB `.query()` segfaults on concurrent calls | M3-1 | Concurrent query test |
+| T-M3-2 | Pool-adapter (~600 LOC) — LadybugDB `.query()` segfaults on concurrent calls against one `Connection` | M3-1 | Concurrent query test |
 | T-M3-3 | Single `CodeRelation` rel-table + per-kind DDL replaces ~60-column polymorphic nodes table | M3-2 | MATCH pattern tests |
 | T-M3-4 | graphHash parity test suite — advance iff `DuckStore.graphHash === LbugStore.graphHash` on corpus | M3-3 | CI gate: byte-identical hash |
 | T-M3-5 | Convert `sql` MCP tool output to `cypher` (dual-emit during phase 1, drop `sql` at M7) | M3-4 | MCP tool signature tests |

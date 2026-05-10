@@ -29,22 +29,14 @@
  *      idle. The LRU pathway evicts the least-recently-used pool when
  *      the process-wide cap `MAX_POOL_SIZE` is reached.
  *
- * Adapted from prior-art ( `pool-adapter.ts`, 611 LOC):
+ * Native binding surface (`@ladybugdb/core@0.16.1`):
  *
- *   - The  version multiplexes by `repoId`; this version keys the
- *     global registry by the resolved `dbPath` and exposes `GraphDbPool`
- *     as an instance object so `GraphDbStore.open()` / `.close()` can
- *     drive the lifecycle without a second name registry.
- *   - The  version silences stdout during connection creation to
- *     suppress native-module chatter on the MCP stdio channel. OCH uses a
- *     different process model for its stdio MCP (the MCP server logs go
- *     to stderr), so the watchdog is dropped. See §Anti-goals in the
- *     task packet.
- *   - Timing heuristics (`MAX_CONNS_PER_REPO=8`, waiter 15s, query 30s,
- *     idle 60s sweep + 5m timeout, pool cap 5) are preserved verbatim —
- *     they were battle-tested against the same native binding family.
- *   - `@ladybugdb/core@0.16.1` surface is byte-compatible with v0.15.2
- *     for the calls used here: `Database(path, bufferManagerSize,
+ *   - Global registry keys by the resolved `dbPath` and exposes
+ *     `GraphDbPool` as an instance object so `GraphDbStore.open()` /
+ *     `.close()` can drive the lifecycle without a second name registry.
+ *   - Timing knobs: `MAX_CONNS_PER_REPO=8`, waiter 15 s, query 30 s,
+ *     idle 60 s sweep + 5 min timeout, pool cap 5.
+ *   - Calls used here: `Database(path, bufferManagerSize,
  *     enableCompression, readOnly)`, `new Connection(db)`,
  *     `conn.query(stmt) → Promise<QueryResult | QueryResult[]>`,
  *     `result.getAll() → Promise<Record<string, unknown>[]>`. Prepared

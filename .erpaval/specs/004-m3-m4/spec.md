@@ -8,10 +8,10 @@
 
 - `IGraphStore` seam at `packages/storage/src/interface.ts:11-64` is already the abstraction point. No shape change needed.
 - `graphHash` is computed in `packages/core-types/src/graph-hash.ts:20-45` from the **in-memory `KnowledgeGraph`**, never from store rows. Parity test: `graph → LbugStore → rebuildGraphFromStore → graphHash === original`. Template exists at `packages/storage/src/duckdb-adapter.test.ts:89,206-229`.
-- **Current edge-kind count is 23** (`duckdb-adapter.ts:71-96`) — roadmap's "21 types" is stale; OCH has drifted past with `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`. OCH uses `PROCESS_STEP` where  uses `STEP_IN_PROCESS` (banned literal).
+- **Current edge-kind count is 23** (`duckdb-adapter.ts:71-96`) — roadmap's "21 types" is stale; OCH has drifted past with `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`. OCH uses `PROCESS_STEP`; the `STEP_IN_PROCESS` form is a banned literal.
 - **LadybugDB pattern correction** (supersedes roadmap L58): idiomatic LadybugDB uses **polymorphic rel tables — one named rel table per edge kind, each with multiple `FROM/TO` pairs**. NOT a single `CodeRelation` rel table with a `type` property column — that defeats columnar predicate pushdown. Research URL: `docs.ladybugdb.com/cypher/data-definition/create-table`.
-- **npm package**: `@ladybugdb/core@^0.16.1` (latest as of 2026-05-04).  pins 0.15.2. `lbug@0.14.3` is a stale mirror — ignore.
-- **Concurrency**: one process-wide `READ_WRITE` `Database` + pool of `Connection` objects. 's `pool-adapter.ts` (611 LOC) is user-space wrapper, not library convention — worth lifting but re-audit for current (v0.16) behavior vs v0.15.
+- **npm package**: `@ladybugdb/core@^0.16.1` (latest as of 2026-05-04). `lbug@0.14.3` is a stale mirror — ignore.
+- **Concurrency**: one process-wide `READ_WRITE` `Database` + pool of `Connection` objects. The pool wrapper (~600 LOC) is user-space, not library convention — re-audit any pool semantics for v0.16 behavior.
 - **Banned literals**: `kuzu`, `ladybug`, `STEP_IN_PROCESS`, `duckpgq` are banned in tracked source by `scripts/check-banned-strings.sh`. `@ladybugdb/core` in `package.json` is allowed (not a banned form). `.erpaval/` is excluded from the scan. The `LbugStore` class name and file paths `lbug-adapter.ts` / `lbug-pool.ts` use the "lbug" token which triggers the banned literal. **Resolution**: rename everything to `GraphDbStore` / `graphdb-adapter.ts` / `graphdb-pool.ts` at the source level; keep `@ladybugdb/core` as the dep name (the package scope is exempt by precedent).
 
 ### M4 — Language expansion + COBOL + framework detection
@@ -64,7 +64,7 @@
 
 - [ ] `packages/storage/src/graphdb-adapter.ts` — `GraphDbStore implements IGraphStore`, constructor takes path, lazy-imports `@ladybugdb/core`
 - [ ] `packages/storage/src/graphdb-schema.ts` — DDL translator; per-kind `CREATE NODE TABLE` + one polymorphic rel table per edge kind
-- [ ] `packages/storage/src/graphdb-pool.ts` — lifted from  `pool-adapter.ts` (611 LOC), renamed, internals audited for v0.16 API compatibility
+- [ ] `packages/storage/src/graphdb-pool.ts` — pool adapter (~600 LOC), internals audited for v0.16 API compatibility
 - [ ] `packages/storage/src/index.ts` — export `GraphDbStore`; add `openStore(opts)` factory reading `CODEHUB_STORE`
 - [ ] `packages/storage/package.json` — add `@ladybugdb/core: ^0.16.1` as hard dep (direct dependency, not optional peer — user-approved 2026-05-05)
 - [ ] Banned-strings gate passes (no `kuzu`/`ladybug` in source)
@@ -74,7 +74,7 @@
 ### AC-M3-2: Pool adapter + concurrency tests
 
 - [ ] `graphdb-pool.ts` integration test: 100 concurrent reads against one Database do not segfault or deadlock
-- [ ] Checkout/checkin queue semantics preserved from  pool (`MAX_CONNS_PER_REPO=8`, 15s waiter timeout, 30s query timeout, 60s idle sweep)
+- [ ] Checkout/checkin queue semantics: `MAX_CONNS_PER_REPO=8`, 15s waiter timeout, 30s query timeout, 60s idle sweep
 - [ ] Timeout propagates into `IGraphStore.query()` `timeoutMs` correctly
 - **Dependencies**: AC-M3-1
 
