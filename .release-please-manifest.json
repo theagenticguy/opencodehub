@@ -1,13 +1,13 @@
 {
-  ".": "0.1.1",
-  "packages/analysis": "0.1.0",
-  "packages/cli": "0.1.0",
-  "packages/core-types": "0.1.0",
-  "packages/embedder": "0.1.0",
-  "packages/ingestion": "0.1.0",
-  "packages/mcp": "0.1.0",
-  "packages/sarif": "0.1.0",
-  "packages/scanners": "0.1.0",
-  "packages/search": "0.1.0",
-  "packages/storage": "0.1.0"
+  ".": "1.0.0",
+  "packages/analysis": "0.2.0",
+  "packages/cli": "1.0.0",
+  "packages/core-types": "1.0.0",
+  "packages/embedder": "0.2.0",
+  "packages/ingestion": "1.0.0",
+  "packages/mcp": "1.0.0",
+  "packages/sarif": "0.2.0",
+  "packages/scanners": "0.2.0",
+  "packages/search": "0.2.0",
+  "packages/storage": "0.2.0"
 }

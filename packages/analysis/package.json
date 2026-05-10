@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/analysis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCodeHub — impact, rename, detect_changes, staleness",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,7 +12,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "node --test ./dist/*.test.js ./dist/**/*.test.js",
