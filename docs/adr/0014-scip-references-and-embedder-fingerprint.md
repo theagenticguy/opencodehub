@@ -98,9 +98,14 @@ For Hole B, every existing store needs a `codehub analyze --force` to pick up th
 
 ## References
 
-- `.erpaval/specs/006-v1-finalize/spec.md§AC-C-3, §AC-C-5, §E-C-3, §E-C-4, §W-A-2`
-- `.erpaval/sessions/session-33f24f/research-detectsecrets-scip.yaml` (SCIP role enum + Relationship message)
-- `.erpaval/solutions/architecture-patterns/scip-callee-definition-site.md`
-- `.erpaval/solutions/conventions/scip-0-indexed-vs-graph-1-indexed.md`
-- `docs/adr/0011-graph-db-backend.md` (M3+M6 IGraphStore precedent)
-- `docs/adr/0013-m7-default-flip-and-abstraction.md` (M7 LadybugDB default flip)
+- `packages/embedder/src/fingerprint.ts` — `assertEmbedderCompatible`,
+  the frozen `EMBEDDER_MISMATCH_HINT` string.
+- `packages/scip-ingest/src/derive.ts` — REFERENCES emission and the
+  `is_implementation`/`is_type_definition` collector.
+- `packages/ingestion/src/pipeline/phases/scip-index.ts` — `emitEdges`
+  and the new `emitRelations` sibling.
+- `packages/core-types/src/edges.ts` — append-only `RelationType`
+  union; `TYPE_OF` lands at position 25.
+- `docs/adr/0011-graph-db-backend.md` — `IGraphStore` precedent.
+- `docs/adr/0013-m7-default-flip-and-abstraction.md` — M7 LadybugDB
+  default flip.

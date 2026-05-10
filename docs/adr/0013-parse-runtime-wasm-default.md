@@ -1,5 +1,10 @@
 # ADR 0013 — Parse runtime: WASM default, native opt-in
 
+> Note: there is a sibling ADR — `0013-m7-default-flip-and-abstraction.md`
+> — that landed concurrently and shares the same number. Both are kept
+> in-tree because they were authored in parallel branches and accepted
+> on the same release. The next ADR uses 0014.
+
 - Status: **Accepted** — 2026-05-08.
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/node24-wasm-default`.

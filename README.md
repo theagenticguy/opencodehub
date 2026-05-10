@@ -60,7 +60,7 @@ flowchart LR
   C -->|detect communities + flows| E[Processes / clusters]
   D --> F[MCP server]
   E --> F
-  F -->|28 tools| G[AI coding agent]
+  F -->|29 tools| G[AI coding agent]
 ```
 
 ## Design choices worth knowing
@@ -71,13 +71,16 @@ flowchart LR
 | **Local-first, offline-capable** | `codehub analyze --offline` opens zero sockets. Your code never leaves your machine. No telemetry. |
 | **Deterministic indexing** | Identical inputs produce a byte-identical graph hash. Reproducible. Auditable. Cacheable in CI. |
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
-| **Embedded storage** | DuckDB + `hnsw_acorn` (filter-aware HNSW via ACORN-1 + RaBitQ) + `fts` (BM25). One file. No daemon. No database to operate. |
-| **14 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart — via tree-sitter native bindings (WASM fallback for the web surface). |
+| **Embedded storage, graph-default** | `@ladybugdb/core` graph engine for the structural store (default at v1) with DuckDB + `hnsw_acorn` (filter-aware HNSW via ACORN-1 + RaBitQ) + `fts` (BM25) for the temporal + retrieval views. Embedded files. No daemon. No database to operate. `CODEHUB_STORE=duck` reverts to the legacy single-file layout. |
+| **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
+| **WASM-default parse runtime** | `web-tree-sitter` WASM is the default on Node 22 and Node 24; the native `tree-sitter` N-API addon is opt-in via `OCH_NATIVE_PARSER=1` for Node 22 dev boxes. The complexity phase still uses native where supported and degrades with a one-shot warning otherwise. |
 
 ## Quick start
 
-**Requirements:** macOS, Linux, or Windows; Node 20+; pnpm 10+; Python
-3.12 (for the eval harness); `mise` recommended to manage them.
+**Requirements:** macOS, Linux, or Windows; Node 22 or 24 (Node 22
+recommended for the native-parser opt-in); pnpm 10+; Python 3.12 (only
+needed when running the SCIP indexers for Python-heavy repos);
+`mise` recommended to manage them.
 
 ```bash
 git clone https://github.com/theagenticguy/opencodehub
@@ -106,7 +109,7 @@ codehub analyze
 # your agent can now call impact, query, context, detect_changes, rename, ...
 ```
 
-## MCP tool surface (28 tools)
+## MCP tool surface (29 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -116,9 +119,10 @@ codehub analyze
 | `detect_changes` | Git-diff impact — what do your current changes affect |
 | `rename` | Multi-file coordinated rename with confidence-tagged edits |
 | `route_map` / `api_impact` / `shape_check` / `tool_map` | HTTP route & MCP tool intelligence |
-| `group_query` | BM25-fused search across a group of repos |
+| `group_query` / `group_status` / `group_contracts` / `group_cross_repo_links` / `group_sync` / `group_list` | Cross-repo federation — fan out BM25, contracts, and staleness across a named group |
 | `list_repos` · `sql` | Registry & escape-hatch SQL (read-only, timeout-guarded) |
-| …and 17 more | Communities, processes, SBOM, SARIF, verdict, etc. |
+| `pack_codebase` | Deterministic Repomix-compatible code pack export |
+| …and the rest | `verdict`, `risk_trends`, `project_profile`, `dependencies`, `license_audit`, `owners`, `list_findings`, `list_findings_delta`, `list_dead_code`, `remove_dead_code`, `scan` |
 
 Architecture decision records live in [`docs/adr/`](./docs/adr/). A
 Claude Code plugin at `plugins/opencodehub/` wraps the MCP tools into
@@ -126,24 +130,32 @@ slash commands + skills — install via `codehub init`.
 
 ## Repository layout
 
-The monorepo is organised as 14 workspace packages under `packages/`:
+The monorepo is organised as 17 workspace packages under `packages/`:
 
 | Package | Purpose |
 |---|---|
 | `analysis` | Heuristic + SCIP call-graph resolution, community + flow detection |
-| `cli` | `codehub` command — `init`, `analyze`, `status`, `setup`, scanners |
-| `core-types` | Shared TypeScript types, Zod schemas, error codes |
-| `embedder` | Embedding backends — local ONNX, HTTP, SageMaker |
-| `eval` | Retrieval / graph-quality evaluation harness |
-| `gym` | Per-language F1 regression gym with SCIP baselines |
-| `ingestion` | Tree-sitter parsers, symbol extraction, import resolution |
-| `mcp` | Model Context Protocol server — 28 tools, resources |
+| `cli` | `codehub` command — `init`, `analyze`, `status`, `setup`, scanners, group federation |
+| `cobol-proleap` | ProLeap-backed deep-parse path for free-format COBOL (regex provider handles fixed-format) |
+| `core-types` | Shared TypeScript types, Zod schemas, error codes, canonical `LanguageId` and node/edge kinds |
+| `embedder` | Embedding backends — local ONNX, HTTP, SageMaker; deterministic `embedderId` fingerprint |
+| `frameworks` | HTTP route + MCP tool detectors used by `route_map` / `api_impact` / `tool_map` |
+| `ingestion` | Tree-sitter + WASM parsers, symbol extraction, import resolution, complexity phase |
+| `mcp` | Model Context Protocol server — 29 tools, resources, structured error envelopes |
+| `pack` | Deterministic Repomix-compatible code-pack generator (M5) |
+| `policy` | Allowlist + license-tier policy engine driving `license_audit` and CI gates |
 | `sarif` | SARIF schema validation and scanner output normalisation |
-| `scanners` | Subprocess wrappers for OSV, Semgrep, hadolint, tflint, etc. |
-| `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) |
+| `scanners` | Subprocess wrappers for 20 scanners — OSV, Semgrep, hadolint, tflint, detect-secrets, and the rest |
+| `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) — emits CALLS, REFERENCES, IMPLEMENTS, TYPE_OF |
 | `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
-| `storage` | DuckDB-backed graph store, deterministic `graphHash` |
+| `storage` | `IGraphStore` / `ITemporalStore` adapters — `@ladybugdb/core` (default) and DuckDB; deterministic `graphHash` |
 | `summarizer` | Process + cluster summaries for MCP responses |
+| `wiki` | LLM-narrated module pages emitted by `codehub wiki --llm` |
+
+The retrieval / graph-quality evaluation harness and the per-language F1
+regression gym used to live here as `eval` and `gym`; they were
+extracted into a sibling testbed in M5 so the production package set
+ships free of test-time dependencies.
 
 ## Embedding backends
 
@@ -199,18 +211,40 @@ for the M3 phase-1 rationale and
 [`docs/adr/0013-m7-default-flip-and-abstraction.md`](./docs/adr/0013-m7-default-flip-and-abstraction.md)
 for the M7 default-flip + interface segregation.
 
+## Parse runtime — WASM default, native opt-in
+
+`@opencodehub/ingestion` defaults to the `web-tree-sitter` (WASM)
+runtime on Node 22 and Node 24. The native `tree-sitter` N-API addon
+is opt-in on Node 22 dev boxes via `OCH_NATIVE_PARSER=1` (or
+`--native-parser` on the `codehub` CLI). Native is not supported on
+Node 24 until `node-tree-sitter@0.25.1` lands on npm
+([tree-sitter/node-tree-sitter#276](https://github.com/tree-sitter/node-tree-sitter/issues/276)).
+
+Kotlin, Swift, and Dart use `.wasm` blobs vendored at
+`packages/ingestion/vendor/wasms/` and rebuilt via
+`bash scripts/build-vendor-wasms.sh` whenever the underlying grammar
+versions in `package.json` change. The complexity phase
+(cyclomatic-complexity metrics) still uses native tree-sitter where
+available; on Node 24 or Node 22 without the opt-in, complexity
+extraction degrades with a one-shot stderr warning and all other
+parsing continues via WASM.
+
+See [`docs/adr/0013-parse-runtime-wasm-default.md`](./docs/adr/0013-parse-runtime-wasm-default.md)
+for the WASM-default rationale and the Node 24 unblock plan.
+
 ## Status
 
-**v0.1.0 — initial public release.** The codebase is feature-complete
-along the scope described below, but the project is brand-new on
-GitHub and the API surface is not yet stable.
+**v1 — feature-complete on M1–M7.** Tracks A (M7 graph-DB default + the
+`IGraphStore` / `ITemporalStore` interface segregation), B (20-scanner
+fleet incl. detect-secrets), C (debt sweep — embedder fingerprint, SCIP
+REFERENCES + TYPE_OF), and D (dogfood polish) have all merged. The
+current shipped tag remains `0.1.1`; `1.0.0` is cut once schema +
+tool-surface stability is signed off.
 
 While on `0.x`, **any release may contain breaking changes** to the
 graph schema, MCP tool shapes, CLI flags, or storage layout. Breaking
 changes are called out with `!` or a `BREAKING CHANGE:` footer in the
 commit log and summarised in each release's generated CHANGELOG.
-
-`1.0.0` will be cut when we commit to schema + tool-surface stability.
 
 ## Supply-chain posture
 

@@ -1,11 +1,14 @@
 # ADR 0011 — Graph-DB backend (LadybugDB phase-1)
 
-- Status: **Proposed** — 2026-05-05 (flips to **Accepted** on the M3 merge).
+- Status: **Accepted** — 2026-05-05 (Proposed) → flipped on the M3 merge.
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-m3-m4`.
 - Supersedes nothing. Interacts with ADR 0001 (DuckDB backend stays the
   default through M6; this ADR records the opt-in second backend and the
   phased plan to flip the default in M7).
+- Followed by ADR 0013 (M7 default-flip + interface segregation), which
+  records the M7 flip from "DuckDB-default + LadybugDB opt-in" to
+  "LadybugDB-default with auto-fallback to DuckDB".
 
 ## Context
 

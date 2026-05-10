@@ -56,10 +56,18 @@ export const MVP_GATES: readonly { readonly id: string; readonly title: string }
   { id: "tests", title: "pnpm -r test" },
   { id: "banned-strings", title: "banned-strings grep" },
   { id: "licenses", title: "license allowlist" },
-  { id: "determinism", title: "graphHash determinism" },
-  { id: "incremental", title: "incremental reindex timings (soft)" },
+  { id: "determinism", title: "determinism (double-run graphHash)" },
+  { id: "incremental", title: "incremental reindex timings" },
   { id: "mcp-smoke", title: "MCP stdio boot smoke" },
-  { id: "eval", title: "Python eval harness" },
+  { id: "eval", title: "Python eval harness (moved to opencodehub-testbed)" },
+  { id: "embeddings-determinism", title: "embeddings determinism" },
+  { id: "incremental-timing", title: "incremental timing on 100-file fixture" },
+  { id: "scanner-smoke", title: "scanner smoke (semgrep)" },
+  { id: "sarif-validation", title: "SARIF schema validation" },
+  { id: "license-audit-smoke", title: "license-audit smoke" },
+  { id: "verdict-smoke", title: "verdict smoke (2-commit fixture)" },
+  { id: "pack-determinism", title: "pack-determinism (code-pack ×2 → diff -r)" },
+  { id: "m7-parity-audit", title: "m7-parity-audit (analyze ×2 backends → graphHash)" },
 ];
 
 /**
@@ -205,7 +213,7 @@ function runScript(scriptPath: string): ScriptStream {
 
 /**
  * Apply a single line from `acceptance.sh` to the gate table. We parse
- * the `N/9: <title>` banner line to pick which row the next `[PASS] ...`
+ * the `N/17: <title>` banner line to pick which row the next `[PASS] ...`
  * or `[FAIL] ...` marker belongs to. Anything else is ignored (timing
  * summaries live under a gate row as `......` notes).
  */
@@ -235,6 +243,16 @@ export function applyLine(rows: GateRow[], rawLine: string): void {
     if (row) {
       row.status = "fail";
       row.detail = failMatch[1] ?? "";
+    }
+    currentGateIdx = -1;
+    return;
+  }
+  const skipMatch = /^\s*\[SKIP\]\s+(.*)$/.exec(line);
+  if (skipMatch && currentGateIdx >= 0) {
+    const row = rows[currentGateIdx];
+    if (row) {
+      row.status = "skipped";
+      row.detail = skipMatch[1] ?? "";
     }
     currentGateIdx = -1;
     return;
