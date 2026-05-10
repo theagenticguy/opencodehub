@@ -10,7 +10,7 @@ scope.
    call.** *Because the README's problem statement is exactly this:
    grep is textual, language servers are per-file, embeddings are
    lossy; agents need callers, callees, processes, and blast radius
-   answered before they write a diff, and the 28-tool MCP surface is
+   answered before they write a diff, and the 29-tool MCP surface is
    the primary product.*
 
 2. **Stay Apache-2.0 end-to-end, with every transitive runtime
@@ -26,21 +26,22 @@ scope.
    commit, and `scripts/acceptance.sh` gate 6 gates on exactly that
    invariant.*
 
-4. **Cover the 14 GA languages with tree-sitter and upgrade five of
-   them (TypeScript, Python, Go, Rust, Java) with SCIP indexers.**
+4. **Cover the 15 GA languages (14 via tree-sitter plus a regex
+   provider for fixed-format COBOL) and upgrade five of them
+   (TypeScript, Python, Go, Rust, Java) with SCIP indexers.**
    *Because heuristic call-graph edges miss cross-module resolution,
    the `scip-index` phase runs each language's native SCIP indexer
    once, the `confidence-demote` phase reconciles heuristic and
-   compiler-grade edges, and the gym harness gates per-language F1
-   with SCIP-derived baselines.*
+   compiler-grade edges, and the gym harness (extracted to a sibling
+   testbed in M5) gates per-language F1 with SCIP-derived baselines.*
 
 ## Quality bar
 
 5. **Hold a three-layer regression gate on every eval and gym run.**
-   *Because the gym's absolute-F1-floor + relative-F1-delta + per-case
-   non-regression layering is baked into the harness, and acceptance
-   gate 9 requires ≥ 40/49 Python-eval cases to pass — soft regressions
-   are not an option.*
+   *Because the sibling testbed's absolute-F1-floor + relative-F1-delta
+   + per-case non-regression layering is baked into the harness, and
+   acceptance gate 9 requires ≥ 40/49 Python-eval cases to pass — soft
+   regressions are not an option.*
 
 6. **Fail CI on any non-zero exit.** *Because `pnpm run check` chains
    lint → typecheck → test → banned-strings and exits on first

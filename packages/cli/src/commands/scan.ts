@@ -160,9 +160,13 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
   await writeFile(outputPath, `${JSON.stringify(finalSarif, null, 2)}\n`, "utf8");
 
   // Ingest into the graph (best effort — missing graph is non-fatal).
+  // Forward the already-resolved `repoPath` so the SARIF lands in the
+  // SCANNED repo's graph, not the operator's CWD. `runIngestSarif`
+  // accepts an absolute path in `opts.repo` as a registry-name fallback
+  // (`ingest-sarif.ts:351-352`), so this works for both `--repo NAME`
+  // and positional `<path>` invocations.
   try {
-    const ingestOpts: { repo?: string; home?: string } = {};
-    if (opts.repo !== undefined) ingestOpts.repo = opts.repo;
+    const ingestOpts: { repo?: string; home?: string } = { repo: opts.repo ?? repoPath };
     if (opts.home !== undefined) ingestOpts.home = opts.home;
     await runIngestSarif(outputPath, ingestOpts);
   } catch (err) {

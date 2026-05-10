@@ -228,10 +228,17 @@ function duckdbWorksCheck(repoRoot: string): Check {
             hint: "run `pnpm install` at the repo root",
           };
         }
+        // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
+        // (`disconnectSync`, `closeSync`). The async `.close()` accessors
+        // were dropped in 1.0.0; depending on them produced a false FAIL.
         const mod = (await import(duckPath)) as {
           DuckDBInstance: {
             create: (path: string) => Promise<{
-              connect: () => Promise<{ close: () => void | Promise<void> }>;
+              connect: () => Promise<{
+                disconnectSync?: () => void;
+                close?: () => void | Promise<void>;
+              }>;
+              closeSync?: () => void;
               close?: () => void | Promise<void>;
             }>;
           };
@@ -239,8 +246,10 @@ function duckdbWorksCheck(repoRoot: string): Check {
         // In-memory instance: never touches disk, never lingers.
         const inst = await mod.DuckDBInstance.create(":memory:");
         const conn = await inst.connect();
-        await conn.close();
-        if (typeof inst.close === "function") await inst.close();
+        if (typeof conn.disconnectSync === "function") conn.disconnectSync();
+        else if (typeof conn.close === "function") await conn.close();
+        if (typeof inst.closeSync === "function") inst.closeSync();
+        else if (typeof inst.close === "function") await inst.close();
         return { status: "ok", message: "duckdb open/close OK" };
       } catch (err) {
         return {
@@ -504,6 +513,27 @@ function resolveFromRoot(repoRoot: string, pkg: string): string | null {
     const req = createRequire(join(repoRoot, "package.json"));
     return req.resolve(pkg);
   } catch {
-    return null;
+    // fall through to per-package fallbacks
   }
+  // 3. Per-workspace fallback. Under pnpm strict isolation, native bindings
+  //    are direct deps of the package that uses them — `tree-sitter*` lives
+  //    in `packages/ingestion`, `@duckdb/node-api` in `packages/storage`.
+  //    Probing those package.json contexts lets `codehub doctor` resolve
+  //    the bindings even when neither the CLI nor the workspace root
+  //    declare them as direct deps.
+  const owners =
+    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/")
+      ? ["packages/storage"]
+      : pkg.startsWith("tree-sitter")
+        ? ["packages/ingestion"]
+        : [];
+  for (const owner of owners) {
+    try {
+      const req = createRequire(join(repoRoot, owner, "package.json"));
+      return req.resolve(pkg);
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }

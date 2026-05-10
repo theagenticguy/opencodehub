@@ -1,7 +1,12 @@
 # ADR 0013 — M7 default-flip + storage abstraction (LadybugDB phase-2)
 
-- Status: **Proposed** — 2026-05-09 (flips to **Accepted** on the
-  `feat/v1-finalize-track-a` merge).
+> Note: there is a sibling ADR — `0013-parse-runtime-wasm-default.md` —
+> that landed concurrently and shares the same number. Both are kept
+> in-tree because they were authored in parallel branches and accepted
+> on the same release. The next ADR uses 0014.
+
+- Status: **Accepted** — 2026-05-09 (Proposed) → flipped on the
+  `feat/v1-finalize-track-a` merge (PR #71).
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-finalize-track-a`.
 - Supersedes nothing. Extends ADR 0011 (LadybugDB phase-1) by flipping
@@ -299,11 +304,6 @@ of `@opencodehub/storage` required.
 
 ## References
 
-- Spec: `.erpaval/specs/006-v1-finalize/architecture-revised.md`
-  §AC-A-1 (interface split), §AC-A-2 (column encoders), §AC-A-3
-  (`ITemporalStore` route), §AC-A-6 (108-SQL migration), §AC-A-7
-  (parity harness), §AC-A-8 (`describeArtifacts`), §AC-A-9 (this ADR
-  + the default flip), §AC-A-11 (conformance suite).
 - Code:
   - `packages/storage/src/interface.ts` — `IGraphStore` + `ITemporalStore`
     type definitions; the typed-finder method surface.
@@ -328,13 +328,18 @@ of `@opencodehub/storage` required.
   - `packages/storage/src/interface.test.ts` — interface-level
     contract assertions.
   - `packages/storage/src/finders.test.ts` — typed-finder coverage.
+- Spec: `.erpaval/specs/006-v1-finalize/architecture-revised.md`
+  §AC-A-1 (interface split), §AC-A-2 (column encoders), §AC-A-3
+  (`ITemporalStore` route), §AC-A-6 (108-SQL migration), §AC-A-7
+  (parity harness), §AC-A-8 (`describeArtifacts`), §AC-A-9 (this ADR
+  + the default flip), §AC-A-11 (conformance suite).
 - Related ADRs:
   - ADR 0001 — DuckDB selection. This ADR keeps DuckDB as the
     temporal store and the legacy graph store; no rip-out.
   - ADR 0011 — LadybugDB phase-1. This ADR is its M7 follow-up.
   - ADR 0012 — Repo as a first-class graph node. The M6 federation
     surface routes through the new typed finders via this ADR's
-    AC-A-6 migration.
+    108-site SQL migration.
 
 ## Provenance
 
@@ -356,15 +361,15 @@ checksums because the two artifacts are written by different engines
 and have different on-disk representations. mtime is the only stable
 signal.
 
-## Empirical evidence — graphHash parity audit (AC-A-10)
+## Empirical evidence — graphHash parity audit
 
 The whole-pipeline parity gate is `scripts/m7-parity-audit.sh`. It runs
 `codehub analyze --force` against the same corpus under
 `CODEHUB_STORE=duck` and `CODEHUB_STORE=lbug`, then compares the
 `graph <hash>` summary line emitted by each invocation. This is the
-end-to-end companion to the in-memory `assertGraphParity` harness
-(AC-A-7); together they pin U1 (graphHash byte-identity) from both
-layers — fixtures and a real on-disk analyze.
+end-to-end companion to the in-memory `assertGraphParity` harness;
+together they pin graphHash byte-identity from both layers — fixtures
+and a real on-disk analyze.
 
 The script is wired into `scripts/acceptance.sh` as gate 17 (the final
 gate). Sample outputs follow.
