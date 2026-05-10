@@ -279,7 +279,12 @@ export function findOccurrencesBySymbol(
  * the published types root. The def index registers the def under both
  * shapes so lookups from either side hit the same `{file, line}`.
  */
-const SRC_TO_DIST_DESCRIPTOR = / src\/((?:[^`\s]+\/)*)`([^`]+)\.ts`/;
+// `[^`\s/]+` — explicitly exclude `/` from the inner class so the engine
+// cannot ambiguously partition runs of slashes between the inner `+` and
+// the literal `\/`. The original `[^`\s]+\/` was both polynomially and
+// (under the right priors) exponentially backtracking on inputs like
+// ` src/!/!/!/!/...` (js/redos #160 + js/polynomial-redos #159).
+const SRC_TO_DIST_DESCRIPTOR = / src\/((?:[^`\s/]+\/)*)`([^`]+)\.ts`/;
 
 function toDistAlias(symbol: string): string | null {
   const rewritten = symbol.replace(SRC_TO_DIST_DESCRIPTOR, " dist/$1`$2.d.ts`");

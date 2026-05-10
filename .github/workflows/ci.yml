@@ -17,16 +17,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec biome ci .
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build workspace .d.ts so cross-package types resolve
         run: pnpm -r build
@@ -43,8 +43,8 @@ jobs:
     env:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - name: Ensure node-gyp is available for native tree-sitter build
         if: matrix.node-version == 22
         run: npm i -g node-gyp
@@ -66,8 +66,8 @@ jobs:
   sarif-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -F @opencodehub/sarif build
       - run: pnpm -F @opencodehub/sarif run validate-schema
@@ -75,14 +75,14 @@ jobs:
   banned-strings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - run: bash scripts/check-banned-strings.sh
 
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         run: >
@@ -102,7 +102,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Install osv-scanner
         run: |
           curl -sL -o /tmp/osv-scanner \
@@ -114,7 +114,7 @@ jobs:
             --lockfile=pnpm-lock.yaml \
             --format=sarif \
             --output=osv.sarif || true
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4
         if: always()
         with:
           sarif_file: osv.sarif
