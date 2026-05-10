@@ -1,0 +1,143 @@
+---
+title: Idiomatic agent prompts
+description: Five copy-paste prompts that get great use out of OpenCodeHub.
+sidebar:
+  order: 7
+---
+
+import { LinkCard } from "@astrojs/starlight/components";
+
+Five paste-ready prompts. Each lists the editor it's tuned for, the
+tools the agent should call, and the shape of the answer to expect.
+The prompts work on any MCP-aware agent — the editor column is the one
+they were validated on.
+
+## 1. Audit dependencies for blast radius before this rename
+
+**Target editor:** Claude Code (any agent works).
+
+```text title="prompt"
+Before I rename `parseConfig` to `parseAppConfig` across this repo,
+audit the blast radius. Use OpenCodeHub:
+
+1. Get the 360° context for `parseConfig`.
+2. Compute upstream blast radius depth 3.
+3. Dry-run the rename and show me the file list with edit counts.
+4. Flag any dynamic-dispatch or shadowed-local risks.
+
+Tell me LOW/MEDIUM/HIGH/CRITICAL risk and the one-line reason.
+Do NOT apply the rename. I will say "apply" if I'm satisfied.
+```
+
+**Expected tool calls:** `context` → `impact(direction: upstream, depth: 3)`
+→ `rename(dry_run: true)`.
+
+**Expected output shape:** Risk tier on line 1; affected file count
+and call-site count; bullet list of risk flags; explicit "no files
+written" confirmation.
+
+In Claude Code, `/probe parseConfig` followed by
+`/rename parseConfig parseAppConfig` is the equivalent two-command
+workflow.
+
+## 2. Surface processes that touch the auth flow
+
+**Target editor:** any.
+
+```text title="prompt"
+Show me every execution flow in this codebase that handles
+authentication. For each flow:
+
+- The entry point (HTTP route or CLI handler).
+- The 3 highest-centrality functions on the path.
+- Top contributors to those functions.
+
+Use `query` for concept search, `route_map` for entry points, and
+`owners` for contributors. If `query` returns no flows tagged auth,
+fall back to BM25 with the literal term "auth".
+```
+
+**Expected tool calls:** `query(q: "authentication", group_by: process)`
+→ `route_map` → `context` per top function → `owners` per file.
+
+**Expected output shape:** Markdown table per flow with columns
+"Entry", "Top symbols", "Owners".
+
+## 3. Rebuild this service's HTTP contract from the graph
+
+**Target editor:** any. Especially useful for re-deriving an OpenAPI
+spec from code.
+
+```text title="prompt"
+Reconstruct this service's public HTTP contract from the graph:
+
+1. List every route with method, path, handler, and file:line.
+2. For each route, the request payload type and the response type
+   (use `shape_check` to detect drift between handlers and tests).
+3. Group by resource (e.g. /users, /orders).
+
+Output as a markdown table. Do not invent fields — quote the
+TypeScript / Python types verbatim.
+```
+
+**Expected tool calls:** `route_map` → `shape_check` per handler →
+`context` for type definitions.
+
+**Expected output shape:** Resource-grouped markdown tables; a "Drift"
+section if `shape_check` flags any handler/test mismatches.
+
+## 4. Compare findings vs the v1.0 baseline
+
+**Target editor:** any. Pair with CI for delta gates.
+
+```text title="prompt"
+What's new in scanner findings since the v1.0 baseline?
+
+Use `list_findings_delta`. Bucket the response into:
+- New findings (severity >= warning).
+- Fixed findings.
+- Updated findings (severity changed).
+
+For each new finding: scanner, severity, file:line, one-line message.
+If the delta is empty, say "no change vs baseline" and stop.
+```
+
+**Expected tool calls:** `list_findings_delta(baseline: "v1.0")`.
+
+**Expected output shape:** Three buckets, each a bulleted list. Empty
+buckets explicitly stated.
+
+## 5. Generate onboarding for new engineers
+
+**Target editor:** Claude Code (uses the `codehub-onboarding` skill).
+Other agents call the underlying tools directly.
+
+```text title="prompt"
+Write an ONBOARDING.md for a new engineer joining this repo. Order:
+
+1. Repo profile — language mix, package count, primary frameworks.
+2. The top 5 execution flows by centrality.
+3. The HTTP / CLI / MCP surfaces.
+4. Top contributors per area, so they know who to ask.
+5. A ranked reading list — the 10 most important files to read first.
+
+Keep it under 400 lines. Cite files as `path:line`.
+```
+
+**Expected tool calls (Claude Code):** the `codehub-onboarding` skill
+runs `project_profile`, `query`, `context`, `route_map`, `tool_map`,
+`owners`, and `sql` against centrality views.
+
+**Expected tool calls (other agents):** the same set, in any order;
+the skill is the orchestration, not the data source.
+
+**Expected output shape:** Five-section markdown document. The reading
+list is a numbered list, not a bulleted one — reading order matters.
+
+## See also
+
+<LinkCard
+  title="Tool decision matrix"
+  href="/opencodehub/agents/tool-decision-matrix/"
+  description="The full intent-to-tool mapping these prompts draw from."
+/>
