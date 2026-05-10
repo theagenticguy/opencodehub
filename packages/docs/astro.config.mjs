@@ -20,7 +20,7 @@ export default defineConfig({
     starlight({
       title: "OpenCodeHub",
       description:
-        "Apache-2.0 code intelligence graph + MCP server for AI coding agents.",
+        "Apache-2.0 code intelligence graph + MCP server for AI coding agents. 29 tools, 15 GA languages, graph-database-default, WASM-default parsing, deterministic, offline-capable.",
       logo: {
         src: "./src/assets/logo.svg",
         replacesTitle: false,
@@ -48,9 +48,10 @@ export default defineConfig({
           description:
             "Apache-2.0 code intelligence graph + MCP server for AI coding agents. Gives agents callers, callees, processes, and blast radius in one MCP tool call — local, offline-capable, deterministic.",
           details:
-            "OpenCodeHub indexes a repository into a hybrid structural + semantic knowledge graph and exposes it over the Model Context Protocol (MCP) to AI coding agents. The MCP server registers 28 tools spanning search, change-impact, findings, and cross-repo groups. The CLI binary is `codehub`. Runtime: Node 22, pnpm 10, DuckDB + hnsw_acorn storage, 15 tree-sitter languages, SCIP indexers for TypeScript / Python / Go / Rust / Java.",
+            "OpenCodeHub indexes a repository into a hybrid structural + semantic knowledge graph and exposes it over the Model Context Protocol (MCP) to AI coding agents. The MCP server registers 29 tools across five families — exploration (list_repos, query, context, impact, detect_changes, rename, sql), group / federation (group_list, group_query, group_status, group_contracts, group_cross_repo_links, group_sync), scan / findings / verdict (scan, list_findings, list_findings_delta, list_dead_code, remove_dead_code, license_audit, verdict, risk_trends), HTTP / routing (route_map, api_impact, shape_check, tool_map), and meta (project_profile, dependencies, owners, pack_codebase). The CLI binary is `codehub`. Runtime: Node 22 or 24, pnpm 10, graph-database store + DuckDB temporal sibling by default (legacy single-file DuckDB layout opt-in via CODEHUB_STORE=duck), web-tree-sitter (WASM) parse runtime by default with native opt-in via OCH_NATIVE_PARSER=1, 15 GA languages, SCIP indexers for TypeScript / TSX / JavaScript / Python / Go / Rust / Java / C# / C / C++ / Kotlin / Ruby. 20-scanner inventory. Apache-2.0 end to end. Repos are first-class graph nodes (`repo_uri`); the cross-repo `group_*` family fans out over named groups; AMBIGUOUS_REPO error envelope returns `choices[]` so a caller can retry deterministically.",
           promote: [
             "start-here/**",
+            "agents/**",
             "guides/**",
             "mcp/**",
           ],
@@ -73,19 +74,25 @@ export default defineConfig({
               label: "user-guide",
               paths: ["start-here/**", "guides/**"],
               description:
-                "User-facing pages only: install, quick-start, editor integration guides.",
+                "User-facing pages only: install, quick-start, editor integration guides, group + migration guides.",
+            },
+            {
+              label: "agents",
+              paths: ["agents/**", "mcp/**"],
+              description:
+                "Agent-side reference: per-editor MCP setup, the 29-tool catalog, tool decision matrix, idiomatic prompts.",
             },
             {
               label: "mcp",
               paths: ["mcp/**", "reference/**"],
               description:
-                "MCP surface: server tools, resources, prompts, CLI reference, error codes, language matrix.",
+                "MCP surface: server tools, resources, CLI reference, error codes, language matrix, .docmeta.json schema.",
             },
             {
               label: "contributing",
               paths: ["contributing/**", "architecture/**"],
               description:
-                "Developer and architecture docs: dev loop, release flow, ADRs, determinism, supply-chain.",
+                "Developer and architecture docs: dev loop, release flow, ADRs, determinism, supply-chain, storage backend, cross-repo federation.",
             },
           ],
         }),
@@ -114,7 +121,7 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: "Start Here",
+          label: "Start here",
           autogenerate: { directory: "start-here" },
         },
         {
@@ -122,28 +129,28 @@ export default defineConfig({
           autogenerate: { directory: "agents" },
         },
         {
-          label: "User Guide",
-          autogenerate: { directory: "guides" },
-        },
-        {
-          label: "MCP Server",
+          label: "MCP",
           autogenerate: { directory: "mcp" },
-        },
-        {
-          label: "Skills",
-          autogenerate: { directory: "skills" },
         },
         {
           label: "Reference",
           autogenerate: { directory: "reference" },
         },
         {
-          label: "Contributing",
-          autogenerate: { directory: "contributing" },
+          label: "Guides",
+          autogenerate: { directory: "guides" },
         },
         {
           label: "Architecture",
           autogenerate: { directory: "architecture" },
+        },
+        {
+          label: "Skills",
+          autogenerate: { directory: "skills" },
+        },
+        {
+          label: "Contributing",
+          autogenerate: { directory: "contributing" },
         },
       ],
       customCss: ["./src/styles/custom.css"],

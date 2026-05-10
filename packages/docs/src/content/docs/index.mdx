@@ -1,43 +1,42 @@
 ---
 title: OpenCodeHub
-description: Apache-2.0 code intelligence graph + MCP server for AI coding agents.
+description: Apache-2.0 code intelligence graph + MCP server for AI coding agents — 29 tools, 15 GA languages, deterministic, offline-capable.
 template: splash
 hero:
-  tagline: Code intelligence for AI coding agents, under Apache-2.0, on an all-OSS stack.
+  tagline: Graph-aware impact, context, and query for an AI coding agent — local, deterministic, Apache-2.0.
   image:
     file: ../../assets/logo.svg
   actions:
-    - text: Quick start
-      link: /opencodehub/start-here/quick-start/
+    - text: Install
+      link: /opencodehub/start-here/install/
       icon: right-arrow
       variant: primary
-    - text: View on GitHub
-      link: https://github.com/theagenticguy/opencodehub
+    - text: Use
+      link: /opencodehub/mcp/tools/
+      icon: external
+      variant: secondary
+    - text: Develop
+      link: /opencodehub/contributing/dev-loop/
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-## Why OpenCodeHub
+## What an AI agent gets
 
 <CardGrid>
-  <Card title="Graph-aware context" icon="puzzle">
-    Agents get callers, callees, processes, and blast radius in one
-    MCP tool call — no grep round-trips, no lossy embeddings alone.
+  <Card title="impact" icon="puzzle">
+    Blast radius for one symbol — direct callers, transitive callers,
+    affected processes, risk tier — in one MCP call.
   </Card>
-  <Card title="Local-first, offline" icon="seti:lock">
-    `codehub analyze --offline` opens zero sockets. Your code never
-    leaves your machine. DuckDB + `hnsw_acorn` is the entire storage
-    stack — no daemon, no SaaS.
+  <Card title="context" icon="seti:lock">
+    360-degree view of a symbol — callers, callees, ACCESSES edges,
+    participating processes — without grep round-trips.
   </Card>
-  <Card title="Apache-2.0, end to end" icon="approve-check">
-    Every runtime dep sits on a permissive allowlist (Apache-2.0 /
-    MIT / BSD / ISC / CC0 / BlueOak / 0BSD). Fork, embed, and ship.
-  </Card>
-  <Card title="Deterministic" icon="seti:config">
-    Identical inputs produce a byte-identical graph hash.
-    Reproducible. Auditable. Cacheable in CI.
+  <Card title="query" icon="approve-check">
+    Hybrid BM25 + filter-aware HNSW search, results grouped by
+    execution-flow process. Fed by a typed graph, not a flat index.
   </Card>
 </CardGrid>
 
@@ -47,22 +46,22 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
   <LinkCard
     title="What is OpenCodeHub?"
     href="/opencodehub/start-here/what-is-opencodehub/"
-    description="The 3 recurring agent failures it fixes, and how."
+    description="The three recurring agent failures it fixes, and how."
   />
   <LinkCard
     title="Install"
     href="/opencodehub/start-here/install/"
-    description="Node 22, pnpm 10, mise-recommended. macOS / Linux / Windows."
+    description="Node 22 or 24, pnpm 10, mise-recommended. macOS / Linux / Windows."
   />
   <LinkCard
     title="Quick start"
     href="/opencodehub/start-here/quick-start/"
-    description="Clone to first `impact()` call in under 5 minutes."
+    description="Clone to first impact() call in five steps."
   />
   <LinkCard
-    title="MCP tool catalogue"
+    title="MCP tool catalog"
     href="/opencodehub/mcp/tools/"
-    description="All 28 tools: shape, inputs, when to use."
+    description="All 29 tools — exploration, federation, scan, HTTP, meta."
   />
 </CardGrid>
 
@@ -72,21 +71,21 @@ import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
   <LinkCard
     title="Dev loop"
     href="/opencodehub/contributing/dev-loop/"
-    description="`mise install` → `pnpm install` → `mise run check`."
+    description="mise install → pnpm install → mise run check."
   />
   <LinkCard
     title="Adding a language provider"
     href="/opencodehub/contributing/adding-a-language-provider/"
-    description="4 steps: grammar pin, provider, registry, fixture."
+    description="Four steps: grammar pin, provider, registry, fixture."
   />
   <LinkCard
     title="Architecture overview"
     href="/opencodehub/architecture/overview/"
-    description="Monorepo map, ADRs, determinism contract."
+    description="Six-phase pipeline, storage segregation, ADR index."
   />
   <LinkCard
     title="IP hygiene"
     href="/opencodehub/contributing/ip-hygiene/"
-    description="Clean-room rules, banned-strings, license allowlist."
+    description="Clean-room rule, banned-strings sweep, license allowlist."
   />
 </CardGrid>
