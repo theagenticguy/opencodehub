@@ -193,9 +193,18 @@ function relaxedToJson(literal: string): string | undefined {
     if (ch === "'") {
       const end = findStringEnd(literal, i, 0x27);
       if (end === -1) return undefined;
+      // JS single-quoted to JSON double-quoted. The order matters:
+      // (1) Drop the JS-only `\'` escape — single quotes do not need
+      //     escaping inside JSON double-quoted strings.
+      // (2) Escape every remaining lone `\` to `\\` so they survive the
+      //     JSON parser as literal backslashes (without this step a
+      //     trailing `\"` would form an invalid `\\"` escape — the
+      //     js/incomplete-sanitization defect).
+      // (3) Escape any literal `"` to `\"`.
       const inner = literal
         .slice(i + 1, end)
         .replace(/\\'/g, "'")
+        .replace(/\\/g, "\\\\")
         .replace(/"/g, '\\"');
       out += `"${inner}"`;
       i = end + 1;
