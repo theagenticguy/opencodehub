@@ -92,7 +92,7 @@ promise. The probe never blocks synchronously and never re-runs.
 
 Track A landed three structural changes that this ADR records.
 
-### Split `IGraphStore` into graph-only + `ITemporalStore`
+### Split `IGraphStore` into graph-only + `ITemporalStore` (AC-A-1)
 
 `packages/storage/src/interface.ts` now exports two interfaces:
 
@@ -110,16 +110,16 @@ interfaces structurally and is returned twice (one connection serves
 both). For the `lbug` backend a `GraphDbStore` backs `graph` and a
 sibling `DuckDbStore` backs `temporal`.
 
-### Hoisted column encoders + sentinel coercions
+### Hoisted column encoders + sentinel coercions (AC-A-2)
 
 `packages/storage/src/column-encode.ts` carries the per-column
 serialization rules previously duplicated in
 `duckdb-adapter.ts:bulkLoad` and `graphdb-adapter.ts:bulkLoad`. The
 hoist resolves the `step: 0` vs `step: null` parity asymmetry (ADR
-0011 §graphHash invariant captured the workaround; the shared encoder
-prevents the two adapters from drifting).
+0011 §graphHash invariant captured the workaround; AC-A-2 makes it a
+shared encoder so both adapters cannot drift).
 
-### Public-interface parity harness + community-adapter conformance suite
+### Public-interface parity harness + community-adapter conformance suite (AC-A-7, AC-A-11)
 
 `packages/storage/src/test-utils/parity-harness.ts` exports
 `rebuildFromStore(graph: IGraphStore): Promise<KnowledgeGraph>` and
@@ -161,25 +161,25 @@ The 2 specialized finders are `loadXrefs(opts)` and
 `loadSkeleton(opts)` — both compose multiple typed finders behind a
 single call to keep the pack layer's I/O contract narrow.
 
-## 108-site SQL migration
+## 108-site SQL migration (AC-A-6 a/b/c/d)
 
 The migration landed in four sub-commits, sequenced sequentially to
 keep each commit reviewable:
 
-| Package | Sites |
-|---|---|
-| `analysis/` | 27 |
-| `mcp/` | 46 |
-| `pack/` + `wiki/` | 15 |
-| `cli/` | 20 |
+| Sub-commit | Package | Sites |
+|---|---|---|
+| AC-A-6a | `analysis/` | 27 |
+| AC-A-6b | `mcp/` | 46 |
+| AC-A-6c | `pack/` + `wiki/` | 15 |
+| AC-A-6d | `cli/` | 20 |
 
 Total: **108 raw-SQL call sites** replaced with typed-finder calls.
 Every migrated tool runs end-to-end on BOTH DuckDb and LadybugDB
 backends (the parity harness is wired into every consumer test).
 `packages/analysis/src/test-utils.ts` was rewritten from a
 DuckDB-dialect regex fake into a typed `IGraphStore` fake that
-implements the finder surface, unblocking the rest of the
-consumer-side migration.
+implements the finder surface (AC-A-6 sub-task), unblocking the rest
+of the consumer-side migration.
 
 ## Dual-artifact detection
 
@@ -208,8 +208,8 @@ identifiers are reserved for out-of-tree adapter packages. The escape
 hatch is:
 
 - A community adapter implements `IGraphStore` directly. The
-  conformance suite (`packages/storage/src/test-utils/conformance.ts`)
-  is the contract: pass it, claim conformance.
+  conformance suite (AC-A-11) is the contract: pass it, claim
+  conformance.
 - The optional `execCypher?(query, params?, opts?)` hook on
   `IGraphStore` lets adapters with a Cypher-native query path expose
   it for the `sql` MCP tool's `cypher` input mode without leaking
@@ -295,9 +295,9 @@ of `@opencodehub/storage` required.
 
 ## Status
 
-- **Proposed**: 2026-05-09 (Track A authoring commit).
+- **Proposed**: 2026-05-09 (Track A AC-A-9 commit).
 - **Accepted**: on merge of `feat/v1-finalize-track-a` → `main` (the PR
-  that shipped this ADR alongside the rest of Track A's deliverables).
+  that ships AC-A-9 alongside AC-A-1 through AC-A-11).
 - **Superseded**: not on the v1.0 roadmap. M8+ may add new edge kinds
   or community-backend extension points; those changes get follow-up
   ADRs.
@@ -322,13 +322,17 @@ of `@opencodehub/storage` required.
   - `packages/storage/src/resolver.test.ts` — async resolver +
     dual-artifact detection.
   - `packages/storage/src/graph-hash-parity.test.ts` — graph-hash
-    parity gate (continues to enforce ADR 0011's byte-identity
-    invariant).
+    parity gate (continues to enforce ADR 0011's W-M3-1).
   - `packages/storage/src/temporal-parity.test.ts` — round-trip
     parity for `ITemporalStore` adapters.
   - `packages/storage/src/interface.test.ts` — interface-level
     contract assertions.
   - `packages/storage/src/finders.test.ts` — typed-finder coverage.
+- Spec: `.erpaval/specs/006-v1-finalize/architecture-revised.md`
+  §AC-A-1 (interface split), §AC-A-2 (column encoders), §AC-A-3
+  (`ITemporalStore` route), §AC-A-6 (108-SQL migration), §AC-A-7
+  (parity harness), §AC-A-8 (`describeArtifacts`), §AC-A-9 (this ADR
+  + the default flip), §AC-A-11 (conformance suite).
 - Related ADRs:
   - ADR 0001 — DuckDB selection. This ADR keeps DuckDB as the
     temporal store and the legacy graph store; no rip-out.
