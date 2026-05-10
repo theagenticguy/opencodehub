@@ -15,6 +15,12 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Group every github-actions SHA bump into a single weekly PR so
+    # the SHA-pinned `uses:` lines (Scorecard Pinned-Dependencies)
+    # don't generate ~10 PRs per release cycle.
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   # pip ecosystem for packages/eval moved to
   # github.com/theagenticguy/opencodehub-testbed as part of the M2 split.
