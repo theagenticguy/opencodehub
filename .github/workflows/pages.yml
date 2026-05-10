@@ -22,7 +22,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
       # NOTE: --ignore-scripts removed so sharp's native binary download
       # and Playwright's chromium install (via rehype-mermaid) are allowed.
       - run: pnpm install --frozen-lockfile
