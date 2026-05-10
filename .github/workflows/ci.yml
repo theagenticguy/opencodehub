@@ -29,8 +29,11 @@ jobs:
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build workspace .d.ts so cross-package types resolve
-        run: pnpm -r build
-      - run: pnpm -r exec tsc --noEmit
+        # Skip @opencodehub/docs — its build runs astro + rehype-mermaid +
+        # playwright (heavy headless-Chromium dep) and is exercised on the
+        # dedicated `pages.yml` workflow with --with-deps installed.
+        run: pnpm --filter '!@opencodehub/docs' -r build
+      - run: pnpm --filter '!@opencodehub/docs' -r exec tsc --noEmit
 
   test:
     # Node 22 = native-opt-in path (OCH_NATIVE_PARSER=1); Node 24 = WASM default
@@ -60,7 +63,7 @@ jobs:
       - name: Install deps (Node 24, ignore-scripts)
         if: matrix.node-version == 24
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm -r test
+      - run: pnpm --filter '!@opencodehub/docs' -r test
         env:
           OCH_NATIVE_PARSER: ${{ matrix.node-version == 22 && '1' || '' }}
 
