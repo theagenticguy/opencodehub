@@ -1,57 +1,73 @@
 ---
 title: Supported languages
-description: The 15 registered languages, which have SCIP indexers, and the WASM fallback.
+description: The 15 GA languages OpenCodeHub parses, which have SCIP indexers, and the WASM-default runtime.
 sidebar:
   order: 40
 ---
 
 Languages are registered at compile time in a `satisfies Record<LanguageId,
-LanguageProvider>` table. Omitting a registered language raises a
-build-time TypeScript error, so the table and this page cannot drift.
+LanguageProvider>` table at `packages/ingestion/src/providers/registry.ts`.
+Omitting a registered language raises a build-time TypeScript error, so
+the table and this page cannot drift.
 
-## Registered languages (15)
+## Registered languages (15 GA)
+
+The `LanguageId` union has 16 entries because `tsx` is a separate
+provider-id. The GA count rounds to 15 — TSX is a flavour of TypeScript
+in every consumer-facing surface (`@opencodehub/cli` output, `query`
+filters, `project_profile`).
 
 | Language | tree-sitter parse | SCIP indexer |
 |---|---|---|
-| TypeScript | yes | yes |
-| TSX | yes | yes (via TypeScript) |
-| JavaScript | yes | yes (via TypeScript) |
-| Python | yes | yes |
-| Go | yes | yes |
-| Rust | yes | yes |
-| Java | yes | yes |
-| C# | yes | — |
-| C | yes | — |
-| C++ | yes | — |
-| Ruby | yes | — |
-| Kotlin | yes | — |
+| TypeScript | yes | scip-typescript |
+| TSX | yes | scip-typescript (shared) |
+| JavaScript | yes | scip-typescript (shared) |
+| Python | yes | scip-python |
+| Go | yes | scip-go |
+| Rust | yes | rust-analyzer (stable) |
+| Java | yes | scip-java |
+| C# | yes | scip-dotnet |
+| C | yes | scip-clang |
+| C++ | yes | scip-clang |
+| Ruby | yes | scip-ruby |
+| Kotlin | yes | scip-kotlin |
 | Swift | yes | — |
 | PHP | yes | — |
 | Dart | yes | — |
 
-The five languages with a SCIP indexer get precise cross-file reference
-resolution (ADR 0005). The other ten rely on tree-sitter's
-symbol-level resolution, which is good enough for blast-radius within
-a single module and degrades gracefully across module boundaries.
+COBOL is also indexed (regex hot path; the `cobol` provider is a
+stub). Add `--allow-build-scripts proleap` to opt into the JVM
+ProLeap deep-parse.
 
-## Native bindings and the WASM fallback
+## Native bindings and the WASM default
 
-Every grammar is loaded via native tree-sitter bindings by default.
-Native bindings are faster but require a working C/C++ toolchain
-(`node-gyp` + MSVC on Windows, `clang` + headers on macOS, `gcc` +
-headers on Linux). They are compiled on install from source pins in
-`packages/ingestion/package.json`.
+The default parse runtime on Node 22 and Node 24 is
+`web-tree-sitter` (WASM). It has no native ABI dependency, so it works
+on every supported Node version out of the box.
 
-If native bindings fail to load — common on some minimal Linux
-containers and on Windows without the Build Tools — run with
-`--wasm-only` or export `OCH_WASM_ONLY=1`:
+The native `tree-sitter` N-API addon is available as an opt-in path
+on Node 22, where it is measurably faster on large repos. Enable it
+with the env var or CLI flag:
 
-```bash title="force WASM for every grammar"
-codehub analyze --wasm-only
+```bash title="opt into native parsing on Node 22"
+OCH_NATIVE_PARSER=1 codehub analyze
+# or
+codehub analyze --native-parser
 ```
 
-WASM is slightly slower but has no native dependency. The web surface
-of OpenCodeHub always runs in WASM-only mode.
+Native is unavailable on Node 24 until `node-tree-sitter@0.25.1` lands
+on npm (tree-sitter/node-tree-sitter#276). Kotlin, Swift, and Dart
+ship their grammars as `.wasm` blobs vendored at
+`packages/ingestion/vendor/wasms/` regardless of the runtime
+selection — those grammars do not have prebuilt N-API addons on npm.
+
+The complexity-metrics ingestion phase still uses native tree-sitter
+for cyclomatic-complexity counting. On Node 24 (or Node 22 without the
+opt-in) it degrades with a one-shot stderr warning; all other
+parsing continues via WASM.
+
+ADR 0013 (`docs/adr/0013-parse-runtime-wasm-default.md`) explains the
+rationale.
 
 ## Adding a language
 

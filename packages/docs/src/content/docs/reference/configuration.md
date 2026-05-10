@@ -7,27 +7,84 @@ sidebar:
 
 ## Environment variables
 
-| Name | Purpose |
+OpenCodeHub honours a small, stable set of environment variables. Each
+variable is read from `process.env` at the entry point that owns it
+(CLI, MCP server, ingestion phase, embedder backend); none of them
+mutate global state.
+
+### Storage backend
+
+| Variable | Purpose |
 |---|---|
-| `OCH_WASM_ONLY` | Force the WASM fallback for every tree-sitter grammar. Set to `1` by `codehub analyze --wasm-only`. |
-| `CODEHUB_HOME` | Override `~/.codehub/` (where the registry and embedder weights live). |
-| `CODEHUB_EMBEDDING_URL` | Endpoint URL for an external embedding service. |
-| `CODEHUB_EMBEDDING_MODEL` | Model ID to request from the embedding service. |
-| `CODEHUB_EMBEDDING_DIMS` | Integer dimensionality of the embedding model. |
-| `CODEHUB_EMBEDDING_API_KEY` | API key for the embedding service (sent as `Authorization: Bearer ...`). |
+| `CODEHUB_STORE` | `lbug` forces the graph-database backend; `duck` forces the legacy DuckDB single-file layout. Unset (the default) means probe `@ladybugdb/core` and use the graph-database backend when the binding is importable, otherwise DuckDB. |
+| `CODEHUB_HOME` | Override `~/.codehub/` (where the registry, embedder weights, and global state live). |
+| `OCH_VERBOSE` | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
+
+ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) explains
+the M7 flip from DuckDB-default to graph-database-default.
+
+### Parse runtime
+
+| Variable | Purpose |
+|---|---|
+| `OCH_NATIVE_PARSER` | Set to `1` on Node 22 to opt into the native `tree-sitter` N-API addon. The default runtime on Node 22 and Node 24 is `web-tree-sitter` (WASM). |
+
+The `--native-parser` CLI flag is equivalent. ADR
+0013-parse-runtime-wasm-default explains the v1 flip.
+
+### Embedding backends
+
+The cascade is **SageMaker → HTTP → ONNX**. The first variable group
+that resolves wins; the others are ignored.
+
+| Variable | Purpose |
+|---|---|
+| `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | SigV4-authenticated SageMaker endpoint name. When set, the SageMaker backend wins. |
+| `CODEHUB_EMBEDDING_SAGEMAKER_REGION` | Override the AWS region for the SageMaker call. |
+| `CODEHUB_EMBEDDING_URL` | Base URL for an OpenAI-compatible HTTP endpoint (Infinity, vLLM, TEI, Ollama, LM Studio, OpenAI). `/embeddings` is appended. |
+| `CODEHUB_EMBEDDING_MODEL` | Model id passed through to the HTTP endpoint verbatim. |
+| `CODEHUB_EMBEDDING_DIMS` | Dimensionality of the embedding model. Default 768. |
+| `CODEHUB_EMBEDDING_API_KEY` | Bearer token sent as `Authorization: Bearer ...`. |
+
+When none of the above are set, the local ONNX backend
+(`gte-modernbert-base`, deterministic, offline-safe) is used.
+
+### Other toggles
+
+| Variable | Purpose |
+|---|---|
+| `CODEHUB_DISABLE_SCIP` | Set to `1` to make the `scip-index` ingestion phase a no-op. Heuristic edges still flow. |
+| `CODEHUB_ALLOW_BUILD_SCRIPTS` | Set to `1` to allow SCIP indexers that require a build (Rust, Java) to run. Off by default for clean-room safety. |
+| `CODEHUB_BEDROCK_DISABLED` | Set to `1` to disable the LLM summarize phase. Equivalent to `--no-summaries`. |
 | `NO_COLOR` | Standard convention; disables colored console output. |
 
 ## On-disk layout: `.codehub/`
 
-`codehub analyze` writes everything under `<repo-root>/.codehub/`:
+`codehub analyze` writes everything under `<repo-root>/.codehub/`. The
+exact files depend on the backend selected at index time.
+
+### the graph-database backend (default)
 
 | Path | Purpose |
 |---|---|
-| `graph.duckdb` | Primary DuckDB database: symbols, edges, processes, embeddings. |
-| `meta.json` | Index metadata: graph hash, node counts, CLI version, toolchain pins. |
+| `graph.lbug` | graph-database backend — nodes, edges, embeddings. |
+| `temporal.duckdb` | Sibling DuckDB file — temporal store (cochanges, symbol-summary cache). |
+| `meta.json` | Index metadata: graph hash, node counts, CLI version, backend, embedder model id. |
 | `scan.sarif` | SARIF output from `codehub scan`. |
-| `sbom.cdx.json` | CycloneDX SBOM when `codehub analyze --sbom` has run. |
-| `coverage/` | Coverage bridge artefacts when `--coverage` has run. |
+| `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
+
+### DuckDB (legacy / fallback)
+
+| Path | Purpose |
+|---|---|
+| `graph.duckdb` | Single DuckDB file — nodes, edges, embeddings, and temporal views in one place. |
+| `meta.json` | Same shape as the the graph-database backend layout. |
+| `scan.sarif` | SARIF output from `codehub scan`. |
+
+When both `graph.lbug` and `graph.duckdb` exist as siblings, the
+newer-`mtime` file wins. See [Migrating from
+DuckDB](/opencodehub/guides/migrating-from-duckdb/) for the migration
+recipe.
 
 Safe to delete and rebuild at any time via `codehub clean` +
 `codehub analyze`.

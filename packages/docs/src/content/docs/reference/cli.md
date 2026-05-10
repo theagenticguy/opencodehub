@@ -21,23 +21,24 @@ codehub analyze [path]
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--force` | off | Rebuild even if the no-op short-circuit fires. |
+| `--force` | off | Ignore the registry cache and re-run the pipeline. |
 | `--embeddings` | off | Compute semantic vectors. |
-| `--embeddings-int8` | off | Quantise vectors to int8. |
+| `--embeddings-int8` | off | Quantise vectors to int8 (~23 MB weights). |
 | `--granularity <csv>` | `symbol` | Any subset of `symbol,file,community`. |
-| `--embeddings-workers <n\|auto>` | auto | Size of the embedding worker pool. |
+| `--embeddings-workers <n\|auto>` | `auto` | Size of the ONNX worker pool. |
 | `--embeddings-batch-size <n>` | 32 | Batch size per worker. |
 | `--offline` | off | Zero sockets. |
-| `--verbose` | off | Noisier logs. |
-| `--skip-agents-md` | off | Skip AGENTS.md ingestion. |
-| `--sbom` | off | Emit `sbom.cdx.json` alongside the index. |
-| `--coverage` | off | Bridge coverage data into the graph. |
-| `--summaries` / `--no-summaries` | on | LLM-generated symbol summaries. |
-| `--max-summaries <n\|auto>` | auto (10% of callables, cap 500) | Summary budget. |
-| `--summary-model <id>` | — | Override the summary model. |
-| `--skills` | off | Emit Claude Code skills. |
-| `--wasm-only` | off | Force WASM tree-sitter; sets `OCH_WASM_ONLY=1`. |
-| `--strict-detectors` | off | Fail the build if DET-O-001 regresses. |
+| `--verbose` | off | Per-phase pipeline progress. |
+| `--skip-agents-md` | off | Skip the AGENTS.md / CLAUDE.md stanza. |
+| `--sbom` | off | Emit `sbom.cyclonedx.json` + `sbom.spdx.json` from `Dependency` nodes. |
+| `--coverage` | off | Overlay lcov / cobertura / jacoco / coverage.py reports onto `File` nodes. |
+| `--summaries` / `--no-summaries` | on | LLM symbol summaries (Bedrock). |
+| `--max-summaries <n\|auto>` | `auto` (10% of SCIP-confirmed callables, cap 500) | Summary budget. |
+| `--summary-model <id>` | — | Override the Bedrock summary model id. |
+| `--skills` | off | Emit one `SKILL.md` per Community (≥5 symbols) under `.codehub/skills/`. |
+| `--native-parser` | off | Opt into the native tree-sitter N-API addon (Node 22). Default is the WASM runtime. |
+| `--strict-detectors` | off | Drop heuristic-only matches from route / ORM detectors (DET-O-001). |
+| `--allow-build-scripts <list>` | — | Comma-separated build-script opt-ins (e.g. `proleap` for the JVM COBOL deep-parse). |
 
 Exit codes: `0` success, `1` caught error.
 
@@ -52,8 +53,8 @@ codehub index [paths...]
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--force` | off | Overwrite an existing registry entry. |
-| `--allow-non-git` | off | Permit registering a repo with no `.git`. |
+| `--force` | off | Stamp a minimal `meta.json` stub when missing. |
+| `--allow-non-git` | off | Permit registering a directory with no `.git`. |
 
 ## `init`
 
@@ -85,12 +86,12 @@ codehub setup
 | Flag | Default | Purpose |
 |---|---|---|
 | `--editors <list>` | all | `claude-code,cursor,codex,windsurf,opencode`. |
-| `--force` | off | Overwrite existing entries. |
-| `--undo` | off | Remove only the `codehub` entry each writer added. |
-| `--embeddings` | off | Download the embedder model weights. |
-| `--int8` | off | Download int8-quantised weights. |
-| `--model-dir <path>` | — | Custom weights directory. |
-| `--plugin` | off | Install the Claude Code plugin. |
+| `--force` | off | Overwrite existing entries; re-download weights. |
+| `--undo` | off | Restore the most recent `.bak` next to each config. |
+| `--embeddings` | off | Download `gte-modernbert-base` ONNX weights (SHA256-pinned). |
+| `--int8` | off | Use the int8 weight variant (~150 MB) instead of fp32 (~596 MB). |
+| `--model-dir <path>` | — | Override the target directory for embedder weights. |
+| `--plugin` | off | Install the Claude Code plugin to `~/.claude/plugins/opencodehub/`. |
 
 ## `mcp`
 
@@ -109,6 +110,9 @@ List repos indexed on this machine.
 ```bash title="usage"
 codehub list
 ```
+
+The output table includes a `HEALTH` column flagging dangling registry
+entries (`missing path`) and cleaned indexes (`no graph artifact`).
 
 ## `status`
 
@@ -132,8 +136,8 @@ codehub clean [path]
 
 ## `pack`
 
-Emit a single-file, LLM-ready, AST-compressed snapshot of the repo
-(powered by repomix).
+Emit a single-file LLM-ready snapshot of the repo via repomix
+(AST-compressed by default).
 
 ```bash title="usage"
 codehub pack [path]
@@ -144,7 +148,22 @@ codehub pack [path]
 | `--style <xml\|markdown\|json\|plain>` | `xml` | Output format. |
 | `--no-compress` | off | Disable AST compression. |
 | `--remove-comments` | off | Strip comments. |
-| `--out <path>` | — | Output file. |
+| `--out <path>` | `<repo>/.codehub/pack/repo.<ext>` | Output file. |
+
+## `code-pack`
+
+Produce the deterministic 9-item code-pack BOM (manifest, skeleton,
+file-tree, dependency list, top symbols, processes, routes, tools,
+findings) sized to a token budget. This is the artifact attached to
+every release and signed with cosign.
+
+```bash title="usage"
+codehub code-pack [path]
+```
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--budget <n>` | 100000 | AST-chunker token budget. |
 
 ## `query`
 
@@ -167,7 +186,7 @@ codehub query <text>
 | `--rerank-top-k <n>` | 50 | Candidates fed into the re-ranker. |
 | `--zoom` | off | Zoom into processes. |
 | `--fanout <n>` | — | Fan-out per process. |
-| `--granularity <symbol\|file\|community>` | symbol | Result granularity. |
+| `--granularity <symbol\|file\|community>` | `symbol` | Result granularity. |
 
 ## `context`
 
@@ -181,10 +200,13 @@ codehub context <symbol>
 |---|---|---|
 | `--repo <name>` | current | Target repo. |
 | `--json` | off | Structured envelope. |
+| `--target-uid <id>` | — | Disambiguate by graph UID. |
+| `--file-path <hint>` | — | Disambiguate by file path suffix. |
+| `--kind <kind>` | — | Disambiguate by kind (Function / Method / Class / Interface / ...). |
 
 ## `impact`
 
-Blast-radius for one symbol.
+Blast radius for one symbol.
 
 ```bash title="usage"
 codehub impact <symbol>
@@ -193,12 +215,12 @@ codehub impact <symbol>
 | Flag | Default | Purpose |
 |---|---|---|
 | `--depth <n>` | 3 | BFS depth. |
-| `--direction <up\|down\|both>` | both | Traversal direction. |
+| `--direction <up\|down\|both>` | `both` | Traversal direction. |
 | `--repo <name>` | current | Target repo. |
 | `--json` | off | Structured envelope. |
 | `--target-uid <id>` | — | Disambiguate by graph UID. |
-| `--file-path <hint>` | — | Disambiguate by file. |
-| `--kind <Function\|Method\|Class\|Interface\|...>` | — | Disambiguate by kind. |
+| `--file-path <hint>` | — | Disambiguate by file path. |
+| `--kind <kind>` | — | Disambiguate by kind. |
 
 ## `detect-changes`
 
@@ -216,7 +238,8 @@ codehub detect-changes
 | `--json` | off | Structured envelope. |
 | `--strict` | off | Exit 1 on MEDIUM as well. |
 
-Exit codes: `0` OK, `1` HIGH/CRITICAL (or MEDIUM+ `--strict`), `2` caught error.
+Exit codes: `0` OK, `1` HIGH/CRITICAL (or MEDIUM+ with `--strict`),
+`2` caught error.
 
 ## `verdict`
 
@@ -231,7 +254,7 @@ codehub verdict
 | `--base <ref>` | `main` | Base ref. |
 | `--head <ref>` | `HEAD` | Head ref. |
 | `--repo <name>` | current | Target repo. |
-| `--json` | off | Structured envelope. |
+| `--json` | off | Emit JSON instead of Markdown. |
 
 Exit codes: `auto_merge=0`, `single_review=1`, `dual_review=1`,
 `expert_review=2`, `block=3`.
@@ -266,7 +289,7 @@ codehub ingest-sarif <sarifFile>
 
 ## `scan`
 
-Run Priority-1 scanners and ingest findings.
+Run scanners and ingest findings.
 
 ```bash title="usage"
 codehub scan [path]
@@ -274,12 +297,12 @@ codehub scan [path]
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--scanners <list>` | all | Scanner IDs. |
-| `--with <list>` | — | Additional scanners. |
+| `--scanners <list>` | profile-gated | Comma-separated scanner ids. |
+| `--with <list>` | — | Additional scanner ids to include. |
 | `--output <file>` | `<repo>/.codehub/scan.sarif` | SARIF output path. |
-| `--severity <list>` | `HIGH,CRITICAL` | Gate severity. |
+| `--severity <list>` | `HIGH,CRITICAL` | Severity levels that fail the run. |
 | `--repo <name>` | current | Target repo. |
-| `--concurrency <n>` | — | Scanner concurrency. |
+| `--concurrency <n>` | — | Max parallel scanners. |
 | `--timeout <ms>` | — | Per-scanner timeout. |
 
 Exit codes: `0` clean, `1` findings at severity, `2` scanner crashed.
@@ -294,7 +317,7 @@ codehub doctor
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--skip-native` | off | Skip native-module probes. |
+| `--skip-native` | off | Skip checks that require native bindings (DuckDB / native tree-sitter addon). |
 | `--repoRoot <path>` | cwd | Repo root to probe. |
 
 ## `bench`
@@ -307,8 +330,8 @@ codehub bench
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--acceptance <path>` | — | Acceptance manifest. |
-| `--silent` | off | Suppress console output. |
+| `--acceptance <path>` | — | Override the path to `scripts/acceptance.sh`. |
+| `--silent` | off | Suppress the listr2 progress renderer. |
 
 ## `wiki`
 
@@ -320,13 +343,12 @@ codehub wiki
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--output <dir>` | required | Destination directory. |
 | `--repo <name>` | current | Target repo. |
-| `--json` | off | Structured envelope. |
-| `--offline` | off | Incompatible with `--llm`. |
-| `--llm` | off | Enrich with LLM prose. |
-| `--max-llm-calls <n>` | 0 (dry-run) | Budget. |
-| `--llm-model <id>` | — | Override LLM model. |
+| `--json` | off | Emit a JSON summary on stdout. |
+| `--offline` | off | Assert no network access (incompatible with `--llm`). |
+| `--llm` | off | Route top-ranked modules through the summarizer. |
+| `--max-llm-calls <n>` | 0 (dry-run) | LLM call budget. |
+| `--llm-model <id>` | — | Override the Bedrock summary model id. |
 
 ## `ci-init`
 
@@ -341,7 +363,7 @@ codehub ci-init
 | `--platform <github\|gitlab\|both>` | auto-detect | Target CI. |
 | `--main-branch <b>` | `main` | Base branch. |
 | `--repo <path>` | cwd | Repo root. |
-| `--force` | off | Overwrite. |
+| `--force` | off | Overwrite existing workflows. |
 
 ## `augment`
 
@@ -356,23 +378,9 @@ codehub augment <pattern>
 |---|---|---|
 | `--limit <n>` | 5 | Max hits. |
 
-## `eval-server`
-
-Launch the persistent loopback HTTP daemon that wraps MCP handlers
-(used by SWE-bench loops).
-
-```bash title="usage"
-codehub eval-server
-```
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--port <n>` | 4848 | Listen port. |
-| `--idle-timeout <s>` | 900 | Idle timeout. |
-
 ## `sql`
 
-Read-only SQL against the graph store.
+Read-only SQL against the graph store. 5-second timeout by default.
 
 ```bash title="usage"
 codehub sql <query>
