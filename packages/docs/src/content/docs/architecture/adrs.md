@@ -18,8 +18,8 @@ DuckDB via `@duckdb/node-api` plus the `hnsw_acorn` community
 extension for filter-aware vector search and the official `fts`
 extension for BM25. SQLite + `sqlite-vec` was rejected because FTS5
 has no filtered-HNSW story. Superseded as the default by ADR 0011 +
-ADR 0013 (M7), but DuckDB is still the temporal-store backend and the
-legacy single-file fallback.
+ADR 0013, but DuckDB is still the temporal-store backend and the
+single-file opt-in fallback.
 
 [Read ADR 0001](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0001-storage-backend.md)
 
@@ -92,32 +92,31 @@ column, Phase 0 schema preflight.
 
 ### ADR 0011 — LadybugDB (phase-1)
 
-Add `@ladybugdb/core` as the opt-in LadybugDB graph backend behind the
-existing `IGraphStore` seam. Default stays on DuckDB through M3 – M6.
-Motivation: recursive-CTE traversals on the polymorphic `relations`
-table do not get faster, and the predicate cannot be pushed into the
-graph walk.
+Adds `@ladybugdb/core` as the LadybugDB graph backend behind the
+`IGraphStore` seam. Motivation: recursive-CTE traversals on the
+polymorphic `relations` table do not get faster, and the predicate
+cannot be pushed into the graph walk.
 
 [Read ADR 0011](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
 
 ### ADR 0012 — Repo as a first-class graph node
 
 Promote `repo_uri`, `default_branch`, and `group` to typed graph
-attributes on a `Repo` node. Backs the M6 federation surface
+attributes on a `Repo` node. Backs the cross-repo federation surface
 (`group_query`, `group_status`, `group_contracts`, `group_list`,
 `group_cross_repo_links`) and the structured `AMBIGUOUS_REPO`
 envelope returned by per-repo tools.
 
 [Read ADR 0012](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0012-repo-as-first-class-node.md)
 
-### ADR 0013 — M7 default-flip + storage abstraction
+### ADR 0013 — Storage default + interface segregation
 
-Flip the default to LadybugDB and segregate `IGraphStore` from
-`ITemporalStore`. The temporal half (cochanges, summary cache) stays
-on DuckDB. Adds the community-adapter escape hatch (AGE / Memgraph /
-Neo4j / Neptune) so OCH does not lock users into LadybugDB.
+LadybugDB is the default backend and `IGraphStore` is segregated from
+`ITemporalStore`. The temporal half (cochanges, summary cache) lives
+on DuckDB. The community-adapter escape hatch (AGE / Memgraph /
+Neo4j / Neptune) keeps OCH from locking users into LadybugDB.
 
-[Read ADR 0013 (M7)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
+[Read ADR 0013](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 
 ### ADR 0013 — Parse runtime: WASM default, native opt-in
 
