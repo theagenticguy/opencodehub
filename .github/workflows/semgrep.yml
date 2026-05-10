@@ -12,13 +12,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Top-level least-privilege; the semgrep job opts into security-events:write
+# explicitly so the SARIF upload step can post results. (Scorecard Token-Permissions)
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   semgrep:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     container:
       image: semgrep/semgrep
     steps:
