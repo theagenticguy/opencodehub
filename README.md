@@ -8,6 +8,13 @@
 
 > **Code intelligence for AI coding agents, under Apache-2.0, on an all-OSS stack.**
 
+```bash
+npm install -g @opencodehub/cli
+cd /path/to/your/repo
+codehub init && codehub analyze
+# your agent now has impact, query, context, detect_changes, rename — 29 tools over MCP
+```
+
 ## Why this exists
 
 AI coding agents have a structural blind spot: they can see a file, but
@@ -77,10 +84,38 @@ flowchart LR
 
 ## Quick start
 
-**Requirements:** macOS, Linux, or Windows; Node 22 or 24 (Node 22
-recommended for the native-parser opt-in); pnpm 10+; Python 3.12 (only
-needed when running the SCIP indexers for Python-heavy repos);
-`mise` recommended to manage them.
+### Install from npm (recommended)
+
+**Requirements:** Node 22 or 24.
+
+```bash
+# global install — puts `codehub` on your PATH
+npm install -g @opencodehub/cli
+
+# or run without installing
+npx @opencodehub/cli --help
+```
+
+Bootstrap any repo and start querying:
+
+```bash
+cd /path/to/your/repo
+
+# writes .mcp.json so Claude Code / Cursor launch `codehub mcp`,
+# installs the Claude Code plugin, appends .codehub/ to .gitignore,
+# seeds opencodehub.policy.yaml
+codehub init
+
+# index the repo (WASM parser, no native binaries needed)
+codehub analyze
+
+# your agent can now call impact, query, context, detect_changes, rename, …
+```
+
+### Build from source
+
+**Requirements:** Node 22 or 24; pnpm 10+; Python 3.12 (only needed for
+SCIP indexers on Python-heavy repos); `mise` recommended.
 
 ```bash
 git clone https://github.com/theagenticguy/opencodehub
@@ -88,25 +123,7 @@ cd opencodehub
 mise install
 pnpm install --frozen-lockfile
 pnpm run check          # lint + typecheck + test + banned-strings
-```
-
-Then wire up the `codehub` CLI and bootstrap a repo:
-
-```bash
-# put `codehub` on your PATH (pnpm link --global under the hood)
-mise run cli:link
-
-# bootstrap any repo you want to index:
-#   writes .mcp.json so Claude Code launches codehub mcp,
-#   installs the project-scope plugin into .claude/,
-#   appends .codehub/ to .gitignore, seeds opencodehub.policy.yaml
-cd /path/to/your/repo
-codehub init
-
-# index the repo
-codehub analyze
-
-# your agent can now call impact, query, context, detect_changes, rename, ...
+mise run cli:link       # puts `codehub` on your PATH
 ```
 
 ## MCP tool surface (29 tools)

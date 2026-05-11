@@ -1,0 +1,20 @@
+# Global fallback — maintainers review everything not matched below
+*                                   @theagenticguy
+
+# Core packages — require maintainer review
+packages/core-types/                @theagenticguy
+packages/storage/                   @theagenticguy
+packages/ingestion/                 @theagenticguy
+
+# MCP surface — public API; require maintainer review
+packages/mcp/                       @theagenticguy
+
+# CLI — user-facing; require maintainer review
+packages/cli/                       @theagenticguy
+
+# CI / release / security — always require maintainer review
+.github/workflows/                  @theagenticguy
+.github/CODEOWNERS                  @theagenticguy
+SECURITY.md                         @theagenticguy
+GOVERNANCE.md                       @theagenticguy
+opencodehub.policy.yaml             @theagenticguy

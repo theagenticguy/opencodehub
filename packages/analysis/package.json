@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "OpenCodeHub — impact, rename, detect_changes, staleness",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theagenticguy/opencodehub.git",
+    "directory": "packages/analysis"
+  },
+  "homepage": "https://github.com/theagenticguy/opencodehub#readme",
+  "bugs": {
+    "url": "https://github.com/theagenticguy/opencodehub/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +21,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "node --test ./dist/*.test.js ./dist/**/*.test.js",
@@ -30,5 +41,24 @@
     "@types/node": "25.6.2",
     "@types/write-file-atomic": "4.0.3",
     "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencodehub",
+    "code-intelligence",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "code-graph",
+    "static-analysis",
+    "blast-radius",
+    "impact-analysis",
+    "rename",
+    "detect-changes"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

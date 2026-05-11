@@ -1,5 +1,22 @@
 # @opencodehub/cli
 
+```bash
+# global install
+npm install -g @opencodehub/cli
+
+# or run without installing
+npx @opencodehub/cli --help
+```
+
+Then bootstrap any repo:
+
+```bash
+cd /path/to/your/repo
+codehub init      # writes .mcp.json, Claude Code plugin, .gitignore entry
+codehub analyze   # index the repo
+codehub mcp       # start the stdio MCP server (your agent calls this)
+```
+
 The `codehub` command-line front end. Every subcommand lazy-loads its
 implementation so `codehub --help` stays fast — no DuckDB binding, no
 pipeline, no MCP SDK is initialised until the matching action runs

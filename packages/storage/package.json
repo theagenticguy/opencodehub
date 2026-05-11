@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "OpenCodeHub — DuckDB graph store (@duckdb/node-api + hnsw_acorn + fts)",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theagenticguy/opencodehub.git",
+    "directory": "packages/storage"
+  },
+  "homepage": "https://github.com/theagenticguy/opencodehub#readme",
+  "bugs": {
+    "url": "https://github.com/theagenticguy/opencodehub/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +25,9 @@
       "import": "./dist/test-utils/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
     "test": "node --test ./dist/**/*.test.js",
@@ -30,5 +41,23 @@
   "devDependencies": {
     "@types/node": "25.6.2",
     "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencodehub",
+    "code-intelligence",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "code-graph",
+    "static-analysis",
+    "duckdb",
+    "graph-database",
+    "storage"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

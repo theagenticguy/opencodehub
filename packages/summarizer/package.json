@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "OpenCodeHub — structured code-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4)",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theagenticguy/opencodehub.git",
+    "directory": "packages/summarizer"
+  },
+  "homepage": "https://github.com/theagenticguy/opencodehub#readme",
+  "bugs": {
+    "url": "https://github.com/theagenticguy/opencodehub/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,5 +37,23 @@
   "devDependencies": {
     "@types/node": "25.6.2",
     "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencodehub",
+    "code-intelligence",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "code-graph",
+    "static-analysis",
+    "llm",
+    "bedrock",
+    "code-summaries"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
   }
 }
