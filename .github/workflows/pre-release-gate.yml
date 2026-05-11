@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
       - name: Run pnpm audit at high+ severity
         run: pnpm audit --audit-level=high --prod
 
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
       # Frozen + ignore-scripts is the strictest install path: any lockfile
       # drift, missing entry, or sneaky postinstall fails the job.
       - name: Install with frozen lockfile and no lifecycle scripts
@@ -100,7 +100,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac  # v2.4.4
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         run: >
