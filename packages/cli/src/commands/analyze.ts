@@ -681,7 +681,19 @@ async function openEmbeddingHashCacheAdapter(
     adapter: {
       // listEmbeddingHashes is on the graph-tier interface — embeddings
       // travel with the graph view, not the temporal cochange table.
-      list: async () => store.graph.listEmbeddingHashes(),
+      // Wrapped in try/catch: on a freshly-created lbug db that has no
+      // schema yet, the Cypher query inside listEmbeddingHashes() can
+      // throw "Cannot create an empty database under READ ONLY mode"
+      // because lbug defers some internal initialization until first
+      // query. Returning an empty map matches the interface contract
+      // ("Empty map on a fresh database or any error").
+      list: async () => {
+        try {
+          return await store.graph.listEmbeddingHashes();
+        } catch {
+          return new Map<string, string>();
+        }
+      },
     },
     close: async () => {
       await store.close();

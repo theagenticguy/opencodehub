@@ -6,9 +6,9 @@
   "license": "Apache-2.0",
   "engines": {
     "node": ">=22.0.0",
-    "pnpm": ">=10.0.0"
+    "pnpm": ">=11.0.0"
   },
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@11.1.0",
   "workspaces": [
     "packages/*"
   ],
@@ -38,54 +38,5 @@
     "commitizen": {
       "path": "./node_modules/cz-conventional-changelog"
     }
-  },
-  "pnpm": {
-    "overrides": {
-      "fast-xml-parser@<5.7.0": "5.7.1",
-      "js-yaml@<4.1.1": "4.1.1",
-      "uuid@<14.0.0": "14.0.0",
-      "ajv@<8.18.0": "8.18.0",
-      "brace-expansion@<1.1.13": "1.1.13",
-      "brace-expansion@>=2.0.0 <2.0.2": "2.0.2",
-      "lodash@<4.18.0": "4.18.0",
-      "minimatch@<3.1.4": "3.1.4",
-      "minimatch@>=9.0.0 <9.0.7": "9.0.7",
-      "picomatch@<2.3.2": "2.3.2",
-      "tmp@<0.2.4": "0.2.4",
-      "dompurify@<3.4.0": "3.4.0",
-      "hono@<4.12.18": "4.12.18",
-      "ip-address@<10.1.1": "10.1.1",
-      "fast-uri@<3.1.2": "3.1.2",
-      "fast-xml-builder@<1.1.7": "1.1.7"
-    },
-    "onlyBuiltDependencies": [
-      "@duckdb/node-api",
-      "@duckdb/node-bindings-darwin-arm64",
-      "@duckdb/node-bindings-darwin-x64",
-      "@duckdb/node-bindings-linux-arm64",
-      "@duckdb/node-bindings-linux-x64",
-      "@duckdb/node-bindings-win32-x64",
-      "@homebridge/node-pty-prebuilt-multiarch",
-      "esbuild",
-      "lefthook",
-      "onnxruntime-node",
-      "sharp",
-      "tree-sitter",
-      "tree-sitter-c",
-      "tree-sitter-c-sharp",
-      "tree-sitter-cli",
-      "tree-sitter-cpp",
-      "tree-sitter-dart",
-      "tree-sitter-go",
-      "tree-sitter-java",
-      "tree-sitter-javascript",
-      "tree-sitter-kotlin",
-      "tree-sitter-php",
-      "tree-sitter-python",
-      "tree-sitter-ruby",
-      "tree-sitter-rust",
-      "tree-sitter-swift",
-      "tree-sitter-typescript"
-    ]
   }
 }
