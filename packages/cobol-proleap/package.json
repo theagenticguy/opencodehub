@@ -22,7 +22,14 @@
     }
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "!dist/**/*.test.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.d.ts",
+    "dist/**/*.js.map",
+    "!dist/**/*.test.js.map",
+    "dist/**/*.d.ts.map",
+    "!dist/**/*.test.d.ts.map",
     "java"
   ],
   "scripts": {
