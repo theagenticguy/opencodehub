@@ -253,6 +253,23 @@ export class GraphDbStore implements IGraphStore {
         throw new GraphDbBindingError(err);
       }
     }
+    // Guard: lbug v0.16.1 creates an empty database file even when opened
+    // with readOnly=true if the path doesn't exist yet. The empty DB then
+    // fails on any write (INSTALL FTS, INSTALL VECTOR, schema creation) with
+    // "Cannot create an empty database under READ ONLY mode". Fail-fast here
+    // so callers that catch `open()` errors (augment, countPriorCallable,
+    // openEmbeddingHashCacheAdapter) get the error they expect — and the
+    // lbug file is never created for a read-only probe on a missing DB.
+    if ((this.poolConfig.readOnly ?? this.readOnly) && this.path !== ":memory:") {
+      const { access } = await import("node:fs/promises");
+      try {
+        await access(this.path);
+      } catch {
+        throw new Error(
+          `graph-db: database file does not exist at ${this.path} (read-only open refused)`,
+        );
+      }
+    }
     this.pool = new GraphDbPool(this.path, {
       ...this.poolConfig,
       readOnly: this.poolConfig.readOnly ?? this.readOnly,
