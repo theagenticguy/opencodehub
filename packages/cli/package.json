@@ -26,7 +26,9 @@
     "dist/**/*.js.map",
     "!dist/**/*.test.js.map",
     "dist/**/*.d.ts.map",
-    "!dist/**/*.test.d.ts.map"
+    "!dist/**/*.test.d.ts.map",
+    "dist/plugin-assets/**",
+    "dist/commands/ci-templates/**"
   ],
   "scripts": {
     "build": "tsc -b && node scripts/copy-ci-templates.mjs && node scripts/copy-plugin-assets.mjs",
