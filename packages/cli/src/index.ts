@@ -8,12 +8,21 @@
  * run that subcommand.
  */
 
+import { readFileSync } from "node:fs";
 import { cpus } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
+
+// Read the CLI's own version from its package.json. Resolved at runtime
+// from the compiled dist/ — package.json sits at <pkg-root>/package.json,
+// two levels up from <pkg-root>/dist/index.js.
+const pkgJsonPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+const pkgVersion = JSON.parse(readFileSync(pkgJsonPath, "utf8")).version as string;
 
 const program = new Command()
   .name("codehub")
-  .version("0.0.0")
+  .version(pkgVersion)
   .description("OpenCodeHub — code-graph indexer and MCP server for coding agents");
 
 program
