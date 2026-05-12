@@ -126,11 +126,17 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   // Production: open a read-only graph store via the backend-agnostic
   // factory; tests inject `_store` to skip the native binding entirely.
   const dbPath = resolveDbPath(repoPath);
-  if (args._store === undefined && !existsSync(dbPath)) {
-    throw new Error(
-      `codehub code-pack: no graph index at ${dbPath}. ` +
-        "Run `codehub analyze` first to populate the store.",
-    );
+  if (args._store === undefined) {
+    // The store factory accepts a `graph.duckdb` path and rewrites it to
+    // the lbug sibling when the backend resolves to lbug. Check both so
+    // the error surfaces only when neither artifact is on disk.
+    const lbugPath = resolve(repoPath, ".codehub", "graph.lbug");
+    if (!existsSync(dbPath) && !existsSync(lbugPath)) {
+      throw new Error(
+        `codehub code-pack: no graph index at ${dbPath} or ${lbugPath}. ` +
+          "Run `codehub analyze` first to populate the store.",
+      );
+    }
   }
   const ownsStore = args._store === undefined;
   // Composed-store envelope used only when this command owns lifecycle.
