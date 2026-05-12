@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.2.2...cli-v0.2.3) (2026-05-12)
+
+
+### Bug Fixes
+
+* **cli:** codehub --version reads the real version from package.json ([bac9b61](https://github.com/theagenticguy/opencodehub/commit/bac9b61d6df0a228e3f15b9d95581c79178de339))
+* **cli:** ship dist/plugin-assets and dist/commands/ci-templates in npm tarball ([e6df976](https://github.com/theagenticguy/opencodehub/commit/e6df9760d5df3f246bfa047f8d2bb11f08c37050))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/ingestion bumped to 0.3.2
+    * @opencodehub/mcp bumped to 0.3.1
+    * @opencodehub/pack bumped to 0.1.3
+
 ## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.2.1...cli-v0.2.2) (2026-05-12)
 
 
