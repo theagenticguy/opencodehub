@@ -1,6 +1,6 @@
 ---
 title: Claude Code
-description: The deepest editor integration — plugin, slash commands, code-analyst subagent, and 11 skills.
+description: The deepest editor integration — plugin, code-analyst subagent, and 11 skills.
 sidebar:
   order: 1
 ---
@@ -8,8 +8,8 @@ sidebar:
 import { Card, LinkCard } from "@astrojs/starlight/components";
 
 Claude Code gets the full surface: a project-scope MCP server, a
-plugin with five slash commands, a `code-analyst` subagent, and 11
-skills. Everything in this page is shipped at
+plugin with a `code-analyst` subagent, and 11 skills. Everything in
+this page is shipped at
 [`plugins/opencodehub/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub).
 
 ## Install
@@ -47,23 +47,9 @@ The plugin lives at
 
 | Surface | Count | What |
 | --- | --- | --- |
-| Slash commands | 5 | `/probe`, `/verdict`, `/owners`, `/audit-deps`, `/rename` |
 | Subagent | 1 | `code-analyst` |
 | Skills | 11 | listed below |
 | Hooks | 2 | `PreToolUse` augment + `PostToolUse` re-index |
-
-## Slash commands
-
-| Command | Argument | Runs |
-| --- | --- | --- |
-| `/probe <symbol>` | symbol name | `context` + `impact(direction: upstream, depth: 3)`; returns a 5-line brief — what it does, top callers, top callees, blast radius, risk tier. |
-| `/verdict [base-ref]` | optional base ref (defaults to `main`) | `verdict` against the base; returns tier, top drivers, blockers, next action. |
-| `/owners <target>` | symbol or path | `owners`; returns top 3 contributors with commits, last-touched, lines changed, plus the code-owner candidate. |
-| `/audit-deps` | none | `license_audit` + `list_findings`; returns license tier, GPL/strong-copyleft deps, proprietary/unknown deps, security findings. |
-| `/rename <old> <new>` | two names | `rename(dry_run: true)` first, prints diff, asks for confirmation; only writes on explicit `yes`. |
-
-Source for each command:
-[`plugins/opencodehub/commands/`](https://github.com/theagenticguy/opencodehub/tree/main/plugins/opencodehub/commands).
 
 ## Subagent: `code-analyst`
 

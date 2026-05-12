@@ -82,7 +82,7 @@ Pick the highest-step-count process and walk it:
 ## Next steps
 
 - Run `codehub analyze .` in your checkout to build the local graph.
-- Open the Claude Code plugin and try `/probe "how does X work"`.
+- Ask the `code-analyst` subagent (or any MCP-aware client) "how does X work" to get a graph-grounded brief.
 - Read [architecture/system-overview.md](./docs/architecture/system-overview.md) if `codehub-document` has already produced it.
 ```
 

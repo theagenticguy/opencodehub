@@ -336,12 +336,6 @@ test("setup --plugin copies plugin tree into ~/.claude/plugins/opencodehub", asy
   assert.equal(manifest.version, "0.1.0");
   assert.ok((await stat(join(targetDir, "README.md"))).isFile());
 
-  // All 5 slash commands.
-  for (const cmd of ["probe", "verdict", "owners", "audit-deps", "rename"]) {
-    const p = join(targetDir, "commands", `${cmd}.md`);
-    assert.ok((await stat(p)).isFile(), `missing command: ${cmd}`);
-  }
-
   // The one agent. Read once and infer existence from a successful
   // `readFile` instead of `stat` + `readFile` (closes the TOCTOU gap
   // js/file-system-race flags on path-based checks).

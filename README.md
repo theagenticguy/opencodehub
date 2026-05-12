@@ -143,7 +143,7 @@ mise run cli:link       # puts `codehub` on your PATH
 
 Architecture decision records live in [`docs/adr/`](./docs/adr/). A
 Claude Code plugin at `plugins/opencodehub/` wraps the MCP tools into
-slash commands + skills — install via `codehub init`.
+skills + a code-analyst subagent — install via `codehub init`.
 
 ## Repository layout
 

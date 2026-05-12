@@ -80,8 +80,7 @@ making graph-index or retrieval changes.
 ## Claude Code plugin
 
 This repo ships a Claude Code plugin at `plugins/opencodehub/` — it
-provides `/probe`, `/verdict`, `/owners`, `/audit-deps`, `/rename` slash
-commands plus a `code-analyst` subagent and 10 skills. Install via
+provides a `code-analyst` subagent and 10 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
 
 ## Storage backend — graph-default

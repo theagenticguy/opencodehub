@@ -2,7 +2,7 @@
  * Unit tests for `codehub init`
  *
  * Covers:
- *   1. Fresh repo → copies skills/agents/commands/hooks into `.claude/`,
+ *   1. Fresh repo → copies skills/agents/hooks into `.claude/`,
  *      rewrites `hooks.json` to project-scope `.claude/settings.json`,
  *      writes `.mcp.json`, appends `.codehub/` to `.gitignore`, seeds policy.
  *   2. Re-running without `--force` against an existing `.claude/` refuses
@@ -70,13 +70,10 @@ test("runInit: fresh repo wires up .claude/, .mcp.json, .gitignore, policy", asy
     assert.ok(await pathExists(skillFile), `missing: ${skillFile}`);
   }
 
-  // Agents, commands, hooks.
+  // Agents and hooks.
   assert.ok(await pathExists(join(repo, ".claude", "agents", "code-analyst.md")));
   assert.ok(await pathExists(join(repo, ".claude", "hooks", "augment.sh")));
   assert.ok(await pathExists(join(repo, ".claude", "hooks", "docs-staleness.sh")));
-
-  // Commands from the existing pre-artifact plugin (probe, verdict, etc.).
-  assert.ok(await pathExists(join(repo, ".claude", "commands", "probe.md")));
 
   // settings.json with project-scope-rewritten hooks.
   const settings = await readFile(join(repo, ".claude", "settings.json"), "utf8");

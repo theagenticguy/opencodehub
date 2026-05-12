@@ -412,8 +412,8 @@ export function parseScipFlag(raw: string): ScipTool | "all" {
 /**
  * Options for `codehub setup --plugin`. Copies the static `plugins/opencodehub/`
  * tree shipped with this repo into `<home>/.claude/plugins/opencodehub/` so
- * Claude Code picks up the five slash commands, the `code-analyst` subagent,
- * and the PostToolUse auto-reindex hook.
+ * Claude Code picks up the `code-analyst` subagent, the artifact-generation
+ * skills, and the PostToolUse auto-reindex hook.
  *
  * Atomic: files are copied into a sibling `<target>.tmp-<pid>` dir first, then
  * the final `<target>` is removed and the temp dir renamed into place. A

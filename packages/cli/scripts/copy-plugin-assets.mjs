@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copy `plugins/opencodehub/{skills,agents,commands,hooks,hooks.json}` into
+ * Copy `plugins/opencodehub/{skills,agents,hooks,hooks.json}` into
  * `dist/plugin-assets/` after `tsc -b`, so globally-installed codehub CLIs
  * (which no longer have the monorepo `plugins/` tree on disk) can still
  * bootstrap a project-scope `.claude/` install via `codehub init`.
@@ -26,7 +26,6 @@ const dest = join(pkgRoot, "dist", "plugin-assets");
 const COPY_ENTRIES = [
   "skills",
   "agents",
-  "commands",
   "hooks",
   "hooks.json",
 ];

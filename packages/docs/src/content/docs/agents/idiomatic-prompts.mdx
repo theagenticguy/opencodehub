@@ -36,9 +36,9 @@ Do NOT apply the rename. I will say "apply" if I'm satisfied.
 and call-site count; bullet list of risk flags; explicit "no files
 written" confirmation.
 
-In Claude Code, `/probe parseConfig` followed by
-`/rename parseConfig parseAppConfig` is the equivalent two-command
-workflow.
+The Claude Code plugin's `code-analyst` subagent runs the same
+`context` → `impact` → `rename(dry_run: true)` chain when invoked with
+this prompt.
 
 ## 2. Surface processes that touch the auth flow
 

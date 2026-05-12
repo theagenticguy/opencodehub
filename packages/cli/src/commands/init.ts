@@ -1,8 +1,8 @@
 /**
  * `codehub init` — bootstrap a repository for OpenCodeHub in one command.
  *
- * Project-scope installer. Copies plugin assets (skills/agents/commands/hooks)
- * into `<repo>/.claude/`, writes `.mcp.json` so Claude Code launches the
+ * Project-scope installer. Copies plugin assets (skills/agents/hooks) into
+ * `<repo>/.claude/`, writes `.mcp.json` so Claude Code launches the
  * `codehub` MCP server, appends `.codehub/` to `.gitignore`, and seeds a
  * starter `opencodehub.policy.yaml` (commented out; rules ship in spec 002).
  *
@@ -228,8 +228,8 @@ async function buildInstallPlan(
 ): Promise<readonly PlanStep[]> {
   const plan: PlanStep[] = [];
   // The plugin root maps onto `.claude/` directly: skills → .claude/skills,
-  // agents → .claude/agents, commands → .claude/commands, hooks → .claude/hooks.
-  for (const entry of ["skills", "agents", "commands", "hooks"] as const) {
+  // agents → .claude/agents, hooks → .claude/hooks.
+  for (const entry of ["skills", "agents", "hooks"] as const) {
     const src = join(sourceDir, entry);
     const dest = join(claudeDir, entry);
     if (!(await fs.exists(src))) continue;
