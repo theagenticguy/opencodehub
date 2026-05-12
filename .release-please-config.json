@@ -26,14 +26,21 @@
     },
     "packages/analysis": { "package-name": "@opencodehub/analysis" },
     "packages/cli": { "package-name": "@opencodehub/cli" },
+    "packages/cobol-proleap": { "package-name": "@opencodehub/cobol-proleap" },
     "packages/core-types": { "package-name": "@opencodehub/core-types" },
     "packages/embedder": { "package-name": "@opencodehub/embedder" },
+    "packages/frameworks": { "package-name": "@opencodehub/frameworks" },
     "packages/ingestion": { "package-name": "@opencodehub/ingestion" },
     "packages/mcp": { "package-name": "@opencodehub/mcp" },
+    "packages/pack": { "package-name": "@opencodehub/pack" },
+    "packages/policy": { "package-name": "@opencodehub/policy" },
     "packages/sarif": { "package-name": "@opencodehub/sarif" },
     "packages/scanners": { "package-name": "@opencodehub/scanners" },
+    "packages/scip-ingest": { "package-name": "@opencodehub/scip-ingest" },
     "packages/search": { "package-name": "@opencodehub/search" },
-    "packages/storage": { "package-name": "@opencodehub/storage" }
+    "packages/storage": { "package-name": "@opencodehub/storage" },
+    "packages/summarizer": { "package-name": "@opencodehub/summarizer" },
+    "packages/wiki": { "package-name": "@opencodehub/wiki" }
   },
   "plugins": [
     {
