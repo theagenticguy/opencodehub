@@ -59,7 +59,6 @@
     "tree-sitter-c": "0.24.1",
     "tree-sitter-c-sharp": "0.23.5",
     "tree-sitter-cpp": "0.23.4",
-    "tree-sitter-dart": "git+https://github.com/UserNobody14/tree-sitter-dart.git#0fc19c3a57b1109802af41d2b8f60d8835c5da3a",
     "tree-sitter-go": "0.25.0",
     "tree-sitter-java": "0.23.5",
     "tree-sitter-javascript": "0.25.0",

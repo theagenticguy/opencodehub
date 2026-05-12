@@ -253,11 +253,18 @@ async function loadLanguageObject(lang: LanguageId): Promise<unknown> {
       return mod.php_only;
     }
     case "dart":
-      // tree-sitter-dart git-pinned to UserNobody14/tree-sitter-dart SHA
-      // 0fc19c3a (2026-03-14). npm registry 1.0.0 is 3 years stale; we pin
-      // via the `git+https://…#sha` URL in package.json. Module IS the
-      // Language (CJS, uses legacy `nan` addon API).
-      return requireFn("tree-sitter-dart");
+      // Dart is WASM-only on the public package — see vendor/wasms/.
+      // Removed the git-pinned tree-sitter-dart dependency in 0.2.x because
+      // npm consumers couldn't `npm install -g @opencodehub/cli` (npm tries
+      // to git-clone + node-gyp the pin and fails on machines without a
+      // C++ toolchain). Native opt-in (`OCH_NATIVE_PARSER=1`) is unsupported
+      // for Dart on the registry build; clear the env var to use the WASM
+      // path that ships with the published package.
+      throw new Error(
+        "tree-sitter-dart is not bundled as a native binding in published builds; " +
+          "Dart parsing uses the vendored WASM grammar. " +
+          "Unset OCH_NATIVE_PARSER (or omit --native-parser) to use the WASM path.",
+      );
     case "cobol":
       // Guarded at the `loadGrammar` entry point via the provider-kind
       // discriminator; a direct call to `loadLanguageObject("cobol")`
