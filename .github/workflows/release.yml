@@ -278,6 +278,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           cd artifacts
@@ -289,7 +290,7 @@ jobs:
             och-scan.sarif \
             och-scan.sarif.sig.bundle; do
             if [ -f "$f" ]; then
-              gh release upload "$TAG" "$f" --clobber
+              gh release upload "$TAG" "$f" --clobber --repo "$GH_REPO"
             fi
           done
 
