@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.3.0...root-v0.3.1) (2026-05-12)
+
+
+### Bug Fixes
+
+* **repo:** track all 17 packages in release-please + republish pack/cobol-proleap on fixed ingestion ([f4656d5](https://github.com/theagenticguy/opencodehub/commit/f4656d5f5f3faf6980ba872672191142eae3d722))
+
 ## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.2.0...root-v0.3.0) (2026-05-12)
 
 
