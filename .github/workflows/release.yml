@@ -321,27 +321,26 @@ jobs:
           sha: ${{ needs.resolve.outputs.sha }}
 
   # ---------------------------------------------------------------------------
-  # 5. npm publish (DRY-RUN ONLY).
+  # 5. npm publish — OIDC trusted publishing with provenance.
   #
-  #    Gated by the `OCH_NPM_PUBLISH_ENABLED` repo variable (default
-  #    unset = disabled) until @opencodehub/* packages flip to public on
-  #    npm. When that happens: set the variable to `true`, configure the
-  #    OIDC trust relationship for npmjs.org provenance, and drop the
-  #    `--dry-run` from `pnpm -r publish`. Provenance ties the npm
-  #    release back to the same SLSA attestation generated above.
+  #    Gated by the `OCH_NPM_PUBLISH_ENABLED` repo variable. Each
+  #    @opencodehub/* package on npmjs.com has the trusted publisher
+  #    relationship configured against this repo + workflow filename,
+  #    so no NPM_TOKEN is required — the `id-token: write` permission
+  #    drives both OIDC auth to npm AND the Sigstore provenance
+  #    attestation that ties each published tarball back to this
+  #    workflow run + commit SHA. pnpm 10.21+ / 11.x supports OIDC on
+  #    direct `pnpm publish` (the changeset-publish regression in
+  #    pnpm/pnpm#11566 does not apply here).
   # ---------------------------------------------------------------------------
   npm-publish:
-    name: npm publish (gated, dry-run scaffolding)
-    # Gated until @opencodehub/* packages flip to public on npm. The gate
-    # is a vars-based feature flag rather than a literal `if: false` so
-    # actionlint accepts it; flipping the repo / org variable
-    # `OCH_NPM_PUBLISH_ENABLED=true` is the single switch to enable.
+    name: npm publish (OIDC + provenance)
     if: vars.OCH_NPM_PUBLISH_ENABLED == 'true'
     needs: [resolve, build, sign, provenance]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write       # required for npm publish --provenance
+      id-token: write       # OIDC token for npm trusted publishing AND provenance
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -350,5 +349,5 @@ jobs:
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter '!@opencodehub/docs' -r build
-      - name: Publish (dry-run)
-        run: pnpm --filter '!@opencodehub/docs' -r publish --provenance --access public --no-git-checks --dry-run
+      - name: Publish to npm
+        run: pnpm --filter '!@opencodehub/docs' -r publish --provenance --access public --no-git-checks
