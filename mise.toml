@@ -1,6 +1,6 @@
 [tools]
 node = "22"
-pnpm = "10.33.2"
+pnpm = "11.1.0"
 python = "3.12"
 uv = "latest"
 "npm:node-gyp" = "latest"  # required to build tree-sitter native bindings during `pnpm install`
