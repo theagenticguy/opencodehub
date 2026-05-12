@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.3.1...root-v0.3.2) (2026-05-12)
+
+
+### Bug Fixes
+
+* **cli:** codehub --version reads the real version from package.json ([bac9b61](https://github.com/theagenticguy/opencodehub/commit/bac9b61d6df0a228e3f15b9d95581c79178de339))
+* **cli:** ship dist/plugin-assets and dist/commands/ci-templates in npm tarball ([e6df976](https://github.com/theagenticguy/opencodehub/commit/e6df9760d5df3f246bfa047f8d2bb11f08c37050))
+* **ingestion:** ship vendor/wasms in npm tarball ([6e3bf24](https://github.com/theagenticguy/opencodehub/commit/6e3bf24507bff60edcfe07532a65d6b3a0ece8f7))
+
 ## [0.3.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.3.0...root-v0.3.1) (2026-05-12)
 
 

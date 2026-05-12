@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.1...ingestion-v0.3.2) (2026-05-12)
+
+
+### Bug Fixes
+
+* **ingestion:** ship vendor/wasms in npm tarball ([6e3bf24](https://github.com/theagenticguy/opencodehub/commit/6e3bf24507bff60edcfe07532a65d6b3a0ece8f7))
+
 ## [0.3.1](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.0...ingestion-v0.3.1) (2026-05-12)
 
 
