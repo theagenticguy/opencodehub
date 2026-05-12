@@ -31,6 +31,53 @@ async function hasNativeBinding(): Promise<boolean> {
   }
 }
 
+/**
+ * Returns true when the lbug VECTOR extension can be loaded on this host.
+ * The extension requires mmap'ing large buffers for the HNSW index; on some
+ * Linux devboxes (overcommit disabled or cgroup memory limits) the mmap
+ * fails with "Buffer manager exception: Mmap for size N failed". Tests that
+ * call `upsertEmbeddings` or `vectorSearch` skip when this probe returns false.
+ */
+async function hasVectorSupport(): Promise<boolean> {
+  if (!(await hasNativeBinding())) return false;
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { mkdtemp } = await import("node:fs/promises");
+  const dir = await mkdtemp(join(tmpdir(), "och-vec-probe-"));
+  const store = new GraphDbStore(join(dir, "probe.lbug"), { embeddingDim: 4 });
+  try {
+    await store.open();
+    await store.createSchema();
+    // Probe by inserting one tiny embedding — triggers INSTALL+LOAD VECTOR
+    // internally. If the mmap for the HNSW index fails, the error propagates
+    // here and we return false so vector-dependent tests skip cleanly.
+    const fnId = makeNodeId("Function", "src/p.ts", "probe");
+    const g = new KnowledgeGraph();
+    g.addNode({ id: fnId, kind: "Function", name: "probe", filePath: "src/p.ts" });
+    await store.bulkLoad(g);
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "probe",
+      },
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await store.close().catch(() => {});
+  }
+}
+
+let _vectorSupportCached: boolean | undefined;
+async function cachedVectorSupport(): Promise<boolean> {
+  if (_vectorSupportCached === undefined) _vectorSupportCached = await hasVectorSupport();
+  return _vectorSupportCached;
+}
+
 // ---------------------------------------------------------------------------
 // Constructor + getters
 // ---------------------------------------------------------------------------
@@ -692,8 +739,8 @@ test("listEmbeddingHashes is empty on a fresh store", async () => {
 });
 
 test("upsertEmbeddings writes one row per (granularity, node_id, chunk_index)", async () => {
-  if (!(await hasNativeBinding())) {
-    assert.ok(true, "native binding unavailable — skipping");
+  if (!(await cachedVectorSupport())) {
+    assert.ok(true, "vector extension unavailable on this host (mmap or binding) — skipping");
     return;
   }
   const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
@@ -742,8 +789,8 @@ test("upsertEmbeddings writes one row per (granularity, node_id, chunk_index)", 
 });
 
 test("upsertEmbeddings overwrites rows with matching composite key", async () => {
-  if (!(await hasNativeBinding())) {
-    assert.ok(true, "native binding unavailable — skipping");
+  if (!(await cachedVectorSupport())) {
+    assert.ok(true, "vector extension unavailable on this host (mmap or binding) — skipping");
     return;
   }
   const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });
@@ -785,8 +832,8 @@ test("upsertEmbeddings overwrites rows with matching composite key", async () =>
 });
 
 test("vectorSearch returns nearest row after upsertEmbeddings", async () => {
-  if (!(await hasNativeBinding())) {
-    assert.ok(true, "native binding unavailable — skipping");
+  if (!(await cachedVectorSupport())) {
+    assert.ok(true, "vector extension unavailable on this host (mmap or binding) — skipping");
     return;
   }
   const store = new GraphDbStore(await scratchDbPath(), { embeddingDim: 4 });

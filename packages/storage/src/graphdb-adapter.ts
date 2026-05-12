@@ -253,6 +253,23 @@ export class GraphDbStore implements IGraphStore {
         throw new GraphDbBindingError(err);
       }
     }
+    // Guard: lbug v0.16.1 creates an empty database file even when opened
+    // with readOnly=true if the path doesn't exist yet. The empty DB then
+    // fails on any write (INSTALL FTS, INSTALL VECTOR, schema creation) with
+    // "Cannot create an empty database under READ ONLY mode". Fail-fast here
+    // so callers that catch `open()` errors (augment, countPriorCallable,
+    // openEmbeddingHashCacheAdapter) get the error they expect — and the
+    // lbug file is never created for a read-only probe on a missing DB.
+    if ((this.poolConfig.readOnly ?? this.readOnly) && this.path !== ":memory:") {
+      const { access } = await import("node:fs/promises");
+      try {
+        await access(this.path);
+      } catch {
+        throw new Error(
+          `graph-db: database file does not exist at ${this.path} (read-only open refused)`,
+        );
+      }
+    }
     this.pool = new GraphDbPool(this.path, {
       ...this.poolConfig,
       readOnly: this.poolConfig.readOnly ?? this.readOnly,
@@ -1753,11 +1770,12 @@ function setBooleanFieldGd(out: Record<string, unknown>, key: string, v: unknown
 }
 
 function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
-  // Preserve `[]` distinct from absent. The graph-db STRING[] binder
-  // returns a 0-length JS array for an empty array literal and `null`
-  // for an absent column — matching DuckDB's TEXT[] semantics. Re-attach
-  // the array verbatim so canonical-JSON / graphHash parity holds across
-  // backends for `{keywords: []}` round-trips.
+  // lbug v0.16.1 returns `null` for both an absent STRING[] column and an
+  // empty `[]` one — the native binder collapses empty arrays to NULL on
+  // write so `{keywords: []}` cannot be round-tripped through graphdb.
+  // DuckDB TEXT[] preserves the distinction. When v is a non-empty array
+  // we reconstruct it; when v is null/non-array we omit the key (both
+  // absent and empty-array stored as NULL land here the same way).
   if (!Array.isArray(v)) return;
   const arr: string[] = [];
   for (const item of v) if (typeof item === "string") arr.push(item);

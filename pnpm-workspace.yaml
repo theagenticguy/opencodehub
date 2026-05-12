@@ -1,28 +1,78 @@
 packages:
   - "packages/*"
 
-onlyBuiltDependencies:
-  - "@duckdb/node-bindings-darwin-arm64"
-  - "@duckdb/node-bindings-darwin-x64"
-  - "@duckdb/node-bindings-linux-arm64"
-  - "@duckdb/node-bindings-linux-x64"
-  - "@duckdb/node-bindings-win32-x64"
-  - tree-sitter
-  - tree-sitter-typescript
-  - tree-sitter-javascript
-  - tree-sitter-python
-  - tree-sitter-go
-  - tree-sitter-rust
-  - tree-sitter-java
-  - tree-sitter-c-sharp
-  # Extended-language grammars. Kotlin + Dart have NO prebuilds and
-  # require a C/C++ toolchain (clang/g++) to build at install time.
-  # Swift ships prebuilds but runs a postinstall node-gyp rebuild
-  # (~30s one-time).
-  - tree-sitter-c
-  - tree-sitter-cpp
-  - tree-sitter-ruby
-  - tree-sitter-kotlin
-  - tree-sitter-swift
-  - tree-sitter-php
-  - tree-sitter-dart
+# In pnpm v11, overrides must live here (not in package.json's pnpm.overrides).
+overrides:
+  fast-xml-parser@<5.7.0: "5.7.1"
+  js-yaml@<4.1.1: "4.1.1"
+  uuid@<14.0.0: "14.0.0"
+  ajv@<8.18.0: "8.18.0"
+  brace-expansion@<1.1.13: "1.1.13"
+  brace-expansion@>=2.0.0 <2.0.2: "2.0.2"
+  lodash@<4.18.0: "4.18.0"
+  minimatch@<3.1.4: "3.1.4"
+  minimatch@>=9.0.0 <9.0.7: "9.0.7"
+  picomatch@<2.3.2: "2.3.2"
+  tmp@<0.2.4: "0.2.4"
+  dompurify@<3.4.0: "3.4.0"
+  hono@<4.12.18: "4.12.18"
+  ip-address@<10.1.1: "10.1.1"
+  fast-uri@<3.1.2: "3.1.2"
+  fast-xml-builder@<1.1.7: "1.1.7"
+  mermaid@<11.15.0: "11.15.0"
+
+# Project-level settings. In pnpm v11, only auth+registry settings are read
+# from .npmrc; non-auth settings belong here or in ~/.config/pnpm/config.yaml.
+# User-specific settings (store-dir, package-import-method) stay in
+# ~/.config/pnpm/config.yaml.
+# NOTE: onnxruntime_node_install_cuda=skip must remain in ~/.npmrc (or be set
+# as npm_config_onnxruntime_node_install_cuda=skip in CI) so the onnxruntime
+# install script skips the ~400MB CUDA EP download on CPU-only environments.
+autoInstallPeers: true
+resolutionMode: time-based
+engineStrict: true
+# Opt out of v11's new 1440-minute (24h) minimum release age gate; this would
+# block resolving any package published within the last day — fine for security
+# hardening but too conservative for a dev monorepo. Set back to 0 to preserve
+# v10 behavior.
+minimumReleaseAge: 0
+
+# Allow list for packages that may run install/postinstall scripts.
+# In pnpm v11, onlyBuiltDependencies was replaced by allowBuilds (map form).
+# Packages not listed here are blocked from running scripts by default
+# (strictDepBuilds: true is the v11 default).
+allowBuilds:
+  # DuckDB native bindings
+  "@duckdb/node-api": true
+  "@duckdb/node-bindings-darwin-arm64": true
+  "@duckdb/node-bindings-darwin-x64": true
+  "@duckdb/node-bindings-linux-arm64": true
+  "@duckdb/node-bindings-linux-x64": true
+  "@duckdb/node-bindings-win32-x64": true
+  # LadybugDB native binding — copies lbugjs.node from the platform sub-package
+  "@ladybugdb/core": true
+  # Misc native addons
+  "@homebridge/node-pty-prebuilt-multiarch": true
+  esbuild: true
+  lefthook: true
+  onnxruntime-node: true
+  sharp: true
+  # Tree-sitter core + language grammars
+  tree-sitter: true
+  tree-sitter-c: true
+  tree-sitter-c-sharp: true
+  tree-sitter-cli: true
+  tree-sitter-cpp: true
+  # Kotlin + Dart have NO prebuilds and require a C/C++ toolchain to build.
+  # Swift ships prebuilds but runs a postinstall node-gyp rebuild (~30s once).
+  tree-sitter-dart: true
+  tree-sitter-go: true
+  tree-sitter-java: true
+  tree-sitter-javascript: true
+  tree-sitter-kotlin: true
+  tree-sitter-php: true
+  tree-sitter-python: true
+  tree-sitter-ruby: true
+  tree-sitter-rust: true
+  tree-sitter-swift: true
+  tree-sitter-typescript: true

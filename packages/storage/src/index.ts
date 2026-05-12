@@ -345,8 +345,36 @@ export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult
     initialPaths.temporalFile,
     initialBackend,
   );
-  const { graphFile, temporalFile } =
+  let { graphFile, temporalFile } =
     backend === initialBackend ? initialPaths : composeArtifactPaths(backend, opts.path);
+
+  // Single-artifact fallback: when the probe resolved to a backend whose
+  // file does not exist but the other backend's artifact does, use the
+  // present file. This prevents the lbug binding probe from selecting "lbug"
+  // on a machine where the binding is installed but the existing index is
+  // DuckDB (created before lbug, seeded by tests, or an explicit --store duck
+  // analysis). Only applies when backend was "auto" / unset — explicit
+  // CODEHUB_STORE overrides are always honored.
+  let resolvedBackend = backend;
+  const autoResolved =
+    (opts.backend === "auto" || opts.backend === undefined) &&
+    (process.env[ENV_VAR] === undefined || process.env[ENV_VAR] === "");
+  if (autoResolved && graphFile !== ":memory:") {
+    const graphExists = await stat(graphFile)
+      .then(() => true)
+      .catch(() => false);
+    if (!graphExists) {
+      const altBackend: ResolvedBackend = backend === "lbug" ? "duck" : "lbug";
+      const altPaths = composeArtifactPaths(altBackend, opts.path);
+      const altExists = await stat(altPaths.graphFile)
+        .then(() => true)
+        .catch(() => false);
+      if (altExists) {
+        resolvedBackend = altBackend;
+        ({ graphFile, temporalFile } = altPaths);
+      }
+    }
+  }
 
   const duckOptions: DuckDbStoreOptions = {
     ...(opts.duckOptions ?? {}),
@@ -355,7 +383,7 @@ export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   };
 
-  if (backend === "duck") {
+  if (resolvedBackend === "duck") {
     // Both graph and temporal views resolve to the same instance over a
     // single DuckDB connection. The class implements both interfaces so
     // structural typing is satisfied without two wrapper objects.
@@ -372,7 +400,7 @@ export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult
     };
   }
 
-  // backend === "lbug" — graph-db backed graph + DuckDB-backed temporal.
+  // resolvedBackend === "lbug" — graph-db backed graph + DuckDB-backed temporal.
   const graphDbOptions: GraphDbStoreOptions = {
     ...(opts.graphDbOptions ?? {}),
     ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
@@ -382,7 +410,7 @@ export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult
   const graph = new GraphDbStore(graphFile, graphDbOptions);
   const temporal = new DuckDbStore(temporalFile, duckOptions);
   return {
-    backend: "lbug" satisfies BackendKind,
+    backend: resolvedBackend satisfies BackendKind,
     graph: graph satisfies IGraphStore,
     temporal: temporal satisfies ITemporalStore,
     graphFile,
