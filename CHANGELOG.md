@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.2.0...root-v0.3.0) (2026-05-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ingestion:** OCH_NATIVE_PARSER=1 + Dart now throws instead of loading a native binding. Real impact: zero for npm installs; the binding never worked there anyway.
+
+### Bug Fixes
+
+* **ingestion:** drop tree-sitter-dart git-URL dep — Dart is WASM-only on npm ([b709f64](https://github.com/theagenticguy/opencodehub/commit/b709f64f73080ca1444e8f52f961009d581c3fdf))
+
 ## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.1.1...root-v0.2.0) (2026-05-12)
 
 
