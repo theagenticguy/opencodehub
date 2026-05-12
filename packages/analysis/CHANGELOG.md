@@ -1,0 +1,28 @@
+# Changelog
+
+## [0.1.1](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.1.0...analysis-v0.1.1) (2026-05-12)
+
+
+### Features
+
+* initial public release of opencodehub v0.1.1 ([3f23006](https://github.com/theagenticguy/opencodehub/commit/3f230065fe17c7c0b4c5d7568063b786fb72c81f))
+* M7 LadybugDB default + IGraphStore abstraction hardening (Track A) ([#71](https://github.com/theagenticguy/opencodehub/issues/71)) ([0175113](https://github.com/theagenticguy/opencodehub/commit/017511304fe050e69f92e3c3eb0bdad92235c9e0))
+
+
+### Documentation
+
+* **repo:** pre-publish npm readiness — READMEs, GOVERNANCE, CODEOWNERS, package metadata ([dd10f72](https://github.com/theagenticguy/opencodehub/commit/dd10f72aa490136076bf0632cccd2965c6b17e23))
+
+
+### Refactoring
+
+* consolidate repo-local dir references on META_DIR_NAME ([ce4b63d](https://github.com/theagenticguy/opencodehub/commit/ce4b63d298172dff3a26b1f5d4bf129c5cad7435))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/core-types bumped to 0.2.0
+    * @opencodehub/sarif bumped to 0.1.1
+    * @opencodehub/storage bumped to 0.1.1
