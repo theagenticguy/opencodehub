@@ -55,13 +55,15 @@ async function hasVectorSupport(): Promise<boolean> {
     const g = new KnowledgeGraph();
     g.addNode({ id: fnId, kind: "Function", name: "probe", filePath: "src/p.ts" });
     await store.bulkLoad(g);
-    await store.upsertEmbeddings([{
-      nodeId: fnId,
-      granularity: "symbol",
-      chunkIndex: 0,
-      vector: new Float32Array([1, 0, 0, 0]),
-      contentHash: "probe",
-    }]);
+    await store.upsertEmbeddings([
+      {
+        nodeId: fnId,
+        granularity: "symbol",
+        chunkIndex: 0,
+        vector: new Float32Array([1, 0, 0, 0]),
+        contentHash: "probe",
+      },
+    ]);
     return true;
   } catch {
     return false;

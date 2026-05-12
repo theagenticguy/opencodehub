@@ -356,14 +356,19 @@ export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult
   // analysis). Only applies when backend was "auto" / unset — explicit
   // CODEHUB_STORE overrides are always honored.
   let resolvedBackend = backend;
-  const autoResolved = (opts.backend === "auto" || opts.backend === undefined)
-    && (process.env[ENV_VAR] === undefined || process.env[ENV_VAR] === "");
+  const autoResolved =
+    (opts.backend === "auto" || opts.backend === undefined) &&
+    (process.env[ENV_VAR] === undefined || process.env[ENV_VAR] === "");
   if (autoResolved && graphFile !== ":memory:") {
-    const graphExists = await stat(graphFile).then(() => true).catch(() => false);
+    const graphExists = await stat(graphFile)
+      .then(() => true)
+      .catch(() => false);
     if (!graphExists) {
       const altBackend: ResolvedBackend = backend === "lbug" ? "duck" : "lbug";
       const altPaths = composeArtifactPaths(altBackend, opts.path);
-      const altExists = await stat(altPaths.graphFile).then(() => true).catch(() => false);
+      const altExists = await stat(altPaths.graphFile)
+        .then(() => true)
+        .catch(() => false);
       if (altExists) {
         resolvedBackend = altBackend;
         ({ graphFile, temporalFile } = altPaths);
