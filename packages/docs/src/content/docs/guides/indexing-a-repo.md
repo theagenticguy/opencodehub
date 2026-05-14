@@ -101,8 +101,10 @@ On the single-file DuckDB fallback, `graph.duckdb` replaces both
 - `--sbom` — emit a CycloneDX SBOM alongside the index.
 - `--coverage` — bridge coverage data into the graph.
 - `--summaries` / `--no-summaries` — LLM-generated symbol summaries
-  (default on; capped by `--max-summaries`, default auto = 10% of
-  callables, hard cap 500).
+  (default off — `codehub analyze` is fast, local, deterministic by
+  default; opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`).
+  When enabled, the budget is capped by `--max-summaries`, default
+  `auto` = 10% of callables, hard cap 500.
 - `--skills` — generate Claude Code skills from the graph.
 - `--native-parser` — opt into the native tree-sitter N-API addon on
   Node 22 (the default runtime is `web-tree-sitter` / WASM).

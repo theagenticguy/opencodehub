@@ -32,7 +32,7 @@ codehub analyze [path]
 | `--skip-agents-md` | off | Skip the AGENTS.md / CLAUDE.md stanza. |
 | `--sbom` | off | Emit `sbom.cyclonedx.json` + `sbom.spdx.json` from `Dependency` nodes. |
 | `--coverage` | off | Overlay lcov / cobertura / jacoco / coverage.py reports onto `File` nodes. |
-| `--summaries` / `--no-summaries` | on | LLM symbol summaries (Bedrock). |
+| `--summaries` / `--no-summaries` | off | LLM symbol summaries (Bedrock). Opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`; kill with `--no-summaries` or `CODEHUB_BEDROCK_DISABLED=1`. |
 | `--max-summaries <n\|auto>` | `auto` (10% of SCIP-confirmed callables, cap 500) | Summary budget. |
 | `--summary-model <id>` | — | Override the Bedrock summary model id. |
 | `--skills` | off | Emit one `SKILL.md` per Community (≥5 symbols) under `.codehub/skills/`. |

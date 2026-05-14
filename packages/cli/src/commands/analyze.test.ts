@@ -148,37 +148,66 @@ test("resolveMaxSummariesCap: seed of 5 yields a cap of 0 under the 10% rule", a
 });
 
 // ---------------------------------------------------------------------------
-// resolveSummariesEnabled — env kill-switch + P04 default-on contract.
+// resolveSummariesEnabled — fast-default contract: LLM summaries are opt-in.
+// `codehub analyze` runs tree-sitter + SCIP + cochange phases only by default,
+// so a fresh invocation never spends on Bedrock or blocks on a network hop.
 // ---------------------------------------------------------------------------
 
-test("resolveSummariesEnabled: default-on when both env and flag are absent (P04)", () => {
-  assert.equal(resolveSummariesEnabled(undefined, {}), true);
+test("resolveSummariesEnabled: default-off when both env and flag are absent", () => {
+  assert.equal(resolveSummariesEnabled(undefined, {}), false);
 });
 
-test("resolveSummariesEnabled: explicit --summaries keeps it on", () => {
+test("resolveSummariesEnabled: explicit --summaries opts in", () => {
   assert.equal(resolveSummariesEnabled(true, {}), true);
 });
 
-test("resolveSummariesEnabled: explicit --no-summaries turns it off", () => {
+test("resolveSummariesEnabled: explicit --no-summaries stays off", () => {
   assert.equal(resolveSummariesEnabled(false, {}), false);
+});
+
+test("resolveSummariesEnabled: CODEHUB_BEDROCK_SUMMARIES=1 opts in (env-only)", () => {
+  // Operators can enable summaries for a whole CI job without editing every
+  // invocation. Only the literal "1" triggers — anything else is treated as
+  // absent, mirroring the kill-switch semantics below.
+  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_SUMMARIES: "1" }), true);
+  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_SUMMARIES: "0" }), false);
+  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_SUMMARIES: "" }), false);
 });
 
 test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=1 kills the phase", () => {
   assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "1" }), false);
 });
 
-test("resolveSummariesEnabled: env kill-switch wins over --summaries=true", () => {
+test("resolveSummariesEnabled: kill-switch wins over --summaries=true", () => {
   // Operator passed --summaries explicitly but the env var forces off.
   // Required so CI / restricted environments can lock out Bedrock without
   // auditing every invocation site.
   assert.equal(resolveSummariesEnabled(true, { CODEHUB_BEDROCK_DISABLED: "1" }), false);
 });
 
-test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=0 does not kill the phase", () => {
-  // Only the literal "1" triggers the kill-switch — anything else is a
-  // no-op. This keeps operator intent unambiguous.
-  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "0" }), true);
-  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "" }), true);
+test("resolveSummariesEnabled: kill-switch wins over CODEHUB_BEDROCK_SUMMARIES=1", () => {
+  // Both env vars set → disable wins. This lets a CI environment pin the
+  // opt-in globally while still allowing per-job kill-switch overrides.
+  assert.equal(
+    resolveSummariesEnabled(undefined, {
+      CODEHUB_BEDROCK_SUMMARIES: "1",
+      CODEHUB_BEDROCK_DISABLED: "1",
+    }),
+    false,
+  );
+});
+
+test("resolveSummariesEnabled: --no-summaries wins over CODEHUB_BEDROCK_SUMMARIES=1", () => {
+  // Explicit CLI false beats env opt-in. Matches how --no-flag usually
+  // wins against ambient config everywhere else in the CLI.
+  assert.equal(resolveSummariesEnabled(false, { CODEHUB_BEDROCK_SUMMARIES: "1" }), false);
+});
+
+test("resolveSummariesEnabled: CODEHUB_BEDROCK_DISABLED=0 does not enable the phase", () => {
+  // Only the literal "1" on the opt-in var flips this; anything else leaves
+  // summaries in their (fast, off) default.
+  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "0" }), false);
+  assert.equal(resolveSummariesEnabled(undefined, { CODEHUB_BEDROCK_DISABLED: "" }), false);
 });
 
 // ---------------------------------------------------------------------------

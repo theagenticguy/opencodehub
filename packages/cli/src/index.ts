@@ -53,11 +53,11 @@ program
   .option("--coverage", "Overlay lcov/cobertura/jacoco/coverage.py report onto File nodes")
   .option(
     "--summaries",
-    "Enable the summarize phase (default ON: structured Bedrock summaries per callable). Use --no-summaries to disable.",
+    "Opt into the summarize phase (structured Bedrock summaries per callable). Default OFF — `codehub analyze` is fast, local, deterministic by default. Also enabled by CODEHUB_BEDROCK_SUMMARIES=1.",
   )
   .option(
     "--no-summaries",
-    "Disable the summarize phase entirely (equivalent to CODEHUB_BEDROCK_DISABLED=1).",
+    "Explicitly disable the summarize phase (equivalent to CODEHUB_BEDROCK_DISABLED=1). Only meaningful when combined with CODEHUB_BEDROCK_SUMMARIES=1.",
   )
   .option(
     "--max-summaries <n|auto>",
@@ -93,10 +93,16 @@ program
       process.env["OCH_NATIVE_PARSER"] = "1";
     }
     // Pass the raw flag straight through to `runAnalyze`. The env
-    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) is re-checked inside
-    // `runAnalyze` via `resolveSummariesEnabled` so tests that call
-    // `runAnalyze` directly honor the same truth table.
-    const summaries = opts["summaries"] === false ? false : undefined;
+    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) and the env opt-in
+    // (`CODEHUB_BEDROCK_SUMMARIES=1`) are re-checked inside `runAnalyze`
+    // via `resolveSummariesEnabled` so tests that call `runAnalyze`
+    // directly honor the same truth table. Summaries are OFF by default
+    // — the fast, local, deterministic analyze path. Pass `--summaries`
+    // or set `CODEHUB_BEDROCK_SUMMARIES=1` to opt in.
+    let summaries: boolean | undefined;
+    if (opts["summaries"] === true) summaries = true;
+    else if (opts["summaries"] === false) summaries = false;
+    else summaries = undefined;
 
     // --max-summaries accepts either a positive integer or the literal
     // string "auto". Unknown strings fall back to "auto" so the CLI never
@@ -139,7 +145,7 @@ program
       skipAgentsMd: opts["skipAgentsMd"] === true,
       sbom: opts["sbom"] === true,
       coverage: opts["coverage"] === true,
-      ...(summaries === false ? { summaries } : {}),
+      ...(summaries !== undefined ? { summaries } : {}),
       maxSummariesPerRun,
       ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),
       skills: opts["skills"] === true,

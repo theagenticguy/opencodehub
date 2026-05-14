@@ -92,10 +92,13 @@ export interface AnalyzeOptions {
    */
   readonly coverage?: boolean;
   /**
-   * When true (the post-P04 default), the `summarize` phase walks LSP-
-   * confirmed callable symbols and invokes Bedrock to generate structured
-   * summaries within the resolved cost cap. Pass `false` (or
-   * `CODEHUB_BEDROCK_DISABLED=1`) to force the phase off.
+   * Opt into the `summarize` phase — walks LSP-confirmed callable symbols
+   * and invokes Bedrock to generate structured summaries within the
+   * resolved cost cap. **Off by default**: a bare `codehub analyze` is
+   * fast, local, deterministic, and never spends on LLM calls. Enable
+   * per-invocation with `true` (CLI: `--summaries`) or environment-wide
+   * with `CODEHUB_BEDROCK_SUMMARIES=1`. `CODEHUB_BEDROCK_DISABLED=1`
+   * force-disables regardless of flag state.
    */
   readonly summaries?: boolean;
   /**
@@ -196,10 +199,12 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // reports mode="full" with reason="no-prior-graph".
   const incrementalFrom = opts.force === true ? undefined : await loadPreviousGraph(repoPath);
 
-  // Resolve the effective `summaries` flag. P04 flipped the default ON, so
-  // `undefined` now means "on". The `CODEHUB_BEDROCK_DISABLED=1` env kill-
-  // switch forces off regardless of the flag; `offline` is enforced later
-  // inside the phase itself (the phase's own invariant).
+  // Resolve the effective `summaries` flag. Summaries are opt-in: a bare
+  // `codehub analyze` runs the fast, local, deterministic pipeline
+  // (tree-sitter + SCIP + cochanges) and skips the Bedrock summarize phase
+  // entirely. Opt in via `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`.
+  // The `CODEHUB_BEDROCK_DISABLED=1` env kill-switch forces off regardless
+  // of the flag; `offline` is enforced later inside the phase itself.
   const summariesEnabled = resolveSummariesEnabled(opts.summaries, process.env);
 
   // Open a read-only store upfront so the `summarize` phase can probe the
@@ -518,16 +523,20 @@ export async function loadPreviousGraph(
 
 /**
  * Resolve the effective `summaries` flag, honoring the
- * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch and the P04 default-on
- * contract (absent flag → enabled).
+ * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch.
  *
- * Truth table (post-P04):
- *   - env var set + flag undefined  → false (kill-switch wins)
- *   - env var set + flag true       → false (kill-switch wins)
- *   - env var set + flag false      → false
- *   - env var unset + flag undefined → true  (default on)
- *   - env var unset + flag true     → true
- *   - env var unset + flag false    → false (explicit --no-summaries)
+ * `codehub analyze` is a fast, local, deterministic index by default —
+ * tree-sitter + SCIP + cochanges + graph phases only. The Bedrock-backed
+ * summarize phase is opt-in via `--summaries` (or `CODEHUB_BEDROCK_SUMMARIES=1`)
+ * so a fresh `codehub analyze` never spends on LLM calls, blocks on a
+ * network hop, or needs AWS creds.
+ *
+ * Truth table:
+ *   - env kill-switch set (any flag state) → false (kill-switch wins)
+ *   - env opt-in set + flag undefined      → true  (env opts in)
+ *   - flag true                            → true  (explicit --summaries)
+ *   - flag false                           → false (explicit --no-summaries)
+ *   - flag undefined + no env              → false (default off — fast path)
  *
  * Exported for unit tests; the production call site reads `process.env`.
  */
@@ -536,7 +545,9 @@ export function resolveSummariesEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
 ): boolean {
   if (env["CODEHUB_BEDROCK_DISABLED"] === "1") return false;
-  return flag !== false;
+  if (flag === true) return true;
+  if (flag === false) return false;
+  return env["CODEHUB_BEDROCK_SUMMARIES"] === "1";
 }
 
 /**
