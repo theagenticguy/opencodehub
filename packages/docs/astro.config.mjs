@@ -122,35 +122,35 @@ export default defineConfig({
       sidebar: [
         {
           label: "Start here",
-          autogenerate: { directory: "start-here" },
+          items: [{ autogenerate: { directory: "start-here" } }],
         },
         {
           label: "Agents",
-          autogenerate: { directory: "agents" },
+          items: [{ autogenerate: { directory: "agents" } }],
         },
         {
           label: "MCP",
-          autogenerate: { directory: "mcp" },
+          items: [{ autogenerate: { directory: "mcp" } }],
         },
         {
           label: "Reference",
-          autogenerate: { directory: "reference" },
+          items: [{ autogenerate: { directory: "reference" } }],
         },
         {
           label: "Guides",
-          autogenerate: { directory: "guides" },
+          items: [{ autogenerate: { directory: "guides" } }],
         },
         {
           label: "Architecture",
-          autogenerate: { directory: "architecture" },
+          items: [{ autogenerate: { directory: "architecture" } }],
         },
         {
           label: "Skills",
-          autogenerate: { directory: "skills" },
+          items: [{ autogenerate: { directory: "skills" } }],
         },
         {
           label: "Contributing",
-          autogenerate: { directory: "contributing" },
+          items: [{ autogenerate: { directory: "contributing" } }],
         },
       ],
       customCss: ["./src/styles/custom.css"],
