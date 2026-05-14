@@ -79,18 +79,32 @@ export interface AnalyzeOptions {
   readonly verbose?: boolean;
   readonly skipAgentsMd?: boolean;
   /**
-   * When true, emit `.codehub/sbom.cyclonedx.json` and
-   * `.codehub/sbom.spdx.json` from Dependency nodes. Off by default so
-   * `codehub analyze` stays quiet for repos where supply-chain docs are
-   * out of scope.
+   * Emit `.codehub/sbom.cyclonedx.json` and `.codehub/sbom.spdx.json`
+   * from Dependency nodes. **Default: on.** Serialization is cheap, purely
+   * local, and every CI pipeline that scans artifacts wants one. Pass
+   * `false` (CLI: `--no-sbom`) to suppress.
    */
   readonly sbom?: boolean;
   /**
-   * When true, run the coverage overlay phase which detects lcov /
-   * cobertura / jacoco / coverage.py reports and populates
-   * `coveragePercent` + `coveredLines` on File nodes. Off by default.
+   * Run the coverage overlay phase — detects lcov / cobertura / jacoco /
+   * coverage.py reports and populates `coveragePercent` + `coveredLines`
+   * on File nodes. **Default: auto.** When `undefined`, `runAnalyze`
+   * probes the repo for a report at the well-known paths and enables the
+   * phase only when one is found (silent no-op otherwise). Pass `true` to
+   * force-enable and surface the "no report found" warning, or `false`
+   * (CLI: `--no-coverage`) to suppress entirely.
    */
   readonly coverage?: boolean;
+  /**
+   * Run Priority-1 security scanners at the end of `analyze` and write
+   * `.codehub/scan.sarif` + ingest findings into the graph. **Default:
+   * on.** Most scanners are local binaries (semgrep, bandit, ruff,
+   * vulture, radon, detect-secrets, betterleaks, ty); the network-backed
+   * ones (osv-scanner, grype, npm/pip audit) are silently skipped when
+   * `--offline` is set. Pass `false` (CLI: `--no-scan`) to suppress — the
+   * graph pipeline runs unchanged.
+   */
+  readonly scan?: boolean;
   /**
    * Opt into the `summarize` phase — walks LSP-confirmed callable symbols
    * and invokes Bedrock to generate structured summaries within the
@@ -207,6 +221,15 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // of the flag; `offline` is enforced later inside the phase itself.
   const summariesEnabled = resolveSummariesEnabled(opts.summaries, process.env);
 
+  // Resolve sbom/coverage/scan defaults. SBOM and scan default ON (cheap,
+  // local, and they feed the MCP surface agents actually use). Coverage
+  // auto-detects: probe the known report paths and only enable the phase
+  // when one exists — so bare `codehub analyze` on a repo with no coverage
+  // data stays silent instead of warning about a missing report.
+  const sbomEnabled = resolveSbomEnabled(opts.sbom);
+  const scanEnabled = resolveScanEnabled(opts.scan);
+  const coverageResolved = await resolveCoverageEnabled(opts.coverage, repoPath);
+
   // Open a read-only store upfront so the `summarize` phase can probe the
   // prior summary rows before work is queued AND so we can inspect the
   // prior run's `storeMeta.stats` to resolve `--max-summaries auto`. We
@@ -255,8 +278,8 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     ...(opts.embeddingsBatchSize !== undefined
       ? { embeddingsBatchSize: opts.embeddingsBatchSize }
       : {}),
-    ...(opts.sbom !== undefined ? { sbom: opts.sbom } : {}),
-    ...(opts.coverage !== undefined ? { coverage: opts.coverage } : {}),
+    sbom: sbomEnabled,
+    ...(coverageResolved !== undefined ? { coverage: coverageResolved } : {}),
     summaries: summariesEnabled,
     maxSummariesPerRun: resolvedMaxSummaries,
     ...(opts.summaryModel !== undefined ? { summaryModel: opts.summaryModel } : {}),
@@ -435,6 +458,30 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       `graph ${result.graphHash.slice(0, 8)}, ${durationMs} ms${incrementalLine}${cacheLine}`,
   );
 
+  // Scan phase — run Priority-1 scanners and write .codehub/scan.sarif so
+  // `verdict`, `list_findings`, and `list_findings_delta` work on day one.
+  // Run AFTER the graph + registry write so a scanner failure cannot
+  // regress the index. Network-backed scanners (osv-scanner, grype, npm/
+  // pip audit) self-skip under --offline. We do NOT propagate the scan's
+  // severity-gated exit code — analyze remains the "build the graph"
+  // command; operators who want the gate invoke `codehub verdict` or
+  // `codehub scan` directly.
+  if (scanEnabled) {
+    try {
+      const scanMod = await import("./scan.js");
+      const scanSummary = await scanMod.runScan(repoPath, {
+        repo: repoName,
+        ...(opts.home !== undefined ? { home: opts.home } : {}),
+      });
+      log(
+        `codehub analyze: scan — ${scanSummary.runs.length} scanner(s), ` +
+          `${scanSummary.totalFindings} finding(s), sarif=${scanSummary.outputPath}`,
+      );
+    } catch (err) {
+      log(`codehub analyze: scan skipped: ${(err as Error).message}`);
+    }
+  }
+
   return {
     repoPath,
     repoName,
@@ -548,6 +595,93 @@ export function resolveSummariesEnabled(
   if (flag === true) return true;
   if (flag === false) return false;
   return env["CODEHUB_BEDROCK_SUMMARIES"] === "1";
+}
+
+/**
+ * Resolve the effective `sbom` flag. Default ON — serializing Dependency
+ * nodes to CycloneDX + SPDX is cheap, local, and every supply-chain audit
+ * wants it. Pass `false` to suppress.
+ *
+ * Exported for unit tests.
+ */
+export function resolveSbomEnabled(flag: boolean | undefined): boolean {
+  return flag !== false;
+}
+
+/**
+ * Resolve the effective `scan` flag. Default ON — Priority-1 scanners are
+ * mostly local binaries that produce the SARIF `verdict`, `list_findings`,
+ * and `list_findings_delta` all read. Pass `false` (CLI: `--no-scan`) to
+ * suppress — the scanners that need network (osv-scanner, grype, npm/pip
+ * audit) are silently skipped anyway when `--offline` is set, so the
+ * on-default stays honest under offline operation.
+ *
+ * Exported for unit tests.
+ */
+export function resolveScanEnabled(flag: boolean | undefined): boolean {
+  return flag !== false;
+}
+
+/**
+ * Coverage-report candidate paths, mirrored from
+ * `packages/ingestion/src/pipeline/phases/coverage.ts:58-64`. Kept in sync
+ * by hand: the analyze wrapper needs to know whether a report exists
+ * *before* it sets `options.coverage=true`, because the phase warns when
+ * coverage is explicitly enabled but no report is found. When `undefined`
+ * is plumbed through instead, the phase is a silent no-op.
+ */
+const COVERAGE_CANDIDATE_PATHS = [
+  "coverage/lcov.info",
+  "lcov.info",
+  "coverage.xml",
+  "build/reports/jacoco/test/jacocoTestReport.xml",
+  "coverage.json",
+] as const;
+
+/**
+ * Probe the repo for a coverage report at one of the known paths. Returns
+ * the first match (relative to `repoPath`) or `undefined`. Used by the
+ * analyze wrapper to decide whether to enable the coverage phase when no
+ * explicit flag is passed.
+ *
+ * Exported so tests can assert which paths are probed without actually
+ * running `runAnalyze`.
+ */
+export async function detectCoverageReport(repoPath: string): Promise<string | undefined> {
+  const { access } = await import("node:fs/promises");
+  for (const rel of COVERAGE_CANDIDATE_PATHS) {
+    try {
+      await access(resolve(repoPath, rel));
+      return rel;
+    } catch {
+      // Intentional: we're probing; missing-file is the whole point.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the effective `coverage` flag, honoring explicit true/false and
+ * silently auto-detecting when the flag is `undefined`. This lets a bare
+ * `codehub analyze` overlay coverage on File nodes when a report is
+ * present and stay silent otherwise (no spurious "no report found"
+ * warning on repos that don't have tests).
+ *
+ * - `flag === true`  → pipeline sees `true` (phase runs, warns if absent).
+ * - `flag === false` → pipeline sees `false` (phase no-op).
+ * - `flag === undefined` + report found → pipeline sees `true`.
+ * - `flag === undefined` + no report → pipeline sees `undefined` (no-op).
+ *
+ * Exported for unit tests.
+ */
+export async function resolveCoverageEnabled(
+  flag: boolean | undefined,
+  repoPath: string,
+): Promise<boolean | undefined> {
+  if (flag === true) return true;
+  if (flag === false) return false;
+  const detected = await detectCoverageReport(repoPath);
+  return detected !== undefined ? true : undefined;
 }
 
 /**

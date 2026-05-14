@@ -30,8 +30,9 @@ codehub analyze [path]
 | `--offline` | off | Zero sockets. |
 | `--verbose` | off | Per-phase pipeline progress. |
 | `--skip-agents-md` | off | Skip the AGENTS.md / CLAUDE.md stanza. |
-| `--sbom` | off | Emit `sbom.cyclonedx.json` + `sbom.spdx.json` from `Dependency` nodes. |
-| `--coverage` | off | Overlay lcov / cobertura / jacoco / coverage.py reports onto `File` nodes. |
+| `--sbom` / `--no-sbom` | **on** | Emit `sbom.cyclonedx.json` + `sbom.spdx.json` from `Dependency` nodes. Use `--no-sbom` to suppress. |
+| `--scan` / `--no-scan` | **on** | Run Priority-1 scanners, write `.codehub/scan.sarif`, and ingest findings into the graph. Network-backed scanners (osv-scanner, grype, npm/pip audit) self-skip under `--offline`. Use `--no-scan` to suppress. |
+| `--coverage` / `--no-coverage` | **auto** | Overlay lcov / cobertura / jacoco / coverage.py reports onto `File` nodes. `auto` probes `coverage/lcov.info`, `lcov.info`, `coverage.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`, `coverage.json` in that order and enables the phase when one exists (silent no-op otherwise). `--coverage` forces on and warns if nothing is found; `--no-coverage` forces off. |
 | `--summaries` / `--no-summaries` | off | LLM symbol summaries (Bedrock). Opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`; kill with `--no-summaries` or `CODEHUB_BEDROCK_DISABLED=1`. |
 | `--max-summaries <n\|auto>` | `auto` (10% of SCIP-confirmed callables, cap 500) | Summary budget. |
 | `--summary-model <id>` | — | Override the Bedrock summary model id. |

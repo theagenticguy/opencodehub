@@ -48,9 +48,22 @@ program
   .option("--skip-agents-md", "Do not write the AGENTS.md / CLAUDE.md stanza")
   .option(
     "--sbom",
-    "Emit .codehub/sbom.cyclonedx.json + .codehub/sbom.spdx.json from Dependency nodes",
+    "Emit .codehub/sbom.cyclonedx.json + .codehub/sbom.spdx.json from Dependency nodes. Default ON — use --no-sbom to suppress.",
   )
-  .option("--coverage", "Overlay lcov/cobertura/jacoco/coverage.py report onto File nodes")
+  .option("--no-sbom", "Suppress SBOM emission. Equivalent to omitting `sbom: true`.")
+  .option(
+    "--coverage",
+    "Force the coverage overlay phase on and warn when no report is found. Default AUTO — `codehub analyze` auto-detects lcov/cobertura/jacoco/coverage.py reports and silently skips when none exist.",
+  )
+  .option("--no-coverage", "Force the coverage overlay phase off even when a report is present.")
+  .option(
+    "--scan",
+    "Run Priority-1 scanners after analyze, write .codehub/scan.sarif, and ingest findings into the graph. Default ON — use --no-scan to suppress.",
+  )
+  .option(
+    "--no-scan",
+    "Skip the post-analyze scan step. The graph pipeline runs unchanged; `codehub verdict` / `list_findings` work against the last SARIF on disk.",
+  )
   .option(
     "--summaries",
     "Opt into the summarize phase (structured Bedrock summaries per callable). Default OFF — `codehub analyze` is fast, local, deterministic by default. Also enabled by CODEHUB_BEDROCK_SUMMARIES=1.",
@@ -143,8 +156,17 @@ program
       offline: opts["offline"] === true,
       verbose: opts["verbose"] === true,
       skipAgentsMd: opts["skipAgentsMd"] === true,
-      sbom: opts["sbom"] === true,
-      coverage: opts["coverage"] === true,
+      // `sbom`, `coverage`, `scan` are three-state (true / false / auto).
+      // commander encodes `--no-sbom` as `opts.sbom === false`, `--sbom` as
+      // `true`, and omitted as `undefined`. Forward all three verbatim —
+      // `runAnalyze` reads the resolvers (resolveSbomEnabled / resolveScan-
+      // Enabled / resolveCoverageEnabled) to pick the effective value.
+      ...(opts["sbom"] === false ? { sbom: false as const } : {}),
+      ...(opts["sbom"] === true ? { sbom: true as const } : {}),
+      ...(opts["coverage"] === false ? { coverage: false as const } : {}),
+      ...(opts["coverage"] === true ? { coverage: true as const } : {}),
+      ...(opts["scan"] === false ? { scan: false as const } : {}),
+      ...(opts["scan"] === true ? { scan: true as const } : {}),
       ...(summaries !== undefined ? { summaries } : {}),
       maxSummariesPerRun,
       ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),

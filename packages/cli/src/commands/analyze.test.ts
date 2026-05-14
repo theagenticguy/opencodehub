@@ -14,15 +14,19 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { upsertRegistry } from "../registry.js";
 import {
   checkFastPath,
+  detectCoverageReport,
   isWorkingTreeDirty,
+  resolveCoverageEnabled,
   resolveMaxSummariesCap,
+  resolveSbomEnabled,
+  resolveScanEnabled,
   resolveSummariesEnabled,
 } from "./analyze.js";
 
@@ -273,4 +277,119 @@ test("isWorkingTreeDirty: returns false when the git binary is unavailable", asy
     if (originalPath === undefined) delete process.env["PATH"];
     else process.env["PATH"] = originalPath;
   }
+});
+
+// ---------------------------------------------------------------------------
+// resolveSbomEnabled — default on, --no-sbom opts out.
+// ---------------------------------------------------------------------------
+
+test("resolveSbomEnabled: default-on when flag is absent", () => {
+  assert.equal(resolveSbomEnabled(undefined), true);
+});
+
+test("resolveSbomEnabled: explicit true keeps it on", () => {
+  assert.equal(resolveSbomEnabled(true), true);
+});
+
+test("resolveSbomEnabled: explicit false turns it off (--no-sbom)", () => {
+  assert.equal(resolveSbomEnabled(false), false);
+});
+
+// ---------------------------------------------------------------------------
+// resolveScanEnabled — default on, --no-scan opts out.
+// ---------------------------------------------------------------------------
+
+test("resolveScanEnabled: default-on when flag is absent", () => {
+  assert.equal(resolveScanEnabled(undefined), true);
+});
+
+test("resolveScanEnabled: explicit true keeps it on", () => {
+  assert.equal(resolveScanEnabled(true), true);
+});
+
+test("resolveScanEnabled: explicit false turns it off (--no-scan)", () => {
+  assert.equal(resolveScanEnabled(false), false);
+});
+
+// ---------------------------------------------------------------------------
+// detectCoverageReport + resolveCoverageEnabled — auto-detect semantics.
+// ---------------------------------------------------------------------------
+
+test("detectCoverageReport: returns undefined when no report exists", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-none-"));
+  assert.equal(await detectCoverageReport(dir), undefined);
+});
+
+test("detectCoverageReport: finds coverage/lcov.info", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-lcov-"));
+  await mkdir(join(dir, "coverage"), { recursive: true });
+  await writeFile(join(dir, "coverage", "lcov.info"), "TN:\n");
+  assert.equal(await detectCoverageReport(dir), "coverage/lcov.info");
+});
+
+test("detectCoverageReport: finds top-level lcov.info", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-lcov2-"));
+  await writeFile(join(dir, "lcov.info"), "TN:\n");
+  assert.equal(await detectCoverageReport(dir), "lcov.info");
+});
+
+test("detectCoverageReport: finds coverage.xml (cobertura)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-xml-"));
+  await writeFile(join(dir, "coverage.xml"), "<coverage/>\n");
+  assert.equal(await detectCoverageReport(dir), "coverage.xml");
+});
+
+test("detectCoverageReport: finds jacoco xml at the Gradle path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-jacoco-"));
+  await mkdir(join(dir, "build", "reports", "jacoco", "test"), { recursive: true });
+  await writeFile(join(dir, "build", "reports", "jacoco", "test", "jacocoTestReport.xml"), "<r/>");
+  assert.equal(await detectCoverageReport(dir), "build/reports/jacoco/test/jacocoTestReport.xml");
+});
+
+test("detectCoverageReport: finds coverage.json (coverage.py)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-json-"));
+  await writeFile(join(dir, "coverage.json"), "{}\n");
+  assert.equal(await detectCoverageReport(dir), "coverage.json");
+});
+
+test("detectCoverageReport: prefers coverage/lcov.info over top-level lcov.info", async () => {
+  // Probe order matches the phase's `CANDIDATES` array so the analyze
+  // wrapper and the phase agree on which report is the "one" when a
+  // repo has both.
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-both-"));
+  await mkdir(join(dir, "coverage"), { recursive: true });
+  await writeFile(join(dir, "coverage", "lcov.info"), "TN:\n");
+  await writeFile(join(dir, "lcov.info"), "TN:\n");
+  assert.equal(await detectCoverageReport(dir), "coverage/lcov.info");
+});
+
+test("resolveCoverageEnabled: explicit true short-circuits detection", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-force-on-"));
+  // No report on disk; explicit true still returns true so the phase
+  // runs and the operator sees the "no report found" warning.
+  assert.equal(await resolveCoverageEnabled(true, dir), true);
+});
+
+test("resolveCoverageEnabled: explicit false short-circuits detection", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-force-off-"));
+  await writeFile(join(dir, "lcov.info"), "TN:\n");
+  // Report IS on disk; explicit false still returns false so the phase
+  // is a silent no-op.
+  assert.equal(await resolveCoverageEnabled(false, dir), false);
+});
+
+test("resolveCoverageEnabled: undefined + no report → undefined (silent)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-auto-none-"));
+  // No flag, no report → plumb `undefined` through so the phase is a
+  // silent no-op. Critically, this does NOT return `false` — that would
+  // still be equivalent behavior from the phase's perspective, but
+  // `undefined` is the documented "auto" sentinel and round-trips
+  // through `pipelineOptions` as omitted-key.
+  assert.equal(await resolveCoverageEnabled(undefined, dir), undefined);
+});
+
+test("resolveCoverageEnabled: undefined + report found → true (auto-on)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-auto-on-"));
+  await writeFile(join(dir, "lcov.info"), "TN:\n");
+  assert.equal(await resolveCoverageEnabled(undefined, dir), true);
 });
