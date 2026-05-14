@@ -56,7 +56,8 @@ When none of the above are set, the local ONNX backend
 |---|---|
 | `CODEHUB_DISABLE_SCIP` | Set to `1` to make the `scip-index` ingestion phase a no-op. Heuristic edges still flow. |
 | `CODEHUB_ALLOW_BUILD_SCRIPTS` | Set to `1` to allow SCIP indexers that require a build (Rust, Java) to run. Off by default for clean-room safety. |
-| `CODEHUB_BEDROCK_DISABLED` | Set to `1` to disable the LLM summarize phase. Equivalent to `--no-summaries`. |
+| `CODEHUB_BEDROCK_SUMMARIES` | Set to `1` to opt the LLM summarize phase in. Equivalent to `--summaries`. Off by default — `codehub analyze` runs fast, local, deterministic phases only. |
+| `CODEHUB_BEDROCK_DISABLED` | Set to `1` to force-disable the LLM summarize phase. Equivalent to `--no-summaries`. Wins over `CODEHUB_BEDROCK_SUMMARIES=1` and `--summaries`. |
 | `NO_COLOR` | Standard convention; disables colored console output. |
 
 ## On-disk layout: `.codehub/`

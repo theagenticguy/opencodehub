@@ -48,16 +48,29 @@ program
   .option("--skip-agents-md", "Do not write the AGENTS.md / CLAUDE.md stanza")
   .option(
     "--sbom",
-    "Emit .codehub/sbom.cyclonedx.json + .codehub/sbom.spdx.json from Dependency nodes",
+    "Emit .codehub/sbom.cyclonedx.json + .codehub/sbom.spdx.json from Dependency nodes. Default ON — use --no-sbom to suppress.",
   )
-  .option("--coverage", "Overlay lcov/cobertura/jacoco/coverage.py report onto File nodes")
+  .option("--no-sbom", "Suppress SBOM emission. Equivalent to omitting `sbom: true`.")
+  .option(
+    "--coverage",
+    "Force the coverage overlay phase on and warn when no report is found. Default AUTO — `codehub analyze` auto-detects lcov/cobertura/jacoco/coverage.py reports and silently skips when none exist.",
+  )
+  .option("--no-coverage", "Force the coverage overlay phase off even when a report is present.")
+  .option(
+    "--scan",
+    "Run Priority-1 scanners after analyze, write .codehub/scan.sarif, and ingest findings into the graph. Default ON — use --no-scan to suppress.",
+  )
+  .option(
+    "--no-scan",
+    "Skip the post-analyze scan step. The graph pipeline runs unchanged; `codehub verdict` / `list_findings` work against the last SARIF on disk.",
+  )
   .option(
     "--summaries",
-    "Enable the summarize phase (default ON: structured Bedrock summaries per callable). Use --no-summaries to disable.",
+    "Opt into the summarize phase (structured Bedrock summaries per callable). Default OFF — `codehub analyze` is fast, local, deterministic by default. Also enabled by CODEHUB_BEDROCK_SUMMARIES=1.",
   )
   .option(
     "--no-summaries",
-    "Disable the summarize phase entirely (equivalent to CODEHUB_BEDROCK_DISABLED=1).",
+    "Explicitly disable the summarize phase (equivalent to CODEHUB_BEDROCK_DISABLED=1). Only meaningful when combined with CODEHUB_BEDROCK_SUMMARIES=1.",
   )
   .option(
     "--max-summaries <n|auto>",
@@ -93,10 +106,16 @@ program
       process.env["OCH_NATIVE_PARSER"] = "1";
     }
     // Pass the raw flag straight through to `runAnalyze`. The env
-    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) is re-checked inside
-    // `runAnalyze` via `resolveSummariesEnabled` so tests that call
-    // `runAnalyze` directly honor the same truth table.
-    const summaries = opts["summaries"] === false ? false : undefined;
+    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) and the env opt-in
+    // (`CODEHUB_BEDROCK_SUMMARIES=1`) are re-checked inside `runAnalyze`
+    // via `resolveSummariesEnabled` so tests that call `runAnalyze`
+    // directly honor the same truth table. Summaries are OFF by default
+    // — the fast, local, deterministic analyze path. Pass `--summaries`
+    // or set `CODEHUB_BEDROCK_SUMMARIES=1` to opt in.
+    let summaries: boolean | undefined;
+    if (opts["summaries"] === true) summaries = true;
+    else if (opts["summaries"] === false) summaries = false;
+    else summaries = undefined;
 
     // --max-summaries accepts either a positive integer or the literal
     // string "auto". Unknown strings fall back to "auto" so the CLI never
@@ -137,9 +156,18 @@ program
       offline: opts["offline"] === true,
       verbose: opts["verbose"] === true,
       skipAgentsMd: opts["skipAgentsMd"] === true,
-      sbom: opts["sbom"] === true,
-      coverage: opts["coverage"] === true,
-      ...(summaries === false ? { summaries } : {}),
+      // `sbom`, `coverage`, `scan` are three-state (true / false / auto).
+      // commander encodes `--no-sbom` as `opts.sbom === false`, `--sbom` as
+      // `true`, and omitted as `undefined`. Forward all three verbatim —
+      // `runAnalyze` reads the resolvers (resolveSbomEnabled / resolveScan-
+      // Enabled / resolveCoverageEnabled) to pick the effective value.
+      ...(opts["sbom"] === false ? { sbom: false as const } : {}),
+      ...(opts["sbom"] === true ? { sbom: true as const } : {}),
+      ...(opts["coverage"] === false ? { coverage: false as const } : {}),
+      ...(opts["coverage"] === true ? { coverage: true as const } : {}),
+      ...(opts["scan"] === false ? { scan: false as const } : {}),
+      ...(opts["scan"] === true ? { scan: true as const } : {}),
+      ...(summaries !== undefined ? { summaries } : {}),
       maxSummariesPerRun,
       ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),
       skills: opts["skills"] === true,

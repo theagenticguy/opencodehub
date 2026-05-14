@@ -96,13 +96,36 @@ On the default LadybugDB layout:
 On the single-file DuckDB fallback, `graph.duckdb` replaces both
 `graph.lbug` and `temporal.duckdb`.
 
-## Other useful flags
+## What runs by default
 
-- `--sbom` — emit a CycloneDX SBOM alongside the index.
-- `--coverage` — bridge coverage data into the graph.
+A bare `codehub analyze` produces a production-grade `.codehub/` folder
+in one command:
+
+- Graph pipeline (tree-sitter parse + SCIP resolution + communities +
+  processes + cochanges + ownership + dependencies + detectors).
+- SBOM emission (CycloneDX + SPDX) — **default on**; suppress with
+  `--no-sbom`.
+- Priority-1 scanners → `.codehub/scan.sarif` + findings ingested into
+  the graph — **default on**; suppress with `--no-scan`.
+  Network-backed scanners (osv-scanner, grype, npm/pip audit) self-skip
+  under `--offline`, so the on-default stays honest.
+- Coverage overlay — **default auto**: runs only when a report is
+  present at `coverage/lcov.info`, `lcov.info`, `coverage.xml`,
+  `build/reports/jacoco/test/jacocoTestReport.xml`, or `coverage.json`.
+  Silent no-op otherwise. Force with `--coverage`; force off with
+  `--no-coverage`.
+
+Everything else — embeddings, summaries, skills — is opt-in.
+
+## Opt-in flags
+
+- `--embeddings` — compute semantic vectors for queries by meaning.
+  Requires `codehub setup --embeddings` first.
 - `--summaries` / `--no-summaries` — LLM-generated symbol summaries
-  (default on; capped by `--max-summaries`, default auto = 10% of
-  callables, hard cap 500).
+  (default off — `codehub analyze` is fast, local, deterministic by
+  default; opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`).
+  When enabled, the budget is capped by `--max-summaries`, default
+  `auto` = 10% of callables, hard cap 500.
 - `--skills` — generate Claude Code skills from the graph.
 - `--native-parser` — opt into the native tree-sitter N-API addon on
   Node 22 (the default runtime is `web-tree-sitter` / WASM).
