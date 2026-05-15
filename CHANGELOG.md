@@ -7,18 +7,11 @@
 
 * **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110))
 * **plugin:** the five slash commands (/probe, /verdict, /owners, /audit-deps, /rename) shipped by the Claude Code plugin are gone with no backward compatibility. Slash commands as a plugin surface are deprecated; the same workflows are still available via:
-* **ingestion:** parser runtime is now WASM-only. The `--native-parser` CLI flag and `OCH_NATIVE_PARSER` env var are removed; setting the env var emits a one-shot stderr advisory and is then ignored, passing the flag exits non-zero. Native `tree-sitter` and the 14 grammar packages are no longer install dependencies. WASMs are vendored at `packages/ingestion/vendor/wasms/`. See [ADR 0015](./docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md).
-* **cli:** `engines.node` lowered to `>=20.0.0` (native ABI requirement removed); Node 20 LTS is now supported alongside Node 22 and 24.
 
 ### Features
 
 * **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110)) ([62bff2f](https://github.com/theagenticguy/opencodehub/commit/62bff2fe81a6d734747d4196cbb025af0e7bbbce))
 * **plugin:** remove deprecated Claude Code slash commands ([5769fc1](https://github.com/theagenticguy/opencodehub/commit/5769fc16446107d0b8f8faadd1fd306c53e3b999))
-* **ingestion:** WASM-only parser path; vendor all 15 grammar `.wasm` blobs and port complexity phase to `web-tree-sitter` so cyclomatic-complexity metrics run on every install instead of degrading to a no-op on Node 24.
-
-### Bug Fixes
-
-* **cli:** `npm install -g @opencodehub/cli@latest` no longer fails when GitHub releases are unavailable — the `tree-sitter-cli` postinstall network call is gone from the install graph.
 
 ## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.3.1...root-v0.3.2) (2026-05-12)
 

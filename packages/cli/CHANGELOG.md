@@ -7,17 +7,11 @@
 
 * **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110))
 * **plugin:** the five slash commands (/probe, /verdict, /owners, /audit-deps, /rename) shipped by the Claude Code plugin are gone with no backward compatibility. Slash commands as a plugin surface are deprecated; the same workflows are still available via:
-* **cli:** the `--native-parser` flag is removed. Passing it exits non-zero with commander's "unknown option" error. Setting the legacy `OCH_NATIVE_PARSER` env var emits a one-shot stderr advisory at CLI startup and the variable is then deleted from `process.env`. See [ADR 0015](../../docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md).
-* **cli:** `engines.node` lowered to `>=20.0.0`. Node 20 LTS is now supported alongside Node 22 and 24; the native ABI requirement is gone.
 
 ### Features
 
 * **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110)) ([62bff2f](https://github.com/theagenticguy/opencodehub/commit/62bff2fe81a6d734747d4196cbb025af0e7bbbce))
 * **plugin:** remove deprecated Claude Code slash commands ([5769fc1](https://github.com/theagenticguy/opencodehub/commit/5769fc16446107d0b8f8faadd1fd306c53e3b999))
-
-### Bug Fixes
-
-* **cli:** `npm install -g @opencodehub/cli@latest` no longer fails when GitHub releases are unavailable — the `tree-sitter-cli` postinstall network call is gone from the install graph.
 
 ## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.2.2...cli-v0.2.3) (2026-05-12)
 
