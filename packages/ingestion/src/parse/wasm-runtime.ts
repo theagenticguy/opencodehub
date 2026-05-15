@@ -121,7 +121,9 @@ export type WasmLanguage = unknown;
  * the complexity phase, which re-parses on the main thread to walk for
  * cyclomatic / nesting / Halstead.
  */
-export async function buildParserForLanguage(lang: LanguageId): Promise<WasmParserInstance | undefined> {
+export async function buildParserForLanguage(
+  lang: LanguageId,
+): Promise<WasmParserInstance | undefined> {
   const runtime = await ensureWasmRuntime();
   if (runtime === undefined) return undefined;
   const wasmPath = resolveGrammarWasmPath(lang);

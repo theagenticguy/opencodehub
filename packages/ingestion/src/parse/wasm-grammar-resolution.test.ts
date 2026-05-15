@@ -44,10 +44,7 @@ describe("resolveGrammarWasmPath — vendored WASM resolver", () => {
       const wasmPath = _resolveGrammarWasmPathForTests(lang as never);
       assert.ok(wasmPath !== undefined, `expected a path for ${lang}, got undefined`);
       assert.ok(path.isAbsolute(wasmPath), `expected absolute path for ${lang}, got ${wasmPath}`);
-      assert.ok(
-        wasmPath.endsWith(fname),
-        `expected path ending in ${fname}, got ${wasmPath}`,
-      );
+      assert.ok(wasmPath.endsWith(fname), `expected path ending in ${fname}, got ${wasmPath}`);
       assert.ok(
         wasmPath.includes(`${path.sep}vendor${path.sep}wasms${path.sep}`),
         `expected path under vendor/wasms/, got ${wasmPath}`,

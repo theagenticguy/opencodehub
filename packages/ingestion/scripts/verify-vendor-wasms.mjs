@@ -44,31 +44,50 @@ const WASM_MAGIC = Buffer.from([0x00, 0x61, 0x73, 0x6d]);
 const errors = [];
 
 // 1. Every expected wasm exists, non-empty, has valid magic.
+// Single open() per file avoids the existsSync→statSync→openSync TOCTOU
+// pattern (CodeQL "potential filesystem race condition"); errno NOENT /
+// short reads / bad magic each surface as one diagnostic.
 for (const name of EXPECTED) {
   const p = path.resolve(VENDOR_DIR, name);
-  if (!fs.existsSync(p)) {
-    errors.push(`missing: ${name}`);
+  let fd;
+  try {
+    fd = fs.openSync(p, "r");
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      errors.push(`missing: ${name}`);
+    } else {
+      errors.push(`open failed: ${name} (${err && err.code ? err.code : err})`);
+    }
     continue;
   }
-  const stat = fs.statSync(p);
-  if (stat.size < 8) {
-    errors.push(`too small (${stat.size} bytes): ${name}`);
-    continue;
-  }
-  const buf = Buffer.alloc(4);
-  const fd = fs.openSync(p, "r");
-  fs.readSync(fd, buf, 0, 4, 0);
-  fs.closeSync(fd);
-  if (!buf.equals(WASM_MAGIC)) {
-    errors.push(`invalid WASM magic in ${name}: got ${buf.toString("hex")}`);
+  try {
+    const buf = Buffer.alloc(4);
+    const bytesRead = fs.readSync(fd, buf, 0, 4, 0);
+    if (bytesRead < 4) {
+      errors.push(`too small (${bytesRead} bytes): ${name}`);
+    } else if (!buf.equals(WASM_MAGIC)) {
+      errors.push(`invalid WASM magic in ${name}: got ${buf.toString("hex")}`);
+    }
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
 // 2. manifest.json exists and matches package.json grammar pins.
-if (!fs.existsSync(MANIFEST)) {
-  errors.push(`missing manifest: ${MANIFEST}`);
-} else {
-  const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+// Read manifest with fs.readFileSync directly; failure surfaces as one error.
+let manifestText;
+try {
+  manifestText = fs.readFileSync(MANIFEST, "utf8");
+} catch (err) {
+  if (err && err.code === "ENOENT") {
+    errors.push(`missing manifest: ${MANIFEST}`);
+  } else {
+    errors.push(`manifest read failed: ${MANIFEST} (${err && err.code ? err.code : err})`);
+  }
+  manifestText = null;
+}
+if (manifestText !== null) {
+  const manifest = JSON.parse(manifestText);
   const pj = JSON.parse(fs.readFileSync(PJ, "utf8"));
   const declared = { ...(pj.dependencies || {}), ...(pj.devDependencies || {}) };
 

@@ -45,9 +45,7 @@ import { getUnifiedQuery } from "./unified-queries.js";
 // `vendor/wasms/manifest.json` is the canonical version pin for every grammar
 // after native tree-sitter left the workspace. Path resolves at runtime from
 // the built `dist/parse/grammar-registry.js` location.
-const MANIFEST_PATH = fileURLToPath(
-  new URL("../../vendor/wasms/manifest.json", import.meta.url),
-);
+const MANIFEST_PATH = fileURLToPath(new URL("../../vendor/wasms/manifest.json", import.meta.url));
 
 let manifestCache: Promise<Record<string, string> | null> | null = null;
 

@@ -639,7 +639,10 @@ function collectDefinitionNodes(root: WasmNode, defTypes: ReadonlySet<string>): 
  * `startPosition.row` is 0-indexed; ExtractedDefinition.startLine is 1-indexed.
  * We compare the 1-indexed form on both sides.
  */
-function matchSubtree(candidates: readonly WasmNode[], def: ExtractedDefinition): WasmNode | undefined {
+function matchSubtree(
+  candidates: readonly WasmNode[],
+  def: ExtractedDefinition,
+): WasmNode | undefined {
   let best: WasmNode | undefined;
   let bestRangeWidth = Number.POSITIVE_INFINITY;
   for (const c of candidates) {
