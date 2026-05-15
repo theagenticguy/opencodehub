@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.1.2...analysis-v0.2.0) (2026-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113))
+
+### Features
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113)) ([0a9e0cb](https://github.com/theagenticguy/opencodehub/commit/0a9e0cb65e3a4666204a2a80d3c41a8befee8269))
+
 ## [0.1.2](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.1.1...analysis-v0.1.2) (2026-05-12)
 
 

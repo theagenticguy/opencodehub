@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/scip-ingest",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenCodeHub — SCIP (.scip) loader + per-language indexer runners (replaces @opencodehub/lsp-oracle)",
   "license": "Apache-2.0",
   "repository": {

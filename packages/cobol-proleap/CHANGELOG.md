@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/theagenticguy/opencodehub/compare/cobol-proleap-v0.1.3...cobol-proleap-v0.1.4) (2026-05-15)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/ingestion bumped to 0.4.0
+
 ## [0.1.3](https://github.com/theagenticguy/opencodehub/compare/cobol-proleap-v0.1.2...cobol-proleap-v0.1.3) (2026-05-12)
 
 
