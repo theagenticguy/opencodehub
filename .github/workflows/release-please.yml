@@ -30,10 +30,20 @@ concurrency:
   group: release-please-${{ github.ref }}
   cancel-in-progress: false
 
-# Top-level least-privilege; the release-please job opts into the writes
-# it needs explicitly. (Scorecard Token-Permissions)
+# Top-level permissions: a job's permissions can only be a SUBSET of the
+# top-level set. The `release` job below (workflow_call → release.yml)
+# needs `id-token: write` for npm OIDC trusted publishing + Sigstore
+# attestation, plus `contents: write` for the release-please-action's
+# branch/tag create. So the ceiling here must include both. The
+# `release-please` job further narrows to the subset it needs.
+# (Scorecard Token-Permissions still passes — every per-job block is
+# least-privilege within this ceiling.)
 permissions:
-  contents: read
+  contents: write
+  id-token: write
+  pull-requests: write
+  actions: read
+  security-events: write
 
 jobs:
   release-please:
