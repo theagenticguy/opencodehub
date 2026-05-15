@@ -20,6 +20,17 @@ import { Command } from "commander";
 const pkgJsonPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
 const pkgVersion = JSON.parse(readFileSync(pkgJsonPath, "utf8")).version as string;
 
+// `OCH_NATIVE_PARSER` was removed in 0.4.0 with the WASM-only parser
+// migration. If a stale shell or .envrc still sets it, emit a one-shot
+// advisory and clear it so it doesn't leak into spawned worker processes
+// (some of which may still inspect `process.env`).
+if (process.env["OCH_NATIVE_PARSER"] !== undefined) {
+  process.stderr.write(
+    "[codehub] OCH_NATIVE_PARSER was removed in 0.4.0; WASM is the only parser runtime. Unset to silence this warning.\n",
+  );
+  delete process.env["OCH_NATIVE_PARSER"];
+}
+
 const program = new Command()
   .name("codehub")
   .version(pkgVersion)
@@ -86,10 +97,6 @@ program
     "After analyze, emit one SKILL.md per Community (symbolCount >= 5) under .codehub/skills/",
   )
   .option(
-    "--native-parser",
-    "Opt into the native tree-sitter (N-API) runtime. Default is web-tree-sitter (WASM) for deterministic cross-platform behavior; pass --native-parser on Node 22 dev boxes where native parsing is measurably faster.",
-  )
-  .option(
     "--strict-detectors",
     "Drop heuristic-only matches from the route / ORM detectors — emit edges only when the receiver's module origin was confirmed (DET-O-001)",
   )
@@ -99,12 +106,6 @@ program
   )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
-    // `--native-parser` is honored by the parse worker via the
-    // `OCH_NATIVE_PARSER` env var; set it here before the worker pool
-    // spawns. WASM is the default runtime — native is opt-in.
-    if (opts["nativeParser"] === true) {
-      process.env["OCH_NATIVE_PARSER"] = "1";
-    }
     // Pass the raw flag straight through to `runAnalyze`. The env
     // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) and the env opt-in
     // (`CODEHUB_BEDROCK_SUMMARIES=1`) are re-checked inside `runAnalyze`

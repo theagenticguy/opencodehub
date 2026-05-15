@@ -38,10 +38,9 @@
  */
 
 import { promises as fs } from "node:fs";
-import { createRequire } from "node:module";
 import type { GraphNode, NodeId, NodeKind } from "@opencodehub/core-types";
-import { loadGrammar } from "../../parse/grammar-registry.js";
 import type { LanguageId } from "../../parse/types.js";
+import { buildParserForLanguage, type WasmNode, type WasmTree } from "../../parse/wasm-runtime.js";
 import type { ExtractedDefinition } from "../../providers/extraction-types.js";
 import { getProvider } from "../../providers/registry.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
@@ -73,64 +72,33 @@ export const complexityPhase: PipelinePhase<ComplexityOutput> = {
   },
 };
 
-// -------- module-local tree-sitter shim (main-thread, one parser per lang) --
+// -------- module-local web-tree-sitter parsers (main-thread, one per lang) --
 
-const requireFn = createRequire(import.meta.url);
+/**
+ * Per-language WASM parser cache. Lazily built on first use against the
+ * vendored grammar `.wasm`. Construction is async (web-tree-sitter's
+ * Language.load is async), so we cache the *parser instance* — never
+ * the module — and key by LanguageId.
+ *
+ * `null` means "tried and the WASM runtime / grammar could not be
+ * resolved on this host" — we don't retry forever. Distinct from
+ * `undefined` (cache miss).
+ */
+const parserCache = new Map<LanguageId, WasmParserLike | null>();
 
-interface TsPoint {
-  readonly row: number;
-  readonly column: number;
-}
-interface TsNode {
-  readonly type: string;
-  readonly startPosition: TsPoint;
-  readonly endPosition: TsPoint;
-  readonly childCount: number;
-  readonly namedChildCount: number;
-  child(i: number): TsNode | null;
-  namedChild(i: number): TsNode | null;
-  childForFieldName?(name: string): TsNode | null;
-  readonly text: string;
-}
-interface TsTree {
-  readonly rootNode: TsNode;
-}
-interface TsParser {
-  setLanguage(lang: unknown): void;
-  parse(source: string): TsTree;
-}
-interface TsModule {
-  new (): TsParser;
+interface WasmParserLike {
+  parse(source: string): WasmTree | null;
 }
 
-const parserCache = new Map<LanguageId, TsParser>();
-let tsModuleCached: TsModule | undefined;
-let warnedComplexityDegraded = false;
-
-function getTsModule(): TsModule | undefined {
-  if (tsModuleCached !== undefined) return tsModuleCached;
-  try {
-    tsModuleCached = requireFn("tree-sitter") as TsModule;
-    return tsModuleCached;
-  } catch {
-    if (!warnedComplexityDegraded) {
-      warnedComplexityDegraded = true;
-      process.stderr.write(
-        "[complexity] tree-sitter unavailable — complexity metrics degraded (set OCH_NATIVE_PARSER=1 on Node 22 to enable)\n",
-      );
-    }
+async function getParser(lang: LanguageId): Promise<WasmParserLike | undefined> {
+  const cached = parserCache.get(lang);
+  if (cached === null) return undefined;
+  if (cached !== undefined) return cached;
+  const parser = (await buildParserForLanguage(lang)) as WasmParserLike | undefined;
+  if (parser === undefined) {
+    parserCache.set(lang, null);
     return undefined;
   }
-}
-
-async function getParser(lang: LanguageId): Promise<TsParser | undefined> {
-  const cached = parserCache.get(lang);
-  if (cached !== undefined) return cached;
-  const TS = getTsModule();
-  if (TS === undefined) return undefined;
-  const handle = await loadGrammar(lang);
-  const parser = new TS();
-  parser.setLanguage(handle.tsLanguage);
   parserCache.set(lang, parser);
   return parser;
 }
@@ -367,7 +335,7 @@ const LINE_COMMENT_PREFIX: Partial<Record<LanguageId, readonly string[]>> = {
 // -------- traversal primitives ---------------------------------------------
 
 /** Pre-order iterator over a tree-sitter subtree. */
-function* walk(node: TsNode): IterableIterator<TsNode> {
+function* walk(node: WasmNode): IterableIterator<WasmNode> {
   yield node;
   const n = node.childCount;
   for (let i = 0; i < n; i++) {
@@ -376,13 +344,13 @@ function* walk(node: TsNode): IterableIterator<TsNode> {
   }
 }
 
-function countDecisionsIn(body: TsNode, lang: LanguageId): number {
+function countDecisionsIn(body: WasmNode, lang: LanguageId): number {
   const decisions = DECISION_NODE_TYPES[lang];
   const definitions = definitionTypesFor(lang);
   if (decisions === undefined || definitions === undefined) return 0;
   let count = 0;
 
-  const stack: { node: TsNode; skip: boolean }[] = [{ node: body, skip: false }];
+  const stack: { node: WasmNode; skip: boolean }[] = [{ node: body, skip: false }];
   while (stack.length > 0) {
     const frame = stack.pop();
     if (frame === undefined) break;
@@ -412,7 +380,7 @@ function countDecisionsIn(body: TsNode, lang: LanguageId): number {
  * in the TS/JS/Go/Rust/Java/C# grammars; `boolean_operator` (Python) is
  * structurally already boolean so every instance counts.
  */
-function contributesToCyclomatic(node: TsNode, lang: LanguageId): boolean {
+function contributesToCyclomatic(node: WasmNode, lang: LanguageId): boolean {
   if (node.type !== "binary_expression") return true;
   // Find operator child; child(1) is typically the operator token.
   for (let i = 0; i < node.childCount; i++) {
@@ -427,7 +395,7 @@ function contributesToCyclomatic(node: TsNode, lang: LanguageId): boolean {
   return false;
 }
 
-function maxNestingIn(body: TsNode, lang: LanguageId): number {
+function maxNestingIn(body: WasmNode, lang: LanguageId): number {
   const nesting = NESTING_NODE_TYPES[lang];
   const definitions = definitionTypesFor(lang);
   if (nesting === undefined || definitions === undefined) return 0;
@@ -435,7 +403,7 @@ function maxNestingIn(body: TsNode, lang: LanguageId): number {
 
   // Recursive walker with an explicit stack to avoid stack-overflow on huge
   // functions. Entries: (node, currentDepth, skipSubtree).
-  const stack: { node: TsNode; depth: number; skip: boolean }[] = [
+  const stack: { node: WasmNode; depth: number; skip: boolean }[] = [
     { node: body, depth: 0, skip: false },
   ];
   while (stack.length > 0) {
@@ -576,9 +544,19 @@ async function runComplexity(
       continue;
     }
 
-    let tree: TsTree;
+    let tree: WasmTree;
     try {
-      tree = parser.parse(sourceText);
+      const parsed = parser.parse(sourceText);
+      if (parsed === null) {
+        ctx.onProgress?.({
+          phase: COMPLEXITY_PHASE_NAME,
+          kind: "warn",
+          message: `complexity: parser returned null tree for ${filePath}`,
+        });
+        skipped += callableDefs.length;
+        continue;
+      }
+      tree = parsed;
     } catch (err) {
       ctx.onProgress?.({
         phase: COMPLEXITY_PHASE_NAME,
@@ -648,8 +626,8 @@ async function runComplexity(
   return { symbolsAnnotated: annotated, skipped };
 }
 
-function collectDefinitionNodes(root: TsNode, defTypes: ReadonlySet<string>): TsNode[] {
-  const out: TsNode[] = [];
+function collectDefinitionNodes(root: WasmNode, defTypes: ReadonlySet<string>): WasmNode[] {
+  const out: WasmNode[] = [];
   for (const n of walk(root)) {
     if (defTypes.has(n.type)) out.push(n);
   }
@@ -661,8 +639,11 @@ function collectDefinitionNodes(root: TsNode, defTypes: ReadonlySet<string>): Ts
  * `startPosition.row` is 0-indexed; ExtractedDefinition.startLine is 1-indexed.
  * We compare the 1-indexed form on both sides.
  */
-function matchSubtree(candidates: readonly TsNode[], def: ExtractedDefinition): TsNode | undefined {
-  let best: TsNode | undefined;
+function matchSubtree(
+  candidates: readonly WasmNode[],
+  def: ExtractedDefinition,
+): WasmNode | undefined {
+  let best: WasmNode | undefined;
   let bestRangeWidth = Number.POSITIVE_INFINITY;
   for (const c of candidates) {
     const cStart = c.startPosition.row + 1;
@@ -679,7 +660,7 @@ function matchSubtree(candidates: readonly TsNode[], def: ExtractedDefinition): 
 }
 
 /** Pick the body node when the function itself is a declaration shell. */
-function selectBody(def: TsNode): TsNode | undefined {
+function selectBody(def: WasmNode): WasmNode | undefined {
   if (def.childForFieldName !== undefined) {
     const named = def.childForFieldName("body");
     if (named !== null && named !== undefined) return named;
@@ -773,7 +754,7 @@ function withComplexity(
  * Returns `undefined` when the provider did not declare
  * `halsteadOperatorKinds` or when the body contains no countable tokens.
  */
-function computeHalsteadVolume(body: TsNode, lang: LanguageId): number | undefined {
+function computeHalsteadVolume(body: WasmNode, lang: LanguageId): number | undefined {
   const operators = halsteadOperatorsFor(lang);
   if (operators === undefined) return undefined;
   const definitions = definitionTypesFor(lang);
@@ -785,7 +766,7 @@ function computeHalsteadVolume(body: TsNode, lang: LanguageId): number | undefin
   // Iterative walk; avoids stack overflow on very large functions. We do
   // not descend into nested function/method definitions — their tokens
   // belong to their own volume computation.
-  const stack: { node: TsNode; skip: boolean }[] = [{ node: body, skip: false }];
+  const stack: { node: WasmNode; skip: boolean }[] = [{ node: body, skip: false }];
   while (stack.length > 0) {
     const frame = stack.pop();
     if (frame === undefined) break;

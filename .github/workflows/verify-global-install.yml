@@ -1,0 +1,225 @@
+# 9-cell global-install verification matrix.
+#
+# planning/bulletproof-npm-install/plan.md §Verification Criteria.
+#
+# Per cell: pack `@opencodehub/cli` + `@opencodehub/ingestion` with
+# `pnpm pack`, install both globally with `npm install -g`, run the 5 hard
+# gates plus the 4 smoke commands. The matrix exercises Linux/macOS x
+# Node 20/22/24 x mise/nvm/Homebrew/Volta installers so a regression in
+# any one of those tool managers cannot land silently.
+#
+# This workflow does NOT publish anything. RC publishes remain
+# release-please's responsibility (release-please.yml). Each cell is fully
+# self-contained: tarballs are produced from the workspace and discarded
+# at job end.
+#
+# Triggers:
+#   push:main          run on every merge to keep the WASM-only path green
+#   pull_request:main  run on PRs that touch the install surface
+#   release:created    re-verify against the tagged tarball before publish
+#
+# Not yet wired into branch-protection required-checks; opt in after the
+# first green run.
+
+name: Verify Global Install
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+
+concurrency:
+  group: verify-global-install-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---------------------------- Linux x64 -----------------------------
+          - label: linux-x64-node20-mise
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            node: "20"
+            installer: mise
+          - label: linux-x64-node22-mise
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            node: "22"
+            installer: mise
+          - label: linux-x64-node24-mise
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            node: "24"
+            installer: mise
+          - label: linux-x64-node22-nvm
+            runner: ubuntu-24.04
+            os: linux
+            arch: x64
+            node: "22"
+            installer: nvm
+          # ---------------------------- Linux arm64 ---------------------------
+          # ubuntu-24.04-arm is the public-repo arm64 runner label; it is
+          # the closest proxy GitHub offers for Apple Silicon Linux boxes.
+          - label: linux-arm64-node22-mise
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            node: "22"
+            installer: mise
+          # ---------------------------- macOS arm64 ---------------------------
+          # macos-14 / macos-15 are arm64 runners (Apple Silicon).
+          - label: macos-arm64-node22-homebrew
+            runner: macos-14
+            os: macos
+            arch: arm64
+            node: "22"
+            installer: homebrew
+          - label: macos-arm64-node22-nvm
+            runner: macos-14
+            os: macos
+            arch: arm64
+            node: "22"
+            installer: nvm
+          - label: macos-arm64-node22-volta
+            runner: macos-14
+            os: macos
+            arch: arm64
+            node: "22"
+            installer: volta
+          # ---------------------------- macOS x64 -----------------------------
+          # macos-15-intel is the current Intel-Mac (x86_64) runner label;
+          # covers the Intel Mac smoke case the plan calls out. The older
+          # `macos-13` label was retired by GitHub.
+          - label: macos-x64-node22-nvm
+            runner: macos-15-intel
+            os: macos
+            arch: x64
+            node: "22"
+            installer: nvm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      # ------------------------------------------------------------------
+      # Tool setup. Each branch sets up Node + npm via the matrix-chosen
+      # installer. pnpm comes along via mise on the mise branch; the other
+      # branches install pnpm explicitly via the standalone action so the
+      # workspace install + `pnpm pack` works regardless of the manager.
+      # ------------------------------------------------------------------
+      - name: Setup Node via mise
+        if: matrix.installer == 'mise'
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
+        env:
+          MISE_NODE_VERSION: ${{ matrix.node }}
+
+      - name: Setup Node via nvm
+        if: matrix.installer == 'nvm'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/nvm-install.sh \
+            https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh
+          bash /tmp/nvm-install.sh
+          # shellcheck disable=SC1091
+          export NVM_DIR="$HOME/.nvm"
+          # shellcheck disable=SC1091
+          . "$NVM_DIR/nvm.sh"
+          nvm install "${{ matrix.node }}"
+          nvm use "${{ matrix.node }}"
+          # Persist the resolved bin dir into PATH for downstream steps.
+          NODE_BIN="$(dirname "$(nvm which "${{ matrix.node }}")")"
+          echo "$NODE_BIN" >> "$GITHUB_PATH"
+
+      - name: Setup Node via Homebrew
+        if: matrix.installer == 'homebrew'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install "node@${{ matrix.node }}"
+          BREW_PREFIX="$(brew --prefix node@${{ matrix.node }})"
+          echo "${BREW_PREFIX}/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Node via Volta
+        if: matrix.installer == 'volta'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://get.volta.sh | bash -s -- --skip-setup
+          # Volta's shim dir wins on PATH so `node`, `npm`, `pnpm` resolve
+          # to the version Volta manages.
+          echo "$HOME/.volta/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.volta/bin:$PATH"
+          volta install "node@${{ matrix.node }}"
+          volta install pnpm@11
+
+      - name: Install pnpm (non-mise / non-volta paths)
+        if: matrix.installer == 'nvm' || matrix.installer == 'homebrew'
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda  # v4.1.0
+        with:
+          version: 11.1.0
+
+      - name: Print resolved tool versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "node: $(node --version)"
+          echo "npm:  $(npm --version)"
+          echo "pnpm: $(pnpm --version)"
+          echo "PATH: $PATH"
+
+      # ------------------------------------------------------------------
+      # Workspace install + build. Frozen lockfile + ignore-scripts mirrors
+      # ci.yml's strictest path; we only need built `dist/` so the packed
+      # tarballs include their compiled output. Skip @opencodehub/docs to
+      # avoid pulling in the astro / playwright stack.
+      # ------------------------------------------------------------------
+      - name: pnpm install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build packages (skip docs)
+        run: pnpm --filter '!@opencodehub/docs' -r build
+
+      # ------------------------------------------------------------------
+      # The single-cell verifier. Packs cli + ingestion, installs them
+      # globally with npm, applies the 5 hard gates and runs the 4 smoke
+      # commands. Local mode is what runs in CI today; rc mode is
+      # available for future post-publish smokes.
+      # ------------------------------------------------------------------
+      - name: Verify global install (single cell)
+        env:
+          INSTALLER: ${{ matrix.installer }}
+          TARBALL_DIR: ${{ runner.temp }}/opencodehub-tarballs
+          FIXTURE_DIR: tests/fixtures/multi-lang
+          MAX_INSTALL_SECS: "60"
+        run: bash scripts/verify-global-install.sh local
+
+      # ------------------------------------------------------------------
+      # On failure, surface the packed tarballs so the maintainer can
+      # repro locally without re-running the full matrix. Always-on
+      # upload is gated by `if: failure()` to keep the artifact bucket
+      # clean on green runs.
+      # ------------------------------------------------------------------
+      - name: Upload tarballs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: tarballs-${{ matrix.label }}
+          path: ${{ runner.temp }}/opencodehub-tarballs/*.tgz
+          if-no-files-found: ignore
+          retention-days: 7

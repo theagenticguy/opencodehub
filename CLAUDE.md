@@ -94,22 +94,23 @@ When both `graph.duckdb` and `graph.lbug` exist as siblings in the same
 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) for the rationale
 and the AGE/Memgraph/Neo4j/Neptune community-adapter escape hatch.
 
-## Parse runtime — WASM default, native opt-in
+## Parse runtime — WASM-only, vendored grammars
 
-`@opencodehub/ingestion` defaults to the `web-tree-sitter` (WASM) runtime
-on both Node 22 and Node 24. To opt into the faster native `tree-sitter`
-N-API addon on Node 22 dev boxes, set `OCH_NATIVE_PARSER=1` or pass
-`--native-parser` to the `codehub` CLI. Native is not supported on
-Node 24 until `node-tree-sitter@0.25.1` lands on npm
-(tree-sitter/node-tree-sitter#276).
+`@opencodehub/ingestion` runs `web-tree-sitter` (WASM) as the only parse
+runtime on Node 20, 22, and 24. There is no native opt-in — the legacy
+parser-runtime env var and CLI flag were removed in 0.4.0 (see ADR 0015
+and the root + per-package CHANGELOGs). The CLI continues to emit a
+one-shot stderr advisory if a stale env var is set, then ignores it.
 
-Kotlin, Swift, and Dart grammars use `.wasm` blobs vendored at
-`packages/ingestion/vendor/wasms/` (built from the same grammar sources
-pinned in `package.json`). Rebuild via `bash scripts/build-vendor-wasms.sh`
+All 15 GA grammar `.wasm` blobs are vendored at
+`packages/ingestion/vendor/wasms/`, built from the grammar sources
+pinned in `package.json`. Rebuild via `bash scripts/build-vendor-wasms.sh`
 after bumping any of those grammars — requires docker, podman, finch
-(aliased as docker), or a local emcc install.
+(aliased as docker), or a local emcc install. Re-vendoring is a one-shot
+operation; consumers never build grammars at install time.
 
 The complexity phase (`packages/ingestion/src/pipeline/phases/complexity.ts`)
-still uses native tree-sitter for cyclomatic-complexity metrics. On Node 24
-or Node 22 without the opt-in, complexity extraction degrades with a
-one-shot stderr warning; all other parsing continues via WASM.
+has been ported to `web-tree-sitter`, so cyclomatic-complexity metrics run
+on every install with no native dependency at runtime or test time. ADR
+0013 (`docs/adr/0013-parse-runtime-wasm-default.md`) is superseded by
+ADR 0015 (`docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md`).

@@ -62,22 +62,6 @@ allowBuilds:
   lefthook: true
   onnxruntime-node: true
   sharp: true
-  # Tree-sitter core + language grammars
-  tree-sitter: true
-  tree-sitter-c: true
-  tree-sitter-c-sharp: true
-  tree-sitter-cli: true
-  tree-sitter-cpp: true
-  # Kotlin + Dart have NO prebuilds and require a C/C++ toolchain to build.
-  # Swift ships prebuilds but runs a postinstall node-gyp rebuild (~30s once).
-  tree-sitter-dart: true
-  tree-sitter-go: true
-  tree-sitter-java: true
-  tree-sitter-javascript: true
-  tree-sitter-kotlin: true
-  tree-sitter-php: true
-  tree-sitter-python: true
-  tree-sitter-ruby: true
-  tree-sitter-rust: true
-  tree-sitter-swift: true
-  tree-sitter-typescript: true
+  # No tree-sitter entries: native tree-sitter and grammar packages are not
+  # workspace dependencies. WASMs are vendored at packages/ingestion/vendor/wasms/.
+  # Re-vendor on demand via the workflow in scripts/build-vendor-wasms.sh.

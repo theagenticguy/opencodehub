@@ -1,16 +1,21 @@
 # Vendored tree-sitter WASM grammars
 
-These `.wasm` grammar files are committed to the repo because the upstream
-`tree-sitter-{kotlin,swift,dart}` npm packages ship **only** native
-(`.node`) bindings — no `.wasm` asset — and the shared
+These `.wasm` grammar files are committed to the repo because OpenCodeHub
+runs `web-tree-sitter` as the only parse runtime (see ADR 0015) — there
+is no native fallback, so every supported language must have a `.wasm`
+asset that loads cleanly under `web-tree-sitter@0.26+`. Some upstream
+`tree-sitter-<lang>` npm packages ship only native (`.node`) bindings,
+and the shared
 [`tree-sitter-wasms`](https://www.npmjs.com/package/tree-sitter-wasms)
 catalog ships WASMs built with tree-sitter-cli 0.20.x that use the legacy
-`dylink` section format incompatible with `web-tree-sitter@0.26+` (which
-hard-requires the standardized `dylink.0` section).
+`dylink` section format incompatible with `web-tree-sitter@0.26+`
+(which hard-requires the standardized `dylink.0` section). Vendoring
+gives us one consistent build, one consistent format, one source of
+truth.
 
 The WASMs under this directory are built from the **same grammar source
-commits pinned in `packages/ingestion/package.json`**, so there is zero
-grammar-version drift between native and WASM runtimes.
+commits pinned in `packages/ingestion/package.json`**, so the runtime
+parser tree is exactly what the grammar versions describe.
 
 ## Files
 
@@ -34,8 +39,10 @@ local `emcc` install, plus `tree-sitter-cli` (installed as part of
 bash scripts/build-vendor-wasms.sh
 ```
 
-Rebuild when you bump any of the three grammar versions in
-`packages/ingestion/package.json`.
+Rebuild when you bump any vendored grammar version in
+`packages/ingestion/package.json`. Re-vendoring uses `pnpm dlx` to fetch
+the grammar source ad-hoc — none of the grammar packages need to remain
+in `dependencies` or `devDependencies`.
 
 ## Why not build at install time?
 

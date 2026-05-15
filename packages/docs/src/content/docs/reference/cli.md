@@ -37,7 +37,6 @@ codehub analyze [path]
 | `--max-summaries <n\|auto>` | `auto` (10% of SCIP-confirmed callables, cap 500) | Summary budget. |
 | `--summary-model <id>` | — | Override the Bedrock summary model id. |
 | `--skills` | off | Emit one `SKILL.md` per Community (≥5 symbols) under `.codehub/skills/`. |
-| `--native-parser` | off | Opt into the native tree-sitter N-API addon (Node 22). Default is the WASM runtime. |
 | `--strict-detectors` | off | Drop heuristic-only matches from route / ORM detectors (DET-O-001). |
 | `--allow-build-scripts <list>` | — | Comma-separated build-script opt-ins (e.g. `proleap` for the JVM COBOL deep-parse). |
 

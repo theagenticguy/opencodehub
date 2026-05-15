@@ -11,22 +11,23 @@ import {
 import { getUnifiedQuery } from "./unified-queries.js";
 
 describe("grammar-registry", () => {
-  it("lazy-loads TypeScript and caches by identity", async () => {
+  it("returns a typescript handle with non-empty query text", async () => {
     _resetGrammarCacheForTests();
-    const first = await loadGrammar("typescript");
-    const second = await loadGrammar("typescript");
-    assert.equal(first, second, "second call should return the cached handle");
-    assert.equal(first.language, "typescript");
-    assert.ok(first.tsLanguage, "tree-sitter language object should be truthy");
-    assert.equal(first.queryText, getUnifiedQuery("typescript"));
+    const h = await loadGrammar("typescript");
+    assert.equal(h.language, "typescript");
+    assert.equal(h.queryText, getUnifiedQuery("typescript"));
+    assert.ok(h.queryText.length > 0);
   });
 
   it("returns distinct handles for typescript vs tsx", async () => {
     _resetGrammarCacheForTests();
     const ts = await loadGrammar("typescript");
     const tsx = await loadGrammar("tsx");
-    assert.notEqual(ts, tsx);
-    assert.notEqual(ts.tsLanguage, tsx.tsLanguage);
+    assert.equal(ts.language, "typescript");
+    assert.equal(tsx.language, "tsx");
+    // queryText may match across the two TS variants (they share the unified
+    // query); the discriminating field is `language`.
+    assert.notEqual(ts.language, tsx.language);
   });
 
   it("loads python, go, rust, java, javascript", async () => {
@@ -34,26 +35,25 @@ describe("grammar-registry", () => {
     for (const lang of ["python", "go", "rust", "java", "javascript"] as const) {
       const h = await loadGrammar(lang);
       assert.equal(h.language, lang);
-      assert.ok(h.tsLanguage, `${lang} tsLanguage should be loaded`);
       assert.ok(h.queryText.length > 0, `${lang} queryText should be non-empty`);
     }
   });
 
-  it("loads c# via dynamic import path", async () => {
+  it("loads csharp", async () => {
     _resetGrammarCacheForTests();
     const h = await loadGrammar("csharp");
     assert.equal(h.language, "csharp");
-    assert.ok(h.tsLanguage, "csharp Language object should load");
+    assert.ok(h.queryText.length > 0);
   });
 
-  it("preloadGrammars is idempotent", async () => {
+  it("preloadGrammars is callable and idempotent", async () => {
     _resetGrammarCacheForTests();
     await preloadGrammars(["typescript", "python"]);
-    // second preload hits cache
+    // second preload is a no-op-equivalent; the resolver is pure
     await preloadGrammars(["typescript", "python"]);
     const a = await loadGrammar("typescript");
     const b = await loadGrammar("typescript");
-    assert.equal(a, b);
+    assert.deepEqual(a, b);
   });
 
   it("classifies cobol as a regex-provider language", () => {
@@ -81,23 +81,13 @@ describe("grammar-registry", () => {
     assert.equal(sha, null, "cobol has no grammar package — sha should be null");
   });
 
-  it("loads extended-language grammars when the native bindings are installed", async () => {
-    // 7 additional grammars (c, cpp, ruby, kotlin, swift, php, dart). Some
-    // of them (notably kotlin without prebuilds, dart via git+ssh) may fail
-    // to build on exotic platforms or restricted CI. We treat a load failure
-    // as "skip this grammar" — the registry itself must not crash.
+  it("loads handles for extended-language grammars", async () => {
     _resetGrammarCacheForTests();
     const langs = ["c", "cpp", "ruby", "kotlin", "swift", "php", "dart"] as const;
     for (const lang of langs) {
-      try {
-        const h = await loadGrammar(lang);
-        assert.equal(h.language, lang);
-        assert.ok(h.tsLanguage, `${lang}: tree-sitter Language should be non-null`);
-      } catch (err) {
-        // Skip: native binding missing on this platform (acceptable).
-        // Print once so CI diagnostics surface the gap.
-        console.warn(`[grammar-registry.test] skip ${lang}: ${(err as Error).message}`);
-      }
+      const h = await loadGrammar(lang);
+      assert.equal(h.language, lang);
+      assert.ok(h.queryText.length > 0, `${lang}: queryText should be non-empty`);
     }
   });
 });

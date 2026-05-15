@@ -80,7 +80,7 @@ flowchart LR
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
 | **Embedded storage, graph-default** | `@ladybugdb/core` graph engine for the structural store (default at v1) with DuckDB + `hnsw_acorn` (filter-aware HNSW via ACORN-1 + RaBitQ) + `fts` (BM25) for the temporal + retrieval views. Embedded files. No daemon. No database to operate. `CODEHUB_STORE=duck` reverts to the legacy single-file layout. |
 | **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
-| **WASM-default parse runtime** | `web-tree-sitter` WASM is the default on Node 22 and Node 24; the native `tree-sitter` N-API addon is opt-in via `OCH_NATIVE_PARSER=1` for Node 22 dev boxes. The complexity phase still uses native where supported and degrades with a one-shot warning otherwise. |
+| **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime, on Node 20, 22, and 24. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`. There is no native opt-in — `npm install -g @opencodehub/cli@latest` does zero native builds and zero GitHub fetches. |
 
 ## Quick start
 
@@ -228,26 +228,26 @@ for the M3 phase-1 rationale and
 [`docs/adr/0013-m7-default-flip-and-abstraction.md`](./docs/adr/0013-m7-default-flip-and-abstraction.md)
 for the M7 default-flip + interface segregation.
 
-## Parse runtime — WASM default, native opt-in
+## Parse runtime — WASM-only, vendored grammars
 
-`@opencodehub/ingestion` defaults to the `web-tree-sitter` (WASM)
-runtime on Node 22 and Node 24. The native `tree-sitter` N-API addon
-is opt-in on Node 22 dev boxes via `OCH_NATIVE_PARSER=1` (or
-`--native-parser` on the `codehub` CLI). Native is not supported on
-Node 24 until `node-tree-sitter@0.25.1` lands on npm
-([tree-sitter/node-tree-sitter#276](https://github.com/tree-sitter/node-tree-sitter/issues/276)).
+`@opencodehub/ingestion` runs `web-tree-sitter` (WASM) as the only parse
+runtime on Node 20, 22, and 24. There is no native opt-in: the native
+`tree-sitter` N-API addon and all 14 `tree-sitter-<lang>` npm packages
+are gone from the install graph. `npm install -g @opencodehub/cli@latest`
+does zero native builds and zero GitHub fetches.
 
-Kotlin, Swift, and Dart use `.wasm` blobs vendored at
-`packages/ingestion/vendor/wasms/` and rebuilt via
-`bash scripts/build-vendor-wasms.sh` whenever the underlying grammar
-versions in `package.json` change. The complexity phase
-(cyclomatic-complexity metrics) still uses native tree-sitter where
-available; on Node 24 or Node 22 without the opt-in, complexity
-extraction degrades with a one-shot stderr warning and all other
-parsing continues via WASM.
+All 15 grammar `.wasm` blobs are vendored at
+`packages/ingestion/vendor/wasms/`, built from the grammar sources
+pinned in `package.json`. Re-vendoring is a one-shot operation via
+`bash scripts/build-vendor-wasms.sh` (requires docker, podman, finch,
+or local emcc); consumers never build grammars at install time. The
+complexity phase (cyclomatic-complexity metrics) is also WASM-backed,
+so it runs on every install instead of degrading to a no-op.
 
-See [`docs/adr/0013-parse-runtime-wasm-default.md`](./docs/adr/0013-parse-runtime-wasm-default.md)
-for the WASM-default rationale and the Node 24 unblock plan.
+See [`docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md`](./docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md)
+for the WASM-only rationale and the bulletproof-install plan; ADR 0013
+records the prior WASM-default + native-opt-in posture and is now
+superseded.
 
 ## Status
 

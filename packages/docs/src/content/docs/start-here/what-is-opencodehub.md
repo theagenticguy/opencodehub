@@ -63,9 +63,10 @@ call, not ten round-trips.
 - **Deterministic code-pack.** `pack_codebase` (MCP) and `codehub
   code-pack` produce a reproducible 9-item BOM signed by the release
   workflow.
-- **WASM-default parsing.** `web-tree-sitter` is the default runtime on
-  Node 22 and Node 24; opt into the native N-API addon with
-  `OCH_NATIVE_PARSER=1` on Node 22 dev boxes.
+- **WASM-only parsing.** `web-tree-sitter` is the only parse runtime on
+  Node 20, 22, and 24, with all 15 grammar `.wasm` blobs vendored in the
+  `@opencodehub/ingestion` tarball. `npm install -g @opencodehub/cli@latest`
+  does zero native builds and zero GitHub fetches (ADR 0015).
 
 ## When to reach for OpenCodeHub
 

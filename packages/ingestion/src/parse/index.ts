@@ -15,6 +15,5 @@ export type {
   ParseTask,
 } from "./types.js";
 export { getUnifiedQuery } from "./unified-queries.js";
-export { isNativeAvailable, resetNativeAvailabilityCache } from "./wasm-fallback.js";
 export type { DispatchOptions, ParsePoolOptions } from "./worker-pool.js";
 export { chunkTasks, ParsePool } from "./worker-pool.js";
