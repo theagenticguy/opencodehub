@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.2.3...cli-v0.3.0) (2026-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110))
+* **plugin:** the five slash commands (/probe, /verdict, /owners, /audit-deps, /rename) shipped by the Claude Code plugin are gone with no backward compatibility. Slash commands as a plugin surface are deprecated; the same workflows are still available via:
+
+### Features
+
+* **cli:** make `codehub analyze` the one-command index (fast + scan + sbom + coverage-auto; summaries opt-in) ([#110](https://github.com/theagenticguy/opencodehub/issues/110)) ([62bff2f](https://github.com/theagenticguy/opencodehub/commit/62bff2fe81a6d734747d4196cbb025af0e7bbbce))
+* **plugin:** remove deprecated Claude Code slash commands ([5769fc1](https://github.com/theagenticguy/opencodehub/commit/5769fc16446107d0b8f8faadd1fd306c53e3b999))
+
 ## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.2.2...cli-v0.2.3) (2026-05-12)
 
 
