@@ -42,6 +42,7 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Exclude heavy-build packages from pnpm-recursive in non-owner workflows](solutions/architecture-patterns/exclude-heavy-build-from-pnpm-recursive.md) — packages whose build pulls in Playwright / browser binaries / native model weights should be filtered out of `pnpm -r build/test` in workflows that don't own that build. Use `pnpm --filter '!@scope/heavy' -r <cmd>`.
 - [Banned-strings policy evolves with the product](solutions/conventions/banned-strings-policy-evolves-with-product.md) — a banned literal that worked during decision-making becomes a barrier when the decision ships and the banned name becomes the official product term. Re-evaluate per release; remove literals that became the product.
 - [Smoke-testing a workspace cli requires packing every publishable workspace dep](solutions/best-practices/workspace-tarball-pack-all-publishables.md) — `npm install -g <cli.tgz>` falls back to registry for un-packed transitive workspace deps, dragging in the previously-published versions and masking install-graph regressions. Pack everything publishable, every time.
+- [GitHub Actions top-level permissions cap every job](solutions/conventions/workflow-call-permissions-ceiling.md) — workflow's top-level `permissions:` is a ceiling; per-job blocks can narrow but not grant. `id-token: write` declared at job level silently no-ops if missing from top level. Diagnostic: read the "GITHUB_TOKEN Permissions" group in the failing job's log.
 
 ## Specs
 
