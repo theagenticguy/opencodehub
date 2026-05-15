@@ -20,19 +20,18 @@ threads. Each file is hashed and the resulting `ParseCapture[]` is
 cached keyed on `(sha256, grammarSha, SCHEMA_VERSION)`, so a subsequent
 analyze with the same content skips tree-sitter entirely.
 
-The default runtime is `web-tree-sitter` (WASM) on both Node 22 and
-Node 24. The native `tree-sitter` N-API addon is opt-in via
-`OCH_NATIVE_PARSER=1` (or `--native-parser`) on Node 22 dev boxes
-where it is measurably faster on large repos. Kotlin, Swift, and
-Dart ship as `.wasm` blobs vendored at
-`packages/ingestion/vendor/wasms/`; rebuild via
-`bash scripts/build-vendor-wasms.sh` after a grammar bump.
+The runtime is `web-tree-sitter` (WASM) on Node 20, 22, and 24 — the
+only supported parse runtime. All 15 grammar `.wasm` blobs are vendored
+at `packages/ingestion/vendor/wasms/`, built from the grammar sources
+pinned in `package.json`; rebuild via `bash scripts/build-vendor-wasms.sh`
+after a grammar bump. Re-vendoring is a one-shot operation; consumers
+never build grammars at install time.
 
-The complexity-metrics phase still uses native tree-sitter for
-cyclomatic-complexity counting. On Node 24 (or Node 22 without the
-native opt-in) it degrades with a one-shot stderr warning; all other
-parsing continues through the WASM path. ADR
-`docs/adr/0013-parse-runtime-wasm-default.md` covers the decision.
+The complexity-metrics phase is also WASM-backed, so cyclomatic-
+complexity counting runs on every install instead of degrading to a
+no-op. ADR `docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md`
+covers the WASM-only decision; ADR 0013 records the prior posture and
+is now superseded.
 
 `ParseCapture` is the shared per-capture schema emitted by the worker
 — one interface with 7 readonly fields:

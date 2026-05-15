@@ -26,12 +26,14 @@ interface segregation.
 
 ### Parse runtime
 
-| Variable | Purpose |
-|---|---|
-| `OCH_NATIVE_PARSER` | Set to `1` on Node 22 to opt into the native `tree-sitter` N-API addon. The default runtime on Node 22 and Node 24 is `web-tree-sitter` (WASM). |
-
-The `--native-parser` CLI flag is equivalent. ADR
-0013-parse-runtime-wasm-default records the WASM-default decision.
+`web-tree-sitter` (WASM) is the only parse runtime on Node 20, 22, and
+24. There is no env var or CLI flag to switch parsers — the native
+`tree-sitter` N-API addon was removed in 0.4.0. The CLI emits a
+one-shot stderr advisory if a stale legacy env var is set, then ignores
+it; consult the CHANGELOG and ADR 0015 for the variable name and
+migration notes. ADR 0013 records the prior WASM-default + native-opt-in
+posture and is superseded by ADR 0015
+(`docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md`).
 
 ### Embedding backends
 

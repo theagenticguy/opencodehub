@@ -118,15 +118,6 @@ Neo4j / Neptune) keeps OCH from locking users into LadybugDB.
 
 [Read ADR 0013](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 
-### ADR 0013 — Parse runtime: WASM default, native opt-in
-
-Sibling ADR sharing the number 0013 (authored on a parallel branch).
-WASM (`web-tree-sitter`) is the default parse runtime on Node 22 and
-Node 24. Native (`tree-sitter` N-API addon) is opt-in via
-`OCH_NATIVE_PARSER=1` on Node 22.
-
-[Read ADR 0013 (parse runtime)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-parse-runtime-wasm-default.md)
-
 ### ADR 0014 — SCIP REFERENCES + TYPE_OF emission, embedder fingerprint
 
 Two unrelated holes shipped together because they share a one-time
@@ -138,6 +129,17 @@ vectors (override available via documented force flag).
 
 [Read ADR 0014](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0014-scip-references-and-embedder-fingerprint.md)
 
+### ADR 0015 — WASM-only parser at the npm-distributed boundary
+
+Drop native `tree-sitter` from the install graph entirely. WASM
+(`web-tree-sitter`) is now the only parse runtime on Node 20, 22, and
+24. All 15 grammar `.wasm` blobs are vendored at
+`packages/ingestion/vendor/wasms/`. Lower `engines.node` floor to
+`>=20.0.0`. `npm install -g @opencodehub/cli@latest` does zero native
+builds and zero GitHub fetches. Supersedes ADR 0013 (parse runtime).
+
+[Read ADR 0015](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md)
+
 ## Superseded
 
 ### ADR 0003 — CI toolchain pins
@@ -147,6 +149,15 @@ longer runs long-running language servers; oracle edges come from
 SCIP.
 
 [Read ADR 0003](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0003-ci-toolchain-pins.md)
+
+### ADR 0013 — Parse runtime: WASM default, native opt-in
+
+Superseded by ADR 0015 (2026-05-15). The WASM-default + native-opt-in
+posture has been replaced by WASM-only at the npm-distributed boundary.
+The native opt-in (env var + CLI flag) was removed in 0.4.0; see ADR
+0015 and the per-package CHANGELOGs for migration notes.
+
+[Read ADR 0013 (parse runtime)](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-parse-runtime-wasm-default.md)
 
 ## Adding an ADR
 

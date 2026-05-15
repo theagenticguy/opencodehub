@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.2...ingestion-v0.4.0) (2026-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ingestion:** parser runtime is now WASM-only. The `OCH_NATIVE_PARSER` env var (and equivalent `--native-parser` CLI flag) are removed; setting the env var emits a one-shot stderr advisory and is then ignored. Native `tree-sitter` and the 14 grammar packages (`tree-sitter`, `tree-sitter-cli`, `tree-sitter-{c,cpp,c-sharp,go,java,javascript,kotlin,python,ruby,rust,swift,typescript}`) are no longer install dependencies — neither in `dependencies` nor in `devDependencies`. WASMs are vendored at `packages/ingestion/vendor/wasms/`. See [ADR 0015](../../docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md).
+* **ingestion:** `engines.node` lowered to `>=20.0.0` (native ABI requirement removed). Node 20 LTS is now a supported runtime alongside Node 22 and 24.
+
+### Features
+
+* **ingestion:** port the cyclomatic-complexity phase (`packages/ingestion/src/pipeline/phases/complexity.ts`) to `web-tree-sitter` so complexity metrics run on every install instead of degrading to a no-op on Node 24 or Node 22 without the (now-removed) native opt-in.
+* **ingestion:** vendor all 15 GA grammar `.wasm` blobs at `vendor/wasms/`. Re-vendoring uses `pnpm dlx` to fetch the grammar source ad-hoc and runs `scripts/build-vendor-wasms.sh`; consumers never build grammars at install time.
+
+### Bug Fixes
+
+* **ingestion:** `npm install -g @opencodehub/cli@latest` no longer fails when GitHub releases are unavailable — the `tree-sitter-cli` postinstall network call (the trigger for the install-time 504) is gone from the install graph.
+
 ## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.1...ingestion-v0.3.2) (2026-05-12)
 
 

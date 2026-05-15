@@ -39,35 +39,27 @@ COBOL is also indexed (regex hot path; the `cobol` provider is a
 stub). Add `--allow-build-scripts proleap` to opt into the JVM
 ProLeap deep-parse.
 
-## Native bindings and the WASM default
+## Parse runtime — WASM-only
 
-The default parse runtime on Node 22 and Node 24 is
-`web-tree-sitter` (WASM). It has no native ABI dependency, so it works
-on every supported Node version out of the box.
+The parse runtime is `web-tree-sitter` (WASM) on Node 20, 22, and 24.
+WASM has no native ABI dependency, so it works on every supported Node
+version out of the box and `npm install -g @opencodehub/cli@latest` does
+zero native builds.
 
-The native `tree-sitter` N-API addon is available as an opt-in path
-on Node 22, where it is measurably faster on large repos. Enable it
-with the env var or CLI flag:
+All 15 GA grammar `.wasm` blobs are vendored at
+`packages/ingestion/vendor/wasms/`, built from the grammar sources
+pinned in `package.json`. Re-vendoring is a one-shot operation via
+`bash scripts/build-vendor-wasms.sh`; consumers never build grammars at
+install time.
 
-```bash title="opt into native parsing on Node 22"
-OCH_NATIVE_PARSER=1 codehub analyze
-# or
-codehub analyze --native-parser
-```
+The complexity-metrics ingestion phase is also WASM-backed, so
+cyclomatic-complexity counting runs on every install instead of
+degrading to a no-op.
 
-Native is unavailable on Node 24 until `node-tree-sitter@0.25.1` lands
-on npm (tree-sitter/node-tree-sitter#276). Kotlin, Swift, and Dart
-ship their grammars as `.wasm` blobs vendored at
-`packages/ingestion/vendor/wasms/` regardless of the runtime
-selection — those grammars do not have prebuilt N-API addons on npm.
-
-The complexity-metrics ingestion phase still uses native tree-sitter
-for cyclomatic-complexity counting. On Node 24 (or Node 22 without the
-opt-in) it degrades with a one-shot stderr warning; all other
-parsing continues via WASM.
-
-ADR 0013 (`docs/adr/0013-parse-runtime-wasm-default.md`) explains the
-rationale.
+ADR 0015 (`docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md`)
+explains the rationale and the bulletproof-install plan; ADR 0013
+records the prior WASM-default + native-opt-in posture and is now
+superseded.
 
 ## Adding a language
 

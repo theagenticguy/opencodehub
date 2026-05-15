@@ -3,80 +3,37 @@
  *
  * Each worker thread imports this file once, then receives {@link ParseBatch}
  * inputs on every `pool.run()` call. The worker:
- *   1. Loads the grammar for each task's language (cached in the worker).
- *   2. Builds a `Parser` with that language (cached).
- *   3. Compiles the unified S-expression query (cached).
- *   4. Parses each task's buffer and maps captures to {@link ParseCapture}.
- *   5. Returns a {@link ParseResult} per task.
+ *   1. Opens a WASM-backed parser for each task's language (cached in the worker).
+ *   2. Compiles the unified S-expression query against the grammar (cached
+ *      inside `WasmParserHandle.runQuery`).
+ *   3. Parses each task's buffer and maps captures to {@link ParseCapture}.
+ *   4. Returns a {@link ParseResult} per task.
  *
  * Per-task wall-clock timeout: 30 seconds. On timeout the task returns a
  * result with empty captures and a warning rather than crashing the worker.
  *
- * Safety: tree-sitter parsers are NOT thread-safe; one Parser per worker per
- * language is a hard constraint. This file enforces that via per-worker maps
- * keyed by LanguageId.
+ * `web-tree-sitter` is the sole runtime as of 0.4.0. Native `tree-sitter`
+ * was removed from the runtime install graph; grammar `.wasm` blobs are
+ * vendored under `packages/ingestion/vendor/wasms/`.
  */
 
 import { Buffer } from "node:buffer";
-import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
-import { loadGrammar } from "./grammar-registry.js";
 import type { LanguageId, ParseBatch, ParseCapture, ParseResult, ParseTask } from "./types.js";
 import { getUnifiedQuery } from "./unified-queries.js";
-import { isNativeAvailable, openWasmParser, type WasmParserHandle } from "./wasm-fallback.js";
-
-const requireFn = createRequire(import.meta.url);
+import { openWasmParser, type WasmParserHandle } from "./wasm-runtime.js";
 
 const PER_FILE_TIMEOUT_MS = 30_000;
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 
-// Per-worker caches. Each worker_thread has its own module instance so these
-// live per-worker, honoring tree-sitter's one-parser-per-thread rule.
-const parserCache = new Map<LanguageId, unknown>();
-const queryCache = new Map<LanguageId, unknown>();
+// Per-worker WASM parser cache. Each worker_thread has its own module
+// instance so this lives per-worker.
 const wasmParserCache = new Map<LanguageId, WasmParserHandle | null>();
-
-let warnedRuntime = false;
-
-/**
- * Read the `--native-parser` opt-in flag. Set either via env
- * (`OCH_NATIVE_PARSER=1`) or via argv pass-through when the worker boots
- * inside a process launched with the flag. The worker itself cannot read
- * the CLI argv directly (piscina starts workers afresh) so env is the
- * primary carrier.
- *
- * WASM is the default runtime as of Node 24 / M5 — the native tree-sitter
- * N-API binding is opt-in for developer speed on Node 22 dev boxes.
- */
-function forceNativeOpt(): boolean {
-  const v = process.env["OCH_NATIVE_PARSER"];
-  return v === "1" || v === "true";
-}
 
 /**
  * Piscina task entry. Default export is the function piscina invokes.
  */
 export default async function parseBatch(batch: ParseBatch): Promise<ParseResult[]> {
-  // Emit a one-shot startup warning naming the runtime we actually landed
-  // on. Both paths are logged so the runtime choice is never silent — a
-  // user debugging a parse difference can see "native" vs "WASM" on the
-  // first worker invocation.
-  if (!warnedRuntime) {
-    warnedRuntime = true;
-    const usingNative = forceNativeOpt() && isNativeAvailable();
-    if (usingNative) {
-      process.stderr.write("[parse-worker] using tree-sitter native (N-API) runtime\n");
-    } else if (forceNativeOpt() && !isNativeAvailable()) {
-      // Opt-in requested but native could not load — fall back to WASM
-      // with an explicit callout so the user notices the mismatch.
-      process.stderr.write(
-        "[parse-worker] OCH_NATIVE_PARSER=1 set but native tree-sitter unavailable; falling back to web-tree-sitter (WASM) runtime\n",
-      );
-    } else {
-      process.stderr.write("[parse-worker] using web-tree-sitter (WASM) runtime\n");
-    }
-  }
-
   const results: ParseResult[] = [];
   for (const task of batch.tasks) {
     results.push(await parseOne(task));
@@ -140,54 +97,11 @@ async function parseOne(task: ParseTask): Promise<ParseResult> {
 }
 
 async function runParse(language: LanguageId, content: Buffer): Promise<readonly ParseCapture[]> {
-  // The tree-sitter 0.25 JS binding accepts a string primary input; decode
+  // The web-tree-sitter binding accepts a string primary input; decode
   // the buffer once here. (The underlying parser still reads by byte
   // offsets, so positions remain correct.)
   const source = content.toString("utf8");
-
-  // WASM is the default runtime. Native tree-sitter is opt-in via
-  // `OCH_NATIVE_PARSER=1` (or `--native-parser` on the CLI) and still
-  // requires the N-API binding to load cleanly; if the opt-in is set but
-  // native is unavailable, we fall back to WASM (the startup warning in
-  // parseBatch already flagged the mismatch). The two paths produce
-  // semantically equivalent captures — the (tag, text) multiset is
-  // asserted identical by wasm-parity.test.ts, though coordinate values
-  // and internal node types may differ at the margins across grammars.
-  if (forceNativeOpt() && isNativeAvailable()) {
-    return runNative(language, source);
-  }
   return runWasm(language, source);
-}
-
-async function runNative(language: LanguageId, source: string): Promise<readonly ParseCapture[]> {
-  // tree-sitter module is loaded lazily via require (not a static import)
-  // to keep cold-start cheap for workers that may never parse any file.
-  const TreeSitter = requireFn("tree-sitter") as TreeSitterModule;
-
-  const parser = await getOrBuildParser(language, TreeSitter);
-  const query = await getOrBuildQuery(language, TreeSitter);
-
-  const tree = parser.parse(source);
-  const root = tree.rootNode;
-
-  const out: ParseCapture[] = [];
-  const matches = query.matches(root);
-  for (const m of matches) {
-    for (const cap of m.captures) {
-      const node = cap.node;
-      out.push({
-        tag: cap.name,
-        text: node.text,
-        // Convert 0-indexed tree-sitter positions to 1-indexed line numbers.
-        startLine: node.startPosition.row + 1,
-        endLine: node.endPosition.row + 1,
-        startCol: node.startPosition.column,
-        endCol: node.endPosition.column,
-        nodeType: node.type,
-      });
-    }
-  }
-  return out;
 }
 
 async function runWasm(language: LanguageId, source: string): Promise<readonly ParseCapture[]> {
@@ -219,31 +133,6 @@ async function runWasm(language: LanguageId, source: string): Promise<readonly P
   return out;
 }
 
-// --- per-worker caches -----------------------------------------------------
-
-async function getOrBuildParser(lang: LanguageId, TS: TreeSitterModule): Promise<TreeSitterParser> {
-  const cached = parserCache.get(lang);
-  if (cached !== undefined) {
-    return cached as TreeSitterParser;
-  }
-  const handle = await loadGrammar(lang);
-  const parser = new TS() as TreeSitterParser;
-  parser.setLanguage(handle.tsLanguage);
-  parserCache.set(lang, parser);
-  return parser;
-}
-
-async function getOrBuildQuery(lang: LanguageId, TS: TreeSitterModule): Promise<TreeSitterQuery> {
-  const cached = queryCache.get(lang);
-  if (cached !== undefined) {
-    return cached as TreeSitterQuery;
-  }
-  const handle = await loadGrammar(lang);
-  const q = new TS.Query(handle.tsLanguage, handle.queryText) as TreeSitterQuery;
-  queryCache.set(lang, q);
-  return q;
-}
-
 // --- wall-clock timeout ----------------------------------------------------
 
 function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
@@ -260,48 +149,4 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
       },
     );
   });
-}
-
-// --- minimal ambient shapes for the native binding -------------------------
-// We intentionally avoid pulling tree-sitter's whole .d.ts into a worker file
-// (it registers a global module declaration); declaring just what we use keeps
-// the surface small and stable.
-
-interface TreeSitterPoint {
-  readonly row: number;
-  readonly column: number;
-}
-
-interface TreeSitterNode {
-  readonly text: string;
-  readonly type: string;
-  readonly startPosition: TreeSitterPoint;
-  readonly endPosition: TreeSitterPoint;
-}
-
-interface TreeSitterTree {
-  readonly rootNode: TreeSitterNode;
-}
-
-interface TreeSitterParser {
-  setLanguage(lang: unknown): void;
-  parse(source: string): TreeSitterTree;
-}
-
-interface TreeSitterQueryCapture {
-  readonly name: string;
-  readonly node: TreeSitterNode;
-}
-
-interface TreeSitterQueryMatch {
-  readonly captures: readonly TreeSitterQueryCapture[];
-}
-
-interface TreeSitterQuery {
-  matches(node: TreeSitterNode): readonly TreeSitterQueryMatch[];
-}
-
-interface TreeSitterModule {
-  new (): TreeSitterParser;
-  Query: new (lang: unknown, source: string) => TreeSitterQuery;
 }

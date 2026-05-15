@@ -127,8 +127,6 @@ Everything else — embeddings, summaries, skills — is opt-in.
   When enabled, the budget is capped by `--max-summaries`, default
   `auto` = 10% of callables, hard cap 500.
 - `--skills` — generate Claude Code skills from the graph.
-- `--native-parser` — opt into the native tree-sitter N-API addon on
-  Node 22 (the default runtime is `web-tree-sitter` / WASM).
 - `--strict-detectors` — fail the build if a detector (DET-O-001)
   regresses.
 - `--verbose` — noisier logs.

@@ -1,16 +1,15 @@
 ---
 title: Troubleshooting
-description: Fix native build failures, stale indexes, ambiguous-repo errors, and Windows quirks.
+description: Fix install failures, stale indexes, ambiguous-repo errors, and Windows quirks.
 sidebar:
   order: 90
 ---
 
 ## Native build failures
 
-Symptoms: `pnpm install` fails while building `@duckdb/node-api` or
-the optional native tree-sitter N-API addon. Error mentions
-`node-gyp`, `python`, a C/C++ compiler, or `Visual Studio Build
-Tools`.
+Symptoms: `pnpm install` fails while building `@duckdb/node-api`. Error
+mentions `node-gyp`, `python`, a C/C++ compiler, or `Visual Studio
+Build Tools`.
 
 Fix:
 
@@ -22,12 +21,11 @@ codehub doctor
 whether each native module can load. Follow the remediation hints it
 prints.
 
-The default parse runtime is `web-tree-sitter` (WASM) on both Node 22
-and Node 24, so a missing C/C++ toolchain does not break analyze
-itself — only the optional native opt-in via `OCH_NATIVE_PARSER=1` is
-affected. `@duckdb/node-api` has a native binding requirement on the
-single-file DuckDB fallback; if it cannot load, set `CODEHUB_STORE=lbug`
-to use LadybugDB instead, which has its own platform packages.
+The parse runtime is `web-tree-sitter` (WASM) on every supported Node
+version, so a missing C/C++ toolchain does not break analyze itself.
+`@duckdb/node-api` has a native binding requirement on the single-file
+DuckDB fallback; if it cannot load, set `CODEHUB_STORE=lbug` to use
+LadybugDB instead, which has its own platform packages.
 
 ## Stale index
 
@@ -75,9 +73,9 @@ If you must stay on native Windows:
 3. `npm config set msvs_version 2022` and `npm config set python
    python3.12`.
 4. Re-run `pnpm install --frozen-lockfile`.
-5. The default parse runtime is WASM, so analyze itself should work
-   without the native toolchain — only `@duckdb/node-api` and the
-   optional `OCH_NATIVE_PARSER=1` native addon need a native build.
+5. The parse runtime is WASM, so analyze itself should work without
+   the native toolchain — only `@duckdb/node-api` (single-file DuckDB
+   fallback) needs a native build.
 
 ## The index is missing a language I expected
 

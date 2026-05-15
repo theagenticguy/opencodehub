@@ -1,39 +1,52 @@
 /**
- * Unit tests for `resolveGrammarWasmPath` — the two-stage cascade that
- * maps a `LanguageId` to a bundled `.wasm` asset path.
- *
- * Stage 1 (per-grammar package) is exercised by the parse-worker /
- * wasm-parity suites via real `openWasmParser` calls. This file
- * focuses on stage 2: the vendored-WASM fallback at
- * `packages/ingestion/vendor/wasms/` which handles kotlin, swift, and
- * dart — whose per-grammar `tree-sitter-*` packages do NOT ship a
- * `.wasm` alongside the `.node` addon.
+ * Unit tests for `resolveGrammarWasmPath` — the single declarative
+ * LanguageId-to-filename map that locates each grammar's `.wasm` inside
+ * the vendored directory at `packages/ingestion/vendor/wasms/`.
  *
  * Asserted properties:
- *   - kotlin/swift/dart resolve to absolute paths ending in
- *     `tree-sitter-<lang>.wasm` inside `vendor/wasms/`.
+ *   - Every supported `LanguageId` resolves to an absolute path under
+ *     `vendor/wasms/` ending in the expected filename.
  *   - The resolved paths point to files that actually exist on disk
  *     (verifies the commit + build-script loop landed correctly).
- *   - A known per-grammar-package entry (python) still resolves — the
- *     refactor must not regress the 11-entry primary mapping.
- *   - PHP resolves to the `php_only` variant.
+ *   - PHP resolves to the `php_only` variant (pure PHP, no HTML
+ *     injection) — matches the prior native-loader behavior.
+ *   - C# resolves to `tree-sitter-c_sharp.wasm` (underscore, not hyphen).
+ *   - Cobol returns `undefined` (regex-provider language; no grammar).
  */
 
 import { strict as assert } from "node:assert";
 import { statSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { _resolveGrammarWasmPathForTests } from "./wasm-fallback.js";
+import { _resolveGrammarWasmPathForTests } from "./wasm-runtime.js";
 
-describe("resolveGrammarWasmPath — vendored WASM fallback", () => {
-  for (const lang of ["kotlin", "swift", "dart"] as const) {
-    it(`resolves ${lang} to an existing vendor/wasms/tree-sitter-${lang}.wasm`, () => {
-      const wasmPath = _resolveGrammarWasmPathForTests(lang);
+const EXPECTED: Readonly<Record<string, string>> = {
+  typescript: "tree-sitter-typescript.wasm",
+  tsx: "tree-sitter-tsx.wasm",
+  javascript: "tree-sitter-javascript.wasm",
+  python: "tree-sitter-python.wasm",
+  go: "tree-sitter-go.wasm",
+  rust: "tree-sitter-rust.wasm",
+  java: "tree-sitter-java.wasm",
+  csharp: "tree-sitter-c_sharp.wasm",
+  c: "tree-sitter-c.wasm",
+  cpp: "tree-sitter-cpp.wasm",
+  ruby: "tree-sitter-ruby.wasm",
+  kotlin: "tree-sitter-kotlin.wasm",
+  swift: "tree-sitter-swift.wasm",
+  dart: "tree-sitter-dart.wasm",
+  php: "tree-sitter-php_only.wasm",
+};
+
+describe("resolveGrammarWasmPath — vendored WASM resolver", () => {
+  for (const [lang, fname] of Object.entries(EXPECTED)) {
+    it(`resolves ${lang} to vendor/wasms/${fname} on disk`, () => {
+      const wasmPath = _resolveGrammarWasmPathForTests(lang as never);
       assert.ok(wasmPath !== undefined, `expected a path for ${lang}, got undefined`);
       assert.ok(path.isAbsolute(wasmPath), `expected absolute path for ${lang}, got ${wasmPath}`);
       assert.ok(
-        wasmPath.endsWith(`tree-sitter-${lang}.wasm`),
-        `expected path ending in tree-sitter-${lang}.wasm, got ${wasmPath}`,
+        wasmPath.endsWith(fname),
+        `expected path ending in ${fname}, got ${wasmPath}`,
       );
       assert.ok(
         wasmPath.includes(`${path.sep}vendor${path.sep}wasms${path.sep}`),
@@ -46,23 +59,9 @@ describe("resolveGrammarWasmPath — vendored WASM fallback", () => {
   }
 });
 
-describe("resolveGrammarWasmPath — per-grammar package path unchanged", () => {
-  it("python still resolves from its own tree-sitter-python package", () => {
-    const wasmPath = _resolveGrammarWasmPathForTests("python");
-    assert.ok(wasmPath !== undefined);
-    assert.ok(wasmPath.endsWith("tree-sitter-python.wasm"));
-    assert.ok(
-      !wasmPath.includes(`${path.sep}vendor${path.sep}wasms${path.sep}`),
-      `python must resolve from its own package, not the vendor dir: ${wasmPath}`,
-    );
-  });
-
-  it("php resolves to php_only.wasm", () => {
-    const wasmPath = _resolveGrammarWasmPathForTests("php");
-    assert.ok(wasmPath !== undefined);
-    assert.ok(
-      wasmPath.endsWith("tree-sitter-php_only.wasm"),
-      `php must resolve to php_only.wasm, got ${wasmPath}`,
-    );
+describe("resolveGrammarWasmPath — non-tree-sitter languages", () => {
+  it("cobol returns undefined (regex-provider language; no tree-sitter grammar)", () => {
+    const wasmPath = _resolveGrammarWasmPathForTests("cobol");
+    assert.equal(wasmPath, undefined);
   });
 });

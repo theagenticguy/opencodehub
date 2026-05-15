@@ -1,5 +1,8 @@
 # ADR 0013 — Parse runtime: WASM default, native opt-in
 
+> **Status:** Superseded by [ADR 0015](./0015-wasm-only-parser-at-the-npm-distributed-boundary.md)
+> on 2026-05-15. Native tree-sitter has been removed from runtime entirely.
+
 > Note: there is a sibling ADR — `0013-m7-default-flip-and-abstraction.md`
 > — that landed concurrently and shares the same number. Both are kept
 > in-tree because they were authored in parallel branches and accepted

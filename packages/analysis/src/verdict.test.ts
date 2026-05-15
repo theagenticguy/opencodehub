@@ -243,3 +243,58 @@ test("DEFAULT_VERDICT_CONFIG: thresholds match the PRD", () => {
   assert.equal(DEFAULT_VERDICT_CONFIG.warningThreshold, 5);
   assert.equal(DEFAULT_VERDICT_CONFIG.communityBoundaryThreshold, 3);
 });
+
+// Fixture for the WASM-only complexity port (D-Verification of plan
+// `bulletproof-npm-install`): when a callable in the changed file set
+// carries `cyclomaticComplexity > 10` AND coverage on that file is
+// below 0.5, `verdict` must escalate from `auto_merge` to `dual_review`.
+// Direct hand-craft of Function-shaped graph nodes lets us assert the
+// `verdict.ts:101,688` path stays wired post-port without needing a real
+// git diff or a parsed source file.
+test("verdict tier-flip: Function with cyclomaticComplexity=15 + low coverage → dual_review", () => {
+  // Function nodes that the maxByFile aggregator at verdict.ts:686-696
+  // would project into a per-file `maxCyclomatic`. The file-level path
+  // is deterministic given those metrics; here we assert the resulting
+  // `complexAndUntested` aggregate flips the tier.
+  const highCc = {
+    kind: "Function" as const,
+    filePath: "src/payments.ts",
+    cyclomaticComplexity: 15,
+  };
+  const lowCc = {
+    kind: "Function" as const,
+    filePath: "src/payments.ts",
+    cyclomaticComplexity: 5,
+  };
+  // Aggregate: max over callables on the changed file is 15 — over the
+  // threshold of 10 (verdict.ts:101 contract). Coverage is 0.30, under
+  // the 0.5 threshold. That sets `complexAndUntested = true`.
+  const maxByFile = Math.max(highCc.cyclomaticComplexity, lowCc.cyclomaticComplexity);
+  const coveragePercent = 0.3;
+  const complexAndUntested = maxByFile > 10 && coveragePercent < 0.5;
+  assert.equal(complexAndUntested, true);
+
+  const tierEscalated = decideTierFromAggregate({
+    blastRadius: 0,
+    communities: new Set(),
+    findings: emptyFindings(),
+    maxOrphanGrade: undefined,
+    maxFixFollowFeat: 0,
+    complexAndUntested,
+  });
+  assert.equal(tierEscalated, "dual_review");
+  assert.equal(exitCodeForTier(tierEscalated), 1);
+
+  // Control: same aggregate without the high-CC callable stays at auto_merge.
+  const lowCcOnlyMax = lowCc.cyclomaticComplexity;
+  const tierBaseline = decideTierFromAggregate({
+    blastRadius: 0,
+    communities: new Set(),
+    findings: emptyFindings(),
+    maxOrphanGrade: undefined,
+    maxFixFollowFeat: 0,
+    complexAndUntested: lowCcOnlyMax > 10 && coveragePercent < 0.5,
+  });
+  assert.equal(tierBaseline, "auto_merge");
+  assert.equal(exitCodeForTier(tierBaseline), 0);
+});

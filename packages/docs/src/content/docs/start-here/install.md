@@ -7,12 +7,12 @@ sidebar:
 
 ## Requirements
 
-- **OS:** macOS, Linux, or Windows (Windows users should prefer WSL; native
-  Windows works if you have the MSVC build tools and `node-gyp` dependencies
-  for the optional native tree-sitter addon).
-- **Node.js:** Node 22 (with the optional native tree-sitter path) or
-  Node 24 (WASM-only). The default parse runtime is `web-tree-sitter`
-  on both versions; native is opt-in via `OCH_NATIVE_PARSER=1`.
+- **OS:** macOS, Linux, or Windows. WSL is recommended on Windows for
+  parity with the Linux dev path, but native Windows now works without
+  the MSVC build chain because OpenCodeHub does no native compilation
+  at install time.
+- **Node.js:** Node 20, 22, or 24. The parse runtime is `web-tree-sitter`
+  (WASM) on every supported version — there is no native opt-in (ADR 0015).
 - **pnpm:** `>=10.0.0` (the workspace lockfile is generated with 10.33.2).
 - **Python 3.12:** optional, only used by auxiliary tooling (the
   harness packages do not ship as runtime dependencies). Not required
@@ -109,7 +109,6 @@ node packages/cli/dist/index.js doctor
 
 | Variable | Default | Effect |
 |---|---|---|
-| `OCH_NATIVE_PARSER` | unset | Set to `1` on Node 22 to opt into the native tree-sitter N-API addon. Leave unset to use the WASM default. |
 | `CODEHUB_STORE` | unset | `lbug` (force LadybugDB), `duck` (force the single-file DuckDB layout), or unset (auto-probe — LadybugDB when `@ladybugdb/core` is importable, otherwise DuckDB). |
 | `OCH_VERBOSE` | unset | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
 
