@@ -20,6 +20,11 @@ overrides:
   fast-uri@<3.1.2: "3.1.2"
   fast-xml-builder@<1.1.7: "1.1.7"
   mermaid@<11.15.0: "11.15.0"
+  # devalue 5.6.3..5.8.0 is vulnerable to GHSA-77vg-94rm-hx3p (HIGH, DoS via
+  # sparse-array deserialization). Comes in transitively through astro@6.3.3
+  # (used only by @opencodehub/docs, a private workspace package). Pinned to
+  # 5.8.1 until astro releases a version that constrains devalue itself.
+  devalue@<5.8.1: "5.8.1"
 
 # Project-level settings. In pnpm v11, only auth+registry settings are read
 # from .npmrc; non-auth settings belong here or in ~/.config/pnpm/config.yaml.
