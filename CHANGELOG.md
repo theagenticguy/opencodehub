@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.4.0...root-v0.5.0) (2026-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113))
+
+### Features
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113)) ([0a9e0cb](https://github.com/theagenticguy/opencodehub/commit/0a9e0cb65e3a4666204a2a80d3c41a8befee8269))
+
 ## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.3.2...root-v0.4.0) (2026-05-15)
 
 

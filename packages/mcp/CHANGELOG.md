@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.3.1...mcp-v0.3.2) (2026-05-15)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.2.0
+    * @opencodehub/pack bumped to 0.1.4
+
 ## [0.3.1](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.3.0...mcp-v0.3.1) (2026-05-12)
 
 

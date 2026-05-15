@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.2...ingestion-v0.4.0) (2026-05-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113))
+
+### Features
+
+* WASM-only parser path; drop native tree-sitter from runtime ([#113](https://github.com/theagenticguy/opencodehub/issues/113)) ([0a9e0cb](https://github.com/theagenticguy/opencodehub/commit/0a9e0cb65e3a4666204a2a80d3c41a8befee8269))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.2.0
+    * @opencodehub/scip-ingest bumped to 0.2.1
+
 ## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.1...ingestion-v0.3.2) (2026-05-12)
 
 
