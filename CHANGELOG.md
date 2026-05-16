@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.5.0...root-v0.6.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118))
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117))
+
+### Features
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118)) ([d370f9e](https://github.com/theagenticguy/opencodehub/commit/d370f9e9ad3acbcc1231403e00bbee5cf0e487bd))
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117)) ([49e14fd](https://github.com/theagenticguy/opencodehub/commit/49e14fdd3901e57dec3c86dd8645b5940d5d7c0a))
+
+
+### Bug Fixes
+
+* **ci:** grant id-token: write at release-please.yml top level ([#115](https://github.com/theagenticguy/opencodehub/issues/115)) ([a87a6eb](https://github.com/theagenticguy/opencodehub/commit/a87a6eb0c57f9974a03a12979cd3a5ac9403061c))
+* **ci:** install betterleaks via mise so the pre-release gate finds it ([#120](https://github.com/theagenticguy/opencodehub/issues/120)) ([522a4ec](https://github.com/theagenticguy/opencodehub/commit/522a4eca47b25582192af9cfd92cb9070c13f10c))
+* **ci:** pre-release gate aggregator needs betterleaks (was detect-secrets) ([#119](https://github.com/theagenticguy/opencodehub/issues/119)) ([a6f3448](https://github.com/theagenticguy/opencodehub/commit/a6f3448d836e0f3e93c2ef0ccc19d53922e556cf))
+
 ## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.4.0...root-v0.5.0) (2026-05-15)
 
 
