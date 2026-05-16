@@ -31,7 +31,7 @@ import { hybridSearch } from "./hybrid.js";
 import type { Embedder } from "./types.js";
 
 class StubStore implements IGraphStore {
-  readonly dialect: GraphDialect = "none";
+  readonly dialect: GraphDialect = "cypher";
   searchRows: SearchResult[] = [];
   vectorRows: VectorResult[] = [];
   /**

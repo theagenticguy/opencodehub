@@ -7,7 +7,7 @@ import {
   META_DIR_NAME,
   META_FILE_NAME,
   REGISTRY_FILE_NAME,
-  resolveDbPath,
+  resolveGraphPath,
   resolveMetaFilePath,
   resolveRegistryPath,
   resolveRepoMetaDir,
@@ -18,12 +18,9 @@ test("resolveRepoMetaDir: joins repo path with .codehub", () => {
   assert.equal(actual, resolve("/tmp/demo-repo", META_DIR_NAME));
 });
 
-test("resolveDbPath: drops the DuckDB file inside the meta dir", () => {
-  const actual = resolveDbPath("/tmp/demo-repo");
-  assert.equal(
-    actual,
-    resolve("/tmp/demo-repo", META_DIR_NAME, describeArtifacts("duck").graphFile),
-  );
+test("resolveGraphPath: drops the lbug graph file inside the meta dir", () => {
+  const actual = resolveGraphPath("/tmp/demo-repo");
+  assert.equal(actual, resolve("/tmp/demo-repo", META_DIR_NAME, describeArtifacts().graphFile));
 });
 
 test("resolveMetaFilePath: drops meta.json inside the meta dir", () => {
@@ -47,23 +44,9 @@ test("resolveRepoMetaDir: resolves relative paths", () => {
   assert.equal(actual, resolve(process.cwd(), "demo-repo", META_DIR_NAME));
 });
 
-test("describeArtifacts: duck collapses graph + temporal to a single file", () => {
-  const actual = describeArtifacts("duck");
-  assert.equal(actual.graphFile, "graph.duckdb");
-  assert.equal(actual.temporalFile, "graph.duckdb");
-  assert.equal(actual.schemaName, "main");
-});
-
-test("describeArtifacts: lbug splits graph + temporal across two files", () => {
-  const actual = describeArtifacts("lbug");
+test("describeArtifacts: returns lbug + duckdb temporal pair", () => {
+  const actual = describeArtifacts();
   assert.equal(actual.graphFile, "graph.lbug");
-  assert.equal(actual.temporalFile, "temporal.duckdb");
-  assert.equal(actual.schemaName, "main");
-});
-
-test("describeArtifacts: community backends fall back to graph.<backend> + temporal.duckdb", () => {
-  const actual = describeArtifacts("neo4j");
-  assert.equal(actual.graphFile, "graph.neo4j");
   assert.equal(actual.temporalFile, "temporal.duckdb");
   assert.equal(actual.schemaName, "main");
 });

@@ -23,7 +23,7 @@
 
 import { resolve, sep } from "node:path";
 import { bm25Search } from "@opencodehub/search";
-import { type IGraphStore, openStore, resolveDbPath } from "@opencodehub/storage";
+import { type IGraphStore, openStore, resolveGraphPath } from "@opencodehub/storage";
 import { type RepoEntry, readRegistry } from "../registry.js";
 
 /** Public-API shape for `runAugment`. */
@@ -91,10 +91,8 @@ export async function augment(pattern: string, opts: AugmentOptions = {}): Promi
   const repo = await resolveRepoForCwd(cwd, opts.home);
   if (repo === undefined) return "";
 
-  const dbPath = resolveDbPath(repo.path);
-  const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
-    () => undefined,
-  );
+  const dbPath = resolveGraphPath(repo.path);
+  const composed = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
   if (composed === undefined) return "";
   try {
     await composed.graph.open();

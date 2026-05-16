@@ -3,15 +3,12 @@
  * Behavioural tests for the `sql` MCP tool's dual-emit surface.
  *
  * The surface we exercise:
- *   1. Existing SQL path behaves exactly as before when only `sql` is set.
- *   2. `cypher` field is accepted when `CODEHUB_STORE=lbug`.
- *   3. `cypher` field is rejected with a clear hint when `CODEHUB_STORE` is
- *      unset or `=duck`.
- *   4. Both `sql` and `cypher` supplied → INVALID_INPUT "choose one".
- *   5. Neither supplied → INVALID_INPUT.
- *   6. Cypher write verbs are rejected by `cypher-guard` before reaching
- *      the store (no exec call on the guard-rejected path).
- *   7. Cypher read path invokes `graph.execCypher` with the cypher text.
+ *   1. SQL path routes through `temporal.exec()` and returns rows.
+ *   2. Cypher path routes through `graph.execCypher()` and returns rows.
+ *   3. Both `sql` and `cypher` supplied → INVALID_INPUT "choose one".
+ *   4. Neither supplied → INVALID_INPUT.
+ *   5. SQL write verbs are rejected by `sql-guard` (INVALID_INPUT).
+ *   6. Cypher write verbs are rejected by `cypher-guard` (INVALID_INPUT).
  */
 
 import { strict as assert } from "node:assert";
@@ -63,7 +60,6 @@ interface HarnessContext {
 interface HarnessOptions {
   readonly rows?: readonly Record<string, unknown>[];
   readonly guard?: (stmt: string) => void;
-  readonly codehubStore?: string;
 }
 
 async function withHarness(
@@ -77,16 +73,8 @@ async function withHarness(
     store: undefined as unknown as import("@opencodehub/storage").Store,
   };
 
-  const priorStore = process.env["CODEHUB_STORE"];
-  if (harnessOpts.codehubStore === undefined) {
-    delete process.env["CODEHUB_STORE"];
-  } else {
-    process.env["CODEHUB_STORE"] = harnessOpts.codehubStore;
-  }
-  const restoreEnv = () => {
-    if (priorStore === undefined) delete process.env["CODEHUB_STORE"];
-    else process.env["CODEHUB_STORE"] = priorStore;
-  };
+  // Cypher is now unconditionally available — no environment plumbing.
+  const restoreEnv = () => {};
 
   try {
     await withMcpHarness(
@@ -129,7 +117,7 @@ async function withHarness(
         const ctx: ToolContext = { pool, home };
         // Acquire once just to seed handle.store for spy-based tests.
         const repoPath = `${home}/fakerepo`;
-        const dbPath = `${repoPath}/.codehub/graph.duckdb`;
+        const dbPath = `${repoPath}/.codehub/graph.lbug`;
         try {
           handle.store = await pool.acquire(repoPath, dbPath);
         } finally {
@@ -217,7 +205,7 @@ test("sql: SQL write verb is rejected by sql-guard → INVALID_INPUT", async () 
 // ---------------------------------------------------------------------------
 
 test("sql: both `sql` and `cypher` provided → INVALID_INPUT (choose one)", async () => {
-  await withHarness({ rows: [], codehubStore: "lbug" }, async ({ ctx, server, handle }) => {
+  await withHarness({ rows: [] }, async ({ ctx, server, handle }) => {
     registerSqlTool(server, ctx);
     const handler = getHandler(server, "sql");
     const result = await handler(
@@ -256,55 +244,13 @@ test("sql: neither `sql` nor `cypher` provided → INVALID_INPUT", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cypher availability gate (CODEHUB_STORE env var)
+// Cypher path
 // ---------------------------------------------------------------------------
 
-test("sql: `cypher` is rejected when CODEHUB_STORE is unset", async () => {
-  await withHarness({ rows: [] }, async ({ ctx, server, handle }) => {
-    registerSqlTool(server, ctx);
-    const handler = getHandler(server, "sql");
-    const result = await handler({ cypher: "MATCH (n) RETURN n", repo: "fakerepo" }, {});
-    const sc = result.structuredContent as {
-      error?: { code: string; message: string; hint?: string };
-    };
-    assert.equal(result.isError, true);
-    assert.equal(sc.error?.code, "INVALID_INPUT");
-    assert.ok(
-      sc.error?.message.includes("cypher unavailable"),
-      `expected unavailability message, got: ${sc.error?.message}`,
-    );
-    assert.ok(
-      sc.error?.message.includes("CODEHUB_STORE=lbug"),
-      `expected env-var hint in message, got: ${sc.error?.message}`,
-    );
-    assert.equal(handle.execCalls.length, 0, "store must not be queried when cypher is refused");
-  });
-});
-
-test("sql: `cypher` is rejected when CODEHUB_STORE=duck", async () => {
-  await withHarness({ rows: [], codehubStore: "duck" }, async ({ ctx, server, handle }) => {
-    registerSqlTool(server, ctx);
-    const handler = getHandler(server, "sql");
-    const result = await handler({ cypher: "MATCH (n) RETURN n", repo: "fakerepo" }, {});
-    const sc = result.structuredContent as {
-      error?: { code: string; message: string };
-    };
-    assert.equal(result.isError, true);
-    assert.equal(sc.error?.code, "INVALID_INPUT");
-    assert.ok(sc.error?.message.includes("cypher unavailable"));
-    assert.equal(handle.execCalls.length, 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Cypher path (CODEHUB_STORE=lbug)
-// ---------------------------------------------------------------------------
-
-test("sql: `cypher` accepted when CODEHUB_STORE=lbug; store.query receives the cypher text", async () => {
+test("sql: `cypher` routes through `graph.execCypher` and the cypher text reaches the store unchanged", async () => {
   await withHarness(
     {
       rows: [{ node_id: "F:foo", name: "foo" }],
-      codehubStore: "lbug",
       // In production, a GraphDbStore runs assertReadOnlyCypher internally;
       // mirror that so the test matches the end-to-end contract.
       guard: assertReadOnlyCypher,
@@ -337,7 +283,6 @@ test("sql: cypher write verb is rejected by cypher-guard → INVALID_INPUT", asy
   await withHarness(
     {
       rows: [],
-      codehubStore: "lbug",
       guard: assertReadOnlyCypher,
     },
     async ({ ctx, server, handle }) => {
@@ -380,7 +325,6 @@ test("sql: cypher read path tolerates an unknown keyword that is NOT a write ver
   await withHarness(
     {
       rows: [{ id: "F:foo" }],
-      codehubStore: "lbug",
       guard: assertReadOnlyCypher,
     },
     async ({ ctx, server, handle }) => {

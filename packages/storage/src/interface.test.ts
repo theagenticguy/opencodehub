@@ -70,7 +70,7 @@ test("IGraphStore-shaped value lacks temporal methods at runtime", () => {
     // intentionally empty
   }
   const graphOnly: IGraphStore = {
-    dialect: "none",
+    dialect: "cypher",
     open: async () => {},
     close: async () => {},
     createSchema: async () => {},
@@ -105,7 +105,7 @@ test("IGraphStore-shaped value lacks temporal methods at runtime", () => {
   assert.equal(typeof bag["lookupCochangesForFile"], "undefined");
   assert.equal(typeof bag["lookupSymbolSummary"], "undefined");
   assert.equal(typeof bag["exec"], "undefined");
-  assert.equal(graphOnly.dialect, "none");
+  assert.equal(graphOnly.dialect, "cypher");
 });
 
 test("ITemporalStore-shaped value lacks graph methods at runtime", () => {
@@ -115,6 +115,7 @@ test("ITemporalStore-shaped value lacks graph methods at runtime", () => {
     createSchema: async () => {},
     healthCheck: async () => ({ ok: true }),
     exec: async () => [],
+    exportEmbeddingsToParquet: async () => ({ rowCount: 0, duckdbVersion: "test" }),
     bulkLoadCochanges: async () => {},
     lookupCochangesForFile: async (): Promise<readonly CochangeRow[]> => [],
     lookupCochangesBetween: async () => undefined,
@@ -136,15 +137,13 @@ test("Store alias matches OpenStoreResult composition", () => {
   // type level. The runtime side of this test asserts that a properly-
   // typed Store value carries the four required keys.
   const dummy: Store = {
-    backend: "duck",
     graph: undefined as unknown as IGraphStore,
     temporal: undefined as unknown as ITemporalStore,
-    graphFile: "/tmp/graph.duckdb",
-    temporalFile: "/tmp/graph.duckdb",
+    graphFile: "/tmp/.codehub/graph.lbug",
+    temporalFile: "/tmp/.codehub/temporal.duckdb",
     close: async () => {},
   };
-  assert.equal(dummy.backend, "duck");
-  assert.equal(dummy.graphFile, "/tmp/graph.duckdb");
-  assert.equal(dummy.temporalFile, dummy.graphFile);
+  assert.equal(dummy.graphFile, "/tmp/.codehub/graph.lbug");
+  assert.equal(dummy.temporalFile, "/tmp/.codehub/temporal.duckdb");
   assert.equal(typeof dummy.close, "function");
 });

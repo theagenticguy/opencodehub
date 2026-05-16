@@ -17,7 +17,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   readStoreMeta,
-  resolveDbPath,
+  resolveGraphPath,
   resolveRegistryPath,
   type StoreMeta,
 } from "@opencodehub/storage";
@@ -155,7 +155,7 @@ export async function resolveRepo(
   }
 
   const repoPath = resolve(entry.path);
-  const dbPath = resolveDbPath(repoPath);
+  const dbPath = resolveGraphPath(repoPath);
 
   let meta: StoreMeta | undefined;
   if (!opts.skipMeta) {

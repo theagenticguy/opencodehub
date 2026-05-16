@@ -22,7 +22,7 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ContractRegistry } from "@opencodehub/analysis";
 import type { IGraphStore } from "@opencodehub/storage";
-import { resolveDbPath } from "@opencodehub/storage";
+import { resolveGraphPath } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { readGroup } from "../group-resolver.js";
@@ -153,10 +153,10 @@ export async function runGroupContracts(
       }
       repoUriByName.set(repo.name, await repoUriForEntry(hit, ctx.pool));
       const repoPath = resolve(hit.path);
-      const dbPath = resolveDbPath(repoPath);
+      const dbPath = resolveGraphPath(repoPath);
       const store = await ctx.pool.acquire(repoPath, dbPath).catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to open DuckDB for ${repo.name}: ${msg}`);
+        throw new Error(`Failed to open graph store for ${repo.name}: ${msg}`);
       });
       try {
         const [consumers, producers] = await Promise.all([

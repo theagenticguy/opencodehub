@@ -50,7 +50,7 @@ import {
   type ScannerStatus,
   SPECTRAL_SPEC,
 } from "@opencodehub/scanners";
-import { openStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
+import { openStore, resolveGraphPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 import { runIngestSarif } from "./ingest-sarif.js";
 
@@ -266,9 +266,9 @@ function applySuppressionsForRepo(repoPath: string, log: SarifLog): SarifLog {
  * subset.
  */
 export async function readProjectProfile(repoPath: string): Promise<ProjectProfileGate> {
-  const dbPath = resolveDbPath(repoPath);
+  const dbPath = resolveGraphPath(repoPath);
   try {
-    const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
+    const composed = await openStore({ path: dbPath, readOnly: true });
     try {
       await composed.graph.open();
       // The single-row ProjectProfile lookup. `listNodesByKind` materializes

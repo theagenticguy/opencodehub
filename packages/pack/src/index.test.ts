@@ -133,6 +133,11 @@ function makeFixtureStore(): IGraphStore {
         (n): n is Extract<GraphNode, { kind: "Finding" }> => n.kind === "Finding",
       );
     },
+    // The fixture store has no embeddings; sidecar-absent tests rely on
+    // `listEmbeddings` being callable (and returning nothing).
+    listEmbeddings: async function* () {
+      // Empty generator — pack writes no sidecar.
+    },
   } as unknown as IGraphStore;
 }
 
@@ -368,23 +373,48 @@ test("E2E-G. sidecar absent — manifest.files[] does not list embeddings.parque
 test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides", async () => {
   const dir = await tempDir();
   try {
-    // Inject a Store whose graph view duck-types the @internal COPY
-    // helper. `writeEmbeddingsSidecar` narrows on `backend === "duck"`
-    // and finds the helper attached to the graph view. The fake writes
-    // 4 magic bytes ("PAR1") to the path so we can verify the hash
-    // round-trips into manifest.files[].
+    // Inject a graph view that produces a deterministic embeddings stream
+    // and a temporal view whose `exportEmbeddingsToParquet` writes 4
+    // magic bytes ("PAR1") to the destination so the manifest hash is
+    // stable across runs.
     const baseStore = makeFixtureStore() as unknown as Record<string, unknown>;
-    baseStore["exportEmbeddingsParquet"] = async (absPath: string) => {
-      await (await import("node:fs/promises")).writeFile(
-        absPath,
-        new Uint8Array([0x50, 0x41, 0x52, 0x31]),
-      );
-      return { rowCount: 3, duckdbVersion: "v1.3.99-test" };
+    baseStore["listEmbeddings"] = async function* () {
+      yield {
+        nodeId: "fn:a",
+        granularity: "symbol" as const,
+        chunkIndex: 0,
+        vector: new Float32Array([0.1, 0.2]),
+        contentHash: "h-a",
+      };
+      yield {
+        nodeId: "fn:b",
+        granularity: "symbol" as const,
+        chunkIndex: 0,
+        vector: new Float32Array([0.3, 0.4]),
+        contentHash: "h-b",
+      };
+      yield {
+        nodeId: "fn:c",
+        granularity: "symbol" as const,
+        chunkIndex: 0,
+        vector: new Float32Array([0.5, 0.6]),
+        contentHash: "h-c",
+      };
+    };
+    const fakeTemporal = {
+      exportEmbeddingsToParquet: async (rows: AsyncIterable<unknown>, absPath: string) => {
+        let n = 0;
+        for await (const _row of rows) n += 1;
+        await (await import("node:fs/promises")).writeFile(
+          absPath,
+          new Uint8Array([0x50, 0x41, 0x52, 0x31]),
+        );
+        return { rowCount: n, duckdbVersion: "v1.3.99-test" };
+      },
     };
     const composedStore: Store = {
-      backend: "duck",
       graph: baseStore as unknown as IGraphStore,
-      temporal: baseStore as unknown as ITemporalStore,
+      temporal: fakeTemporal as unknown as ITemporalStore,
       graphFile: ":memory:",
       temporalFile: ":memory:",
       close: async () => {

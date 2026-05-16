@@ -35,7 +35,7 @@ import {
   KnowledgeGraph,
   type NodeId,
 } from "@opencodehub/core-types";
-import { DuckDbStore, resolveDbPath, resolveRepoMetaDir } from "@opencodehub/storage";
+import { openStore, resolveGraphPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { loadPreviousGraph } from "./analyze.js";
 
 /**
@@ -164,11 +164,12 @@ async function seedPriorIndex(repoPath: string): Promise<{
   });
 
   await mkdir(resolveRepoMetaDir(repoPath), { recursive: true });
-  const store = new DuckDbStore(resolveDbPath(repoPath));
+  const store = await openStore({ path: resolveGraphPath(repoPath) });
   try {
-    await store.open();
-    await store.createSchema();
-    await store.bulkLoad(graph);
+    await store.graph.open();
+    await store.temporal.open();
+    await store.graph.createSchema();
+    await store.graph.bulkLoad(graph);
   } finally {
     await store.close();
   }

@@ -6,20 +6,19 @@
  * Returns the canonical {@link Store} envelope from `@opencodehub/storage`
  * so callers can route graph-tier queries through `store.graph` and
  * temporal-tier queries (cochanges, summaries, `--sql` escape hatch)
- * through `store.temporal`. Backend selection follows the standard
- * `openStore` resolution (env-driven `CODEHUB_STORE`, with auto-detect
- * when unset).
+ * through `store.temporal`. Storage is always graph.lbug + temporal.duckdb;
+ * the legacy backend selector was removed when the DuckDB graph backend
+ * was ripped out (see ADR 0016).
  */
 
 import { resolve } from "node:path";
-import { openStore, resolveDbPath, type Store } from "@opencodehub/storage";
+import { openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 
 export interface OpenStoreOptions {
   readonly repo?: string;
   readonly home?: string;
   readonly readOnly?: boolean;
-  readonly backend?: "auto" | "duck" | "lbug";
 }
 
 export interface OpenStoreResult {
@@ -29,10 +28,9 @@ export interface OpenStoreResult {
 
 export async function openStoreForCommand(opts: OpenStoreOptions): Promise<OpenStoreResult> {
   const repoPath = await resolveRepoPath(opts);
-  const dbPath = resolveDbPath(repoPath);
+  const dbPath = resolveGraphPath(repoPath);
   const store = await openStore({
     path: dbPath,
-    backend: opts.backend ?? "auto",
     readOnly: opts.readOnly ?? true,
   });
   // The legacy CLI entry point opened the DuckDB connection eagerly and
@@ -41,9 +39,7 @@ export async function openStoreForCommand(opts: OpenStoreOptions): Promise<OpenS
   // that contract by opening both views here so command handlers stay a
   // simple try/finally pair around the work.
   await store.graph.open();
-  if (store.graphFile !== store.temporalFile) {
-    await store.temporal.open();
-  }
+  await store.temporal.open();
   return { repoPath, store };
 }
 

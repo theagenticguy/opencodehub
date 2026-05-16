@@ -267,20 +267,52 @@ function makeRichFixtureStore(knobs: FixtureKnobs): IGraphStore {
         }));
     },
     listFindings: async () => findingNodes,
+    listEmbeddings: async function* () {
+      if (!knobs.withEmbeddings) return;
+      // Deterministic two-row stream — the temporal export fake below
+      // turns this into a 4-byte placeholder parquet.
+      yield {
+        nodeId: "fn:a",
+        granularity: "symbol" as const,
+        chunkIndex: 0,
+        vector: new Float32Array([0.1, 0.2]),
+        contentHash: "h-a",
+      };
+      yield {
+        nodeId: "fn:b",
+        granularity: "symbol" as const,
+        chunkIndex: 0,
+        vector: new Float32Array([0.3, 0.4]),
+        contentHash: "h-b",
+      };
+    },
   };
 
-  if (knobs.withEmbeddings) {
-    // Deterministic 4-byte parquet stand-in. Real DuckDB Parquet output is
-    // also byte-stable for the same input set on the same engine version;
-    // the test exercises the wiring path only.
-    store["exportEmbeddingsParquet"] = async (absPath: string): Promise<unknown> => {
+  return store as unknown as IGraphStore;
+}
+
+/**
+ * Fake `ITemporalStore` shim used by pack-determinism tests. The pack
+ * sidecar routes through `temporal.exportEmbeddingsToParquet`; the real
+ * DuckDB binding is irrelevant to these wiring tests so we drain the
+ * stream and write a deterministic 4-byte parquet stand-in.
+ */
+function makeFakeTemporalForPack(knobs: FixtureKnobs): unknown {
+  return {
+    exportEmbeddingsToParquet: async (
+      rows: AsyncIterable<unknown>,
+      absPath: string,
+    ): Promise<{ rowCount: number; duckdbVersion: string }> => {
+      let n = 0;
+      for await (const _row of rows) n += 1;
+      if (!knobs.withEmbeddings || n === 0) {
+        return { rowCount: 0, duckdbVersion: "v1.3.99-test" };
+      }
       const fs = await import("node:fs/promises");
       await fs.writeFile(absPath, new Uint8Array([0x50, 0x41, 0x52, 0x31]));
-      return { rowCount: 2, duckdbVersion: "v1.3.99-test" };
-    };
-  }
-
-  return store as unknown as IGraphStore;
+      return { rowCount: n, duckdbVersion: "v1.3.99-test" };
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -338,9 +370,8 @@ async function runVariant(outDir: string, knobs: FixtureKnobs): Promise<{ packHa
   // backend:"duck" Store so the sidecar narrows correctly. V1/V3/V4
   // never invoke the helper; the wrapper just exposes the graph view.
   const composedStore: Store = {
-    backend: "duck",
     graph: fakeGraph,
-    temporal: fakeGraph as unknown as ITemporalStore,
+    temporal: makeFakeTemporalForPack(knobs) as unknown as ITemporalStore,
     graphFile: ":memory:",
     temporalFile: ":memory:",
     close: async () => {

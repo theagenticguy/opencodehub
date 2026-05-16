@@ -211,7 +211,7 @@ function projectEdge(e: WikiEdge): CodeRelation {
 }
 
 class WikiFakeStore implements IGraphStore {
-  readonly dialect: GraphDialect = "none";
+  readonly dialect: GraphDialect = "cypher";
   readonly nodes: WikiNode[] = [];
   readonly edges: WikiEdge[] = [];
 

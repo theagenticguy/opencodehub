@@ -150,7 +150,7 @@ function sortEdges(edges: readonly FakeEdge[]): FakeEdge[] {
  * code under test.
  */
 export class FakeStore implements IGraphStore {
-  readonly dialect: GraphDialect = "none";
+  readonly dialect: GraphDialect = "cypher";
   readonly nodes: FakeNode[] = [];
   readonly edges: FakeEdge[] = [];
 

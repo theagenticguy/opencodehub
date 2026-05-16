@@ -79,8 +79,9 @@ export interface GeneratePackInternalOpts {
   /**
    * Backwards-compatible escape hatch — tests can supply an
    * {@link IGraphStore} alone when they don't exercise the sidecar.
-   * Internally wrapped into a minimal {@link Store} that stamps
-   * `backend: "duck"` so the duck-type sidecar probe still works.
+   * Internally wrapped into a minimal {@link Store}; the temporal view is
+   * a typed alias of the graph value, sufficient for tests that only
+   * exercise the graph-tier reads.
    */
   readonly graphOnly?: IGraphStore;
   readonly commit?: string;
@@ -319,19 +320,27 @@ async function resolveStore(internal: GeneratePackInternalOpts, repoPath: string
 
 /**
  * Wrap a graph-only store so the legacy test seam (`internal.graphOnly`)
- * resolves into the `Store` shape `generatePack` now expects. Stamps
- * `backend: "duck"` so duck-typed test fakes that attach
- * `exportEmbeddingsParquet` to the graph view still hit the COPY helper
- * branch in `writeEmbeddingsSidecar`. The temporal view is the same
- * graph reference cast to `ITemporalStore`; the sidecar never calls
- * temporal methods on the duck path (the COPY helper lives on the graph
- * view in `backend === "duck"` mode), so the cast is safe in tests.
+ * resolves into the `Store` shape `generatePack` now expects. The temporal
+ * view is a stub that drains the embeddings stream and reports `rowCount:
+ * 0` — sufficient for tests that don't exercise sidecar emission.
  */
 function wrapGraphOnly(graph: IGraphStore): Store {
+  // Drain the stream without writing anything — graph-only tests don't
+  // exercise the COPY path, so reporting rowCount: 0 keeps the sidecar
+  // result `absent` regardless of how many embeddings the fake produces.
+  const stubTemporal = {
+    exportEmbeddingsToParquet: async (
+      rows: AsyncIterable<unknown>,
+    ): Promise<{ rowCount: number; duckdbVersion: string }> => {
+      for await (const _row of rows) {
+        // drain
+      }
+      return { rowCount: 0, duckdbVersion: "stub" };
+    },
+  };
   return {
-    backend: "duck",
     graph,
-    temporal: graph as unknown as Store["temporal"],
+    temporal: stubTemporal as unknown as Store["temporal"],
     graphFile: ":memory:",
     temporalFile: ":memory:",
     close: async () => {

@@ -19,8 +19,8 @@ import { test } from "node:test";
 import type { KnowledgeGraph } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
-  DuckDbStore,
   EmbeddingRow,
+  IGraphStore,
   SearchQuery,
   SearchResult,
   SqlParam,
@@ -63,17 +63,15 @@ import { runVerdict } from "./verdict.js";
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns. The same
- * instance backs both `graph` and `temporal` because DuckDbStore
- * implements both interfaces over a single connection in production.
+ * (`OpenStoreResult`) that the connection pool returns. The same fake
+ * instance backs both `graph` and `temporal` views.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
   return {
-    backend: "duck" as const,
     graph: fake as import("@opencodehub/storage").IGraphStore,
     temporal: fake as import("@opencodehub/storage").ITemporalStore,
-    graphFile: "/in-memory/graph.duckdb",
-    temporalFile: "/in-memory/graph.duckdb",
+    graphFile: "/in-memory/graph.lbug",
+    temporalFile: "/in-memory/temporal.duckdb",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -89,7 +87,7 @@ function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
  * with the expected structured-content fields, so the smoke tests only
  * assert the `ToolResult` shape.
  */
-function makeFakeStore(): DuckDbStore {
+function makeFakeStore(): IGraphStore {
   const api = {
     open: async () => {},
     close: async () => {},
@@ -116,7 +114,7 @@ function makeFakeStore(): DuckDbStore {
     bulkLoadCochanges: async (_rows: readonly unknown[]): Promise<void> => {},
     lookupCochangesForFile: async () => [],
     lookupCochangesBetween: async () => undefined,
-  } as unknown as DuckDbStore;
+  } as unknown as IGraphStore;
   return api;
 }
 

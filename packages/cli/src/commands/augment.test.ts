@@ -23,7 +23,7 @@ import {
   type NodeId,
   type ProcessNode,
 } from "@opencodehub/core-types";
-import { DuckDbStore, resolveDbPath } from "@opencodehub/storage";
+import { openStore, resolveGraphPath } from "@opencodehub/storage";
 import { upsertRegistry } from "../registry.js";
 import { augment, runAugment } from "./augment.js";
 
@@ -40,12 +40,13 @@ async function seedRepoWithStore(
   await mkdir(join(repoPath, ".codehub"), { recursive: true });
   const g = new KnowledgeGraph();
   build(g);
-  const dbPath = resolveDbPath(repoPath);
-  const store = new DuckDbStore(dbPath);
+  const dbPath = resolveGraphPath(repoPath);
+  const store = await openStore({ path: dbPath });
   try {
-    await store.open();
-    await store.createSchema();
-    await store.bulkLoad(g);
+    await store.graph.open();
+    await store.temporal.open();
+    await store.graph.createSchema();
+    await store.graph.bulkLoad(g);
   } finally {
     await store.close();
   }

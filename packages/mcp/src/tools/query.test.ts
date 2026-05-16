@@ -33,8 +33,8 @@ import type { Embedder } from "@opencodehub/embedder";
 import type {
   AncestorTraversalOptions,
   BulkLoadStats,
-  DuckDbStore,
   EmbeddingRow,
+  IGraphStore,
   ListEdgesByTypeOptions,
   ListEdgesOptions,
   ListNodesOptions,
@@ -55,17 +55,15 @@ import type { EmbedderFactory, ToolContext } from "./shared.js";
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns. The same
- * instance backs both `graph` and `temporal` because DuckDbStore
- * implements both interfaces over a single connection in production.
+ * (`OpenStoreResult`) that the connection pool returns. The same fake
+ * instance backs both `graph` and `temporal` views.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
   return {
-    backend: "duck" as const,
     graph: fake as import("@opencodehub/storage").IGraphStore,
     temporal: fake as import("@opencodehub/storage").ITemporalStore,
-    graphFile: "/in-memory/graph.duckdb",
-    temporalFile: "/in-memory/graph.duckdb",
+    graphFile: "/in-memory/graph.lbug",
+    temporalFile: "/in-memory/temporal.duckdb",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -135,7 +133,7 @@ interface FakeStoreOptions {
 }
 
 interface FakeStoreHandle {
-  store: DuckDbStore;
+  store: IGraphStore;
   vectorCalls: number;
   searchCalls: number;
   /**
@@ -205,7 +203,7 @@ function buildProcessGraph(opts: FakeStoreOptions): {
 
 function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
   const handle: FakeStoreHandle = {
-    store: {} as DuckDbStore,
+    store: {} as IGraphStore,
     vectorCalls: 0,
     searchCalls: 0,
     lastSearchText: null,
@@ -377,7 +375,7 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
       });
       return out;
     },
-  } as unknown as DuckDbStore;
+  } as unknown as IGraphStore;
   handle.store = impl;
   return handle;
 }

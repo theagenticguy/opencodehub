@@ -3,7 +3,7 @@
  *
  * This adapter is the second implementation behind the `IGraphStore` seam.
  * DuckDbStore remains the default; this file ships the full lifecycle +
- * bulk-load surface so `CODEHUB_STORE=lbug` can already drive a
+ * bulk-load surface so the lbug graph backend already drives a
  * round-trip-clean graph write.
  *
  * Design notes:
@@ -105,8 +105,9 @@ export class GraphDbBindingError extends Error {
   constructor(cause: unknown) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     super(
-      "@ladybugdb/core native binding unavailable on this platform; " +
-        `use CODEHUB_STORE=duck. Underlying cause: ${detail}`,
+      "@ladybugdb/core native binding unavailable on this platform. " +
+        `OpenCodeHub requires the lbug graph backend; install or rebuild ` +
+        `@ladybugdb/core for this platform. Underlying cause: ${detail}`,
     );
     this.name = "GraphDbBindingError";
   }
@@ -123,8 +124,7 @@ export class GraphDbBindingError extends Error {
 // prepared statement parameter list.
 // ---------------------------------------------------------------------------
 
-/** Edge rel-table property columns. Matches graphdb-schema.ts. */
-const EDGE_COLUMNS: readonly string[] = ["id", "confidence", "reason", "step"];
+// Edge columns are encoded inline in edgeToCsvLine() — no separate constant needed.
 
 /**
  * Column layout for the `Embedding` node table. Matches graphdb-schema.ts.
@@ -164,40 +164,261 @@ export const ROUND_TRIP_COLUMN_MAP: readonly (readonly [
 ];
 
 // ---------------------------------------------------------------------------
-// Cypher template builders — amortising the string work across a full bulk
-// load. Closed over NODE_COLUMNS/EDGE_COLUMNS so any column rename is
-// caught at compile time.
+// COPY FROM (subquery) bulk insert
+// ---------------------------------------------------------------------------
+//
+// lbug v0.16.1 infers struct-field types per-row from JS values: integer-
+// valued numbers (Number.isInteger) → INT64, others → DOUBLE. A
+// `confidence=1.0` edge binds as INT64 and round-trips as garbage from a
+// DOUBLE column.
+//
+// The fix: COPY <Table> FROM (UNWIND $rows AS r RETURN ...) where numeric
+// columns use CAST(r.col AS <DDLtype>) and the raw values are passed as
+// strings. The COPY FROM path resolves types from the pre-defined table
+// schema, CAST converts the string to the correct type, and per-row
+// inference never runs on numerics.
+//
+// No temp files required — rows travel as a prepared-statement parameter.
 // ---------------------------------------------------------------------------
 
-function buildNodeCreateCypher(): string {
-  const propPairs = NODE_COLUMNS.map((col, i) => `${col}: $p${i + 1}`).join(", ");
-  return `CREATE (n:CodeNode {${propPairs}})`;
-}
+/**
+ * Column DDL type tags used to decide how to encode each value in the
+ * UNWIND row object and whether to wrap its RETURN expression in CAST.
+ * Must stay in the same order as NODE_COLUMNS.
+ */
+type ColKind = "str" | "int" | "double" | "bool" | "strarray";
 
-function buildNodeMergeCypher(): string {
-  // MERGE by primary key; SET every non-id field on both the create and
-  // match branches so the row's state is always the caller's newest view.
-  const setClauses = NODE_COLUMNS.slice(1)
-    .map((col, i) => `n.${col} = $p${i + 2}`)
-    .join(", ");
-  return `MERGE (n:CodeNode {id: $p1}) SET ${setClauses}`;
-}
+const NODE_COL_KINDS: readonly ColKind[] = (() => {
+  const map: Record<string, ColKind> = {
+    start_line: "int",
+    end_line: "int",
+    parameter_count: "int",
+    step_count: "int",
+    level: "int",
+    symbol_count: "int",
+    cyclomatic_complexity: "int",
+    nesting_depth: "int",
+    nloc: "int",
+    truck_factor: "int",
+    is_exported: "bool",
+    is_orphan: "bool",
+    cohesion: "double",
+    coverage_percent: "double",
+    halstead_volume: "double",
+    ownership_drift_30d: "double",
+    ownership_drift_90d: "double",
+    ownership_drift_365d: "double",
+    keywords: "strarray",
+    response_keys: "strarray",
+  };
+  return NODE_COLUMNS.map((col) => map[col] ?? "str");
+})();
 
-function buildEdgeCreateCypher(kind: string): string {
-  // p1 = from id, p2 = to id, p3..p6 = EDGE_COLUMNS.
-  const propPairs = EDGE_COLUMNS.map((col, i) => `${col}: $p${i + 3}`).join(", ");
-  return `MATCH (a:CodeNode {id: $p1}), (b:CodeNode {id: $p2}) CREATE (a)-[:${kind} {${propPairs}}]->(b)`;
-}
-
-function buildEdgeMergeCypher(kind: string): string {
-  // Pattern-match then SET. Matching by endpoints + label collapses duplicate
-  // edges that share (from, to, type); a second edge with the same triple
-  // updates the same rel's properties rather than adding a parallel edge.
-  const setClauses = EDGE_COLUMNS.map((col, i) => `r.${col} = $p${i + 3}`).join(", ");
+/**
+ * Build the `COPY CodeNode FROM (UNWIND $rows AS r RETURN ...)` statement.
+ * Numeric columns (INT32, DOUBLE) use CAST(r.col AS <type>) so that string-
+ * encoded values (e.g. "1", "0.9") reach the correct column type regardless
+ * of how the JS binding inferred the struct-field type. Non-numeric columns
+ * project directly as `r.col`.
+ */
+function buildNodeCopySubquery(): string {
+  const returnCols = NODE_COLUMNS.map((col, i) => {
+    switch (NODE_COL_KINDS[i]) {
+      case "int":
+        return `CAST(r.${col} AS INT32)`;
+      case "double":
+        return `CAST(r.${col} AS DOUBLE)`;
+      default:
+        return `r.${col}`;
+    }
+  }).join(", ");
+  // WITH r WHERE filters out the type-seeding sentinel row (see NODE_SENTINEL_ID).
   return (
-    `MATCH (a:CodeNode {id: $p1}), (b:CodeNode {id: $p2}) ` +
-    `MERGE (a)-[r:${kind}]->(b) SET ${setClauses}`
+    `COPY CodeNode FROM (UNWIND $rows AS r ` +
+    `WITH r WHERE r.id <> '${NODE_SENTINEL_ID}' ` +
+    `RETURN ${returnCols})`
   );
+}
+
+/**
+ * Sentinel id prepended to every UNWIND batch. Row 0 of `$rows` seeds the
+ * struct-field type for every column. When row 0 has a null field, the binder
+ * infers ANY for that field's type and fails with "Trying to create a vector
+ * with ANY type". The sentinel carries a concrete non-null value for every
+ * column, and the `WITH r WHERE r.id <> NODE_SENTINEL_ID` clause in the
+ * COPY subquery filters it out before any row lands in storage.
+ */
+const NODE_SENTINEL_ID = "__OCH_SENTINEL__";
+const EDGE_SENTINEL_ID = "__OCH_EDGE_SENTINEL__";
+
+/** Pre-built node copy statement (constant — column list never changes). */
+const NODE_COPY_SUBQUERY = buildNodeCopySubquery();
+
+function buildEdgeCopySubquery(kind: string): string {
+  // IGNORE_ERRORS=true skips rows where the FROM/TO node lookup fails — this
+  // handles the type-seeding sentinel row whose from/to point to a
+  // non-existent CodeNode. Real rows should always have valid endpoints; if
+  // they don't, the edge is silently dropped (same behaviour as the old
+  // per-row path which would throw on MATCH failure).
+  return (
+    // Row struct fields use `src`/`dst` instead of `from`/`to` because FROM
+    // and TO are Cypher keywords — using them as `r.from`/`r.to` is
+    // ambiguous and silently causes the COPY to misinterpret columns.
+    // The COPY column list `(id, confidence, reason, step)` specifies which rel
+    // properties to populate. The RETURN uses `r.eid` (not `r.id`) for the
+    // edge id to avoid lbug misinterpreting it as a CodeNode PK lookup: lbug
+    // treats a RETURN column named `id` as a node-PK reference when it matches
+    // the referenced node table's primary key column name. Using a different
+    // alias breaks the false match while the positional column list maps it to
+    // the rel's `id STRING` property.
+    `COPY ${kind}(id, confidence, reason, step) FROM ` +
+    `(UNWIND $rows AS r WITH r WHERE r.eid <> '${EDGE_SENTINEL_ID}' ` +
+    `RETURN r.src, r.dst, r.eid, CAST(r.confidence AS DOUBLE), r.reason, CAST(r.step AS INT32))`
+  );
+}
+
+/**
+ * Encode a GraphNode column value for the UNWIND parameter object.
+ * Numeric columns are encoded as strings so lbug's binder does not infer
+ * INT64 for integer-valued numbers; CAST in the RETURN expression then
+ * converts to the correct DDL type. All other values pass through as-is.
+ */
+function encodeNodeCol(v: unknown, kind: ColKind): unknown {
+  // strarray must never be null — lbug infers LIST(ANY) from a null field and
+  // fails with "Trying to create a vector with ANY type". Check before the
+  // null short-circuit so absent arrays become [] rather than null.
+  if (kind === "strarray") {
+    if (!Array.isArray(v)) return [] as string[];
+    return (v as unknown[]).filter((x) => typeof x === "string") as string[];
+  }
+  if (v === null || v === undefined) return null;
+  switch (kind) {
+    case "int":
+      return typeof v === "number" && Number.isFinite(v) ? String(Math.trunc(v)) : null;
+    case "double":
+      return typeof v === "number" && Number.isFinite(v) ? String(v) : null;
+    case "bool":
+      return typeof v === "boolean" ? v : null;
+    default:
+      return typeof v === "string" ? v : String(v);
+  }
+}
+
+/**
+ * Build the type-seeding sentinel row for a node batch. Every column gets a
+ * concrete non-null value matching its DDL type so lbug's binder can resolve
+ * every struct field at prepare time. The WITH/WHERE clause in the COPY
+ * subquery filters it out before any storage write.
+ *
+ * STRING[] columns get a single-element seed (`["__sentinel__"]`) — lbug's
+ * struct-field inference looks at the FIRST row's array contents to fix
+ * the LIST element type. An empty-array sentinel forces LIST(ANY) and the
+ * binder later throws "Trying to create a vector with ANY type" when a
+ * data row supplies a string. The seed value never reaches storage; the
+ * sentinel row is filtered before COPY writes.
+ */
+function buildNodeSentinel(): Record<string, unknown> {
+  const sentinel: Record<string, unknown> = {};
+  for (let i = 0; i < NODE_COLUMNS.length; i++) {
+    const col = NODE_COLUMNS[i] as string;
+    switch (NODE_COL_KINDS[i]) {
+      case "int":
+        sentinel[col] = "0";
+        break;
+      case "double":
+        sentinel[col] = "0.0";
+        break;
+      case "bool":
+        sentinel[col] = false;
+        break;
+      case "strarray":
+        sentinel[col] = ["__sentinel__"] as string[];
+        break;
+      default:
+        sentinel[col] = "";
+        break;
+    }
+  }
+  sentinel["id"] = NODE_SENTINEL_ID;
+  return sentinel;
+}
+
+/** Pre-built node sentinel row (constant — same shape for every batch). */
+const NODE_SENTINEL_ROW = buildNodeSentinel();
+
+/**
+ * Sentinel row for edge batches. Typed seed for every EDGE column so
+ * lbug's binder resolves struct fields even when the real batch has nulls.
+ */
+const EDGE_SENTINEL_ROW: Record<string, unknown> = {
+  eid: EDGE_SENTINEL_ID,
+  src: "",
+  dst: "",
+  confidence: "0.0",
+  reason: null,
+  step: null,
+};
+
+async function bulkInsertNodes(pool: GraphDbPool, nodes: readonly GraphNode[]): Promise<void> {
+  if (nodes.length === 0) return;
+  const rows: Record<string, unknown>[] = [NODE_SENTINEL_ROW];
+  for (const node of nodes) {
+    const cols = nodeToColumns(node);
+    const row: Record<string, unknown> = {};
+    for (let i = 0; i < NODE_COLUMNS.length; i++) {
+      const col = NODE_COLUMNS[i] as string;
+      const kind = NODE_COL_KINDS[i] as ColKind;
+      row[col] = encodeNodeCol(cols[col], kind);
+    }
+    rows.push(row);
+  }
+  await pool.execWrite(NODE_COPY_SUBQUERY, { rows });
+}
+
+async function mergeNodes(pool: GraphDbPool, nodes: readonly GraphNode[]): Promise<void> {
+  if (nodes.length === 0) return;
+  for (const n of nodes) {
+    await pool.query(`MATCH (n:CodeNode {id: $p1}) DETACH DELETE n`, [n.id]);
+  }
+  await bulkInsertNodes(pool, nodes);
+}
+
+async function bulkInsertEdges(
+  pool: GraphDbPool,
+  kind: string,
+  edges: readonly EdgeRow[],
+): Promise<void> {
+  if (edges.length === 0) return;
+  const rows: Record<string, unknown>[] = [EDGE_SENTINEL_ROW];
+  for (const e of edges) {
+    rows.push({
+      eid: e.id,
+      src: e.from,
+      dst: e.to,
+      confidence:
+        typeof e.confidence === "number" && Number.isFinite(e.confidence)
+          ? String(e.confidence)
+          : null,
+      reason: e.reason ?? null,
+      step:
+        e.step !== undefined && typeof e.step === "number" && Number.isFinite(e.step)
+          ? String(e.step)
+          : null,
+    });
+  }
+  await pool.execWrite(buildEdgeCopySubquery(kind), { rows });
+}
+
+async function mergeEdges(
+  pool: GraphDbPool,
+  kind: string,
+  edges: readonly EdgeRow[],
+): Promise<void> {
+  if (edges.length === 0) return;
+  for (const e of edges) {
+    await pool.query(`MATCH ()-[r:${kind} {id: $p1}]->() DELETE r`, [e.id]);
+  }
+  await bulkInsertEdges(pool, kind, edges);
 }
 
 function buildEmbeddingCreateCypher(): string {
@@ -313,25 +534,30 @@ export class GraphDbStore implements IGraphStore {
     const pool = this.requirePool();
     const started = performance.now();
     const mode = opts.mode ?? "replace";
+    const reportProgress = (
+      ev: Parameters<NonNullable<BulkLoadOptions["onProgress"]>>[0],
+    ): void => {
+      if (opts.onProgress === undefined) return;
+      try {
+        opts.onProgress(ev);
+      } catch {
+        // Progress-callback errors must never mask bulk-load failures.
+      }
+    };
 
     if (mode === "replace") {
+      reportProgress({ kind: "truncate-start", elapsedMs: performance.now() - started });
       await this.truncateAll();
+      reportProgress({ kind: "truncate-end", elapsedMs: performance.now() - started });
     }
 
     const nodes = dedupeLastById(graph.orderedNodes(), (n) => n.id);
-    await this.insertNodes(pool, nodes, mode);
+    await this.insertNodes(pool, nodes, mode, reportProgress, started);
 
-    // Group edges by relation type so we build one Cypher template per kind
-    // and iterate its bucket with a single parameter set. The native binding
-    // does not let us parameterize the rel label, so each kind needs its own
-    // template.
     const edges = dedupeLastById(graph.orderedEdges(), (e) => e.id);
     const byKind = new Map<RelationType, EdgeRow[]>();
     for (const e of edges) {
       const bucket = byKind.get(e.type) ?? [];
-      // `exactOptionalPropertyTypes` rejects explicit `undefined` on an
-      // optional property — spread the narrow fields then conditionally
-      // attach `reason`/`step` only when they carry a real value.
       const row: EdgeRow = {
         id: e.id,
         from: e.from,
@@ -344,9 +570,39 @@ export class GraphDbStore implements IGraphStore {
       bucket.push(row);
       byKind.set(e.type, bucket);
     }
-    for (const [kind, bucket] of byKind) {
-      await this.insertEdgesForKind(pool, kind, bucket, mode);
+    if (edges.length > 0) {
+      reportProgress({
+        kind: "edges-start",
+        total: edges.length,
+        elapsedMs: performance.now() - started,
+      });
     }
+    let edgesDone = 0;
+    for (const [kind, bucket] of byKind) {
+      await this.insertEdgesForKind(pool, kind, bucket, mode, reportProgress, () => {
+        edgesDone += bucket.length;
+        return { done: edgesDone, total: edges.length, elapsedMs: performance.now() - started };
+      });
+    }
+    if (edges.length > 0) {
+      reportProgress({
+        kind: "edges-end",
+        done: edges.length,
+        total: edges.length,
+        elapsedMs: performance.now() - started,
+      });
+    }
+
+    // Build the search-side indexes here so subsequent read-only opens
+    // can query without triggering writes. lbug rejects
+    // `CALL CREATE_FTS_INDEX` / `CALL CREATE_VECTOR_INDEX` on a readOnly
+    // Database — and `ensureFtsIndex` / `ensureVectorIndex` correctly
+    // no-op in that mode. Any failure at this stage is non-fatal: the
+    // FTS / VECTOR extension may not be available on the host platform,
+    // in which case search/vectorSearch will surface a clearer error
+    // from the extension load path the next time they're called.
+    await this.ensureFtsExtension().catch(() => {});
+    await this.ensureFtsIndex().catch(() => {});
 
     const durationMs = performance.now() - started;
     return {
@@ -372,13 +628,26 @@ export class GraphDbStore implements IGraphStore {
     pool: GraphDbPool,
     nodes: readonly GraphNode[],
     mode: "replace" | "upsert",
+    reportProgress: (ev: Parameters<NonNullable<BulkLoadOptions["onProgress"]>>[0]) => void,
+    bulkStartedAt: number,
   ): Promise<void> {
     if (nodes.length === 0) return;
-    const cypher = mode === "upsert" ? buildNodeMergeCypher() : buildNodeCreateCypher();
-    for (const node of nodes) {
-      const params = nodeToParams(node);
-      await pool.query(cypher, params);
+    reportProgress({
+      kind: "nodes-start",
+      total: nodes.length,
+      elapsedMs: performance.now() - bulkStartedAt,
+    });
+    if (mode === "upsert") {
+      await mergeNodes(pool, nodes);
+    } else {
+      await bulkInsertNodes(pool, nodes);
     }
+    reportProgress({
+      kind: "nodes-end",
+      done: nodes.length,
+      total: nodes.length,
+      elapsedMs: performance.now() - bulkStartedAt,
+    });
   }
 
   private async insertEdgesForKind(
@@ -386,26 +655,17 @@ export class GraphDbStore implements IGraphStore {
     kind: string,
     edges: readonly EdgeRow[],
     mode: "replace" | "upsert",
+    reportProgress: (ev: Parameters<NonNullable<BulkLoadOptions["onProgress"]>>[0]) => void,
+    cumulative: () => { done: number; total: number; elapsedMs: number },
   ): Promise<void> {
     if (edges.length === 0) return;
-    const cypher = mode === "upsert" ? buildEdgeMergeCypher(kind) : buildEdgeCreateCypher(kind);
-    for (const e of edges) {
-      // `step` is preserved as NULL when the source edge omits it so the
-      // round-trip reader can distinguish "intentionally absent" from
-      // "explicit zero". DuckDbStore stores 0 in both cases because the
-      // column is NOT NULL; the graph-db schema declares it as nullable
-      // INT32 and the canonical-JSON hash stays stable across backends as
-      // long as both adapters agree on the sentinel.
-      const params: SqlParam[] = [
-        e.from,
-        e.to,
-        e.id,
-        e.confidence,
-        e.reason ?? null,
-        e.step ?? null,
-      ];
-      await pool.query(cypher, params);
+    if (mode === "upsert") {
+      await mergeEdges(pool, kind, edges);
+    } else {
+      await bulkInsertEdges(pool, kind, edges);
     }
+    const c = cumulative();
+    reportProgress({ kind: "edges-batch", relType: kind, ...c });
   }
 
   // --------------------------------------------------------------------------
@@ -1504,6 +1764,13 @@ export class GraphDbStore implements IGraphStore {
 
   private async ensureFtsIndex(): Promise<void> {
     if (this.ftsIndexBuilt) return;
+    // Read-only opens cannot run `CALL CREATE_FTS_INDEX` (lbug rejects
+    // writes against a readOnly Database). The index is built at
+    // bulk-load time on the write path; readers just query it.
+    if (this.readOnly) {
+      this.ftsIndexBuilt = true;
+      return;
+    }
     const pool = this.requirePool();
     // `CALL CREATE_FTS_INDEX` fails if the index already exists; swallow
     // that specific failure so the call is idempotent from the adapter's
@@ -1521,6 +1788,10 @@ export class GraphDbStore implements IGraphStore {
 
   private async ensureVectorIndex(): Promise<void> {
     if (this.vectorIndexBuilt) return;
+    if (this.readOnly) {
+      this.vectorIndexBuilt = true;
+      return;
+    }
     const pool = this.requirePool();
     try {
       await pool.query("CALL CREATE_VECTOR_INDEX('Embedding', 'och_vec', 'vector')");
@@ -1564,20 +1835,6 @@ interface EdgeRow {
   readonly confidence: number;
   readonly reason?: string;
   readonly step?: number;
-}
-
-/**
- * Convert a GraphNode into the positional parameter list matching
- * `NODE_COLUMNS` (now exported from `./column-encode.ts`). The body is a
- * thin projection from the canonical column-keyed map produced by
- * {@link nodeToColumns} into the positional shape the native binding
- * expects. `null` is used for any field the node does not carry. Arrays
- * are passed through as `string[]` — the native binding accepts a JS array
- * directly for the STRING[] column type.
- */
-function nodeToParams(node: GraphNode): readonly SqlParam[] {
-  const cols = nodeToColumns(node);
-  return NODE_COLUMNS.map((key) => cols[key] as SqlParam);
 }
 
 /**
