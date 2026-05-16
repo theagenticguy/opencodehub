@@ -1,11 +1,11 @@
 # ADR 0011 — Graph-DB backend (LadybugDB phase-1)
 
 - Status: **Partially superseded** by [ADR 0016](./0016-duckdb-graph-rip.md)
-  (2026-05-16) — the "DuckDB-default + LadybugDB opt-in" framing is
-  obsolete; lbug is the unconditional graph backend after the rip.
-  The LadybugDB integration shape and `IGraphStore` design this ADR
-  introduced are unchanged.
-- Was: **Accepted** — 2026-05-05 (Proposed) → flipped on the M3 merge.
+  on 2026-05-16. The "DuckDB-default plus LadybugDB opt-in" framing is
+  obsolete; lbug is the unconditional graph backend after the rip. The
+  LadybugDB integration shape and `IGraphStore` design introduced here
+  are unchanged.
+- Was: **Accepted** on 2026-05-05 and flipped on the M3 merge.
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-m3-m4`.
 - Supersedes nothing. Interacts with ADR 0001 (DuckDB backend stays the

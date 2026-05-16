@@ -6,13 +6,12 @@
 > on the same release. The next ADR uses 0014.
 
 - Status: **Superseded** by [ADR 0016](./0016-duckdb-graph-rip.md)
-  (2026-05-16). The auto-probe / dual-artifact / `CODEHUB_STORE`
-  resolver this ADR introduced was ripped out alongside the DuckDB
-  graph adapter; lbug is now the unconditional graph backend and DuckDB
-  is the temporal-only sidecar. The interface segregation this ADR
-  argued for survives — that's still the load-bearing reason community
-  AGE / Memgraph / Neo4j / Neptune adapters fit.
-- Was: **Accepted** — 2026-05-09 (Proposed) → flipped on the
+  on 2026-05-16. The auto-probe, dual-artifact arbitration, and
+  `CODEHUB_STORE` resolver introduced here are gone. lbug is the only
+  graph backend; DuckDB serves the temporal tier. The
+  IGraphStore/ITemporalStore segregation survives because community
+  adapters (AGE, Memgraph, Neo4j, Neptune) target it.
+- Was: **Accepted** on 2026-05-09 and flipped on the
   `feat/v1-finalize-track-a` merge (PR #71).
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-finalize-track-a`.
