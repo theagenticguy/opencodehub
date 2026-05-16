@@ -14,7 +14,6 @@ import type { ScannerRunContext } from "../spec.js";
 import { createBanditWrapper } from "./bandit.js";
 import { createBetterleaksWrapper } from "./betterleaks.js";
 import { createBiomeWrapper } from "./biome.js";
-import { createDetectSecretsWrapper } from "./detect-secrets.js";
 import { createOsvScannerWrapper } from "./osv-scanner.js";
 import { createSemgrepWrapper } from "./semgrep.js";
 import type { WrapperDeps } from "./shared.js";
@@ -100,13 +99,34 @@ test("semgrep wrapper returns empty SARIF + skipped when binary missing", async 
   assert.ok(out.skipped?.includes("not found on PATH"));
 });
 
-test("betterleaks wrapper passes --report-format=sarif", async () => {
+test("betterleaks wrapper passes --report-path=- (avoids /dev/stdout ENXIO bug)", async () => {
   const sarif = fakeSarif("betterleaks", "aws-access-token");
   const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif) }));
   const wrapper = createBetterleaksWrapper(deps);
   await wrapper.run(ctx);
   assert.equal(calls[0]?.cmd, "betterleaks");
   assert.ok(calls[0]?.args.includes("--report-format=sarif"));
+  assert.ok(
+    calls[0]?.args.includes("--report-path=-"),
+    "must use '-' for stdout — '/dev/stdout' fails ENXIO inside execFile",
+  );
+  assert.ok(calls[0]?.args.includes("--no-banner"));
+});
+
+test("betterleaks wrapper uses `dir` mode and injects vendored config", async () => {
+  const sarif = fakeSarif("betterleaks", "aws-access-token");
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif) }));
+  const wrapper = createBetterleaksWrapper(deps);
+  // ctx.projectPath = "/tmp/fake-repo" (no user betterleaks.toml). Wrapper
+  // uses `dir` mode so the scan reflects working-tree state, not git
+  // history.
+  await wrapper.run(ctx);
+  const args = calls[0]?.args ?? [];
+  assert.equal(args[0], "dir", "wrapper always uses `dir` subcommand");
+  // Vendored config should be injected when no user config is present.
+  const cfgArg = [...args].find((a) => a.startsWith("--config="));
+  assert.ok(cfgArg, "vendored default config must be injected when project has none");
+  assert.match(cfgArg ?? "", /betterleaks\.default\.toml$/);
 });
 
 test("osv-scanner wrapper sends --offline-vulnerabilities", async () => {
@@ -166,81 +186,4 @@ test("wrappers emit empty SARIF when stdout is malformed", async () => {
   const wrapper = createSemgrepWrapper(deps);
   const out = await wrapper.run(ctx);
   assert.equal(out.sarif.runs[0]?.results?.length, 0);
-});
-
-// ---------- detect-secrets ------------------------------------------------
-
-test("detect-secrets wrapper invokes `scan . --all-files`", async () => {
-  const json = {
-    version: "1.5.0",
-    results: {
-      "src/x.ts": [
-        {
-          type: "AWS Access Key",
-          filename: "src/x.ts",
-          hashed_secret: "h",
-          is_verified: false,
-          line_number: 5,
-        },
-      ],
-    },
-  };
-  const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify(json), exitCode: 0 }));
-  const wrapper = createDetectSecretsWrapper(deps);
-  const out = await wrapper.run(ctx);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.cmd, "detect-secrets");
-  assert.deepEqual([...(calls[0]?.args ?? [])], ["scan", ".", "--all-files"]);
-  assert.equal(out.sarif.runs[0]?.tool.driver.name, "detect-secrets");
-  assert.equal(out.sarif.runs[0]?.results?.[0]?.ruleId, "AWSKeyDetector");
-});
-
-test("detect-secrets wrapper returns empty SARIF + skipped when binary missing", async () => {
-  const { deps } = makeFakeDeps(() => ({ stdout: "" }), { missing: ["detect-secrets"] });
-  const wrapper = createDetectSecretsWrapper(deps);
-  const out = await wrapper.run(ctx);
-  // tool.driver.name must be preserved even when skipped.
-  assert.equal(out.sarif.runs[0]?.tool.driver.name, "detect-secrets");
-  assert.equal(out.sarif.runs[0]?.results?.length, 0);
-  assert.ok(out.skipped?.includes("not found on PATH"));
-});
-
-test("detect-secrets wrapper emits empty SARIF when stdout is malformed", async () => {
-  const { deps } = makeFakeDeps(() => ({ stdout: "this is not json", exitCode: 0 }));
-  const wrapper = createDetectSecretsWrapper(deps);
-  const out = await wrapper.run(ctx);
-  assert.equal(out.sarif.runs[0]?.tool.driver.name, "detect-secrets");
-  assert.equal(out.sarif.runs[0]?.results?.length, 0);
-});
-
-test("detect-secrets wrapper passes overlapping findings through", async () => {
-  // KeywordDetector + AWSKeyDetector firing on the same line: both must
-  // appear in the SARIF output; OCH's downstream merge handles dedupe.
-  const json = {
-    results: {
-      "src/secret.py": [
-        {
-          type: "AWS Access Key",
-          filename: "src/secret.py",
-          hashed_secret: "h1",
-          is_verified: false,
-          line_number: 7,
-        },
-        {
-          type: "Secret_Keyword",
-          filename: "src/secret.py",
-          hashed_secret: "h2",
-          is_verified: false,
-          line_number: 7,
-        },
-      ],
-    },
-  };
-  const { deps } = makeFakeDeps(() => ({ stdout: JSON.stringify(json), exitCode: 0 }));
-  const wrapper = createDetectSecretsWrapper(deps);
-  const out = await wrapper.run(ctx);
-  const results = out.sarif.runs[0]?.results ?? [];
-  assert.equal(results.length, 2);
-  assert.equal(results[0]?.ruleId, "AWSKeyDetector");
-  assert.equal(results[1]?.ruleId, "KeywordDetector");
 });

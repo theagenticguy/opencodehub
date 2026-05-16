@@ -25,7 +25,7 @@ binary; every other package is a library imported by `cli`, `mcp`,
 | `@opencodehub/pack` | `packages/pack` | Deterministic 9-item code-pack BOM (the artifact attached to every release). |
 | `@opencodehub/policy` | `packages/policy` | `opencodehub.policy.yaml` loader, validator, evaluator. |
 | `@opencodehub/sarif` | `packages/sarif` | SARIF 2.1.0 Zod schemas, merge + enrich, suppressions, baseline diffing. |
-| `@opencodehub/scanners` | `packages/scanners` | Twenty scanner wrappers (semgrep, osv-scanner, bandit, ruff, grype, vulture, pip-audit, npm-audit, biome, betterleaks, detect-secrets, trivy, checkov, hadolint, tflint, spectral, radon, ty, clamav, och self-scan). |
+| `@opencodehub/scanners` | `packages/scanners` | Nineteen scanner wrappers (semgrep, osv-scanner, bandit, ruff, grype, vulture, pip-audit, npm-audit, biome, betterleaks, trivy, checkov, hadolint, tflint, spectral, radon, ty, clamav, och self-scan). |
 | `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
 | `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
 | `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the LadybugDB and DuckDB adapters, the resolver that picks between them. |

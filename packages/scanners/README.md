@@ -35,7 +35,6 @@ fixed in `P1_SPECS` (lines 305-318); P2 ordering in `P2_SPECS` (lines 321-330).
 | `betterleaks`            | all (secrets)                   | yes          | MIT               |
 | `osv-scanner`            | all (deps)                      | yes          | Apache-2.0        |
 | `bandit`                 | python                          | yes          | Apache-2.0        |
-| `detect-secrets`         | all (Yelp keyword + basic-auth) | no           | Apache-2.0        |
 | `biome`                  | typescript / javascript / tsx   | yes          | MIT               |
 | `pip-audit`              | python                          | no           | Apache-2.0        |
 | `npm-audit`              | typescript / javascript         | no           | Artistic-2.0 bin  |
@@ -68,9 +67,14 @@ fixed in `P1_SPECS` (lines 305-318); P2 ordering in `P2_SPECS` (lines 321-330).
   catalog before launch, so scans don't waste time on irrelevant tools.
 - **SHA256-pinned versions** — every spec carries a `version` and an
   `installCmd`; CI installs the exact version listed.
-- **`detect-secrets` is the 20th scanner** — added to catch keyword and
-  basic-auth secret shapes that betterleaks structurally cannot see
-  (`packages/scanners/src/catalog.ts:64-82`).
+- **`betterleaks` ships a vendored default config** at
+  `packages/scanners/config/betterleaks.default.toml`. It extends the
+  upstream 276 default rules and layers an `[allowlists]` block that
+  drops findings on vendored deps, lockfiles, build outputs, SBOMs,
+  generated SARIF, and common test-fixture directories. Users override
+  by placing their own `betterleaks.toml` (or `.gitleaks.toml`) at the
+  project root. The wrapper auto-detects user configs and only injects
+  the vendored one when the project doesn't carry its own.
 - **`optIn` and `beta` flags** — `clamav` is opt-in (off by profile);
   `ty` is marked beta. Both are excluded from the default
   `filterSpecsByProfile` output unless asked for explicitly.

@@ -63,8 +63,8 @@ jobs:
       - name: Install with frozen lockfile and no lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-  detect-secrets:
-    name: detect-secrets full sweep
+  betterleaks:
+    name: betterleaks full sweep
     if: startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
@@ -72,25 +72,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install detect-secrets
-        run: pip install --user 'detect-secrets==1.5.0'
-      - name: Sweep tracked tree
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4.0.1
+      - name: Sweep working tree
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
-          # The repo already ships .secrets.baseline (per Track B). The
-          # release gate re-asserts that no NEW secrets have crept in.
-          if [ -f .secrets.baseline ]; then
-            detect-secrets scan --baseline .secrets.baseline
-          else
-            detect-secrets scan --all-files > /tmp/scan.json
-            FOUND=$(python3 -c "import json,sys; d=json.load(open('/tmp/scan.json')); n=sum(len(v) for v in d.get('results',{}).values()); print(n)")
-            if [ "$FOUND" != "0" ]; then
-              echo "detect-secrets found $FOUND potential secrets" >&2
-              cat /tmp/scan.json
-              exit 1
-            fi
-          fi
+          # `dir` mode reflects the current checkout (not the entire git
+          # log), matching what `codehub analyze` runs locally. The
+          # vendored config is the same file the wrapper auto-injects.
+          betterleaks dir \
+            --no-banner \
+            --config=packages/scanners/config/betterleaks.default.toml \
+            --exit-code=1 \
+            .
 
   licenses-reassert:
     name: License allowlist re-assert

@@ -61,26 +61,6 @@ export const BANDIT_SPEC: ScannerSpec = {
   license: "Apache-2.0",
 };
 
-// detect-secrets — Yelp's polyglot secret scanner. The 20th scanner per
-// ROADMAP constraint 10. v1.5.0 shipped 2024-05-06; master is still
-// active but no new tag in ~24 months — stale-since flag captured here
-// rather than in a dedicated field. Unique value over betterleaks comes
-// from KeywordDetector (`admin_password = "hunter2"`) and
-// BasicAuthDetector (`https://user:pass@host`) — classes of secrets a
-// regex-shape scanner structurally cannot see.
-export const DETECT_SECRETS_SPEC: ScannerSpec = {
-  id: "detect-secrets",
-  name: "detect-secrets",
-  languages: "all",
-  iacTypes: [],
-  sarifNative: false,
-  installCmd: "pipx install detect-secrets==1.5.0",
-  version: "1.5.0",
-  offlineCapable: true,
-  priority: 1,
-  license: "Apache-2.0",
-};
-
 export const BIOME_SPEC: ScannerSpec = {
   id: "biome",
   name: "Biome",
@@ -307,7 +287,6 @@ export const P1_SPECS: readonly ScannerSpec[] = [
   BETTERLEAKS_SPEC,
   OSV_SCANNER_SPEC,
   BANDIT_SPEC,
-  DETECT_SECRETS_SPEC,
   BIOME_SPEC,
   PIP_AUDIT_SPEC,
   NPM_AUDIT_SPEC,
