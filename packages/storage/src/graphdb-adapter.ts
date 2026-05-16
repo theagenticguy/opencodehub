@@ -347,6 +347,46 @@ function buildNodeSentinel(): Record<string, unknown> {
 const NODE_SENTINEL_ROW = buildNodeSentinel();
 
 /**
+ * Walk the edge set and synthesize a stub `Repository` node for every
+ * `from`/`to` id that doesn't appear in the node set. The pipeline's
+ * fetches phase (and any future cross-repo edge that points at a
+ * not-yet-resolved target) emits ids like `fetches:unresolved:GET:/users/1`
+ * that intentionally have no corresponding node — the URL template lives
+ * on the edge's `reason` for downstream lookup. lbug's COPY rejects
+ * those edges because the to-node primary key is missing; DuckDB used to
+ * accept them silently. Synthesize a minimal placeholder so the bulk
+ * load completes, with the original id preserved for round-trip.
+ */
+function synthesizePlaceholderNodes(
+  nodes: readonly GraphNode[],
+  edges: readonly { readonly from: NodeId; readonly to: NodeId }[],
+): GraphNode[] {
+  const known = new Set<string>();
+  for (const n of nodes) known.add(n.id as string);
+  const missing = new Set<string>();
+  for (const e of edges) {
+    if (!known.has(e.from as string)) missing.add(e.from as string);
+    if (!known.has(e.to as string)) missing.add(e.to as string);
+  }
+  if (missing.size === 0) return [];
+  const out: GraphNode[] = [];
+  for (const id of missing) {
+    // Route is the right kind for unresolved-fetch placeholders (the
+    // edge that referenced it was a FETCHES targeting an HTTP endpoint).
+    // For other orphan id shapes the kind is still cosmetic — the only
+    // load-bearing requirement is that the COPY finds a primary key.
+    out.push({
+      id: id as NodeId,
+      kind: "Route",
+      name: id,
+      filePath: "<placeholder>",
+      url: id,
+    } as GraphNode);
+  }
+  return out;
+}
+
+/**
  * Sentinel row for edge batches. Typed seed for every EDGE column so
  * lbug's binder resolves struct fields even when the real batch has nulls.
  */
@@ -534,6 +574,17 @@ export class GraphDbStore implements IGraphStore {
     const pool = this.requirePool();
     const started = performance.now();
     const mode = opts.mode ?? "replace";
+    // The FTS extension must be loaded on the active connection before
+    // any DELETE / DETACH DELETE on CodeNode runs. lbug builds the FTS
+    // index against the table; without the extension loaded, deletes
+    // surface "Trying to delete from an index on table CodeNode but its
+    // extension is not loaded". Both replace-mode `truncateAll` and
+    // upsert-mode `mergeNodes` issue such deletes, so load it
+    // unconditionally up front. Failures are swallowed: the extension
+    // may not be available on the host platform, in which case the
+    // search-side codepath surfaces a clearer error from
+    // `ensureFtsExtension` later.
+    await this.ensureFtsExtension().catch(() => {});
     const reportProgress = (
       ev: Parameters<NonNullable<BulkLoadOptions["onProgress"]>>[0],
     ): void => {
@@ -552,9 +603,17 @@ export class GraphDbStore implements IGraphStore {
     }
 
     const nodes = dedupeLastById(graph.orderedNodes(), (n) => n.id);
-    await this.insertNodes(pool, nodes, mode, reportProgress, started);
-
     const edges = dedupeLastById(graph.orderedEdges(), (e) => e.id);
+    // lbug's COPY enforces that every relation's from/to is a real
+    // CodeNode primary key. The pipeline emits synthetic edge targets
+    // (e.g. unresolved FETCHES placeholders carrying the URL template
+    // in `reason`) that never have a matching node. Synthesize one
+    // CodeNode per orphan id so the COPY succeeds; downstream tools
+    // recognise these by their well-known id prefix.
+    const synthetic = synthesizePlaceholderNodes(nodes, edges);
+    const allNodes = synthetic.length > 0 ? [...nodes, ...synthetic] : nodes;
+    await this.insertNodes(pool, allNodes, mode, reportProgress, started);
+
     const byKind = new Map<RelationType, EdgeRow[]>();
     for (const e of edges) {
       const bucket = byKind.get(e.type) ?? [];
