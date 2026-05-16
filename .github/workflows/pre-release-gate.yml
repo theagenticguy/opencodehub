@@ -9,7 +9,7 @@
 #
 #   - npm-audit at high+ severity
 #   - pnpm lockfile integrity (frozen + no lifecycle scripts)
-#   - detect-secrets full sweep
+#   - betterleaks full sweep (with the vendored default config)
 #   - license allowlist re-assertion
 #   - aggregate "all checks green" gate that blocks merge if anything failed
 #
@@ -113,7 +113,7 @@ jobs:
     needs:
       - npm-audit
       - lockfile-integrity
-      - detect-secrets
+      - betterleaks
       - licenses-reassert
     if: always()
     runs-on: ubuntu-latest
