@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.1.2...scanners-v0.2.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118))
+
+### Features
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118)) ([d370f9e](https://github.com/theagenticguy/opencodehub/commit/d370f9e9ad3acbcc1231403e00bbee5cf0e487bd))
+
 ## [0.1.2](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.1.1...scanners-v0.1.2) (2026-05-12)
 
 

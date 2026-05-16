@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.4.0...cli-v0.5.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118))
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117))
+
+### Features
+
+* drop detect-secrets; ship tuned betterleaks default config ([#118](https://github.com/theagenticguy/opencodehub/issues/118)) ([d370f9e](https://github.com/theagenticguy/opencodehub/commit/d370f9e9ad3acbcc1231403e00bbee5cf0e487bd))
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117)) ([49e14fd](https://github.com/theagenticguy/opencodehub/commit/49e14fdd3901e57dec3c86dd8645b5940d5d7c0a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.0
+    * @opencodehub/ingestion bumped to 0.4.1
+    * @opencodehub/mcp bumped to 0.4.0
+    * @opencodehub/pack bumped to 0.2.0
+    * @opencodehub/scanners bumped to 0.2.0
+    * @opencodehub/search bumped to 0.2.0
+    * @opencodehub/storage bumped to 0.2.0
+    * @opencodehub/wiki bumped to 0.2.0
+
 ## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.3.0...cli-v0.4.0) (2026-05-15)
 
 

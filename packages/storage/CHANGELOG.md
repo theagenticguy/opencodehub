@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/storage-v0.1.2...storage-v0.2.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117))
+
+### Features
+
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117)) ([49e14fd](https://github.com/theagenticguy/opencodehub/commit/49e14fdd3901e57dec3c86dd8645b5940d5d7c0a))
+
 ## [0.1.2](https://github.com/theagenticguy/opencodehub/compare/storage-v0.1.1...storage-v0.1.2) (2026-05-12)
 
 

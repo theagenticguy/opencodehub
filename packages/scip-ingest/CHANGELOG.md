@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.1...scip-ingest-v0.2.2) (2026-05-16)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.0
+
 ## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.0...scip-ingest-v0.2.1) (2026-05-15)
 
 

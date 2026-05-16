@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/pack-v0.1.4...pack-v0.2.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117))
+
+### Features
+
+* lbug-only graph backend; rip DuckDB graph adapter ([#117](https://github.com/theagenticguy/opencodehub/issues/117)) ([49e14fd](https://github.com/theagenticguy/opencodehub/commit/49e14fdd3901e57dec3c86dd8645b5940d5d7c0a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.0
+    * @opencodehub/ingestion bumped to 0.4.1
+    * @opencodehub/storage bumped to 0.2.0
+
 ## [0.1.4](https://github.com/theagenticguy/opencodehub/compare/pack-v0.1.3...pack-v0.1.4) (2026-05-15)
 
 

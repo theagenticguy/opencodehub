@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.0...ingestion-v0.4.1) (2026-05-16)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.0
+    * @opencodehub/scip-ingest bumped to 0.2.2
+    * @opencodehub/storage bumped to 0.2.0
+
 ## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.3.2...ingestion-v0.4.0) (2026-05-15)
 
 
