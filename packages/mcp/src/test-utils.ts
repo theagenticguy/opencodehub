@@ -13,7 +13,7 @@
  *
  * The module is intentionally tolerant: every typed finder has a sane
  * default that filters the seeded arrays exactly the way the real
- * `DuckDbStore` does. Tests can override a single finder via the
+ * graph-backed adapter does. Tests can override a single finder via the
  * `overrides` parameter when they need bespoke behaviour (e.g. cochanges,
  * BM25 search, traversal).
  */
@@ -40,7 +40,6 @@ import type {
   BulkLoadStats,
   ConsumerProducerEdge,
   DescendantTraversalOptions,
-  DuckDbStore,
   EmbeddingRow,
   IGraphStore,
   ITemporalStore,
@@ -70,17 +69,16 @@ import { ConnectionPool } from "./connection-pool.js";
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns. The same
- * instance backs both `graph` and `temporal` because DuckDbStore
- * implements both interfaces over a single connection in production.
+ * (`OpenStoreResult`) that the connection pool returns. The same fake
+ * instance backs both `graph` and `temporal` views — tests don't care
+ * about the production split between lbug graph + DuckDB temporal.
  */
 export function wrapAsStore(fake: unknown): Store {
   return {
-    backend: "duck" as const,
     graph: fake as IGraphStore,
     temporal: fake as ITemporalStore,
-    graphFile: "/in-memory/graph.duckdb",
-    temporalFile: "/in-memory/graph.duckdb",
+    graphFile: "/in-memory/graph.lbug",
+    temporalFile: "/in-memory/temporal.duckdb",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -328,13 +326,13 @@ function applyLikeFilter(value: string, pattern: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// makeFakeGraphStore — the typed-finder-shaped DuckDbStore fake.
+// makeFakeGraphStore — the typed-finder-shaped IGraphStore fake.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function makeFakeGraphStore(
   data: FakeData = {},
   overrides: StoreOverrides = {},
-): DuckDbStore {
+): IGraphStore {
   const nodes = data.nodes ?? [];
   const edges = data.edges ?? [];
   const findings = data.findings ?? [];
@@ -610,7 +608,7 @@ export function makeFakeGraphStore(
     defaults[key] = value;
   }
 
-  return defaults as unknown as DuckDbStore;
+  return defaults as unknown as IGraphStore;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -637,7 +635,7 @@ export interface McpHarness {
 export interface MakeHarnessOptions {
   readonly repoName?: string;
   readonly registry?: Readonly<Record<string, FakeRegistryEntry>>;
-  readonly storeFactory: () => DuckDbStore | Promise<DuckDbStore>;
+  readonly storeFactory: () => IGraphStore | Promise<IGraphStore>;
   readonly serverCapabilities?: { tools?: object; resources?: object };
   readonly tmpPrefix?: string;
 }

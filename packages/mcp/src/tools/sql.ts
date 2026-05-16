@@ -1,19 +1,17 @@
 /**
  * `sql` — raw read-only SQL / Cypher over the local graph store.
  *
- * The tool accepts either `sql` (DuckDB backend) or `cypher` (graph-db
- * backend, `CODEHUB_STORE=lbug`) — exactly one per call. The read-only
- * guards (`assertReadOnlySql` / `assertReadOnlyCypher`) reject any write
- * verb before the statement reaches the underlying engine.
+ * The tool accepts either `sql` (temporal DuckDB view) or `cypher`
+ * (graph lbug view) — exactly one per call. The read-only guards
+ * (`assertReadOnlySql` / `assertReadOnlyCypher`) reject any write verb
+ * before the statement reaches the underlying engine.
  *
  * - SQL path: `SqlGuardError` on violation → INVALID_INPUT envelope.
  * - Cypher path: `CypherGuardError` on violation → INVALID_INPUT envelope.
- * - Cypher path without `CODEHUB_STORE=lbug` → INVALID_INPUT with a
- *   "cypher unavailable" hint.
  * - Both `sql` and `cypher` supplied → INVALID_INPUT "choose one".
  *
  * A default 5 s timeout caps runaway queries (DuckDB itself has no SQL
- * timeout — the adapter interrupts via a JS timer; the graph-db adapter
+ * timeout — the adapter interrupts via a JS timer; the graph adapter
  * honours `timeoutMs` through its pool).
  *
  * The tool description embeds the node-kind and relation-type vocabulary
@@ -42,14 +40,14 @@ const SqlInput = {
     .min(1)
     .optional()
     .describe(
-      "Read-only SQL statement (DuckDB backend). INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
+      "Read-only SQL statement against the temporal DuckDB view. INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
     ),
   cypher: z
     .string()
     .min(1)
     .optional()
     .describe(
-      "Read-only Cypher statement (graph-db backend; requires `CODEHUB_STORE=lbug`). CREATE/DELETE/SET/MERGE/REMOVE/DROP are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
+      "Read-only Cypher statement against the graph view (lbug). CREATE/DELETE/SET/MERGE/REMOVE/DROP are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
     ),
   ...repoArgShape,
   timeout_ms: z
@@ -75,15 +73,6 @@ interface SqlArgs {
   readonly timeout_ms?: number | undefined;
 }
 
-/**
- * Determine the configured backend from the environment. Exposed as a
- * thin indirection so tests can flip the env var mid-run without touching
- * the tool surface.
- */
-function isGraphDbBackend(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env["CODEHUB_STORE"] === "lbug";
-}
-
 export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResult> {
   // Exactly-one-of input guard. The Zod schema marks both fields optional
   // so we can emit a targeted error envelope rather than a schema-level
@@ -95,7 +84,7 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
       toolError(
         "INVALID_INPUT",
         "provide exactly one of `sql` or `cypher`",
-        "The sql tool accepts either a SQL statement (DuckDB backend) or a Cypher statement (graph-db backend), not both.",
+        "The sql tool accepts either a SQL statement (temporal DuckDB view) or a Cypher statement (graph view), not both.",
       ),
     );
   }
@@ -105,15 +94,6 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
         "INVALID_INPUT",
         "provide one of `sql` or `cypher`",
         "The sql tool requires exactly one of the two input fields.",
-      ),
-    );
-  }
-  if (hasCypher && !isGraphDbBackend()) {
-    return toToolResult(
-      toolError(
-        "INVALID_INPUT",
-        "cypher unavailable without `CODEHUB_STORE=lbug`",
-        "Set `CODEHUB_STORE=lbug` in the MCP server's environment to enable the graph-db backend. The default DuckDB backend only speaks SQL.",
       ),
     );
   }
@@ -142,9 +122,9 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
         const exec = store.graph.execCypher;
         if (typeof exec !== "function") {
           return toolError(
-            "INVALID_INPUT",
+            "INTERNAL",
             "cypher unavailable: graph adapter does not expose execCypher",
-            "Set `CODEHUB_STORE=lbug` to enable the graph-db backend that exposes the Cypher escape hatch.",
+            "The graph adapter is missing the `execCypher` escape hatch — re-run `codehub analyze` to rebuild the index against the lbug-backed graph store.",
           );
         }
         rawRows = await exec.call(store.graph, statement);
@@ -209,7 +189,7 @@ export function registerSqlTool(server: McpServer, ctx: ToolContext): void {
     {
       title: "Read-only SQL / Cypher over the code graph",
       description: [
-        "Execute a read-only query against the local graph store. Supply EXACTLY ONE of `sql` (DuckDB backend, default) or `cypher` (graph-db backend, requires `CODEHUB_STORE=lbug`). Results are returned as a markdown table plus raw row objects. Use this for one-off questions that the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
+        "Execute a read-only query against the local graph store. Supply EXACTLY ONE of `sql` (temporal DuckDB view) or `cypher` (graph view). Results are returned as a markdown table plus raw row objects. Use this for one-off questions that the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
         "",
         SCHEMA_HINT,
       ].join("\n"),

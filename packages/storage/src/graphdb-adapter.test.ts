@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { type GraphNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
 import { assertReadOnlyCypher } from "./cypher-guard.js";
 import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
-import { openStore, resolveStoreBackend } from "./index.js";
+import { openStore } from "./index.js";
 import { assertIGraphStoreConformance } from "./test-utils/conformance.js";
 
 async function scratchDbPath(): Promise<string> {
@@ -182,56 +182,18 @@ test("open surfaces GraphDbBindingError when native binding absent", async () =>
 });
 
 // ---------------------------------------------------------------------------
-// Factory + env var resolution
+// Factory
 // ---------------------------------------------------------------------------
 
-test("resolveStoreBackend defaults to duck when env unset", () => {
-  assert.equal(resolveStoreBackend(undefined, {}), "duck");
-  assert.equal(resolveStoreBackend("auto", {}), "duck");
-});
-
-test("resolveStoreBackend respects explicit backend over env", () => {
-  assert.equal(resolveStoreBackend("duck", { CODEHUB_STORE: "lbug" }), "duck");
-  assert.equal(resolveStoreBackend("lbug", { CODEHUB_STORE: "duck" }), "lbug");
-});
-
-test("resolveStoreBackend reads CODEHUB_STORE env under auto", () => {
-  assert.equal(resolveStoreBackend("auto", { CODEHUB_STORE: "lbug" }), "lbug");
-  assert.equal(resolveStoreBackend("auto", { CODEHUB_STORE: "duck" }), "duck");
-});
-
-test("resolveStoreBackend rejects unknown CODEHUB_STORE values", () => {
-  assert.throws(
-    () => resolveStoreBackend("auto", { CODEHUB_STORE: "sqlite" }),
-    /Invalid CODEHUB_STORE/,
-  );
-});
-
-test("openStore composes a DuckDbStore graph + temporal pair when backend=duck", async () => {
-  const store = await openStore({ path: ":memory:", backend: "duck" });
-  // The duck backend wires BOTH views to the same DuckDbStore instance.
-  // Identity check — not just constructor-name — pins the single-
-  // connection invariant.
-  assert.equal(store.backend, "duck");
-  assert.equal(store.graph.constructor.name, "DuckDbStore");
-  assert.equal(store.temporal.constructor.name, "DuckDbStore");
-  assert.equal(store.graph as unknown, store.temporal as unknown);
-  assert.equal(store.graphFile, ":memory:");
-  assert.equal(store.temporalFile, ":memory:");
-  assert.equal(typeof store.close, "function");
-});
-
-test("openStore composes GraphDbStore + DuckDbStore pair when backend=lbug", async () => {
-  // The graph file is renamed to `graph.lbug` and the temporal file is
-  // its sibling `temporal.duckdb` inside the same directory, regardless
-  // of the legacy filename the caller supplies (typically
-  // `<repo>/.codehub/graph.duckdb`).
-  const store = await openStore({ path: "/tmp/och-test/graph.duckdb", backend: "lbug" });
-  assert.equal(store.backend, "lbug");
+test("openStore composes GraphDbStore + DuckDbStore pair", async () => {
+  // The graph file is canonicalized to `graph.lbug` and the temporal file
+  // is its sibling `temporal.duckdb` inside the same directory.
+  const store = await openStore({ path: "/tmp/och-test/.codehub/graph.lbug" });
   assert.equal(store.graph.constructor.name, "GraphDbStore");
   assert.equal(store.temporal.constructor.name, "DuckDbStore");
-  assert.equal(store.graphFile, "/tmp/och-test/graph.lbug");
-  assert.equal(store.temporalFile, "/tmp/och-test/temporal.duckdb");
+  assert.equal(store.graphFile, "/tmp/och-test/.codehub/graph.lbug");
+  assert.equal(store.temporalFile, "/tmp/och-test/.codehub/temporal.duckdb");
+  assert.equal(typeof store.close, "function");
 });
 
 // ---------------------------------------------------------------------------
@@ -1112,68 +1074,6 @@ test("listNodes() rehydrates Operation method/path symmetrically (graph-db)", as
     assert.equal(op.path, "/v1/users");
   } finally {
     await store.close();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Cross-adapter parity — DuckStore + GraphDbStore must agree byte-for-byte
-// on the same fixture. This is the M5 BOM safety net: if listNodes
-// diverges, downstream packHash diverges, and reproducible builds break.
-// ---------------------------------------------------------------------------
-
-test("listNodes() cross-adapter parity: DuckStore ≡ GraphDbStore on the shared fixture", async () => {
-  if (!(await hasNativeBinding())) {
-    assert.ok(true, "native binding unavailable — skipping cross-adapter parity");
-    return;
-  }
-  // Lazy-import DuckDbStore so the suite still loads on graph-db-only builds
-  // (e.g. when the storage package is consumed by a slim runtime that
-  // pruned @duckdb/node-api). The native binding for DuckDB is already a
-  // peer dependency of this package so the import always resolves in CI.
-  const { DuckDbStore } = await import("./duckdb-adapter.js");
-  const { canonicalJson } = await import("@opencodehub/core-types");
-
-  const fixture = buildListNodesFixture();
-
-  const duckPath = join(
-    await mkdtemp(join(tmpdir(), "och-listnodes-parity-duck-")),
-    "graph.duckdb",
-  );
-  const duck = new DuckDbStore(duckPath);
-  await duck.open();
-  await duck.createSchema();
-  await duck.bulkLoad(fixture);
-  const duckNodes = await duck.listNodes();
-  await duck.close();
-
-  const graphdb = new GraphDbStore(await scratchDbPath());
-  await graphdb.open();
-  await graphdb.createSchema();
-  await graphdb.bulkLoad(fixture);
-  const graphNodes = await graphdb.listNodes();
-  await graphdb.close();
-
-  // Both backends must return the same number of rows in the same order.
-  assert.equal(graphNodes.length, duckNodes.length, "row count parity");
-  assert.deepEqual(
-    graphNodes.map((n) => n.id),
-    duckNodes.map((n) => n.id),
-    "id ordering parity",
-  );
-
-  // Every kind+id pair must match, plus the load-bearing wider columns
-  // for Dependency / Repo / Operation. Compare via canonicalJson so key
-  // ordering / undefined drops are consistent.
-  for (let i = 0; i < duckNodes.length; i += 1) {
-    const duckNode = duckNodes[i] as GraphNode;
-    const graphNode = graphNodes[i] as GraphNode;
-    assert.equal(graphNode.id, duckNode.id, `id parity at index ${i}`);
-    assert.equal(graphNode.kind, duckNode.kind, `kind parity at ${duckNode.id}`);
-    assert.equal(
-      canonicalJson(graphNode),
-      canonicalJson(duckNode),
-      `byte parity at ${duckNode.id}`,
-    );
   }
 });
 

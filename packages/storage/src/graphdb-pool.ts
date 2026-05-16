@@ -89,6 +89,7 @@ export interface NativeBinding {
     bufferManagerSize?: number,
     enableCompression?: boolean,
     readOnly?: boolean,
+    maxDBSize?: number,
   ) => NativeDatabase;
   Connection: new (db: NativeDatabase) => NativeConnection;
 }
@@ -109,6 +110,27 @@ export interface GraphDbPoolConfig {
   /** Open the database read-only. Default false. */
   readonly readOnly?: boolean;
   /**
+   * Buffer manager (temp-page region) size in bytes. lbug's native default is
+   * `min(systemMemory, maxDBSize) * 0.8` — easily 50+ GiB on a beefy host. We
+   * cap at 256 MiB by default so the in-memory page pool stays bounded across
+   * many concurrent test DBs without affecting on-disk capacity. Production
+   * callers can pass a larger value for analyze-time bulk loads.
+   */
+  readonly bufferManagerBytes?: number;
+  /**
+   * Maximum on-disk database size (and the size of the per-Database virtual
+   * mmap). lbug's native default is `1 << 43` = 8 TiB per Database, which
+   * exhausts the 47-bit user virtual address space (~128 TiB) after ~16
+   * concurrent instances and surfaces as "Buffer manager exception: Mmap
+   * for size 8796093022208 failed". Must be a power of 2.
+   *
+   * Default 16 GiB — comfortably larger than any plausible OCH graph
+   * artifact (~few GiB at the high end), drops per-Database virtual reserve
+   * 512×, and lets the test suite spin up hundreds of pools without
+   * address-space pressure.
+   */
+  readonly maxDbBytes?: number;
+  /**
    * Injected native binding. Defaults to `require("@ladybugdb/core")`
    * via dynamic import on first `open()`. Tests inject a fake.
    */
@@ -122,6 +144,20 @@ export const DEFAULT_WAITER_TIMEOUT_MS = 15_000;
 export const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
 export const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_IDLE_SWEEP_INTERVAL_MS = 60_000;
+/**
+ * lbug `bufferManagerSize` cap. 2 GiB. Power of 2 not required.
+ *
+ * The buffer manager is the in-memory page cache; under-sizing it surfaces
+ * as "Buffer manager exception: Unable to allocate memory! The buffer pool
+ * is full and no memory could be freed!" the moment a single query's hot
+ * working set exceeds the cap. lbug's native default is `min(systemMem,
+ * maxDBSize) * 0.8` (≥50 GiB on a beefy host), so we cap explicitly to keep
+ * concurrent test DBs from contending for physical RAM. 2 GiB is roughly
+ * the largest BOM-body fixture × 4× headroom for vector ops.
+ */
+export const DEFAULT_BUFFER_MANAGER_BYTES = 2 * 1024 * 1024 * 1024;
+/** lbug `maxDBSize` cap. 16 GiB. MUST be a power of 2 — lbug enforces this. */
+export const DEFAULT_MAX_DB_BYTES = 16 * 1024 * 1024 * 1024;
 
 interface Waiter {
   readonly resolve: (conn: NativeConnection) => void;
@@ -268,6 +304,8 @@ export class GraphDbPool {
       idleTimeoutMs: config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
       idleSweepIntervalMs: config.idleSweepIntervalMs ?? DEFAULT_IDLE_SWEEP_INTERVAL_MS,
       readOnly: config.readOnly ?? false,
+      bufferManagerBytes: config.bufferManagerBytes ?? DEFAULT_BUFFER_MANAGER_BYTES,
+      maxDbBytes: config.maxDbBytes ?? DEFAULT_MAX_DB_BYTES,
     };
     // `exactOptionalPropertyTypes` refuses explicit `undefined` on an
     // optional property — only omit-or-assign-value is allowed.
@@ -295,9 +333,10 @@ export class GraphDbPool {
       evictLruIfNeeded(this.config.maxPoolSize, this.path);
       const db = new binding.Database(
         this.path,
-        0, // bufferManagerSize — 0 means default
+        this.config.bufferManagerBytes,
         false, // enableCompression — default
         this.config.readOnly,
+        this.config.maxDbBytes,
       );
       const connections: NativeConnection[] = [];
       for (let i = 0; i < this.config.maxConnections; i += 1) {
@@ -360,6 +399,43 @@ export class GraphDbPool {
           ? this.runParameterized(conn, stmt, params, timeoutMs)
           : this.runDirect(conn, stmt, timeoutMs);
       return await exec;
+    } finally {
+      this.release(entry, conn);
+    }
+  }
+
+  /**
+   * Execute a write statement that must bypass the Cypher read-only guard
+   * — used exclusively by the internal bulk-load path for
+   * `COPY <Table> FROM (UNWIND $rows ...)` calls. Not exposed on
+   * `IGraphStore`; callers outside `GraphDbStore.bulkLoad` must NOT call
+   * this method.
+   */
+  async execWrite(
+    stmt: string,
+    params?: Record<string, unknown>,
+    opts?: { readonly timeoutMs?: number },
+  ): Promise<void> {
+    const entry = this.requireEntry();
+    entry.lastUsed = Date.now();
+    const timeoutMs = opts?.timeoutMs ?? entry.config.queryTimeoutMs;
+    const conn = await this.acquire(entry);
+    try {
+      const work = (async () => {
+        if (params && Object.keys(params).length > 0) {
+          const prepared = await conn.prepare(stmt);
+          if (!prepared.isSuccess()) {
+            throw new Error(`GraphDbPool execWrite prepare failed: ${prepared.getErrorMessage()}`);
+          }
+          const res = await conn.execute(prepared, params);
+          // Drain result to surface any execution errors.
+          const result = Array.isArray(res) ? res[0] : res;
+          if (result) await result.getAll();
+        } else {
+          await conn.query(stmt);
+        }
+      })();
+      await raceWithTimeout(work, timeoutMs, "execWrite");
     } finally {
       this.release(entry, conn);
     }

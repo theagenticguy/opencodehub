@@ -254,15 +254,15 @@ async function callRealPackEngine(args: {
   const { mkdtemp, rename, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join, resolve } = await import("node:path");
-  const { openStore, resolveDbPath } = await import("@opencodehub/storage");
-  const dbPath = resolveDbPath(args.repo);
+  const { openStore, resolveGraphPath } = await import("@opencodehub/storage");
+  const dbPath = resolveGraphPath(args.repo);
   if (!existsSync(dbPath)) {
     throw new Error(
-      `pack_codebase: no graph index at ${dbPath}. ` +
+      `pack_codebase: no graph index at ${dbPath} (expected .codehub/graph.lbug). ` +
         "Run `codehub analyze` first to populate the store.",
     );
   }
-  const store = await openStore({ path: dbPath, backend: "duck", readOnly: true });
+  const store = await openStore({ path: dbPath, readOnly: true });
   const stagingDir = await mkdtemp(join(tmpdir(), "codehub-pack-mcp-"));
   try {
     const manifest = await defaultGeneratePack(

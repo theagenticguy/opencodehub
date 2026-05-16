@@ -18,7 +18,7 @@
 import { resolve } from "node:path";
 import { makeNodeId } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
-import { resolveDbPath } from "@opencodehub/storage";
+import { resolveGraphPath } from "@opencodehub/storage";
 import type { ConnectionPool } from "./connection-pool.js";
 import { deriveRepoUri, type RegistryEntry } from "./repo-resolver.js";
 
@@ -47,7 +47,7 @@ export async function repoUriForEntry(
 ): Promise<string> {
   if (pool !== undefined) {
     const repoPath = resolve(entry.path);
-    const dbPath = resolveDbPath(repoPath);
+    const dbPath = resolveGraphPath(repoPath);
     try {
       const store = await pool.acquire(repoPath, dbPath);
       try {

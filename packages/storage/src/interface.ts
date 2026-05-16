@@ -5,7 +5,7 @@
  *
  *   1. {@link IGraphStore} — graph-tier, pure graph operations only:
  *      nodes, edges, traversals, BM25 search, vector search, embeddings.
- *      NO SQL, NO cochanges, NO symbol summaries. Cypher dialect or none.
+ *      NO SQL, NO cochanges, NO symbol summaries. Cypher dialect.
  *      The portable interface community AGE / Memgraph / Neo4j / Neptune
  *      adapters target.
  *   2. {@link ITemporalStore} — tabular-tier, SQL-only operations:
@@ -17,9 +17,9 @@
  * Callers that need both surfaces use {@link openStore} and consume the
  * resulting {@link OpenStoreResult} `{graph, temporal, close, ...}`.
  *
- * The DuckDB adapter exposes BOTH views over one connection (no second
- * file when DuckDB is the only backend). The graph-db adapter (via
- * `@ladybugdb/core`) is graph-only and pairs with a DuckDB temporal store.
+ * The graph-db adapter (via `@ladybugdb/core`) is graph-only and pairs
+ * with a DuckDB temporal store. The DuckDB adapter is temporal-only —
+ * cochanges, symbol summaries, and the `--sql` escape hatch.
  *
  * ## Sentinel rules
  *
@@ -76,22 +76,13 @@ import type {
 } from "@opencodehub/core-types";
 
 /**
- * Concrete backend identifiers recognized by {@link openStore}. `"duck"`
- * (DuckDB) and `"lbug"` (graph-db backend via `@ladybugdb/core`) are the
- * in-tree implementations. `"age"`, `"memgraph"`, `"neo4j"`, and
- * `"neptune"` are reserved for plausible community-fork adapters; they
- * are not implemented here.
- */
-export type BackendKind = "duck" | "lbug" | "age" | "memgraph" | "neo4j" | "neptune";
-
-/**
  * Graph dialect a given {@link IGraphStore} adapter speaks. The optional
  * {@link IGraphStore.execCypher} escape hatch only makes sense when the
- * dialect is `"cypher"`. The DuckDB adapter sets `"none"` because its
- * `nodes`/`relations` tables expose no public Cypher entry point — the
- * typed finders cover every internal need.
+ * dialect is `"cypher"`. Reserved as a type rather than a literal so a
+ * future community adapter (e.g. AGE, Neo4j) can keep the surface stable
+ * while still carrying its own dialect tag.
  */
-export type GraphDialect = "cypher" | "none";
+export type GraphDialect = "cypher";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IGraphStore — graph-tier only
@@ -143,9 +134,9 @@ export type GraphDialect = "cypher" | "none";
  */
 export interface IGraphStore {
   /**
-   * Cypher dialect spoken by this adapter, or `"none"` if no public
-   * Cypher entry point is exposed. OCH core never branches on this — it
-   * is published for community adapters and documentation tooling.
+   * Cypher dialect spoken by this adapter. OCH core never branches on
+   * this — it is published for community adapters and documentation
+   * tooling.
    */
   readonly dialect: GraphDialect;
 
@@ -424,6 +415,21 @@ export interface ITemporalStore {
     opts?: { readonly timeoutMs?: number },
   ): Promise<readonly Record<string, unknown>[]>;
 
+  /**
+   * Stage an `EmbeddingRow` stream through a per-call DuckDB temp table and
+   * COPY it to a Parquet file. Used by `pack/embeddings-sidecar.ts` to
+   * produce the deterministic Parquet sidecar from rows that originate in
+   * `graph.lbug`. The temp table is dropped before the call returns.
+   *
+   * Returns `{rowCount: 0}` when the stream is empty (no file written).
+   * `duckdbVersion` is the runtime `SELECT version()` result — pinned by
+   * the pack manifest so the writer version stays bound to the artifact.
+   */
+  exportEmbeddingsToParquet(
+    rows: AsyncIterable<EmbeddingRow>,
+    absOutPath: string,
+  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }>;
+
   // ── Cochange surface (was on IGraphStore via CochangeStore) ───────────────
   /** Replace the cochanges table contents with the supplied rows. */
   bulkLoadCochanges(rows: readonly CochangeRow[]): Promise<void>;
@@ -469,20 +475,18 @@ export interface ITemporalStore {
 
 /**
  * Composed result of {@link openStore}. The caller closes both views via
- * the deterministic {@link OpenStoreResult.close} method (which closes
- * temporal first when the two views share a backing connection, and
- * closes graph first otherwise — adapters guarantee idempotence).
+ * the deterministic {@link OpenStoreResult.close} method (graph closes
+ * first, then temporal — graph adapters tend to hold native pool
+ * handles that benefit from prompt release).
  */
 export interface OpenStoreResult {
-  /** Concrete backend selected after env + binding resolution. */
-  readonly backend: BackendKind;
-  /** Graph-tier view. */
+  /** Graph-tier view (always lbug). */
   readonly graph: IGraphStore;
-  /** Tabular-tier view. */
+  /** Tabular-tier view (always DuckDB). */
   readonly temporal: ITemporalStore;
-  /** Absolute path to the on-disk graph artifact. */
+  /** Absolute path to the on-disk graph artifact (`graph.lbug`). */
   readonly graphFile: string;
-  /** Absolute path to the on-disk temporal artifact. May equal `graphFile` (DuckDB-only deployments). */
+  /** Absolute path to the on-disk temporal artifact (`temporal.duckdb`). */
   readonly temporalFile: string;
   /** Closes both views in deterministic order. Idempotent. */
   close(): Promise<void>;
@@ -490,18 +494,8 @@ export interface OpenStoreResult {
 
 /** Inputs to {@link openStore}. */
 export interface OpenStoreOptions {
-  /** Filesystem path to the database file (or directory housing both files). */
+  /** Filesystem path to the `<repo>/.codehub/` graph artifact file. */
   readonly path: string;
-  /**
-   * Backend selector:
-   *   - `"duck"` — single DuckDB file backs BOTH graph and temporal views.
-   *   - `"lbug"` — graph-db backend (`@ladybugdb/core`) for graph; a paired
-   *     DuckDB file at `<path>.temporal.duckdb` for temporal.
-   *   - `"auto"` — read the `CODEHUB_STORE` env var; when unset, probe
-   *     `@ladybugdb/core` and prefer the graph backend on success, else
-   *     fall back to DuckDB.
-   */
-  readonly backend?: BackendKind | "auto";
   readonly readOnly?: boolean;
   readonly embeddingDim?: number;
   readonly timeoutMs?: number;
@@ -551,21 +545,6 @@ export interface CochangeLookupOptions {
   readonly minLift?: number;
 }
 
-/**
- * @deprecated The cochange surface is folded into {@link ITemporalStore}.
- * The named alias is retained transiently so test fakes that satisfy
- * the older shape keep compiling. New code consumes `ITemporalStore`
- * directly via {@link OpenStoreResult.temporal}.
- */
-export interface CochangeStore {
-  bulkLoadCochanges(rows: readonly CochangeRow[]): Promise<void>;
-  lookupCochangesForFile(
-    file: string,
-    opts?: CochangeLookupOptions,
-  ): Promise<readonly CochangeRow[]>;
-  lookupCochangesBetween(fileA: string, fileB: string): Promise<CochangeRow | undefined>;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Symbol-summary row (used by ITemporalStore)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -602,22 +581,6 @@ export interface SymbolSummaryRow {
   readonly returnsTypeSummary?: string;
   /** ISO-8601 UTC timestamp when the row was produced. */
   readonly createdAt: string;
-}
-
-/**
- * @deprecated The symbol-summary surface is folded into {@link ITemporalStore}.
- * The named alias is retained transiently so test fakes that satisfy
- * the older shape keep compiling. New code consumes `ITemporalStore`
- * directly via {@link OpenStoreResult.temporal}.
- */
-export interface SymbolSummaryStore {
-  bulkLoadSymbolSummaries(rows: readonly SymbolSummaryRow[]): Promise<void>;
-  lookupSymbolSummary(
-    nodeId: string,
-    contentHash: string,
-    promptVersion: string,
-  ): Promise<SymbolSummaryRow | undefined>;
-  lookupSymbolSummariesByNode(nodeIds: readonly string[]): Promise<readonly SymbolSummaryRow[]>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -808,6 +771,47 @@ export interface BulkLoadOptions {
    * unrelated rows.
    */
   readonly mode?: "replace" | "upsert";
+  /**
+   * Optional progress sink the writer calls during long-running bulk
+   * operations (truncate, node batches, edge-kind batches). Lets the CLI
+   * surface "85% of nodes inserted" lines so an operator can tell the
+   * difference between "still working" and "hung" — `codehub analyze`
+   * spends most of its wall-clock time inside `bulkLoad` on a graph-db
+   * backend (UNWIND-batched per-batch + per-rel-kind cost), and a silent
+   * 30+ second pause is the dominant operator-feedback complaint.
+   *
+   * Errors thrown from the callback are swallowed so a buggy reporter
+   * cannot mask a real bulk-load failure.
+   */
+  readonly onProgress?: (ev: BulkLoadProgressEvent) => void;
+}
+
+/**
+ * Progress event emitted by {@link IGraphStore.bulkLoad}. The shape is
+ * intentionally narrow — `kind` identifies the stage, `done`/`total` carry
+ * the work-units, and `elapsedMs` lets the CLI spot stalls. Adapters that
+ * cannot produce meaningful counts may omit the numeric fields.
+ */
+export interface BulkLoadProgressEvent {
+  readonly kind:
+    | "truncate-start"
+    | "truncate-end"
+    | "nodes-start"
+    | "nodes-batch"
+    | "nodes-end"
+    | "edges-start"
+    | "edges-batch"
+    | "edges-end";
+  /** Edge relation type the event refers to (only set for edge events). */
+  readonly relType?: string;
+  /** Items completed so far at this stage. Cumulative within the stage. */
+  readonly done?: number;
+  /** Total items expected at this stage. */
+  readonly total?: number;
+  /** Milliseconds since the bulk-load started. */
+  readonly elapsedMs?: number;
+  /** Free-form note (e.g. "skipping empty rel-kind") for `*-end` events. */
+  readonly message?: string;
 }
 
 /**

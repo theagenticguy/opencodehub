@@ -33,8 +33,9 @@ import {
 } from "@opencodehub/core-types";
 import { pipeline } from "@opencodehub/ingestion";
 import {
+  type BulkLoadProgressEvent,
   openStore,
-  resolveDbPath,
+  resolveGraphPath,
   resolveRepoMetaDir,
   type Store,
   writeStoreMeta,
@@ -291,6 +292,11 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       ? { embeddingHashCacheAdapter: embeddingHashAdapter.adapter }
       : {}),
     ...(incrementalFrom !== undefined ? { incrementalFrom } : {}),
+    // Phase progress: one line per phase end. Filtered to the long poles so
+    // the operator sees motion without `--verbose`-level chatter — sub-100ms
+    // phases stay quiet because they fire too fast to matter for "is this
+    // still running?" feedback.
+    onProgress: makePhaseProgressReporter(),
   };
   let result: Awaited<ReturnType<typeof pipeline.runIngestion>>;
   try {
@@ -302,20 +308,19 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
   logWarnings(result.warnings, opts.verbose === true);
 
-  // Persist to the composed graph + temporal store. Backend resolution is
-  // env-driven (`CODEHUB_STORE`); the default `"duck"` writes to
-  // `<repo>/.codehub/graph.duckdb` exactly like the legacy path. The
-  // temporal-tier writes (`bulkLoadCochanges`, `bulkLoadSymbolSummaries`)
-  // route through `store.temporal`.
+  // Persist to the composed graph + temporal store. Storage is always
+  // graph.lbug (graph-tier) + temporal.duckdb sidecar (cochanges, summary
+  // cache); the temporal-tier writes (`bulkLoadCochanges`,
+  // `bulkLoadSymbolSummaries`) route through `store.temporal`.
   await mkdir(resolveRepoMetaDir(repoPath), { recursive: true });
-  const dbPath = resolveDbPath(repoPath);
-  const store: Store = await openStore({ path: dbPath, backend: "auto" });
+  const dbPath = resolveGraphPath(repoPath);
+  const store: Store = await openStore({ path: dbPath });
   try {
     await store.graph.open();
-    if (store.graphFile !== store.temporalFile) await store.temporal.open();
+    await store.temporal.open();
     await store.graph.createSchema();
-    if (store.graphFile !== store.temporalFile) await store.temporal.createSchema();
-    await store.graph.bulkLoad(result.graph);
+    await store.temporal.createSchema();
+    await store.graph.bulkLoad(result.graph, { onProgress: makeBulkLoadReporter("graph") });
     // Persist cochange rows to the dedicated `cochanges` table. `bulkLoad` in
     // replace mode already truncated it, but `bulkLoadCochanges` does its own
     // DELETE inside the same transaction so the call is idempotent even on
@@ -521,8 +526,8 @@ export async function loadPreviousGraph(
 ): Promise<pipeline.PreviousGraph | undefined> {
   const scanState = await readScanState(repoPath);
   if (scanState === undefined) return undefined;
-  const dbPath = resolveDbPath(repoPath);
-  const store = await openStore({ path: dbPath, backend: "auto" }).catch(() => undefined);
+  const dbPath = resolveGraphPath(repoPath);
+  const store = await openStore({ path: dbPath }).catch(() => undefined);
   if (store === undefined) return undefined;
   try {
     await store.graph.open();
@@ -734,10 +739,8 @@ export async function resolveMaxSummariesCap(
  * back to the first-run heuristic.
  */
 async function countPriorCallableSymbols(repoPath: string): Promise<number | undefined> {
-  const dbPath = resolveDbPath(repoPath);
-  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
-    () => undefined,
-  );
+  const dbPath = resolveGraphPath(repoPath);
+  const store = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
   if (store === undefined) return undefined;
   try {
     await store.graph.open();
@@ -771,17 +774,14 @@ async function countPriorCallableSymbols(repoPath: string): Promise<number | und
 async function openSummaryCacheAdapter(
   repoPath: string,
 ): Promise<{ adapter: pipeline.SummaryCacheAdapter; close: () => Promise<void> } | undefined> {
-  const dbPath = resolveDbPath(repoPath);
-  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
-    () => undefined,
-  );
+  const dbPath = resolveGraphPath(repoPath);
+  const store = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
   if (store === undefined) return undefined;
   try {
     // The summary cache lives on the temporal tier. Open both views so
-    // the close() symmetry holds; on the duck backend the second open
-    // is a no-op against the same connection.
+    // the close() symmetry holds.
     await store.graph.open();
-    if (store.graphFile !== store.temporalFile) await store.temporal.open();
+    await store.temporal.open();
   } catch {
     await store.close().catch(() => {});
     return undefined;
@@ -811,10 +811,8 @@ async function openEmbeddingHashCacheAdapter(
 ): Promise<
   { adapter: pipeline.EmbeddingHashCacheAdapter; close: () => Promise<void> } | undefined
 > {
-  const dbPath = resolveDbPath(repoPath);
-  const store = await openStore({ path: dbPath, backend: "auto", readOnly: true }).catch(
-    () => undefined,
-  );
+  const dbPath = resolveGraphPath(repoPath);
+  const store = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
   if (store === undefined) return undefined;
   try {
     await store.graph.open();
@@ -1392,4 +1390,95 @@ function log(message: string): void {
   // Using console.warn keeps stdout reserved for machine-readable output from
   // subcommands like `sql` and `query --json`.
   console.warn(message);
+}
+
+/**
+ * One-line phase-end reporter. Surfaces a `phase=name dur=ms` line for every
+ * phase as it completes so the operator can see motion through the ingestion
+ * pipeline. We intentionally skip "start" events (would double the line
+ * count for no extra information) and silence sub-100ms phases (too fast
+ * to matter as a "still running?" signal — they fire as a burst at the end
+ * of an analyze and would just be noise).
+ *
+ * Errors and warnings already flow through `result.warnings` post-run, so
+ * this reporter ignores `kind: "warn" | "error"` events.
+ */
+function makePhaseProgressReporter(): (ev: pipeline.ProgressEvent) => void {
+  return (ev) => {
+    if (ev.kind !== "end") return;
+    const dur = ev.elapsedMs;
+    if (dur === undefined || dur < 100) return;
+    log(`codehub analyze: phase ${ev.phase} ${formatDuration(dur)}`);
+  };
+}
+
+/**
+ * Bulk-load progress reporter. The graph-db backend's UNWIND-batched
+ * insert path emits per-batch events; we collapse the batch chatter into
+ * a stage-level summary (start/end of nodes; start/end of edges; one line
+ * per relation kind) so the output stays scannable on a long-running
+ * analyze. The `tag` distinguishes graph vs temporal-tier bulk-loads in
+ * the rare deployment that runs both.
+ */
+function makeBulkLoadReporter(tag: string): (ev: BulkLoadProgressEvent) => void {
+  let lastNodesPct = -1;
+  return (ev) => {
+    switch (ev.kind) {
+      case "truncate-start":
+        log(`codehub analyze: ${tag} bulk-load — truncating prior rows`);
+        break;
+      case "nodes-start":
+        log(`codehub analyze: ${tag} bulk-load — inserting ${ev.total ?? "?"} nodes`);
+        lastNodesPct = -1;
+        break;
+      case "nodes-batch": {
+        // Throttle: only print when we cross a 25% bucket so a 22k-node
+        // run produces ~3 progress lines, not 22.
+        const total = ev.total ?? 0;
+        const done = ev.done ?? 0;
+        if (total === 0) return;
+        const pct = Math.floor((done / total) * 4) * 25;
+        if (pct === lastNodesPct || pct >= 100) return;
+        lastNodesPct = pct;
+        log(
+          `codehub analyze: ${tag} bulk-load — nodes ${done}/${total} (${pct}%) ` +
+            `${formatDuration(ev.elapsedMs ?? 0)}`,
+        );
+        break;
+      }
+      case "nodes-end":
+        log(
+          `codehub analyze: ${tag} bulk-load — ${ev.done ?? "?"} nodes inserted ` +
+            `${formatDuration(ev.elapsedMs ?? 0)}`,
+        );
+        break;
+      case "edges-start":
+        log(`codehub analyze: ${tag} bulk-load — inserting ${ev.total ?? "?"} edges`);
+        break;
+      case "edges-batch":
+        // One line per relation kind once its bucket finishes — gives the
+        // operator a sense of which rel types dominate the wall clock.
+        if (ev.relType !== undefined) {
+          log(
+            `codehub analyze: ${tag} bulk-load — edges ${ev.done ?? "?"}/${ev.total ?? "?"} ` +
+              `[${ev.relType}] ${formatDuration(ev.elapsedMs ?? 0)}`,
+          );
+        }
+        break;
+      case "edges-end":
+        log(
+          `codehub analyze: ${tag} bulk-load — ${ev.done ?? "?"} edges inserted ` +
+            `${formatDuration(ev.elapsedMs ?? 0)}`,
+        );
+        break;
+      // truncate-end is silent — paired with the start line above.
+      default:
+        break;
+    }
+  };
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `(${Math.round(ms)} ms)`;
+  return `(${(ms / 1000).toFixed(1)} s)`;
 }

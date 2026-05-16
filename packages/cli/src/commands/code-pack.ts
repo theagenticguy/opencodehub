@@ -39,7 +39,7 @@ import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generatePack, type PackManifest } from "@opencodehub/pack";
-import { type IGraphStore, openStore, resolveDbPath, type Store } from "@opencodehub/storage";
+import { type IGraphStore, openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
 import { runPack } from "./pack.js";
 
 /** Default token budget when `--budget` is omitted. */
@@ -123,20 +123,14 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   const tokenizer = args.tokenizer ?? DEFAULT_TOKENIZER_ID;
   const generate = args._generatePack ?? generatePack;
 
-  // Production: open a read-only graph store via the backend-agnostic
-  // factory; tests inject `_store` to skip the native binding entirely.
-  const dbPath = resolveDbPath(repoPath);
-  if (args._store === undefined) {
-    // The store factory accepts a `graph.duckdb` path and rewrites it to
-    // the lbug sibling when the backend resolves to lbug. Check both so
-    // the error surfaces only when neither artifact is on disk.
-    const lbugPath = resolve(repoPath, ".codehub", "graph.lbug");
-    if (!existsSync(dbPath) && !existsSync(lbugPath)) {
-      throw new Error(
-        `codehub code-pack: no graph index at ${dbPath} or ${lbugPath}. ` +
-          "Run `codehub analyze` first to populate the store.",
-      );
-    }
+  // Production: open a read-only graph store; tests inject `_store` to
+  // skip the native binding entirely.
+  const dbPath = resolveGraphPath(repoPath);
+  if (args._store === undefined && !existsSync(dbPath)) {
+    throw new Error(
+      `codehub code-pack: no graph index at ${dbPath}. ` +
+        "Run `codehub analyze` first to populate the store.",
+    );
   }
   const ownsStore = args._store === undefined;
   // Composed-store envelope used only when this command owns lifecycle.
@@ -144,18 +138,14 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   // deterministic order without re-running the factory.
   const owned = ownsStore
     ? await (async () => {
-        const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
+        const composed = await openStore({ path: dbPath, readOnly: true });
         await composed.graph.open();
         return composed;
       })()
     : undefined;
-  // generatePack consumes `Store` (= `OpenStoreResult`) so the
-  // embeddings sidecar can dispatch on `store.backend`. Tests
-  // historically passed an `IGraphStore` stub via `_store`; route that
-  // through the `internal.graphOnly` seam which auto-wraps it into a
-  // no-op-temporal Store with `backend: "duck"` (the sidecar then
-  // resolves to absent unless the stub duck-types
-  // `exportEmbeddingsParquet` itself).
+  // generatePack consumes `Store` (= `OpenStoreResult`). Tests historically
+  // passed an `IGraphStore` stub via `_store`; route that through the
+  // `internal.graphOnly` seam which auto-wraps it into a no-op-temporal Store.
   const composedStore: Store | undefined = isStoreShape(args._store)
     ? args._store
     : (owned ?? undefined);

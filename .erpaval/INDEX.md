@@ -44,6 +44,8 @@ development sessions. Solutions are reusable; specs are per-feature.
 - [Smoke-testing a workspace cli requires packing every publishable workspace dep](solutions/best-practices/workspace-tarball-pack-all-publishables.md) — `npm install -g <cli.tgz>` falls back to registry for un-packed transitive workspace deps, dragging in the previously-published versions and masking install-graph regressions. Pack everything publishable, every time.
 - [GitHub Actions top-level permissions cap every job](solutions/conventions/workflow-call-permissions-ceiling.md) — workflow's top-level `permissions:` is a ceiling; per-job blocks can narrow but not grant. `id-token: write` declared at job level silently no-ops if missing from top level. Diagnostic: read the "GITHUB_TOKEN Permissions" group in the failing job's log.
 
+- [lbug COPY FROM (subquery) bulk-load pattern](solutions/conventions/lbug-copy-from-subquery-bulk-load.md) — type-safe bulk inserts via COPY subquery; sentinel row, STRING[] never null + sentinel STRING[] never empty (LIST(ANY) trap), maxDBSize cap (8 TiB default exhausts VA), readOnly cannot run CREATE_FTS_INDEX, src/dst not from/to, eid not id alias.
+
 ## Specs
 
 - [001-scip-replaces-lsp](specs/001-scip-replaces-lsp/spec.md) — rip-and-replace LSP with SCIP for TS/Py/Go/Rust/Java. Task map: [tasks.md](specs/001-scip-replaces-lsp/tasks.md).

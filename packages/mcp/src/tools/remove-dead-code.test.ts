@@ -25,8 +25,8 @@ import type {
 } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
-  DuckDbStore,
   EmbeddingRow,
+  IGraphStore,
   ListEdgesByTypeOptions,
   ListEdgesOptions,
   ListNodesOptions,
@@ -43,17 +43,15 @@ import { type RemoveDeadCodeContext, registerRemoveDeadCodeTool } from "./remove
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
- * (`OpenStoreResult`) that the connection pool returns. The same
- * instance backs both `graph` and `temporal` because DuckDbStore
- * implements both interfaces over a single connection in production.
+ * (`OpenStoreResult`) that the connection pool returns. The same fake
+ * instance backs both `graph` and `temporal` views.
  */
 function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
   return {
-    backend: "duck" as const,
     graph: fake as import("@opencodehub/storage").IGraphStore,
     temporal: fake as import("@opencodehub/storage").ITemporalStore,
-    graphFile: "/in-memory/graph.duckdb",
-    temporalFile: "/in-memory/graph.duckdb",
+    graphFile: "/in-memory/graph.lbug",
+    temporalFile: "/in-memory/temporal.duckdb",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -78,7 +76,7 @@ interface FakeNode {
  * path looks for inbound referrers but we only seed isolated dead
  * candidates).
  */
-function makeFakeStore(nodes: readonly FakeNode[]): DuckDbStore {
+function makeFakeStore(nodes: readonly FakeNode[]): IGraphStore {
   const nodeAsGraphNode = (n: FakeNode): GraphNode => n as unknown as GraphNode;
 
   const api = {
@@ -117,7 +115,7 @@ function makeFakeStore(nodes: readonly FakeNode[]): DuckDbStore {
     getMeta: async (): Promise<StoreMeta | undefined> => undefined,
     setMeta: async (_m: StoreMeta): Promise<void> => {},
     healthCheck: async () => ({ ok: true }),
-  } as unknown as DuckDbStore;
+  } as unknown as IGraphStore;
   return api;
 }
 

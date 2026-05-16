@@ -139,7 +139,6 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
       : {};
 
   const composed: Store = {
-    backend: "duck",
     graph: graph as unknown as IGraphStore,
     temporal: temporal as unknown as ITemporalStore,
     graphFile: "/tmp/fake.duckdb",

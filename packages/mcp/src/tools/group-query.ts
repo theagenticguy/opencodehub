@@ -30,7 +30,7 @@
 import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { bm25Search, DEFAULT_RRF_K, DEFAULT_RRF_TOP_K, rrf } from "@opencodehub/search";
-import { resolveDbPath } from "@opencodehub/storage";
+import { resolveGraphPath } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { readGroup } from "../group-resolver.js";
@@ -160,7 +160,7 @@ export async function runGroupQuery(ctx: ToolContext, args: GroupQueryArgs): Pro
       // helper falls back to `deriveRepoUri` on any DB failure.
       const repoUri = await repoUriForEntry(hit, ctx.pool);
       const repoPath = resolve(hit.path);
-      const dbPath = resolveDbPath(repoPath);
+      const dbPath = resolveGraphPath(repoPath);
 
       let store: Awaited<ReturnType<typeof ctx.pool.acquire>>;
       try {

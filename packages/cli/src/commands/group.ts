@@ -28,7 +28,7 @@ import type { ContractRegistry, SyncRepoInput } from "@opencodehub/analysis";
 import { runGroupSync } from "@opencodehub/analysis";
 import { DEFAULT_RRF_K, DEFAULT_RRF_TOP_K, rrf } from "@opencodehub/search";
 import type { SearchResult } from "@opencodehub/storage";
-import { openStore, readStoreMeta, resolveDbPath } from "@opencodehub/storage";
+import { openStore, readStoreMeta, resolveGraphPath } from "@opencodehub/storage";
 import { Command } from "commander";
 import { writeFileAtomic } from "../fs-atomic.js";
 import {
@@ -425,8 +425,8 @@ export async function runGroupQuery(
       continue;
     }
     const repoPath = resolve(registryHit.path);
-    const dbPath = resolveDbPath(repoPath);
-    const composed = await openStore({ path: dbPath, backend: "auto", readOnly: true });
+    const dbPath = resolveGraphPath(repoPath);
+    const composed = await openStore({ path: dbPath, readOnly: true });
     try {
       await composed.graph.open();
       const results = await composed.graph.search({ text, limit: 50 });

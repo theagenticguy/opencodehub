@@ -164,17 +164,13 @@ export async function withStore(
     store = await ctx.pool.acquire(resolved.repoPath, resolved.dbPath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Enumerate every in-tree backend's artifact filename so the hint is
-    // useful regardless of which backend produced the index. Pulling the
-    // filenames from `describeArtifacts` keeps two-store deployments in
-    // sync with a single source of truth.
-    const candidates = (["duck", "lbug"] as const)
-      .map((b) => `.codehub/${describeArtifacts(b).graphFile}`)
-      .join(" or ");
+    // Pull the canonical graph artifact filename from `describeArtifacts`
+    // so the hint stays in sync with the storage layer's source of truth.
+    const candidate = `.codehub/${describeArtifacts().graphFile}`;
     return toolError(
       "DB_ERROR",
       `Failed to open store at ${resolved.dbPath}: ${msg}`,
-      `Ensure the repo was indexed and that the ${candidates} file is readable.`,
+      `Ensure the repo was indexed and that the ${candidate} file is readable.`,
     );
   }
   try {

@@ -20,12 +20,11 @@
  * `shutdown()` drains the pool on stdio close so the server exits cleanly.
  *
  * The pool caches the composed `OpenStoreResult` so MCP tools can route
- * graph-tier calls through `store.graph` and temporal-tier calls
- * (cochanges, summaries, `--sql` escape hatch) through `store.temporal`.
- * Backend selection follows the standard `openStore` resolution (env-
- * driven `CODEHUB_STORE`, with auto-detect when unset).
- * `OpenStoreResult.close()` is the deterministic composite close — for
- * the DuckDB-only deployment that's a single underlying close.
+ * graph-tier calls through `store.graph` (lbug at `<repo>/.codehub/graph.lbug`)
+ * and temporal-tier calls (cochanges, summaries, `--sql` escape hatch)
+ * through `store.temporal` (DuckDB at `<repo>/.codehub/temporal.duckdb`).
+ * `OpenStoreResult.close()` is the deterministic composite close — graph
+ * first, then temporal.
  */
 
 import { openStore, type Store } from "@opencodehub/storage";
@@ -49,24 +48,20 @@ const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Factory indirection keeps tests mockable without standing up the
- * underlying database. Production always calls `openStore` so backend
- * selection (DuckDB or the graph-db pairing) follows the env-driven
- * resolution.
+ * underlying database. Production always calls `openStore`, which
+ * composes the lbug graph view and the DuckDB temporal view from the
+ * `<repo>/.codehub/` parent directory.
  */
 export type StoreFactory = (dbPath: string) => Promise<Store>;
 
 const defaultFactory: StoreFactory = async (dbPath) => {
-  // openStore picks backend via CODEHUB_STORE (defaults to "duck"). We
-  // open read-only because every MCP tool is a reader; the ingestion
-  // pipeline owns writes and runs out-of-process.
+  // openStore composes graph (lbug) + temporal (DuckDB) views from the
+  // shared `<repo>/.codehub/` parent. We open read-only because every
+  // MCP tool is a reader; the ingestion pipeline owns writes and runs
+  // out-of-process.
   const store = await openStore({ path: dbPath, readOnly: true });
   await store.graph.open();
-  if (store.graphFile !== store.temporalFile) {
-    // Two distinct underlying files — open each side. For the default
-    // DuckDB backend graph and temporal alias the same instance and the
-    // second open() is a no-op.
-    await store.temporal.open();
-  }
+  await store.temporal.open();
   return store;
 };
 

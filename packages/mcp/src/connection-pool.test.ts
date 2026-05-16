@@ -17,7 +17,6 @@ function makeFakeStore(path: string): {
   let closeCalls = 0;
   const store = {
     path,
-    backend: "duck" as const,
     close: async () => {
       closeCalls += 1;
       closed = true;

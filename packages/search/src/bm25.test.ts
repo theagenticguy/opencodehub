@@ -32,7 +32,7 @@ interface StubCall {
 }
 
 class StubStore implements IGraphStore {
-  readonly dialect: GraphDialect = "none";
+  readonly dialect: GraphDialect = "cypher";
   readonly calls: StubCall[] = [];
   results: SearchResult[] = [];
 

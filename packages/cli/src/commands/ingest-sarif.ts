@@ -36,7 +36,7 @@ import {
 import {
   type IGraphStore,
   openStore,
-  resolveDbPath,
+  resolveGraphPath,
   resolveRepoMetaDir,
 } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
@@ -96,8 +96,8 @@ export async function runIngestSarif(
     log = applyBaselineState(log, baselineLog);
   }
 
-  const dbPath = resolveDbPath(repoPath);
-  const composed = await openStore({ path: dbPath, backend: "auto" });
+  const dbPath = resolveGraphPath(repoPath);
+  const composed = await openStore({ path: dbPath });
   let graph: KnowledgeGraph;
   let summary: BuildSummary;
   try {
