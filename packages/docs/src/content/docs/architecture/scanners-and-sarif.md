@@ -12,20 +12,21 @@ covers the catalog, the license distinction between bundled and
 wrapped tools, how SARIF enrichment stays GHAS-compatible, and how
 baseline diffs get bucketized.
 
-## Scanner inventory (20)
+## Scanner inventory (19)
 
 The catalog at `packages/scanners/src/catalog.ts` is a flat module:
 one exported `ScannerSpec` per tool plus aggregate arrays. Selection
 is driven by the project profile (languages, IaC types, API contracts)
 and can be overridden with an explicit `scanners` list on the `scan`
-tool. After PR #72 added `detect-secrets`, the inventory is **20
-scanners**:
+tool. The current inventory is **19 scanners** — `detect-secrets` was
+removed in favour of `betterleaks`, which ships 276 default rules and
+a CEL-filtered `generic-api-key` catch-all that subsumes the older
+tool's entropy + keyword detectors.
 
 | Scanner | Scope |
 |---|---|
 | `semgrep` | Multi-language static analysis. |
-| `betterleaks` | Secrets — permissive license. |
-| `detect-secrets` | Secrets — entropy + pattern based. |
+| `betterleaks` | Secrets — 276 rules + entropy + CEL filters. |
 | `osv-scanner` | Lockfile vulnerability scan against OSV. |
 | `bandit` | Python static security. |
 | `biome` | TS/JS lint + format. |

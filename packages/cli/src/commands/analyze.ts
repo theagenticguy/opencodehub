@@ -100,7 +100,7 @@ export interface AnalyzeOptions {
    * Run Priority-1 security scanners at the end of `analyze` and write
    * `.codehub/scan.sarif` + ingest findings into the graph. **Default:
    * on.** Most scanners are local binaries (semgrep, bandit, ruff,
-   * vulture, radon, detect-secrets, betterleaks, ty); the network-backed
+   * vulture, radon, betterleaks, ty); the network-backed
    * ones (osv-scanner, grype, npm/pip audit) are silently skipped when
    * `--offline` is set. Pass `false` (CLI: `--no-scan`) to suppress — the
    * graph pipeline runs unchanged.

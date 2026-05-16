@@ -1,0 +1,159 @@
+# OpenCodeHub default betterleaks config.
+#
+# Shipped inside @opencodehub/scanners and injected via `--config` when the
+# user has not placed their own `betterleaks.toml` / `.gitleaks.toml` at the
+# project root. Inherits all 276 default rules from betterleaks itself,
+# then layers a universal `paths` allowlist that filters out vendored deps,
+# generated artifacts, lockfile noise, and common build-output directories.
+#
+# Why we don't lean on `.gitignore`:
+#   - betterleaks `dir` mode ignores `.gitignore` entirely.
+#   - `git` mode honors it transitively (git itself doesn't enumerate
+#     gitignored paths), but only works inside a real git repo. The wrapper
+#     prefers `git` mode when a `.git` directory is present, falling back
+#     to `dir` mode otherwise. This config covers BOTH cases — the path
+#     allowlist is harmless in `git` mode (gitignored paths simply don't
+#     reach the scanner) and load-bearing in `dir` mode.
+#
+# Override discipline: drop your own `betterleaks.toml` at the project root
+# and OCH will use it instead of this file. Use `[extend] path = "..."` to
+# layer your own allowlists on top of these defaults.
+
+title = "OpenCodeHub default scan policy (betterleaks)"
+
+[extend]
+useDefault = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Universal allowlist — vendored deps, build outputs, lockfiles, SBOMs.
+# RE2: no lookarounds, anchor explicitly with `(^|/)` and `$`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[allowlists]]
+description = "Vendored dependency directories"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.pnpm/''',
+  '''(^|/)\.yarn/''',
+  '''(^|/)bower_components/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)venv/''',
+  '''(^|/)\.virtualenv/''',
+  '''(^|/)site-packages/''',
+  '''(^|/)__pycache__/''',
+  '''(^|/)\.tox/''',
+  '''(^|/)\.nox/''',
+  '''(^|/)vendor/''',
+  '''(^|/)third_party/''',
+  '''(^|/)Pods/''',
+  '''(^|/)Carthage/''',
+]
+
+[[allowlists]]
+description = "Build output directories"
+paths = [
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)out/''',
+  '''(^|/)\.next/''',
+  '''(^|/)\.nuxt/''',
+  '''(^|/)\.svelte-kit/''',
+  '''(^|/)\.turbo/''',
+  '''(^|/)\.cache/''',
+  '''(^|/)\.parcel-cache/''',
+  '''(^|/)target/''',
+  '''(^|/)bin/''',
+  '''(^|/)obj/''',
+  '''(^|/)coverage/''',
+  '''(^|/)\.nyc_output/''',
+  '''(^|/)\.gradle/''',
+  '''(^|/)\.idea/''',
+  '''(^|/)\.vscode/''',
+]
+
+[[allowlists]]
+description = "Lockfiles — managers pin integrity hashes that look like secrets"
+paths = [
+  '''(^|/)pnpm-lock\.yaml$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)yarn\.lock$''',
+  '''(^|/)npm-shrinkwrap\.json$''',
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)go\.sum$''',
+  '''(^|/)poetry\.lock$''',
+  '''(^|/)Pipfile\.lock$''',
+  '''(^|/)uv\.lock$''',
+  '''(^|/)pdm\.lock$''',
+  '''(^|/)composer\.lock$''',
+  '''(^|/)Gemfile\.lock$''',
+  '''(^|/)mix\.lock$''',
+  '''(^|/)flake\.lock$''',
+  '''(^|/)pubspec\.lock$''',
+  '''(^|/)Podfile\.lock$''',
+]
+
+[[allowlists]]
+description = "Generated SBOM and security artifacts"
+paths = [
+  '''\.cdx\.json$''',
+  '''\.cdx\.xml$''',
+  '''\.spdx\.json$''',
+  '''\.spdx$''',
+  '''\.sarif$''',
+  '''(^|/)\.codehub/''',
+  '''(^|/)\.secrets\.baseline$''',
+  '''(^|/)\.gitleaks-cache$''',
+  '''(^|/)\.trufflehog\.json$''',
+]
+
+[[allowlists]]
+description = "Binary and large-blob formats — high entropy by definition"
+paths = [
+  '''\.parquet$''',
+  '''\.avro$''',
+  '''\.orc$''',
+  '''\.pb$''',
+  '''\.proto\.bin$''',
+  '''\.onnx$''',
+  '''\.safetensors$''',
+  '''\.bin$''',
+  '''\.wasm$''',
+  '''\.so$''',
+  '''\.dylib$''',
+  '''\.dll$''',
+  '''\.a$''',
+  '''\.o$''',
+  '''\.zip$''',
+  '''\.tar$''',
+  '''\.tar\.gz$''',
+  '''\.tgz$''',
+  '''\.7z$''',
+  '''\.jpg$''',
+  '''\.jpeg$''',
+  '''\.png$''',
+  '''\.gif$''',
+  '''\.webp$''',
+  '''\.pdf$''',
+  '''\.mp4$''',
+  '''\.mov$''',
+]
+
+[[allowlists]]
+description = "Test files and fixture directories"
+paths = [
+  '''\.test\.ts$''',
+  '''\.test\.tsx$''',
+  '''\.test\.js$''',
+  '''\.test\.jsx$''',
+  '''\.test\.py$''',
+  '''_test\.go$''',
+  '''_test\.rs$''',
+  '''(^|/)test/''',
+  '''(^|/)tests/''',
+  '''(^|/)testdata/''',
+  '''(^|/)__fixtures__/''',
+  '''(^|/)__snapshots__/''',
+  '''(^|/)spec/''',
+  '''(^|/)specs/''',
+  '''(^|/)e2e/''',
+]

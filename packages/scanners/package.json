@@ -29,7 +29,8 @@
     "dist/**/*.js.map",
     "!dist/**/*.test.js.map",
     "dist/**/*.d.ts.map",
-    "!dist/**/*.test.d.ts.map"
+    "!dist/**/*.test.d.ts.map",
+    "config/*.toml"
   ],
   "scripts": {
     "build": "tsc -b",
