@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.0...cli-v0.5.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* **cli:** code-pack must open temporal store for embeddings staging ([#121](https://github.com/theagenticguy/opencodehub/issues/121)) ([f609542](https://github.com/theagenticguy/opencodehub/commit/f609542b9f7ba3476433cb58f918607176133423))
+
 ## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.4.0...cli-v0.5.0) (2026-05-16)
 
 
