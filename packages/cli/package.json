@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "OpenCodeHub — codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
   "license": "Apache-2.0",
   "repository": {
