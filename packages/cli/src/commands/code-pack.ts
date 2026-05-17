@@ -140,6 +140,10 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
     ? await (async () => {
         const composed = await openStore({ path: dbPath, readOnly: true });
         await composed.graph.open();
+        // Pack stages embeddings through `temporal.exportEmbeddingsToParquet`,
+        // so the temporal DuckDB also needs an open connection — the graph
+        // view alone is not enough.
+        await composed.temporal.open();
         return composed;
       })()
     : undefined;
