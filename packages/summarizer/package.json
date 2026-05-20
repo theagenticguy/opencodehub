@@ -38,7 +38,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "3.1045.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1050.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
