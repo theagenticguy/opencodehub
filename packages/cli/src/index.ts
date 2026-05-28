@@ -655,7 +655,7 @@ program
   .description(
     "Probe the local environment (node/pnpm/native bindings/scanners/registry) and print actionable hints",
   )
-  .option("--skip-native", "Skip checks that require native bindings (duckdb / tree-sitter)")
+  .option("--skip-native", "Skip checks that require native bindings (duckdb / lbug)")
   .option(
     "--repoRoot <path>",
     "Override the workspace root used as a fallback for native-binding resolution",

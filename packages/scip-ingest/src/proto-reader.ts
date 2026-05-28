@@ -14,6 +14,8 @@ const WIRE_FIXED64 = 1;
 const WIRE_LENGTH_DELIMITED = 2;
 const WIRE_FIXED32 = 5;
 
+const TEXT_DECODER = new TextDecoder();
+
 export class ProtoReader {
   private pos: number;
 
@@ -57,13 +59,19 @@ export class ProtoReader {
   readString(): string {
     const len = this.readVarint();
     const start = this.pos;
+    if (start + len > this.end) {
+      throw new Error("scip-ingest: unexpected end of buffer in readString");
+    }
     this.pos += len;
-    return new TextDecoder().decode(this.buf.subarray(start, start + len));
+    return TEXT_DECODER.decode(this.buf.subarray(start, start + len));
   }
 
   readSubMessage(): Uint8Array {
     const len = this.readVarint();
     const start = this.pos;
+    if (start + len > this.end) {
+      throw new Error("scip-ingest: unexpected end of buffer in readSubMessage");
+    }
     this.pos += len;
     return this.buf.subarray(start, start + len);
   }
@@ -78,6 +86,9 @@ export class ProtoReader {
         return;
       case WIRE_LENGTH_DELIMITED: {
         const len = this.readVarint();
+        if (this.pos + len > this.end) {
+          throw new Error("scip-ingest: unexpected end of buffer in skip");
+        }
         this.pos += len;
         return;
       }
@@ -111,6 +122,9 @@ export class ProtoReader {
   readRepeatedInt32(wireType: number, out: number[]): void {
     if (wireType === WIRE_LENGTH_DELIMITED) {
       const len = this.readVarint();
+      if (this.pos + len > this.end) {
+        throw new Error("scip-ingest: unexpected end of buffer in readRepeatedInt32");
+      }
       const end = this.pos + len;
       while (this.pos < end) out.push(this.readVarint());
     } else if (wireType === WIRE_VARINT) {
