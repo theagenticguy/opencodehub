@@ -12,17 +12,22 @@ variable is read from `process.env` at the entry point that owns it
 (CLI, MCP server, ingestion phase, embedder backend); none of them
 mutate global state.
 
-### Storage backend
+### Storage
+
+The graph tier is always LadybugDB (`graph.lbug`) and the temporal tier
+is always DuckDB (`temporal.duckdb`). There is no backend selector — the
+`CODEHUB_STORE` env var was removed in ADR 0016 along with the probe and
+the DuckDB-as-graph fallback. If the LadybugDB binding cannot load,
+`open()` throws `GraphDbBindingError`.
 
 | Variable | Purpose |
 |---|---|
-| `CODEHUB_STORE` | `lbug` forces LadybugDB; `duck` forces the single-file DuckDB layout. Unset (the default) means probe `@ladybugdb/core` and use LadybugDB when the binding is importable, otherwise fall back to DuckDB. |
 | `CODEHUB_HOME` | Override `~/.codehub/` (where the registry, embedder weights, and global state live). |
-| `OCH_VERBOSE` | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
 
 ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) records
-the LadybugDB-default decision and the `IGraphStore` / `ITemporalStore`
-interface segregation.
+the `IGraphStore` / `ITemporalStore` interface segregation; ADR 0016
+(`docs/adr/0016-duckdb-graph-rip.md`) records the rip-out of the DuckDB
+graph backend, the env var, and the resolver.
 
 ### Parse runtime
 
@@ -65,28 +70,16 @@ When none of the above are set, the local ONNX backend
 ## On-disk layout: `.codehub/`
 
 `codehub analyze` writes everything under `<repo-root>/.codehub/`. The
-exact files depend on the backend selected at index time.
-
-### LadybugDB (default)
+layout is fixed: a LadybugDB graph file alongside a DuckDB temporal
+file.
 
 | Path | Purpose |
 |---|---|
-| `graph.lbug` | LadybugDB graph store — nodes, edges, embeddings. |
+| `graph.lbug` | LadybugDB graph store — nodes, edges, embeddings, BM25 + HNSW indexes. |
 | `temporal.duckdb` | Sibling DuckDB file — temporal store (cochanges, symbol-summary cache). |
-| `meta.json` | Index metadata: graph hash, node counts, CLI version, backend, embedder model id. |
+| `meta.json` | Index metadata: graph hash, node counts, CLI version, embedder model id. |
 | `scan.sarif` | SARIF output from `codehub scan`. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
-
-### DuckDB (opt-in fallback)
-
-| Path | Purpose |
-|---|---|
-| `graph.duckdb` | Single DuckDB file — nodes, edges, embeddings, and temporal views in one place. |
-| `meta.json` | Same shape as the LadybugDB layout. |
-| `scan.sarif` | SARIF output from `codehub scan`. |
-
-When both `graph.lbug` and `graph.duckdb` exist as siblings, the
-newer-`mtime` file wins.
 
 Safe to delete and rebuild at any time via `codehub clean` +
 `codehub analyze`.

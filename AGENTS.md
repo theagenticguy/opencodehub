@@ -82,16 +82,22 @@ This repo ships a Claude Code plugin at `plugins/opencodehub/` — it
 provides a `code-analyst` subagent and 10 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
 
-## Storage backend — graph-default
+## Storage backend — lbug graph + DuckDB temporal
 
-`CODEHUB_STORE` is unset by default. OpenCodeHub probes
-`@ladybugdb/core` and uses the graph-database backend when the binding
-is available; otherwise it falls back to DuckDB with a one-shot stderr
-advisory (gated on TTY or `OCH_VERBOSE=1`). Set `CODEHUB_STORE=duck` to
-force the legacy layout (single DuckDB file backs both graph + temporal
-views) or `CODEHUB_STORE=lbug` to require the graph-database backend.
+The graph tier is always `@ladybugdb/core` (`graph.lbug`); the temporal
+tier — cochanges, structured symbol summaries, and the
+`codehub query --sql` escape hatch — is always DuckDB
+(`temporal.duckdb`). Both files live under `<repo>/.codehub/`. There is
+no env-var, no probe, no fallback; if the lbug binding fails to load,
+`open()` throws `GraphDbBindingError` and the operation aborts. See
+ADR 0016 (`docs/adr/0016-duckdb-graph-rip.md`) for the rationale and the
+AGE/Memgraph/Neo4j/Neptune community-adapter contract that survives the
+rip-out (the segregated `IGraphStore` / `ITemporalStore` interfaces stay
+exactly because community-fork adapters are a deliberate escape hatch).
 
-When both `graph.duckdb` and `graph.lbug` exist as siblings in the same
-`<repo>/.codehub/`, the newer-mtime file wins. See ADR 0013
-(`docs/adr/0013-m7-default-flip-and-abstraction.md`) for the rationale
-and the AGE/Memgraph/Neo4j/Neptune community-adapter escape hatch.
+`IGraphStore` lives only on `GraphDbStore`; `DuckDbStore` implements
+`ITemporalStore` only. Embeddings live in `graph.lbug` and stream into a
+per-call DuckDB temp table at pack time so the byte-identical Parquet
+sidecar still works (see `packages/pack/src/embeddings-sidecar.ts`).
+Future temporal swap (e.g. SQLite-WASM) only needs a new `ITemporalStore`
+implementor — no graph-tier change.
