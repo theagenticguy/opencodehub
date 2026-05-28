@@ -227,6 +227,49 @@ describe(`${COMPLEXITY_PHASE_NAME}Phase`, () => {
     }
   });
 
+  it("resolves identically-named callables in different files to their own metrics", async () => {
+    // Pins the resolver's matching semantics: two callables share the SAME
+    // name (`dup`) across two files with DIFFERENT body shapes. The composite
+    // lookup key must keep them apart by filePath — drop that component (or a
+    // delimiter collision) and one node would steal the other's complexity.
+    // `a.ts:dup` has a for+if (cc 3); `b.ts:dup` is a flat one-liner (cc 1).
+    const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-dup-"));
+    try {
+      await fs.writeFile(
+        path.join(repo, "a.ts"),
+        [
+          "export function dup(xs: number[]): number {",
+          "  for (const x of xs) {",
+          "    if (x > 0) {",
+          "      return x;",
+          "    }",
+          "  }",
+          "  return 0;",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      await fs.writeFile(
+        path.join(repo, "b.ts"),
+        ["export function dup(): number {", "  return 1;", "}", ""].join("\n"),
+      );
+      const { ctx } = await runThroughComplexity(repo);
+      // Key each `dup` callable by its filePath so we can assert each file's
+      // node carries its own complexity, not the other's.
+      const byFile = new Map<string, number | undefined>();
+      for (const n of ctx.graph.nodes()) {
+        if (n.kind !== "Function" && n.kind !== "Method" && n.kind !== "Constructor") continue;
+        if (n.name !== "dup") continue;
+        byFile.set(n.filePath, n.cyclomaticComplexity);
+      }
+      assert.equal(byFile.size, 2, "expected two distinct dup callables, one per file");
+      assert.equal(byFile.get("a.ts"), 3, "a.ts dup: 1 + for + if");
+      assert.equal(byFile.get("b.ts"), 1, "b.ts dup: flat body");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("skips gracefully when a function has no body (empty file)", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-empty-"));
     try {

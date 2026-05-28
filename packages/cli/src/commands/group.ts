@@ -28,7 +28,7 @@ import type { ContractRegistry, SyncRepoInput } from "@opencodehub/analysis";
 import { runGroupSync } from "@opencodehub/analysis";
 import { DEFAULT_RRF_K, DEFAULT_RRF_TOP_K, rrf } from "@opencodehub/search";
 import type { SearchResult } from "@opencodehub/storage";
-import { openStore, readStoreMeta, resolveGraphPath } from "@opencodehub/storage";
+import { readStoreMeta } from "@opencodehub/storage";
 import { Command } from "commander";
 import { writeFileAtomic } from "../fs-atomic.js";
 import {
@@ -40,6 +40,7 @@ import {
   writeGroup,
 } from "../groups.js";
 import { CODEHUB_HOME_DIR, type RepoEntry, readRegistry } from "../registry.js";
+import { openStoreForCommand } from "./open-store.js";
 
 export interface GroupCommandOptions {
   /** Test hook: override home dir for the registry + groups. */
@@ -425,14 +426,12 @@ export async function runGroupQuery(
       continue;
     }
     const repoPath = resolve(registryHit.path);
-    const dbPath = resolveGraphPath(repoPath);
-    const composed = await openStore({ path: dbPath, readOnly: true });
+    const { store } = await openStoreForCommand({ repo: repoPath, readOnly: true });
     try {
-      await composed.graph.open();
-      const results = await composed.graph.search({ text, limit: 50 });
+      const results = await store.graph.search({ text, limit: 50 });
       perRepoRuns.push({ repoName: repo.name, results: [...results] });
     } finally {
-      await composed.close();
+      await store.close();
     }
   }
 

@@ -50,9 +50,10 @@ import {
   type ScannerStatus,
   SPECTRAL_SPEC,
 } from "@opencodehub/scanners";
-import { openStore, resolveGraphPath, resolveRepoMetaDir } from "@opencodehub/storage";
+import { resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
 import { runIngestSarif } from "./ingest-sarif.js";
+import { openStoreForCommand } from "./open-store.js";
 
 export interface ScanOptions {
   /** Explicit scanner ids (--scanners=semgrep,osv). Overrides profile gating. */
@@ -266,18 +267,16 @@ function applySuppressionsForRepo(repoPath: string, log: SarifLog): SarifLog {
  * subset.
  */
 export async function readProjectProfile(repoPath: string): Promise<ProjectProfileGate> {
-  const dbPath = resolveGraphPath(repoPath);
   try {
-    const composed = await openStore({ path: dbPath, readOnly: true });
+    const { store } = await openStoreForCommand({ repo: repoPath, readOnly: true });
     try {
-      await composed.graph.open();
       // The single-row ProjectProfile lookup. `listNodesByKind` materializes
       // a typed `ProjectProfileNode`, which already carries the typed
       // `languages` / `iacTypes` / `apiContracts` arrays — no JSON parsing
       // needed. The legacy SQL went through the wide-column `*_json`
       // shape because the column encoder serialised them; the storage
       // layer now hands back the rehydrated TS shape directly.
-      const rows = await composed.graph.listNodesByKind("ProjectProfile", { limit: 1 });
+      const rows = await store.graph.listNodesByKind("ProjectProfile", { limit: 1 });
       const row = rows[0];
       if (!row) return {};
       return {
@@ -286,7 +285,7 @@ export async function readProjectProfile(repoPath: string): Promise<ProjectProfi
         apiContracts: row.apiContracts,
       };
     } finally {
-      await composed.close();
+      await store.close();
     }
   } catch {
     return {};

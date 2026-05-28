@@ -381,6 +381,44 @@ test("sql: cypher timeout_ms is forwarded to store.query opts", async () => {
 // generic Error and loses the `INVALID_INPUT` classification.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Schema-hint correctness (finding R2): the tool description must map SQL
+// mode to the DuckDB temporal tables and Cypher mode to the lbug graph
+// labels — NOT advertise `nodes`/`relations`/etc. as SQL tables. One
+// structural check covers both sections so the assertions can't drift.
+// ---------------------------------------------------------------------------
+
+test("sql: tool description splits SQL temporal tables from Cypher graph labels", async () => {
+  await withHarness({ rows: [] }, async ({ ctx, server }) => {
+    registerSqlTool(server, ctx);
+    // biome-ignore lint/suspicious/noExplicitAny: reach into the SDK's tool registry for the description
+    const registered = (server as any)._registeredTools as Record<string, { description?: string }>;
+    const desc = registered["sql"]?.description ?? "";
+
+    // SQL section: the two tables that actually exist in the DuckDB
+    // temporal tier (per packages/storage/src/schema-ddl.ts).
+    assert.match(desc, /SQL mode/, "description must label a SQL-mode section");
+    assert.match(desc, /\bcochanges\b/, "SQL section must list cochanges");
+    assert.match(desc, /\bsymbol_summaries\b/, "SQL section must list symbol_summaries");
+
+    // Cypher section: graph labels reached via Cypher, plus an explicit
+    // statement that the graph entities are NOT SQL tables.
+    assert.match(desc, /Cypher mode/, "description must label a Cypher-mode section");
+    assert.match(
+      desc,
+      /not SQL-queryable|never `SELECT/i,
+      "description must state the graph is not SQL-queryable",
+    );
+
+    // The bug being fixed: the old hint advertised `nodes(...)` as a SQL
+    // table via a "Tables: nodes(" preamble. That phrasing must be gone.
+    assert.ok(
+      !desc.includes("Tables: nodes("),
+      "description must NOT advertise `nodes` as a SQL table (finding R2)",
+    );
+  });
+});
+
 test("sql: guard classes exported from @opencodehub/storage are the ones thrown", () => {
   // Both guard classes must be constructible with a message and must not
   // collapse to plain Error — otherwise the tool's instanceof branches
