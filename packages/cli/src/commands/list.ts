@@ -34,10 +34,8 @@ type Health = "ok" | "path-missing" | "graph-missing";
 
 function classifyHealth(entry: RepoEntry): Health {
   if (!existsSync(entry.path)) return "path-missing";
-  // Backend-aware probe: any of `meta.json`, `graph.duckdb`, or
-  // `graph.lbug` under `.codehub/` counts as "indexed". The legacy
-  // hard-coded `graph.duckdb` check pre-dated the M3 backend split and
-  // would have flagged every `CODEHUB_STORE=lbug` repo as broken.
+  // Indexed probe: presence of `meta.json` / `graph.lbug` under `.codehub/`
+  // counts as "indexed" (lbug is the only graph backend post-ADR 0016).
   if (!codehubIsIndexed(entry.path)) return "graph-missing";
   return "ok";
 }
