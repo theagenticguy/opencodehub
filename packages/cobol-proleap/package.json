@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/cobol-proleap",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "OpenCodeHub — COBOL deep-parse bridge over the uwol/cobol-parser JVM library (v4.0.0); gated behind --allow-build-scripts=proleap",
   "license": "Apache-2.0",
   "repository": {

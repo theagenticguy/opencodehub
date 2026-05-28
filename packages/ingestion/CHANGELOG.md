@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.2](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.1...ingestion-v0.4.2) (2026-05-28)
+
+
+### Performance
+
+* **ingestion:** O(N) complexity lookup; fix sql hint; reuse openStoreForCommand ([#142](https://github.com/theagenticguy/opencodehub/issues/142)) ([976b877](https://github.com/theagenticguy/opencodehub/commit/976b8773dbb96dcc3de6b0c64840e2a63dc5b7d7))
+
+
+### Refactoring
+
+* **ingestion:** collapse 3 IndexerKind switches into LANG_REGISTRY ([#143](https://github.com/theagenticguy/opencodehub/issues/143)) ([dea4001](https://github.com/theagenticguy/opencodehub/commit/dea4001093d7fe4583488ca171b4c7a87cdc1ba0))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.1
+    * @opencodehub/scip-ingest bumped to 0.2.3
+    * @opencodehub/storage bumped to 0.2.1
+
 ## [0.4.1](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.0...ingestion-v0.4.1) (2026-05-16)
 
 
