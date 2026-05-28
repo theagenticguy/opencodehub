@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.3...root-v0.6.4) (2026-05-28)
+
+
+### Documentation
+
+* **repo:** add 2 release-recovery durable lessons (v0.6.2→v0.6.3) ([#149](https://github.com/theagenticguy/opencodehub/issues/149)) ([6a59d38](https://github.com/theagenticguy/opencodehub/commit/6a59d38a8e1e6758bb764e594c2164b4cfe775df))
+
 ## [0.6.3](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.2...root-v0.6.3) (2026-05-28)
 
 
