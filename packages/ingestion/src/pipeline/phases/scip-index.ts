@@ -299,67 +299,64 @@ interface ProfileNodeLike {
   readonly languages: readonly string[];
 }
 
+/**
+ * Single source of truth for "is this language wired end-to-end". Each
+ * `IndexerKind` maps to its OpenCodeHub language token (`ochLang`), its
+ * indexer tool name (`tool`), and the canonical SCIP provenance name
+ * (`provenance`) used to build oracle-edge reason strings.
+ *
+ * `clang` covers C + C++. Downstream LanguageId is a single token; "c"
+ * matches existing code paths that look up C-derived sources by
+ * extension. C++-specific consumers see `clang` under the indexer name
+ * in provenance reasons.
+ *
+ * `cobol-proleap` has `provenance: null`: COBOL relations are emitted by
+ * the in-process tree-sitter/regex bridge during the parse phase, not via
+ * SCIP derivation, and `detectLanguages` never yields the proleap kind as
+ * a scip-index candidate — so `result.kind` at the `lookupProvenance`
+ * call site can never be `cobol-proleap`. The `null` states that honestly
+ * instead of the prior `scip-typescript` placeholder that only existed to
+ * satisfy switch exhaustiveness.
+ *
+ * `Record<IndexerKind, LangEntry>` keeps the same compile-time
+ * exhaustiveness the per-kind switches got from
+ * `noFallthroughCasesInSwitch`: tsc errors if a kind is missing or unknown.
+ */
+interface LangEntry {
+  readonly ochLang: string;
+  readonly tool: string;
+  readonly provenance: ScipIndexerName | null;
+}
+
+export const LANG_REGISTRY: Record<IndexerKind, LangEntry> = {
+  typescript: { ochLang: "typescript", tool: "scip-typescript", provenance: "scip-typescript" },
+  python: { ochLang: "python", tool: "scip-python", provenance: "scip-python" },
+  go: { ochLang: "go", tool: "scip-go", provenance: "scip-go" },
+  rust: { ochLang: "rust", tool: "rust-analyzer", provenance: "rust-analyzer" },
+  java: { ochLang: "java", tool: "scip-java", provenance: "scip-java" },
+  clang: { ochLang: "c", tool: "scip-clang", provenance: "scip-clang" },
+  "cobol-proleap": { ochLang: "cobol", tool: "scip-cobol-proleap", provenance: null },
+  ruby: { ochLang: "ruby", tool: "scip-ruby", provenance: "scip-ruby" },
+  dotnet: { ochLang: "csharp", tool: "scip-dotnet", provenance: "scip-dotnet" },
+  kotlin: { ochLang: "kotlin", tool: "scip-kotlin", provenance: "scip-kotlin" },
+};
+
 function scipLangToOchLang(k: IndexerKind): string {
-  switch (k) {
-    case "typescript":
-      return "typescript";
-    case "python":
-      return "python";
-    case "go":
-      return "go";
-    case "rust":
-      return "rust";
-    case "java":
-      return "java";
-    case "clang":
-      // `clang` covers C + C++. Downstream LanguageId is a single token;
-      // "c" matches existing code paths that have looked up C-derived
-      // sources by extension. C++-specific consumers see `clang` under
-      // the indexer name in provenance reasons.
-      return "c";
-    case "cobol-proleap":
-      return "cobol";
-    case "ruby":
-      return "ruby";
-    case "dotnet":
-      return "csharp";
-    case "kotlin":
-      return "kotlin";
-  }
+  return LANG_REGISTRY[k].ochLang;
 }
 
 function kindToTool(k: IndexerKind): string {
-  return k === "rust" ? "rust-analyzer" : `scip-${k}`;
+  return LANG_REGISTRY[k].tool;
 }
 
 function kindToProvenance(k: IndexerKind): ScipIndexerName {
-  switch (k) {
-    case "typescript":
-      return "scip-typescript";
-    case "python":
-      return "scip-python";
-    case "go":
-      return "scip-go";
-    case "rust":
-      return "rust-analyzer";
-    case "java":
-      return "scip-java";
-    case "clang":
-      return "scip-clang";
-    case "cobol-proleap":
-      // cobol-proleap edges don't flow through the SCIP derivation path —
-      // the in-process bridge emits CodeRelation rows directly. This switch
-      // arm exists only to keep the function exhaustive under
-      // `noFallthroughCasesInSwitch`; callers never invoke scipProvenance
-      // for the cobol-proleap kind.
-      return "scip-typescript";
-    case "ruby":
-      return "scip-ruby";
-    case "dotnet":
-      return "scip-dotnet";
-    case "kotlin":
-      return "scip-kotlin";
+  const provenance = LANG_REGISTRY[k].provenance;
+  if (provenance === null) {
+    throw new Error(
+      `scip-index: no SCIP provenance for ${k} (handled by the in-process bridge, not SCIP derivation)`,
+    );
   }
+  return provenance;
 }
 
 function isCacheFresh(scipPath: string, repoPath: string, _kind: IndexerKind): boolean {
