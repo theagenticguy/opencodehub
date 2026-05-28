@@ -14,8 +14,12 @@
  * timeout — the adapter interrupts via a JS timer; the graph adapter
  * honours `timeoutMs` through its pool).
  *
- * The tool description embeds the node-kind and relation-type vocabulary
- * so agents can author correct queries without a separate schema probe.
+ * The tool description embeds a two-section schema hint so agents author
+ * correct queries without a separate schema probe: the SQL section lists
+ * the DuckDB temporal tables (`cochanges`, `symbol_summaries`); the Cypher
+ * section lists the lbug graph's node labels and relationship types. The
+ * code graph (`nodes`/`relations`/`embeddings`/`store_meta`) is reachable
+ * only through Cypher, not via SQL `FROM` — see ADR 0016.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -60,9 +64,12 @@ const SqlInput = {
 };
 
 const SCHEMA_HINT = [
-  "Tables: nodes(id, kind, name, file_path, start_line, end_line, is_exported, signature, parameter_count, return_type, declared_type, owner, url, method, tool_name, content, content_hash, inferred_label, symbol_count, cohesion, keywords, entry_point_id, step_count, level, response_keys, description), relations(id, from_id, to_id, type, confidence, reason, step), embeddings(id, node_id, chunk_index, start_line, end_line, vector, content_hash), store_meta(id, schema_version, last_commit, indexed_at, node_count, edge_count, stats_json).",
-  `NodeKind values: ${NODE_KINDS.join(", ")}.`,
-  `RelationType values: ${RELATION_TYPES.join(", ")}.`,
+  "SQL mode (`sql:`, DuckDB temporal tier) — only these tables exist:",
+  "  cochanges(source_file, target_file, cocommit_count, total_commits_source, total_commits_target, last_cocommit_at, lift)",
+  "  symbol_summaries(node_id, content_hash, prompt_version, model_id, summary_text, signature_summary, returns_type_summary, created_at)",
+  "Cypher mode (`cypher:`, lbug graph tier) — query the graph by node label / relationship type. The code graph is NOT SQL-queryable: `nodes`, `relations`, `embeddings`, and `store_meta` are graph entities reachable only through Cypher (e.g. `MATCH (n:CodeNode) RETURN n`), never `SELECT ... FROM nodes`.",
+  `  Node labels: ${NODE_KINDS.join(", ")}.`,
+  `  Relationship types: ${RELATION_TYPES.join(", ")}.`,
 ].join("\n");
 
 interface SqlArgs {

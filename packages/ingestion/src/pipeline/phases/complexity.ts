@@ -511,6 +511,13 @@ async function runComplexity(
   let annotated = 0;
   let skipped = 0;
 
+  // Index the graph's callable nodes once, up front, so each definition
+  // resolves with a single Map.get instead of a full-graph scan. The key is
+  // the exact 4-tuple the resolver matches on (filePath, name, kind,
+  // startLine); on a key clash the first node wins, matching the
+  // first-match-wins behaviour of the prior linear scan.
+  const callableIndex = buildCallableIndex(ctx);
+
   // Sorted file traversal for determinism.
   const files = [...parse.definitionsByFile.keys()].sort();
   for (const filePath of files) {
@@ -609,6 +616,7 @@ async function runComplexity(
 
       const updated = annotateNode(
         ctx,
+        callableIndex,
         def,
         cyclomaticComplexity,
         nestingDepth,
@@ -676,13 +684,14 @@ function selectBody(def: WasmNode): WasmNode | undefined {
 
 function annotateNode(
   ctx: PipelineContext,
+  callableIndex: ReadonlyMap<string, GraphNode>,
   def: ExtractedDefinition,
   cyclomaticComplexity: number,
   nestingDepth: number,
   nloc: number,
   halsteadVolume: number | undefined,
 ): boolean {
-  const existing = findCallableNode(ctx, def);
+  const existing = callableIndex.get(callableKey(def.filePath, def.name, def.kind, def.startLine));
   if (existing === undefined) return false;
   const updated: GraphNode = withComplexity(
     existing,
@@ -695,23 +704,40 @@ function annotateNode(
   return true;
 }
 
-function findCallableNode(ctx: PipelineContext, def: ExtractedDefinition): GraphNode | undefined {
-  // Iterate graph nodes looking for an exact id/filePath/name match. The
-  // graph holds ~O(symbols) entries; this is O(N) per definition but the
-  // call cost is dominated by parse IO, so we stay simple.
+/**
+ * Composite key over the four fields the resolver matches on. `\x00` (NUL)
+ * is the delimiter: it cannot appear in a file path, identifier, NodeKind,
+ * or decimal line number, so distinct 4-tuples can never collide (e.g. file
+ * `a` + name `b` cannot alias file `a\x00b`).
+ */
+function callableKey(
+  filePath: string,
+  name: string,
+  kind: NodeKind,
+  startLine: number | undefined,
+): string {
+  return `${filePath}\x00${name}\x00${kind}\x00${startLine}`;
+}
+
+/**
+ * Index every callable graph node by its {@link callableKey}. Built once per
+ * phase run, it replaces the former per-definition full-graph scan (O(defs ×
+ * nodes)) with a single O(nodes) pass plus O(1) lookups. Filtered to the same
+ * {@link CALLABLE_KINDS} the linear scan accepted; first node per key wins, so
+ * a given definition resolves to exactly the node the scan would have found.
+ */
+function buildCallableIndex(ctx: PipelineContext): ReadonlyMap<string, GraphNode> {
+  const index = new Map<string, GraphNode>();
   for (const n of ctx.graph.nodes()) {
     if (!CALLABLE_KINDS.has(n.kind)) continue;
-    if (n.filePath !== def.filePath) continue;
-    if (n.name !== def.name) continue;
-    if (n.kind !== def.kind) continue;
-    // Only callable nodes carry startLine; the CALLABLE_KINDS guard above
-    // narrows `n` to a LocatedNode in practice, but TS cannot see it here
-    // because the GraphNode union also contains kinds without startLine.
-    const nodeWithLine = n as unknown as { readonly startLine?: number };
-    if (nodeWithLine.startLine !== def.startLine) continue;
-    return n;
+    // Only callable kinds carry startLine; the guard above narrows `n` to a
+    // LocatedNode in practice, but the GraphNode union also holds kinds
+    // without startLine, so TS needs the explicit read here.
+    const startLine = (n as unknown as { readonly startLine?: number }).startLine;
+    const key = callableKey(n.filePath, n.name, n.kind, startLine);
+    if (!index.has(key)) index.set(key, n);
   }
-  return undefined;
+  return index;
 }
 
 function withComplexity(
