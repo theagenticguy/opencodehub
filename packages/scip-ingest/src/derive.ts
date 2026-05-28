@@ -8,7 +8,7 @@
  * definition. Innermost enclosing wins.
  */
 
-import type { ScipDocument, ScipIndex, ScipOccurrence, ScipRange } from "./parse.js";
+import type { ScipDocument, ScipIndex, ScipRange } from "./parse.js";
 import { SCIP_ROLE_DEFINITION, SCIP_ROLE_IMPORT } from "./parse.js";
 
 export interface DerivedEdge {
@@ -243,13 +243,6 @@ function findDefinition(doc: ScipDocument, symbol: string): ScipRange | null {
     return occ.enclosingRange ?? occ.range;
   }
   return null;
-}
-
-export function findOccurrencesBySymbol(
-  doc: ScipDocument,
-  symbol: string,
-): readonly ScipOccurrence[] {
-  return doc.occurrences.filter((o) => o.symbol === symbol);
 }
 
 /**

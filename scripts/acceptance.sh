@@ -25,11 +25,11 @@
 #  14.  license-audit-smoke         (analyze + license_audit tool)  [NEW v1.0]
 #  15.  verdict-smoke               (2-commit fixture → tier)       [NEW v1.0]
 #  16.  pack-determinism            (code-pack ×2 → diff -r)         [NEW v1.0]
-#  17.  m7-parity-audit             (analyze ×2 backends → graphHash) [NEW v1.0]
+#  17.  m7-parity-audit             (retired — lbug-only backend, ADR 0016; always SKIP)
 #
 # Gates 10-17 MUST degrade gracefully: when their dependency binary is not
-# available (semgrep, embedder weights, codehub verdict command, populated
-# DuckStore, @ladybugdb/core binding), they print `[SKIP]` with a reason and
+# available (semgrep, embedder weights, codehub verdict command,
+# @ladybugdb/core binding), they print `[SKIP]` with a reason and
 # do not change the exit code. This lets the acceptance run complete on any
 # developer laptop and in CI, while still enforcing gates when those
 # dependencies are present.
@@ -572,27 +572,18 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# 17. M7 parity audit: analyze ×2 backends → graphHash byte-identity
+# 17. M7 parity audit: retired (lbug is the only graph backend post-ADR 0016)
 # ---------------------------------------------------------------------------
 echo "17/${TOTAL_GATES}: m7-parity-audit (analyze ×2 backends → graphHash)"
-# The audit script runs `codehub analyze --force` under both `CODEHUB_STORE=duck`
-# and `CODEHUB_STORE=lbug`, then compares the `graph <hash>` summary line. It
-# SKIPs cleanly when the CLI isn't built or the `@ladybugdb/core` binding is
-# not importable on this host. Companion to the in-memory parity harness
-# (`packages/storage/src/test-utils/parity-harness.ts`); together they
-# pin graphHash byte-identity from both layers.
-PARITY_LOG="$tmpdir/m7-parity-audit.log"
-if bash "$ROOT/scripts/m7-parity-audit.sh" > "$PARITY_LOG" 2>&1; then
-  PARITY_LINE=$(head -1 "$PARITY_LOG" || true)
-  case "${PARITY_LINE:-}" in
-    *"[skip]"*) skip "m7-parity-audit: ${PARITY_LINE#*\[skip\] }" ;;
-    *"[pass]"*) pass "m7-parity-audit: ${PARITY_LINE#*\[pass\] }" ;;
-    *)          pass "m7-parity-audit: ${PARITY_LINE:-byte-identical}" ;;
-  esac
-else
-  fail "m7-parity-audit: graphHash divergence across backends"
-  tail -20 "$PARITY_LOG"
-fi
+# ADR 0016 made `@ladybugdb/core` the only graph backend. The cross-backend
+# `CODEHUB_STORE=duck` vs `CODEHUB_STORE=lbug` parity audit no longer has two
+# backends to compare — `CODEHUB_STORE` is a no-op — so the underlying audit
+# script was removed. The banner stays at slot 17 so the `codehub bench`
+# dashboard contract (packages/cli/src/commands/bench.ts MVP_GATES) keeps its
+# verbatim banner match; the gate is now a permanent SKIP. In-memory graphHash
+# byte-identity is still pinned by gate 6 (determinism) and the parity harness
+# at packages/storage/src/test-utils/parity-harness.ts.
+skip "m7-parity-audit: retired — lbug is the only graph backend (ADR 0016); nothing to compare"
 echo
 
 # ---------------------------------------------------------------------------
