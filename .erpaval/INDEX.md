@@ -52,6 +52,10 @@ development sessions. Solutions are reusable; specs are per-feature.
 
 - [Collapse parallel switches into a Record registry](solutions/architecture-patterns/collapse-parallel-switches-into-record-registry.md) — when 2+ functions each switch over the same closed union (one per derived attribute), fold them into `Record<Union, Entry>`. tsc preserves exhaustiveness, the functions become one-line lookups, honest `| null` replaces placeholder lies, and ONE table-driven test with a `Record<Union, Expected>` fixture pins every (key, attribute) pair — better coverage than the zero direct tests the switches had.
 
+- [A vendored-artifact dep bump must re-vendor in the same PR](solutions/conventions/vendored-artifact-bump-must-revendor-in-same-pr.md) — bumping a dep that has a committed vendored artifact (`web-tree-sitter` → `vendor/wasms/*.wasm` + manifest) without re-running the vendor script passes ALL CI (the `prepublishOnly` guard isn't a CI step) and detonates at `npm publish`, aborting the dependency-ordered multi-package release mid-stream. Scan Dependabot consolidations for vendored-artifact deps and re-vendor before merge.
+
+- [npm trusted publisher matches the ENTRY workflow, not the reusable one](solutions/conventions/npm-trusted-publisher-matches-entry-workflow-not-reusable.md) — npm OIDC matches "Workflow filename" against the workflow that INITIATED the run, not the one running `npm publish`. With `release-please.yml` → `workflow_call` → `release.yml`, register `release-please.yml`. Wrong registration silently 404s the token exchange; only `workflow_dispatch` runs (entry = release.yml) ever publish, so npm lags the tags. Config is web-UI-only, passkey-gated, one entry per package (17 here).
+
 ## Specs
 
 - [001-scip-replaces-lsp](specs/001-scip-replaces-lsp/spec.md) — rip-and-replace LSP with SCIP for TS/Py/Go/Rust/Java. Task map: [tasks.md](specs/001-scip-replaces-lsp/tasks.md).
