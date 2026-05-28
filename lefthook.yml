@@ -61,14 +61,30 @@ pre-push:
     # Guard the verdict gate on a present index so the hook degrades
     # gracefully on dev boxes that haven't run `codehub analyze` yet —
     # mirrors the SKIP behaviour of scripts/pack-determinism-audit.sh.
+    #
+    # The verdict CLI exit ladder is 0=auto_merge, 1=single_review,
+    # 2=dual_review/expert_review, 3=block. Those tiers are review-routing
+    # advice, not a push blocker — a routine multi-community change is a
+    # legitimate `dual_review` and must still be pushable. Only a hard
+    # `block` (exit 3, e.g. a policy violation) should fail the push, so we
+    # surface the verdict output and gate solely on exit code 3.
     - name: verdict
       run: |
-        if [ -f .codehub/graph.lbug ]; then
-          {pnpm} codehub verdict --base origin/main --head HEAD
-        else
+        if [ ! -f .codehub/graph.lbug ]; then
           echo "verdict skipped: no .codehub/graph.lbug (run 'mise run och:self-analyze' first)"
+          exit 0
         fi
+        set +e
+        {pnpm} codehub verdict --base origin/main --head HEAD
+        code=$?
+        set -e
+        if [ "$code" -eq 3 ]; then
+          echo "verdict: BLOCK (exit 3) — push refused. Resolve the blocking finding above."
+          exit 1
+        fi
+        echo "verdict: advisory tier (exit $code) — push allowed."
+        exit 0
       skip:
         - merge
         - rebase
-      fail_text: "codehub verdict failed — run 'mise run och:self-verdict' locally to reproduce."
+      fail_text: "codehub verdict returned BLOCK — resolve the blocking finding (run 'mise run och:self-verdict' to reproduce)."
