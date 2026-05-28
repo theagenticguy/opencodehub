@@ -50,6 +50,8 @@ development sessions. Solutions are reusable; specs are per-feature.
 
 - [Doctor-style probes drift after rip-and-replace](solutions/best-practices/doctor-probe-drift-after-rip-and-replace.md) — dev `node_modules` is hot from prior installs, so a probe for a removed package keeps returning `ok` against the workspace and `fail` against the published CLI for months. At rip time, sweep `doctor.ts`, `doctor.test.ts`, `mise.toml`, CI matrix branches, and `--skip-X` flags for the constellation; tighten test assertions from `notEqual(status, "fail")` to `equal(status, "ok")`.
 
+- [Collapse parallel switches into a Record registry](solutions/architecture-patterns/collapse-parallel-switches-into-record-registry.md) — when 2+ functions each switch over the same closed union (one per derived attribute), fold them into `Record<Union, Entry>`. tsc preserves exhaustiveness, the functions become one-line lookups, honest `| null` replaces placeholder lies, and ONE table-driven test with a `Record<Union, Expected>` fixture pins every (key, attribute) pair — better coverage than the zero direct tests the switches had.
+
 ## Specs
 
 - [001-scip-replaces-lsp](specs/001-scip-replaces-lsp/spec.md) — rip-and-replace LSP with SCIP for TS/Py/Go/Rust/Java. Task map: [tasks.md](specs/001-scip-replaces-lsp/tasks.md).
