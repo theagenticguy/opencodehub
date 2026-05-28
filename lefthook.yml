@@ -63,10 +63,10 @@ pre-push:
     # mirrors the SKIP behaviour of scripts/pack-determinism-audit.sh.
     - name: verdict
       run: |
-        if [ -f .codehub/graph.duckdb ] || [ -f .codehub/graph.lbug ]; then
+        if [ -f .codehub/graph.lbug ]; then
           {pnpm} codehub verdict --base origin/main --head HEAD
         else
-          echo "verdict skipped: no .codehub/graph.duckdb or graph.lbug (run 'mise run och:self-analyze' first)"
+          echo "verdict skipped: no .codehub/graph.lbug (run 'mise run och:self-analyze' first)"
         fi
       skip:
         - merge

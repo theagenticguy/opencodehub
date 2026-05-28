@@ -1312,7 +1312,7 @@ export class GraphDbStore implements IGraphStore {
     }
   }
 
-  /** Replaces `WITH RECURSIVE ... USING KEY (ancestor_id)` — see {@link DuckDbStore.traverseAncestors}. */
+  /** Ancestor traversal via a Cypher variable-length upward walk (the lbug analogue of a recursive ancestor query). */
   async traverseAncestors(opts: AncestorTraversalOptions): Promise<readonly TraverseResult[]> {
     return this.traverseDirectionalGd(opts, "up");
   }
