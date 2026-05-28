@@ -314,7 +314,7 @@ jobs:
 
       - name: Upload SARIF to code scanning
         if: hashFiles('artifacts/och-scan.sarif') != ''
-        uses: github/codeql-action/upload-sarif@9887d98ae49f1f598651b556d8c8f02f3ea065cb  # codeql-bundle-v2.25.4
+        uses: github/codeql-action/upload-sarif@f4d0a7abf7b1d0f530e480f564a7e2371488107a  # codeql-bundle-v2.25.4
         with:
           sarif_file: artifacts/och-scan.sarif
           category: opencodehub-release
