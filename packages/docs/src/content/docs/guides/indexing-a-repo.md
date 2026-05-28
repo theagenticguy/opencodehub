@@ -12,9 +12,10 @@ imports and inheritance, detect processes and clusters, build BM25
 and HNSW indexes, and write everything to `.codehub/` under the repo
 root.
 
-The default backend is **LadybugDB** for the graph half +
-**DuckDB** for the temporal sibling. Set `CODEHUB_STORE=duck` to
-force the single-file DuckDB layout. See
+The graph half is always **LadybugDB** (`.codehub/graph.lbug`) and the
+temporal sibling is always **DuckDB** (`.codehub/temporal.duckdb`). Both
+files are written on every analyze — there is no backend knob and no
+single-file fallback. See
 [Storage backend](/opencodehub/architecture/storage-backend/).
 
 ## Basic indexing
@@ -82,8 +83,8 @@ symbol participates in. The default granularity is `symbol`.
 
 ## What lives in `.codehub/`
 
-The contents depend on the storage backend selected at index time.
-On the default LadybugDB layout:
+Every index writes the same two-file layout — LadybugDB for the graph,
+DuckDB for the temporal sibling:
 
 | Path | Purpose |
 |---|---|
@@ -92,9 +93,6 @@ On the default LadybugDB layout:
 | `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins, embedder modelId). |
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |
-
-On the single-file DuckDB fallback, `graph.duckdb` replaces both
-`graph.lbug` and `temporal.duckdb`.
 
 ## What runs by default
 

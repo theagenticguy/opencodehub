@@ -78,7 +78,7 @@ flowchart LR
 | **Local-first, offline-capable** | `codehub analyze --offline` opens zero sockets. Your code never leaves your machine. No telemetry. |
 | **Deterministic indexing** | Identical inputs produce a byte-identical graph hash. Reproducible. Auditable. Cacheable in CI. |
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
-| **Embedded storage, graph-default** | `@ladybugdb/core` graph engine for the structural store (default at v1) with DuckDB + `hnsw_acorn` (filter-aware HNSW via ACORN-1 + RaBitQ) + `fts` (BM25) for the temporal + retrieval views. Embedded files. No daemon. No database to operate. `CODEHUB_STORE=duck` reverts to the legacy single-file layout. |
+| **Embedded storage, two-tier** | `@ladybugdb/core` holds the structural store: symbols, edges, embeddings, BM25 + HNSW. A dedicated DuckDB sibling holds the temporal views: cochanges and summaries. Embedded files. No daemon. No database to operate. Both tiers are always present, with no backend knob (ADR 0016). |
 | **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
 | **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime, on Node 20, 22, and 24. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`. There is no native opt-in — `npm install -g @opencodehub/cli@latest` does zero native builds and zero GitHub fetches. |
 
@@ -165,7 +165,7 @@ The monorepo is organised as 17 workspace packages under `packages/`:
 | `scanners` | Subprocess wrappers for 20 scanners — OSV, Semgrep, hadolint, tflint, detect-secrets, and the rest |
 | `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) — emits CALLS, REFERENCES, IMPLEMENTS, TYPE_OF |
 | `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
-| `storage` | `IGraphStore` / `ITemporalStore` adapters — `@ladybugdb/core` (default) and DuckDB; deterministic `graphHash` |
+| `storage` | `IGraphStore` (`@ladybugdb/core`) + `ITemporalStore` (DuckDB) adapters; deterministic `graphHash` |
 | `summarizer` | Process + cluster summaries for MCP responses |
 | `wiki` | LLM-narrated module pages emitted by `codehub wiki --llm` |
 
@@ -204,29 +204,27 @@ switching mid-project requires `codehub analyze --rebuild-embeddings`.
 `--offline` refuses SageMaker and HTTP backends, so offline mode is
 compatible only with the local ONNX path.
 
-## Storage backend — graph-default
+## Storage backend — lbug graph + DuckDB temporal
 
-Starting with v1.0, OpenCodeHub picks the graph-database backend
-(`@ladybugdb/core`) as the default whenever the binding is importable on
-the current platform. DuckDB is retained as the temporal store
-(cochanges + symbol summaries) and as the legacy graph fallback. The
-`CODEHUB_STORE` environment variable controls selection:
+The graph tier is always `@ladybugdb/core` (`<repo>/.codehub/graph.lbug`);
+the temporal tier — cochanges, structured symbol summaries, and the
+`codehub query --sql` escape hatch — is always DuckDB
+(`<repo>/.codehub/temporal.duckdb`). Both files are written on every
+`analyze`. There is no `CODEHUB_STORE` env var, no backend probe, no
+single-file `graph.duckdb` layout, and no mtime arbitration; if the lbug
+binding fails to load, `open()` throws `GraphDbBindingError` and the
+operation aborts.
 
-| `CODEHUB_STORE` | Behaviour |
-|---|---|
-| *unset* (default) | Probe `@ladybugdb/core`. Available → graph artifact at `<repo>/.codehub/graph.lbug` + temporal sibling `temporal.duckdb`. Missing → fall back to `<repo>/.codehub/graph.duckdb` (one-shot stderr advisory under TTY / `OCH_VERBOSE=1`). |
-| `duck` | Force the legacy DuckDB-only layout. One file backs both the graph and temporal views. |
-| `lbug` | Force the graph-database layout. Surface a `GraphDbBindingError` at open time if the binding is unavailable. |
+`IGraphStore` lives only on `GraphDbStore`; `DuckDbStore` implements
+`ITemporalStore` only. The segregated interfaces stay because they are
+the v1.0 contract for community-fork adapters (AGE / Memgraph / Neo4j /
+Neptune target `IGraphStore`; DuckDB owns `ITemporalStore`). Embeddings
+live in `graph.lbug` and stream into a per-call DuckDB temp table at
+pack time so the byte-identical Parquet sidecar still works.
 
-Two-artifact transition: when both `graph.duckdb` AND `graph.lbug` are
-present in the same `<repo>/.codehub/`, the newer-mtime file wins and a
-one-shot advisory fires. Remove the stale artifact to silence the
-advisory.
-
-See [`docs/adr/0011-graph-db-backend.md`](./docs/adr/0011-graph-db-backend.md)
-for the M3 phase-1 rationale and
-[`docs/adr/0013-m7-default-flip-and-abstraction.md`](./docs/adr/0013-m7-default-flip-and-abstraction.md)
-for the M7 default-flip + interface segregation.
+See [`docs/adr/0016-duckdb-graph-rip.md`](./docs/adr/0016-duckdb-graph-rip.md)
+for the rationale behind ripping out the DuckDB graph backend; it
+supersedes ADR 0013 and the DuckDB-as-graph passages of ADR 0011.
 
 ## Parse runtime — WASM-only, vendored grammars
 

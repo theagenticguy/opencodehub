@@ -21,7 +21,8 @@ The canonical list lives at
 | `STALENESS` | The index lags `HEAD` far enough to mistrust results. | `codehub analyze` (or `--force`). |
 | `INVALID_INPUT` | A tool argument failed schema validation. | Correct the call; check required fields. |
 | `NOT_FOUND` | The target symbol, repo, or group does not exist. | Confirm the name; run `codehub list` for repos. |
-| `DB_ERROR` | The graph store returned an error during the query. | Check `codehub doctor`; inspect `.codehub/graph.lbug` (or `graph.duckdb` on the legacy backend). |
+| `DB_ERROR` | The graph store returned an error during the query. | Check `codehub doctor`; inspect `.codehub/graph.lbug`. |
+| `GraphDbBindingError` | The `@ladybugdb/core` native binding could not load, so `open()` aborted. There is no DuckDB-as-graph fallback (ADR 0016). | Run `codehub doctor` (it hard-fails on a missing binding); confirm the lbug prebuilt target matches your platform, or build from source via `cmake-js`. |
 | `SCHEMA_MISMATCH` | The index was produced by a different CLI version with an incompatible schema. | `codehub analyze --force` to rebuild. |
 | `RATE_LIMITED` | A downstream service (embedder, summariser) rate-limited the request. | Retry with backoff; reduce concurrency. |
 | `INTERNAL` | Catch-all for unhandled exceptions reaching the tool boundary. | File an issue with the error `message`. |

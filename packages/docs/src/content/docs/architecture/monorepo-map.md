@@ -28,7 +28,7 @@ binary; every other package is a library imported by `cli`, `mcp`,
 | `@opencodehub/scanners` | `packages/scanners` | Nineteen scanner wrappers (semgrep, osv-scanner, bandit, ruff, grype, vulture, pip-audit, npm-audit, biome, betterleaks, trivy, checkov, hadolint, tflint, spectral, radon, ty, clamav, och self-scan). |
 | `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
 | `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
-| `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the LadybugDB and DuckDB adapters, the resolver that picks between them. |
+| `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the LadybugDB graph adapter and DuckDB temporal adapter, and `openStore()` that composes them. |
 | `@opencodehub/summarizer` | `packages/summarizer` | Structured per-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4). |
 | `@opencodehub/wiki` | `packages/wiki` | Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph. |
 | `@opencodehub/docs` | `packages/docs` | This Starlight documentation site. |
@@ -56,19 +56,21 @@ TypeScript project-references graph enforces this via `tsc --noEmit`.
 
 `@opencodehub/storage` exposes two narrow interfaces — `IGraphStore`
 (graph workload: nodes, edges, embeddings, multi-hop traversal) and
-`ITemporalStore` (temporal workload: cochanges, summary cache). Two
-adapters implement them:
+`ITemporalStore` (temporal workload: cochanges, summary cache). The
+single shipping pair implements them:
 
-- **LadybugDB graph store + DuckDB temporal store** — the default. Two
+- **LadybugDB graph store + DuckDB temporal store** — always. Two
   artifacts on disk (`graph.lbug` + `temporal.duckdb`), backed by a
   Cypher-emitting dialect for the graph half and DuckDB SQL for the
-  temporal half.
-- **Single DuckDB file** — the opt-in fallback. One artifact
-  (`graph.duckdb`) backs both interfaces.
+  temporal half. `IGraphStore` lives only on `GraphDbStore`;
+  `DuckDbStore` implements `ITemporalStore` only; `openStore()`
+  composes them. There is no backend selector and no fallback (ADR
+  0016) — a missing LadybugDB binding throws `GraphDbBindingError`.
 
 See [Storage backend](/opencodehub/architecture/storage-backend/) for
-the resolver, the dual-artifact precedence rule, and the
-community-adapter escape hatch (AGE / Memgraph / Neo4j / Neptune).
+how `openStore()` composes the pair and the community-adapter escape
+hatch (AGE / Memgraph / Neo4j / Neptune via the segregated
+interfaces).
 
 ## Related files
 

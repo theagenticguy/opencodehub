@@ -78,10 +78,10 @@ codehub analyze
 ```
 
 `analyze` writes the graph to `.codehub/` under the repo root and
-registers the repo in `~/.codehub/registry.json`. By default the graph
-lands in `.codehub/graph.lbug` (LadybugDB) with `.codehub/temporal.duckdb`
+registers the repo in `~/.codehub/registry.json`. The graph always lands
+in `.codehub/graph.lbug` (LadybugDB) with `.codehub/temporal.duckdb`
 alongside it; if `@ladybugdb/core` cannot load on the current platform,
-analyze falls back to the single-file `.codehub/graph.duckdb` layout.
+analyze aborts with a `GraphDbBindingError` rather than falling back.
 Add `--embeddings` to compute semantic vectors for hybrid search, or
 `--offline` to guarantee zero network sockets.
 

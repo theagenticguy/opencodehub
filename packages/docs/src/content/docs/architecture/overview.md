@@ -26,17 +26,18 @@ Fifteen tree-sitter grammars produce a unified `ParseCapture` stream.
 Per-language resolvers turn captures into typed relations. SCIP
 indexers (TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin,
 Ruby) upgrade heuristic edges to compiler-grade references where
-available. The graph persists into LadybugDB by default, with DuckDB
+available. The graph persists into LadybugDB, with DuckDB
 carrying the temporal sibling. Communities and
 processes are precomputed. An stdio MCP server with 29 tools answers
 agent queries.
 
 ## Where the data lives
 
-The default backend is **LadybugDB**, with **DuckDB** as the temporal
-sibling. A single-file DuckDB layout is the opt-in fallback when the
-`@ladybugdb/core` binding cannot load (or when forced via
-`CODEHUB_STORE=duck`). See [Storage backend](/opencodehub/architecture/storage-backend/).
+The graph tier is always **LadybugDB** (`graph.lbug`); the temporal tier
+is always **DuckDB** (`temporal.duckdb`). Both files live under
+`.codehub/`. There is no selection knob, no probe, and no fallback — if
+the `@ladybugdb/core` binding cannot load, `open()` throws
+`GraphDbBindingError` and the operation aborts. See [Storage backend](/opencodehub/architecture/storage-backend/).
 
 ```mermaid
 flowchart LR
@@ -66,8 +67,9 @@ line+col, nodeType). Lines are 1-indexed, columns 0-indexed.
 Fifteen languages are registered via a compile-time exhaustive
 `satisfies Record<LanguageId, LanguageProvider>` table: TypeScript,
 TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin,
-Swift, PHP, Dart. The runtime is `web-tree-sitter` (WASM) by default
-on both Node 22 and Node 24; the native N-API addon is opt-in.
+Swift, PHP, Dart. The runtime is `web-tree-sitter` (WASM) — the only
+parse runtime on Node 20, 22, and 24. There is no native parser and no
+opt-in (ADR 0015).
 
 See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
 
@@ -103,15 +105,14 @@ See [SCIP reconciliation](/opencodehub/architecture/scip-reconciliation/).
 
 ### 4. Index — BM25, HNSW, and scanners
 
-One job: persist the graph into the selected backend with search
-indexes wired up.
+One job: persist the graph into LadybugDB with search indexes wired up.
 
 - **BM25** — over symbol names, signatures, and summaries.
 - **HNSW** — filter-aware, with the granularity discriminator pushed
   into the predicate so all three tiers (symbol / file / community)
   share one index without recall collapse.
-- **Multi-hop traversal** — Cypher-emitting dialect on the graph
-  backend; recursive CTEs (`USING KEY`) on the legacy DuckDB layout.
+- **Multi-hop traversal** — Cypher-emitting dialect on the LadybugDB
+  graph store.
 
 Embeddings are optional, gated on `PipelineOptions.embeddings`. The
 backend cascade is SageMaker → HTTP / OpenAI-compatible → local ONNX.
@@ -155,8 +156,8 @@ cheapest configuration that hits all three:
 - **Local + offline.** The default storage stack is embedded;
   `codehub analyze --offline` opens zero sockets.
 - **Deterministic.** Phases are pure: same inputs → same outputs,
-  byte-identical `graphHash`. The `graphHash` invariant holds across
-  both the LadybugDB and DuckDB backends. See
+  byte-identical `graphHash`. The `graphHash` invariant holds over the
+  LadybugDB graph tier. See
   [Determinism](/opencodehub/architecture/determinism/).
 - **Apache-2.0, every transitive dep on the permissive allowlist.**
   No BSL, no AGPL, no source-available engines in the core. See
@@ -174,9 +175,11 @@ cheapest configuration that hits all three:
 | 0007–0010 | Artifact factory, document pattern, output conventions, dogfood findings. |
 | 0011 | LadybugDB (phase-1) — graph-native backend behind the `IGraphStore` seam. |
 | 0012 | Repo as a first-class graph node — `repo_uri`, group registry, `AMBIGUOUS_REPO` envelope. |
-| 0013 (storage) | Storage default + interface segregation — LadybugDB by default, DuckDB temporal sibling. |
-| 0013 (parse) | WASM-default parse runtime on Node 22 and Node 24. |
+| 0013 (storage) | M7 default-flip + interface segregation. **Superseded by 0016.** |
+| 0013 (parse) | WASM-default parse runtime, native opt-in. **Superseded by 0015.** |
 | 0014 | SCIP REFERENCES + TYPE_OF emission, embedder modelId stamping. |
+| 0015 | WASM-only parser — `web-tree-sitter` is the only runtime on Node 20/22/24; native opt-in removed. |
+| 0016 | DuckDB graph backend ripped out — LadybugDB graph + DuckDB temporal, both always present, no selection knob. |
 
 See [ADRs](/opencodehub/architecture/adrs/) for the full list.
 

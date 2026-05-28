@@ -51,10 +51,10 @@ tarball globally.
 
 If you already manage Node and pnpm another way:
 
-1. Install Node 22 or Node 24 (`nvm install 22`, `fnm install 22`, or
-   from [nodejs.org](https://nodejs.org)). Node 24 is supported via the
-   default WASM parse runtime; Node 22 supports both WASM and the
-   opt-in native N-API addon.
+1. Install Node 20, 22, or 24 (`nvm install 22`, `fnm install 22`, or
+   from [nodejs.org](https://nodejs.org)). Every supported version uses
+   the same `web-tree-sitter` (WASM) parse runtime — there is no native
+   parser and no opt-in (ADR 0015).
 2. Install pnpm `>=10.0.0` (`corepack enable pnpm`, or `npm install -g
    pnpm@10`).
 3. Clone, build, and link:
@@ -89,9 +89,9 @@ codehub doctor
 ```
 
 `codehub doctor` checks your Node version, pnpm version, native-module
-bindings (DuckDB and the optional native tree-sitter addon), and
-writable paths in `~/.codehub/` and `.codehub/`. It exits non-zero if
-anything looks off.
+bindings (the DuckDB and LadybugDB prebuilds — parsing is WASM-only, so
+there is no native parser to probe), and writable paths in `~/.codehub/`
+and `.codehub/`. It exits non-zero if anything looks off.
 
 :::note[Fallback for unlinked checkouts]
 If you cannot or will not link the CLI (locked-down CI images, a
@@ -107,10 +107,15 @@ node packages/cli/dist/index.js doctor
 
 ## Optional environment toggles
 
+Storage has no toggle — the graph tier is always LadybugDB
+(`.codehub/graph.lbug`) and the temporal tier is always DuckDB
+(`.codehub/temporal.duckdb`); both are written on every `analyze` and
+there is no backend-selection env var (ADR 0016). Parsing has no toggle
+either — `web-tree-sitter` (WASM) is the only runtime (ADR 0015).
+
 | Variable | Default | Effect |
 |---|---|---|
-| `CODEHUB_STORE` | unset | `lbug` (force LadybugDB), `duck` (force the single-file DuckDB layout), or unset (auto-probe — LadybugDB when `@ladybugdb/core` is importable, otherwise DuckDB). |
-| `OCH_VERBOSE` | unset | Set to `1` to surface the storage-backend probe advisory in non-TTY environments. |
+| `OCH_VERBOSE` | unset | Set to `1` to surface the one-shot advisory the CLI emits when a removed legacy parser env var is still set, in non-TTY environments. |
 
 See [Configuration](/opencodehub/reference/configuration/) for the full
 inventory.
