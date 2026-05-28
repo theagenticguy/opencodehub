@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.2...scip-ingest-v0.2.3) (2026-05-28)
+
+
+### Bug Fixes
+
+* harden SCIP proto-reader bounds; drop dead native tree-sitter doctor probe ([#138](https://github.com/theagenticguy/opencodehub/issues/138)) ([b1a4772](https://github.com/theagenticguy/opencodehub/commit/b1a4772528ad573962d549e11479e5796608c362))
+
+
+### Refactoring
+
+* drop dead materialize() + cross-backend parity script (−425 LOC) ([#141](https://github.com/theagenticguy/opencodehub/issues/141)) ([216121a](https://github.com/theagenticguy/opencodehub/commit/216121ac454f0d884bad3553db306de3e38e8d9f))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.1
+
 ## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.1...scip-ingest-v0.2.2) (2026-05-16)
 
 

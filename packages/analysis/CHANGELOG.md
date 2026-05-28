@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.3.0...analysis-v0.3.1) (2026-05-28)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/storage bumped to 0.2.1
+    * @opencodehub/wiki bumped to 0.2.1
+
 ## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.2.0...analysis-v0.3.0) (2026-05-16)
 
 

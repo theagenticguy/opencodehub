@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.1...root-v0.6.2) (2026-05-28)
+
+
+### Bug Fixes
+
+* harden SCIP proto-reader bounds; drop dead native tree-sitter doctor probe ([#138](https://github.com/theagenticguy/opencodehub/issues/138)) ([b1a4772](https://github.com/theagenticguy/opencodehub/commit/b1a4772528ad573962d549e11479e5796608c362))
+
+
+### Performance
+
+* **ingestion:** O(N) complexity lookup; fix sql hint; reuse openStoreForCommand ([#142](https://github.com/theagenticguy/opencodehub/issues/142)) ([976b877](https://github.com/theagenticguy/opencodehub/commit/976b8773dbb96dcc3de6b0c64840e2a63dc5b7d7))
+
+
+### Documentation
+
+* **repo:** add 2 ERPAVal durable lessons from PR [#138](https://github.com/theagenticguy/opencodehub/issues/138) Compound phase ([#140](https://github.com/theagenticguy/opencodehub/issues/140)) ([ffd2435](https://github.com/theagenticguy/opencodehub/commit/ffd2435b43e6b32ea2ee1fd0fc88c9f9285765d5))
+* **repo:** add collapse-parallel-switches-into-record-registry lesson ([#144](https://github.com/theagenticguy/opencodehub/issues/144)) ([b1685f5](https://github.com/theagenticguy/opencodehub/commit/b1685f595300d665fe7442fea781e5b21cab4ab1))
+* sweep stale ADR-0015/0016 prose; unify CI test install path ([#146](https://github.com/theagenticguy/opencodehub/issues/146)) ([3b2e05e](https://github.com/theagenticguy/opencodehub/commit/3b2e05ee19b9d42351bf99659cd4bc26dd0f98bd))
+
+
+### Refactoring
+
+* drop dead materialize() + cross-backend parity script (−425 LOC) ([#141](https://github.com/theagenticguy/opencodehub/issues/141)) ([216121a](https://github.com/theagenticguy/opencodehub/commit/216121ac454f0d884bad3553db306de3e38e8d9f))
+* **ingestion:** collapse 3 IndexerKind switches into LANG_REGISTRY ([#143](https://github.com/theagenticguy/opencodehub/issues/143)) ([dea4001](https://github.com/theagenticguy/opencodehub/commit/dea4001093d7fe4583488ca171b4c7a87cdc1ba0))
+
 ## [0.6.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.0...root-v0.6.1) (2026-05-17)
 
 
