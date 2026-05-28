@@ -76,10 +76,11 @@ top-level subcommands by phase of the workflow.
 - **Registry on disk** — `~/.codehub/registry.json` enumerates indexed
   repos; per-repo state lives under `<repo>/.codehub/`
   (`packages/cli/src/registry.ts`).
-- **Env-toggle defaults** — `CODEHUB_STORE`, `CODEHUB_BEDROCK_DISABLED`
+- **Env-toggle defaults** — env vars such as `CODEHUB_BEDROCK_DISABLED`
   flip behaviour without touching flags.
 - **`mcp` is launched, never embedded** — agents that need the MCP
   surface spawn `codehub mcp` over stdio (`packages/cli/src/commands/mcp.ts`).
 
-See ADR 0013 for the storage-backend toggle and the root README's
-"MCP tool surface" section for the agent-facing tool inventory.
+See ADR 0016 for the lbug-graph + DuckDB-temporal storage layout and the
+root README's "MCP tool surface" section for the agent-facing tool
+inventory.

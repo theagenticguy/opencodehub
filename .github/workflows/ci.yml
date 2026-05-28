@@ -36,7 +36,11 @@ jobs:
       - run: pnpm --filter '!@opencodehub/docs' -r exec tsc --noEmit
 
   test:
-    # Node 22 = native-opt-in path (OCH_NATIVE_PARSER=1); Node 24 = WASM default
+    # Parsing is WASM-only on every supported Node version (ADR 0015), so the
+    # test suite needs no native grammar build — `--ignore-scripts` is the
+    # single install path across the matrix. The remaining native deps
+    # (@duckdb/node-api, @ladybugdb/core, onnxruntime-node) ship prebuilds, so
+    # storage/embedder tests pass without running postinstall.
     strategy:
       fail-fast: false
       matrix:
@@ -48,24 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
-      - name: Ensure node-gyp is available for native tree-sitter build
-        if: matrix.node-version == 22
-        # Pin node-gyp version (Scorecard Pinned-Dependencies / npmCommand)
-        run: npm i -g node-gyp@12.3.0
-      # Node 22: let native tree-sitter grammars postinstall (scripts enabled)
-      # so the OCH_NATIVE_PARSER=1 test path has working N-API bindings.
-      # Node 24: skip postinstall — native grammars can't build against the
-      # Node 24 V8 ABI yet (tree-sitter/node-tree-sitter#276). WASM default
-      # doesn't need the N-API addons on disk.
-      - name: Install deps (Node 22, with postinstall)
-        if: matrix.node-version == 22
-        run: pnpm install --frozen-lockfile
-      - name: Install deps (Node 24, ignore-scripts)
-        if: matrix.node-version == 24
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter '!@opencodehub/docs' -r test
-        env:
-          OCH_NATIVE_PARSER: ${{ matrix.node-version == 22 && '1' || '' }}
 
   sarif-validate:
     runs-on: ubuntu-latest

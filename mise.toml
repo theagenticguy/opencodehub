@@ -3,7 +3,7 @@ node = "22"
 pnpm = "11.1.0"
 python = "3.12"
 uv = "latest"
-"npm:node-gyp" = "latest"  # required to build tree-sitter native bindings during `pnpm install`
+"npm:node-gyp" = "latest"  # fallback native build for @duckdb/node-api / onnxruntime-node when a platform prebuild is missing (parsing is WASM-only — ADR 0015)
 "aqua:betterleaks/betterleaks" = "1.2.0"  # secret scanner — used by analyze + pre-release gate
 
 [env]

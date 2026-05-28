@@ -22,10 +22,12 @@ whether each native module can load. Follow the remediation hints it
 prints.
 
 The parse runtime is `web-tree-sitter` (WASM) on every supported Node
-version, so a missing C/C++ toolchain does not break analyze itself.
-`@duckdb/node-api` has a native binding requirement on the single-file
-DuckDB fallback; if it cannot load, set `CODEHUB_STORE=lbug` to use
-LadybugDB instead, which has its own platform packages.
+version, so a missing C/C++ toolchain does not break parsing. The only
+native bindings OpenCodeHub loads are `@duckdb/node-api` (temporal store)
+and `onnxruntime-node` (the local embedder) — both ship platform
+prebuilds, so a normal install does not compile anything. If a prebuild
+is missing for your platform, `codehub doctor` reports which module
+failed to load and prints the remediation steps.
 
 ## Stale index
 
@@ -60,12 +62,16 @@ for the exact shape.
 
 ## Windows quirks
 
-Native tree-sitter and DuckDB builds on Windows require the Microsoft
-C++ Build Tools plus a matching Python for `node-gyp`. In practice the
-fastest fix is to run everything under WSL2 — WSL2 ships with a
-working toolchain out of the box and avoids path separator issues.
+Parsing is WASM, so the parser needs no native toolchain on Windows. The
+native bindings (`@duckdb/node-api`, `onnxruntime-node`) ship `win32-x64`
+prebuilds, so a standard install pulls a binary rather than compiling.
+If a prebuild is unavailable and a module has to build from source, you
+need the Microsoft C++ Build Tools plus a matching Python for
+`node-gyp`. In practice the fastest fix is to run everything under WSL2 —
+WSL2 ships with a working toolchain out of the box and avoids path
+separator issues.
 
-If you must stay on native Windows:
+If you must stay on native Windows and a source build is forced:
 
 1. Install Visual Studio Build Tools with the "Desktop development
    with C++" workload.
@@ -73,9 +79,6 @@ If you must stay on native Windows:
 3. `npm config set msvs_version 2022` and `npm config set python
    python3.12`.
 4. Re-run `pnpm install --frozen-lockfile`.
-5. The parse runtime is WASM, so analyze itself should work without
-   the native toolchain — only `@duckdb/node-api` (single-file DuckDB
-   fallback) needs a native build.
 
 ## The index is missing a language I expected
 

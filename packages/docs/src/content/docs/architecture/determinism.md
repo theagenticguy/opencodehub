@@ -45,11 +45,11 @@ Anything outside that list — wall-clock time, process ID, file-system
 inode ordering — must not influence the hash. The ingestion phases
 are pure: inputs in, relations out, no ambient state.
 
-The `graphHash` invariant is **backend-independent**. A repo indexed
-into LadybugDB (`graph.lbug`) and the same repo indexed into the
-single-file DuckDB layout (`graph.duckdb`) at the same commit produce
-the same hash. A parity gate in CI compares the two hashes on every
-PR that touches the storage layer.
+The `graphHash` invariant covers everything the graph store
+(`graph.lbug`) owns; the temporal signals in the DuckDB sibling
+(`temporal.duckdb`) are statistical and never enter the hash. A parity
+gate in CI asserts the invariant on every PR that touches the storage
+layer.
 
 ## How we test it
 

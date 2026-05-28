@@ -317,7 +317,7 @@ codehub doctor
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--skip-native` | off | Skip checks that require native bindings (DuckDB / native tree-sitter addon). |
+| `--skip-native` | off | Skip checks that require native bindings (duckdb / lbug — `@duckdb/node-api` and `@ladybugdb/core`). Parsing has no native binding; it is WASM-only (`web-tree-sitter`) and unaffected by this flag. |
 | `--repoRoot <path>` | cwd | Repo root to probe. |
 
 ## `bench`
