@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.2...ingestion-v0.4.3) (2026-05-28)
+
+
+### Bug Fixes
+
+* **ingestion:** re-vendor web-tree-sitter 0.26.9 runtime wasm ([#147](https://github.com/theagenticguy/opencodehub/issues/147)) ([9a146a5](https://github.com/theagenticguy/opencodehub/commit/9a146a5948981559bbad7bf5490c86406640a010))
+
 ## [0.4.2](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.1...ingestion-v0.4.2) (2026-05-28)
 
 
