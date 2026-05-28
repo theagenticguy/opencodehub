@@ -46,6 +46,10 @@ development sessions. Solutions are reusable; specs are per-feature.
 
 - [lbug COPY FROM (subquery) bulk-load pattern](solutions/conventions/lbug-copy-from-subquery-bulk-load.md) — type-safe bulk inserts via COPY subquery; sentinel row, STRING[] never null + sentinel STRING[] never empty (LIST(ANY) trap), maxDBSize cap (8 TiB default exhausts VA), readOnly cannot run CREATE_FTS_INDEX, src/dst not from/to, eid not id alias.
 
+- [Hand-rolled binary readers must bounds-check `pos += len`](solutions/conventions/binary-reader-bounds-check-pos-plus-len.md) — `Uint8Array.subarray` clamps silently and turns truncated input into valid-but-empty output. Every length-delimited read site needs an explicit `if (pos + len > end) throw` before the advance. Generalizes to MessagePack / CBOR / any custom wire format.
+
+- [Doctor-style probes drift after rip-and-replace](solutions/best-practices/doctor-probe-drift-after-rip-and-replace.md) — dev `node_modules` is hot from prior installs, so a probe for a removed package keeps returning `ok` against the workspace and `fail` against the published CLI for months. At rip time, sweep `doctor.ts`, `doctor.test.ts`, `mise.toml`, CI matrix branches, and `--skip-X` flags for the constellation; tighten test assertions from `notEqual(status, "fail")` to `equal(status, "ok")`.
+
 ## Specs
 
 - [001-scip-replaces-lsp](specs/001-scip-replaces-lsp/spec.md) — rip-and-replace LSP with SCIP for TS/Py/Go/Rust/Java. Task map: [tasks.md](specs/001-scip-replaces-lsp/tasks.md).

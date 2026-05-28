@@ -1,7 +1,6 @@
 <!-- Intentionally synchronized with CLAUDE.md. Edit both files together.
      v1 docs sweep: AGENTS.md drops session-local spec coordinates that
      CLAUDE.md still carries. The substantive guidance is identical. -->
-
 ## OpenCodeHub MCP Tools
 
 This repository has been indexed by OpenCodeHub. When you are working in this
