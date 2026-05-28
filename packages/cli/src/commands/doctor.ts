@@ -92,7 +92,6 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const repoRoot = opts.repoRoot ?? guessRepoRoot();
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck()];
   if (opts.skipNative !== true) {
-    list.push(treeSitterNativeCheck(repoRoot));
     list.push(duckdbWorksCheck(repoRoot));
     list.push(lbugWorksCheck(repoRoot));
   }
@@ -167,50 +166,6 @@ function pnpmInstalledCheck(): Check {
         };
       }
       return { status: "ok", message: `pnpm ${res.stdout.trim()}` };
-    },
-  };
-}
-
-function treeSitterNativeCheck(repoRoot: string): Check {
-  return {
-    name: "tree-sitter native binding",
-    async run() {
-      try {
-        // tree-sitter ships a native .node binding. Loading the grammar
-        // for TS is the cheapest health signal.
-        const tsPath = resolveFromRoot(repoRoot, "tree-sitter");
-        const tssPath = resolveFromRoot(repoRoot, "tree-sitter-typescript");
-        if (!tsPath || !tssPath) {
-          return {
-            status: "warn",
-            message: "tree-sitter or tree-sitter-typescript not installed",
-            hint: "run `pnpm install` at the repo root",
-          };
-        }
-        const Parser = (await import(tsPath)) as unknown as { default: new () => unknown };
-        const tsMod = (await import(tssPath)) as unknown as {
-          default?: { typescript: unknown };
-          typescript?: unknown;
-        };
-        const ParserCtor = Parser.default ?? (Parser as unknown as new () => unknown);
-        const parser = new (ParserCtor as new () => { setLanguage: (l: unknown) => void })();
-        const language = tsMod.typescript ?? tsMod.default?.typescript;
-        if (!language) {
-          return {
-            status: "fail",
-            message: "tree-sitter-typescript has no `typescript` export",
-            hint: "re-run `pnpm install` to rebuild native grammars",
-          };
-        }
-        parser.setLanguage(language);
-        return { status: "ok", message: "tree-sitter + typescript grammar load OK" };
-      } catch (err) {
-        return {
-          status: "fail",
-          message: `failed to load tree-sitter: ${err instanceof Error ? err.message : String(err)}`,
-          hint: "re-run `pnpm install` to rebuild native bindings (requires clang/g++)",
-        };
-      }
     },
   };
 }
@@ -526,17 +481,13 @@ function resolveFromRoot(repoRoot: string, pkg: string): string | null {
     // fall through to per-package fallbacks
   }
   // 3. Per-workspace fallback. Under pnpm strict isolation, native bindings
-  //    are direct deps of the package that uses them — `tree-sitter*` lives
-  //    in `packages/ingestion`, `@duckdb/node-api` in `packages/storage`.
-  //    Probing those package.json contexts lets `codehub doctor` resolve
-  //    the bindings even when neither the CLI nor the workspace root
-  //    declare them as direct deps.
+  //    are direct deps of the package that uses them — `@duckdb/node-api`
+  //    and `@ladybugdb/core` both live in `packages/storage`. Probing that
+  //    package.json context lets `codehub doctor` resolve the bindings
+  //    even when neither the CLI nor the workspace root declare them as
+  //    direct deps.
   const owners =
-    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/")
-      ? ["packages/storage"]
-      : pkg.startsWith("tree-sitter")
-        ? ["packages/ingestion"]
-        : [];
+    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/") ? ["packages/storage"] : [];
   for (const owner of owners) {
     try {
       const req = createRequire(join(repoRoot, owner, "package.json"));

@@ -3,8 +3,8 @@
  *
  * We exercise the check runner end-to-end against a fake `$HOME` so the
  * registry/embedder probes hit a known filesystem layout. Native checks
- * (tree-sitter, duckdb) are skipped via `skipNative` because node --test
- * may run on a host without those prebuilds.
+ * (duckdb, lbug) are skipped via `skipNative` because node --test may
+ * run on a host without those prebuilds.
  */
 
 import { strict as assert } from "node:assert";
@@ -160,34 +160,26 @@ test("embedder weights check reports warn when only hyphenated int8 file is pres
   }
 });
 
-// The tree-sitter and duckdb checks resolve from the CLI's own
-// node_modules first, then fall back to --repoRoot. In a workspace install
-// the CLI's own resolution context already sees the dependencies (hoisted
-// or otherwise), so passing a non-existent --repoRoot should still succeed
-// when running inside the repo. This test guards against the failure mode
-// where a user runs `codehub doctor` outside the monorepo layout: the
-// `repoRoot` walk-four-dirs-up heuristic yields a path that doesn't
+// The duckdb check resolves from the CLI's own node_modules first, then
+// falls back to --repoRoot. In a workspace install the CLI's own
+// resolution context already sees the dependencies (hoisted or
+// otherwise), so passing a non-existent --repoRoot should still succeed
+// when running inside the repo. This test guards against the failure
+// mode where a user runs `codehub doctor` outside the monorepo layout:
+// the `repoRoot` walk-four-dirs-up heuristic yields a path that doesn't
 // contain the packages, but `createRequire(import.meta.url)` does.
-test("native-binding checks tolerate a missing --repoRoot fallback (workspace install)", async () => {
+test("native-binding checks tolerate a missing --repoRoot fallback (workspace install, duckdb)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-resolve-"));
   try {
     const bogusRoot = join(home, "does-not-exist");
     const checks = buildChecks({ home, repoRoot: bogusRoot });
-    const ts = checks.find((c) => c.name === "tree-sitter native binding");
     const duck = checks.find((c) => c.name === "duckdb native binding");
-    assert.ok(ts, "tree-sitter check must be registered when skipNative is false");
     assert.ok(duck, "duckdb check must be registered when skipNative is false");
     // Running the full check under node:test against a real dev install
     // should succeed — packages are resolvable via the CLI's own
     // node_modules even when the repoRoot fallback is broken. A `fail`
     // here would mean the CLI-first resolution path regressed.
-    const tsResult = await ts.run();
     const duckResult = await duck.run();
-    assert.notEqual(
-      tsResult.status,
-      "fail",
-      `tree-sitter check should not fail when CLI node_modules resolves; got: ${tsResult.message}`,
-    );
     assert.notEqual(
       duckResult.status,
       "fail",
