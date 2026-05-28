@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.2...cli-v0.5.3) (2026-05-28)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/ingestion bumped to 0.4.3
+    * @opencodehub/mcp bumped to 0.4.2
+    * @opencodehub/pack bumped to 0.2.2
+
 ## [0.5.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.1...cli-v0.5.2) (2026-05-28)
 
 
