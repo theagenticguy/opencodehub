@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.0...storage-v0.2.1) (2026-05-28)
+
+
+### Documentation
+
+* sweep stale ADR-0015/0016 prose; unify CI test install path ([#146](https://github.com/theagenticguy/opencodehub/issues/146)) ([3b2e05e](https://github.com/theagenticguy/opencodehub/commit/3b2e05ee19b9d42351bf99659cd4bc26dd0f98bd))
+
+
+### Refactoring
+
+* drop dead materialize() + cross-backend parity script (−425 LOC) ([#141](https://github.com/theagenticguy/opencodehub/issues/141)) ([216121a](https://github.com/theagenticguy/opencodehub/commit/216121ac454f0d884bad3553db306de3e38e8d9f))
+
 ## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/storage-v0.1.2...storage-v0.2.0) (2026-05-16)
 
 

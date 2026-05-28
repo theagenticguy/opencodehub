@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.5.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.1...cli-v0.5.2) (2026-05-28)
+
+
+### Bug Fixes
+
+* harden SCIP proto-reader bounds; drop dead native tree-sitter doctor probe ([#138](https://github.com/theagenticguy/opencodehub/issues/138)) ([b1a4772](https://github.com/theagenticguy/opencodehub/commit/b1a4772528ad573962d549e11479e5796608c362))
+
+
+### Performance
+
+* **ingestion:** O(N) complexity lookup; fix sql hint; reuse openStoreForCommand ([#142](https://github.com/theagenticguy/opencodehub/issues/142)) ([976b877](https://github.com/theagenticguy/opencodehub/commit/976b8773dbb96dcc3de6b0c64840e2a63dc5b7d7))
+
+
+### Documentation
+
+* sweep stale ADR-0015/0016 prose; unify CI test install path ([#146](https://github.com/theagenticguy/opencodehub/issues/146)) ([3b2e05e](https://github.com/theagenticguy/opencodehub/commit/3b2e05ee19b9d42351bf99659cd4bc26dd0f98bd))
+
+
+### Refactoring
+
+* drop dead materialize() + cross-backend parity script (−425 LOC) ([#141](https://github.com/theagenticguy/opencodehub/issues/141)) ([216121a](https://github.com/theagenticguy/opencodehub/commit/216121ac454f0d884bad3553db306de3e38e8d9f))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.1
+    * @opencodehub/ingestion bumped to 0.4.2
+    * @opencodehub/mcp bumped to 0.4.1
+    * @opencodehub/pack bumped to 0.2.1
+    * @opencodehub/search bumped to 0.2.1
+    * @opencodehub/storage bumped to 0.2.1
+    * @opencodehub/wiki bumped to 0.2.1
+
 ## [0.5.1](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.0...cli-v0.5.1) (2026-05-17)
 
 

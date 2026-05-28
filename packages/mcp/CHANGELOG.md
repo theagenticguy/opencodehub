@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.1](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.4.0...mcp-v0.4.1) (2026-05-28)
+
+
+### Performance
+
+* **ingestion:** O(N) complexity lookup; fix sql hint; reuse openStoreForCommand ([#142](https://github.com/theagenticguy/opencodehub/issues/142)) ([976b877](https://github.com/theagenticguy/opencodehub/commit/976b8773dbb96dcc3de6b0c64840e2a63dc5b7d7))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.1
+    * @opencodehub/pack bumped to 0.2.1
+    * @opencodehub/search bumped to 0.2.1
+    * @opencodehub/storage bumped to 0.2.1
+
 ## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.3.2...mcp-v0.4.0) (2026-05-16)
 
 
