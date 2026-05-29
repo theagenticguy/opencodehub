@@ -58,7 +58,6 @@ allowBuilds:
   # LadybugDB native binding — copies lbugjs.node from the platform sub-package
   "@ladybugdb/core": true
   # Misc native addons
-  "@homebridge/node-pty-prebuilt-multiarch": true
   esbuild: true
   lefthook: true
   onnxruntime-node: true

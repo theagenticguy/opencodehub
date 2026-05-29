@@ -23,7 +23,6 @@
  * `community-<id>` is used when no tokens survive.
  */
 
-import { Graph as GraphtyGraph, leiden } from "@graphty/algorithms";
 import type { CommunityNode, NodeId } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
 import type { PipelineContext, PipelinePhase } from "../types.js";
@@ -31,6 +30,7 @@ import { resolveIncrementalView } from "./incremental-helper.js";
 import { INCREMENTAL_SCOPE_PHASE_NAME } from "./incremental-scope.js";
 import { MRO_PHASE_NAME } from "./mro.js";
 import { STRUCTURE_PHASE_NAME } from "./structure.js";
+import { Graph as GraphtyGraph, leiden } from "./vendor/graphty-leiden.js";
 
 export const COMMUNITIES_PHASE_NAME = "communities";
 
