@@ -380,7 +380,11 @@ codehub augment <pattern>
 
 ## `sql`
 
-Read-only SQL against the graph store. 5-second timeout by default.
+Read-only SQL against the **temporal store** — the DuckDB-backed `cochanges` and
+`symbol_summaries` tables. 5-second timeout by default. The node/edge graph lives
+in `graph.lbug` (see ADR 0016) and is **not** reachable from this SQL path; query
+it via the typed tools (`query` / `context` / `impact`) or Cypher via the MCP `sql`
+tool.
 
 ```bash title="usage"
 codehub sql <query>

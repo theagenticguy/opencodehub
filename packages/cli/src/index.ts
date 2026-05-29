@@ -771,7 +771,9 @@ program
 
 program
   .command("sql <query>")
-  .description("Run a read-only SQL query against the graph store")
+  .description(
+    "Run a read-only SQL query against the temporal store (cochanges + symbol_summaries); the node/edge graph is queried via the typed tools or Cypher",
+  )
   .option("--repo <name>", "Registered repo name (default: current directory)")
   .option("--timeout <ms>", "Per-query timeout in ms", (v) => Number.parseInt(v, 10), 5_000)
   .option("--json", "Emit JSON on stdout")
