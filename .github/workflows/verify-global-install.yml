@@ -135,10 +135,19 @@ jobs:
           curl -fsSL -o /tmp/nvm-install.sh \
             https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh
           bash /tmp/nvm-install.sh
-          # shellcheck disable=SC1091
           export NVM_DIR="$HOME/.nvm"
+          # Sourcing nvm.sh runs nvm's auto-use against the repo `.nvmrc`
+          # (node 22). On the macOS runners nvm is freshly cloned and no
+          # node is installed yet, so that auto-use returns exit 3
+          # ("version N/A — not installed"). Under `set -e` that aborts the
+          # step before `nvm install` ever runs. On the Ubuntu runners nvm +
+          # node are pre-cached, so the source returns 0 and the leg passed —
+          # masking the bug. Relax `set -e` only across the source so the
+          # subsequent `nvm install` can do its job; this is a no-op on Linux.
+          set +e
           # shellcheck disable=SC1091
           . "$NVM_DIR/nvm.sh"
+          set -e
           nvm install "${{ matrix.node }}"
           nvm use "${{ matrix.node }}"
           # Persist the resolved bin dir into PATH for downstream steps.
