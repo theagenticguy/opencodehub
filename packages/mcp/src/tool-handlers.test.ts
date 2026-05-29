@@ -631,7 +631,13 @@ test("impact drives the analysis package and groups by depth", async () => {
 test("impact surfaces cochanges for the target's file as a side section", async () => {
   await withTestHarness(
     {
-      nodes: [{ id: "F:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" }],
+      // Realistic node id: OCH ids carry ≥2 colons (`<Kind>:<file>:<name>`),
+      // which is what `looksLikeNodeId` requires to route a target as an id.
+      // The old `F:foo` (one colon) was treated as a NAME, never resolved,
+      // and the cochanges side-section came back empty.
+      nodes: [
+        { id: "Function:src/foo.ts:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
+      ],
       relations: [],
       cochanges: [
         {
@@ -648,7 +654,7 @@ test("impact surfaces cochanges for the target's file as a side section", async 
     async (ctx, server) => {
       registerImpactTool(server, ctx);
       const handler = getHandler(server, "impact");
-      const result = await handler({ target: "F:foo", repo: "fakerepo" }, {});
+      const result = await handler({ target: "Function:src/foo.ts:foo", repo: "fakerepo" }, {});
       const sc = result.structuredContent as {
         cochanges: Array<{ file: string; lift: number }>;
         byDepth: Record<string, Array<{ filePath?: string }>>;
