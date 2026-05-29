@@ -138,13 +138,19 @@ test("runCodePack engine='pack' resolves a relative repo path against process.cw
   const original = process.cwd();
   try {
     process.chdir(cwd);
+    // After chdir, read the cwd back: on macOS `tmpdir()` yields `/tmp/...`
+    // but `/tmp` is a symlink to `/private/tmp`, so `process.cwd()` (and the
+    // production code that resolves against it) returns the realpath form.
+    // Assert against that, not the raw mkdtemp string, or the comparison is
+    // a symlink artifact rather than a real check.
+    const resolvedCwd = process.cwd();
     const fakeGenerate = (async (
       opts: { repoPath: string; outDir: string; budgetTokens: number; tokenizerId: string },
       _internal: unknown,
     ) => {
       // The point of this test is to assert the resolved repo path equals
       // the absolute form of the cwd, NOT a relative `./` form.
-      assert.equal(opts.repoPath, resolve(cwd));
+      assert.equal(opts.repoPath, resolvedCwd);
       await mkdir(opts.outDir, { recursive: true });
       await writeFile(join(opts.outDir, "manifest.json"), "{}");
       return makeFakeManifest({ packHash: "1234" });
@@ -157,7 +163,7 @@ test("runCodePack engine='pack' resolves a relative repo path against process.cw
     });
 
     assert.equal(result.engine, "pack");
-    assert.equal(result.outDir, resolve(cwd, ".codehub", "packs", "1234"));
+    assert.equal(result.outDir, resolve(resolvedCwd, ".codehub", "packs", "1234"));
   } finally {
     process.chdir(original);
     await rm(cwd, { recursive: true, force: true });
