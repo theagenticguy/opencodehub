@@ -467,6 +467,14 @@ export interface ITemporalStore {
    * deterministically when more than one row per node is present.
    */
   lookupSymbolSummariesByNode(nodeIds: readonly string[]): Promise<readonly SymbolSummaryRow[]>;
+  /**
+   * Count distinct nodes that have at least one summary row. Used by
+   * `codehub status` to report whether LLM symbol summaries were generated
+   * for this index (they feed the dense-retrieval leg). Returns 0 — never
+   * throws — when the table is missing or the store is degraded, so status
+   * degrades gracefully.
+   */
+  countSymbolSummaries(): Promise<number>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
