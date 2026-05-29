@@ -62,9 +62,14 @@ note() { printf '  ...... %s\n' "$1"; }
 # -------------------------------------------------------------------- cleanup
 # shellcheck disable=SC2329  # invoked indirectly via the EXIT trap below.
 cleanup() {
-  # Drop the global install we created so re-runs are idempotent. Errors
-  # are tolerated — the install may have failed before the binary landed.
-  npm uninstall -g @opencodehub/cli @opencodehub/ingestion >/dev/null 2>&1 || true
+  # The install lives in a per-run isolated prefix (set below as
+  # $ISOLATED_PREFIX); removing it drops the whole global tree at once, which
+  # is fully hermetic and avoids depending on `npm uninstall -g` resolving the
+  # right prefix. Guarded because the var is set after arg parsing — an early
+  # exit (bad MODE) may run cleanup before it exists.
+  if [ -n "${ISOLATED_PREFIX:-}" ] && [ -d "$ISOLATED_PREFIX" ]; then
+    rm -rf "$ISOLATED_PREFIX"
+  fi
   if [ "$MODE" = "local" ] && [ -d "$TARBALL_DIR" ]; then
     rm -rf "$TARBALL_DIR"
   fi
@@ -127,6 +132,21 @@ else
   fail "unknown mode '$MODE' (expected: local | rc)"
   exit 1
 fi
+
+# -------------------------------------------------------------------- hermetic global prefix
+# Install into a FRESH, per-run npm global prefix instead of whatever the node
+# manager provides. Some managers (notably Volta) persist their global package
+# dir across runs on the hosted runner, so a node-pty left behind by a
+# pre-fix run re-runs its `prebuild-install` GHCR fetch on the next
+# `npm install -g` — tripping gate 2 even though NO OpenCodeHub package depends
+# on node-pty (the dep was removed; the lockfile + every tarball are clean).
+# A clean prefix makes each cell hermetic: gates see only what THIS run's
+# tarballs actually pull, immune to cached cross-run global state. Prepend its
+# bin dir to PATH so the `codehub` shim resolves from here.
+ISOLATED_PREFIX=$(mktemp -d -t verify-global-install-prefix.XXXXXX)
+export npm_config_prefix="$ISOLATED_PREFIX"
+export PATH="$ISOLATED_PREFIX/bin:$PATH"
+note "isolated npm global prefix: $ISOLATED_PREFIX"
 
 # -------------------------------------------------------------------- install + capture
 INSTALL_LOG=$(mktemp -t verify-global-install-log.XXXXXX)
