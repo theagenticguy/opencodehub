@@ -186,10 +186,49 @@ function qualifiedForCapture(
  *   `from X import *`         → package-wildcard
  *   `from . import x`         → relative import (source begins `.`)
  */
+/**
+ * Collapse Python's physical lines into logical lines so a multi-line import
+ * is matched as one unit. Two continuation forms are joined:
+ *   - parenthesized lists: `from m import (\n a,\n b,\n)` — join while the
+ *     running open-paren count is > 0;
+ *   - explicit backslash continuation: a line ending in `\`.
+ * Both are ubiquitous in real Python (black / ruff wrap long import lists in
+ * parens). Without joining, the per-line regex sees `from m import (` →
+ * rest `(` → zero names → the whole import is silently dropped.
+ *
+ * Comments are already stripped upstream, so a `(` here is structural, not a
+ * literal inside a string/comment. Paren counting is a coarse approximation
+ * (it doesn't track string literals) but import statements never contain
+ * string-embedded parens, so it is exact for the import grammar.
+ */
+function joinLogicalLines(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let buf = "";
+  let depth = 0;
+  for (const raw of lines) {
+    let line = raw;
+    let continued = false;
+    if (depth === 0 && /\\\s*$/.test(line)) {
+      line = line.replace(/\\\s*$/, " ");
+      continued = true;
+    }
+    buf = buf === "" ? line : `${buf} ${line.trim()}`;
+    for (const ch of line) {
+      if (ch === "(") depth += 1;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+    }
+    if (depth > 0 || continued) continue;
+    out.push(buf);
+    buf = "";
+  }
+  if (buf !== "") out.push(buf);
+  return out;
+}
+
 function extractPyImports(input: ExtractImportsInput): readonly ExtractedImport[] {
   const { filePath, sourceText } = input;
   const stripped = stripComments(sourceText);
-  const lines = stripped.split("\n");
+  const lines = joinLogicalLines(stripped.split("\n"));
   const out: ExtractedImport[] = [];
 
   for (const raw of lines) {
