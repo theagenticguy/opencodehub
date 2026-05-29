@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.3](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.3.2...analysis-v0.3.3) (2026-05-29)
+
+
+### Features
+
+* **cli:** expose 9 read-only graph tools as CLI subcommands ([#174](https://github.com/theagenticguy/opencodehub/issues/174)) ([be15666](https://github.com/theagenticguy/opencodehub/commit/be156663e486eaee185c800089afaa589dd8a2af))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/storage bumped to 0.2.3
+    * @opencodehub/wiki bumped to 0.2.3
+
 ## [0.3.2](https://github.com/theagenticguy/opencodehub/compare/analysis-v0.3.1...analysis-v0.3.2) (2026-05-29)
 
 
