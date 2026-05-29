@@ -54,7 +54,10 @@ export const BANDIT_SPEC: ScannerSpec = {
   languages: ["python"],
   iacTypes: [],
   sarifNative: true,
-  installCmd: "pip install 'bandit[sarif]==1.9.4'",
+  // The `[sarif]` extra pulls in `bandit-sarif-formatter`; without it bandit
+  // argparse-rejects `-f sarif` (exit 2). `uv tool install` keeps the tool on
+  // an isolated venv so it never shadows / is shadowed by a project env.
+  installCmd: "uv tool install 'bandit[sarif]==1.9.4'",
   version: "1.9.4",
   offlineCapable: true,
   priority: 1,
@@ -84,7 +87,7 @@ export const PIP_AUDIT_SPEC: ScannerSpec = {
   languages: ["python"],
   iacTypes: [],
   sarifNative: false,
-  installCmd: "pip install pip-audit==2.10.0",
+  installCmd: "uv tool install pip-audit==2.10.0",
   version: "2.10.0",
   offlineCapable: false,
   priority: 1,

@@ -355,7 +355,10 @@ async function buildWrapperContext(
     ctx.spectral = { contractFiles: await findOpenApiFiles(repoPath) };
   }
   if (ids.has(PIP_AUDIT_SPEC.id)) {
-    ctx.pipAudit = { requirementsPath: "requirements.txt" };
+    // The wrapper auto-detects: a real requirements.txt is audited directly;
+    // otherwise it bridges pyproject.toml through `uv export`. The transient
+    // export lands in the gitignored .codehub/ meta dir.
+    ctx.pipAudit = { exportDir: resolveRepoMetaDir(repoPath) };
   }
   return ctx;
 }
