@@ -78,8 +78,8 @@ importers:
         specifier: workspace:*
         version: link:../wiki
       write-file-atomic:
-        specifier: 8.0.0
-        version: 8.0.0
+        specifier: 7.0.1
+        version: 7.0.1
     devDependencies:
       '@types/node':
         specifier: 25.9.1
@@ -145,8 +145,8 @@ importers:
         specifier: 10.2.1
         version: 10.2.1
       write-file-atomic:
-        specifier: 8.0.0
-        version: 8.0.0
+        specifier: 7.0.1
+        version: 7.0.1
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -318,8 +318,8 @@ importers:
         specifier: 0.26.9
         version: 0.26.9
       write-file-atomic:
-        specifier: 8.0.0
-        version: 8.0.0
+        specifier: 7.0.1
+        version: 7.0.1
     devDependencies:
       '@types/node':
         specifier: 25.9.1
@@ -551,8 +551,8 @@ importers:
         specifier: workspace:*
         version: link:../summarizer
       write-file-atomic:
-        specifier: 8.0.0
-        version: 8.0.0
+        specifier: 7.0.1
+        version: 7.0.1
     devDependencies:
       '@types/node':
         specifier: 25.9.1
@@ -5800,9 +5800,9 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  write-file-atomic@8.0.0:
-    resolution: {integrity: sha512-dYwyZredl67GyLLIHJnRM3h2PcOmN5SkcgC7eM5DPDEOEl6dLFqVrMg3F1Ea32usj4VSVZtd2H4MtKTNOf6nPg==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+  write-file-atomic@7.0.1:
+    resolution: {integrity: sha512-OTIk8iR8/aCRWBqvxrzxR0hgxWpnYBblY1S5hDWBQfk/VFmJwzmJgQFN3WsoUKHISv2eAwe+PpbUzyL1CKTLXg==}
+    engines: {node: ^20.17.0 || >=22.9.0}
 
   xml-naming@0.1.0:
     resolution: {integrity: sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==}
@@ -11872,7 +11872,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  write-file-atomic@8.0.0:
+  write-file-atomic@7.0.1:
     dependencies:
       signal-exit: 4.1.0
 
@@ -11976,6 +11976,6 @@ time:
   tsx@4.22.3: '2026-05-19T09:53:00.670Z'
   typescript@6.0.3: '2026-04-16T23:38:27.905Z'
   web-tree-sitter@0.26.9: '2026-05-19T18:12:46.154Z'
-  write-file-atomic@8.0.0: '2026-05-08T18:30:27.965Z'
+  write-file-atomic@7.0.1: '2026-02-26T21:57:55.279Z'
   yaml@2.9.0: '2026-05-11T10:16:24.045Z'
   zod@4.4.3: '2026-05-04T07:06:40.819Z'

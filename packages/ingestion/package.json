@@ -58,7 +58,7 @@
     "snyk-nodejs-lockfile-parser": "2.7.1",
     "spdx-correct": "^3.2.0",
     "web-tree-sitter": "0.26.9",
-    "write-file-atomic": "8.0.0"
+    "write-file-atomic": "7.0.1"
   },
   "devDependencies": {
     "@types/node": "25.9.1",
