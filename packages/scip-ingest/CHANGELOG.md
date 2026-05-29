@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.4](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.3...scip-ingest-v0.2.4) (2026-05-29)
+
+
+### Bug Fixes
+
+* **scanners:** correct scanner exit-code handling and stop duplicate skip logs ([#156](https://github.com/theagenticguy/opencodehub/issues/156)) ([5d30eb4](https://github.com/theagenticguy/opencodehub/commit/5d30eb4f5b26edfc0a4460ba1aef8bc728ea6120))
+* **scip-ingest:** prepend ~/.codehub/bin to indexer spawn PATH ([#160](https://github.com/theagenticguy/opencodehub/issues/160)) ([4418db9](https://github.com/theagenticguy/opencodehub/commit/4418db900dd995ceb52e6c63a86ccea94d3fbcd9))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.2
+
 ## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/scip-ingest-v0.2.2...scip-ingest-v0.2.3) (2026-05-28)
 
 

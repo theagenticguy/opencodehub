@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.4](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.3...ingestion-v0.4.4) (2026-05-29)
+
+
+### Bug Fixes
+
+* **deps:** downgrade write-file-atomic 8.0.0→7.0.1 to match supported node range ([#155](https://github.com/theagenticguy/opencodehub/issues/155)) ([a723e53](https://github.com/theagenticguy/opencodehub/commit/a723e53d4442878fd2ec40b264349d728ff054ef))
+* **ingestion:** vendor graphty Leiden to drop node-pty install fetch ([#157](https://github.com/theagenticguy/opencodehub/issues/157)) ([790ca4e](https://github.com/theagenticguy/opencodehub/commit/790ca4e277fcf42046aecaf11431df4f607cb8b3))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.2
+    * @opencodehub/scip-ingest bumped to 0.2.4
+    * @opencodehub/storage bumped to 0.2.2
+
 ## [0.4.3](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.2...ingestion-v0.4.3) (2026-05-28)
 
 

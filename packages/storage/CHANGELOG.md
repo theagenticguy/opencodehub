@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.1...storage-v0.2.2) (2026-05-29)
+
+
+### Bug Fixes
+
+* **storage:** retry transient lbug WAL→checkpoint race in bulkLoad ([#161](https://github.com/theagenticguy/opencodehub/issues/161)) ([450714c](https://github.com/theagenticguy/opencodehub/commit/450714c07132e4d0c3d1579897812c2c2dc935d6))
+
 ## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.0...storage-v0.2.1) (2026-05-28)
 
 
