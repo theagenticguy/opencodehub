@@ -277,11 +277,21 @@ else
   if [ ! -d "$FIXTURE_DIR" ]; then
     fail "smoke: fixture directory '$FIXTURE_DIR' missing"
   else
-    if codehub analyze "$FIXTURE_DIR" >/dev/null 2>&1; then
+    # Capture combined output to a temp log instead of `>/dev/null 2>&1` so a
+    # non-zero exit is DIAGNOSABLE. Swallowing the output is why analyze-smoke
+    # failures on some runners read as undebuggable "flakes": the actual
+    # stderr (the throw that set exit 1) never reached the CI log. On failure
+    # we echo the tail so the next run shows the real cause.
+    ANALYZE_LOG=$(mktemp -t verify-global-install-analyze.XXXXXX)
+    if codehub analyze "$FIXTURE_DIR" >"$ANALYZE_LOG" 2>&1; then
       pass "smoke: codehub analyze $FIXTURE_DIR exits 0"
     else
-      fail "smoke: codehub analyze $FIXTURE_DIR exited non-zero"
+      analyze_rc=$?
+      fail "smoke: codehub analyze $FIXTURE_DIR exited non-zero (rc=$analyze_rc)"
+      note "tail of analyze output:"
+      tail -40 "$ANALYZE_LOG" | sed 's/^/      /' >&2 || true
     fi
+    rm -f "$ANALYZE_LOG"
   fi
 
   # ------------------------------------------------------------------ smoke: codehub query 'export default'

@@ -164,6 +164,55 @@ export const ROUND_TRIP_COLUMN_MAP: readonly (readonly [
 ];
 
 // ---------------------------------------------------------------------------
+// Transient bulk-load retry
+// ---------------------------------------------------------------------------
+
+/** Resolve after `ms` milliseconds. Used for bulk-load retry backoff. */
+function delay(ms: number): Promise<void> {
+  return new Promise((res) => {
+    setTimeout(res, ms);
+  });
+}
+
+/**
+ * True for the transient lbug WAL→checkpoint rename failure that surfaces
+ * under load — e.g. `IO exception: Error renaming file <db>.wal to
+ * <db>.wal.checkpoint. ErrorMessage: No such file or directory`. The data is
+ * already in the WAL (a reopen recovers it), so this specific failure is
+ * safe to retry. Matched on the stable token trio (renaming + .wal +
+ * checkpoint) rather than the OS-specific errno suffix, which varies by
+ * platform. Every other error returns false and rethrows.
+ */
+export function isTransientCheckpointError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /renaming/i.test(msg) && /\.wal\b/i.test(msg) && /checkpoint/i.test(msg);
+}
+
+/**
+ * Run `fn`, retrying up to `maxAttempts` times when it throws a transient
+ * WAL→checkpoint rename error (see {@link isTransientCheckpointError}). Any
+ * other error rethrows immediately; the transient error on the final attempt
+ * also rethrows. Backoff scales with attempt (25ms, 50ms, …) to let the OS
+ * settle the WAL file. Extracted as a pure helper so the retry policy is unit-
+ * testable without provoking a native race. Used only by replace-mode-safe
+ * bulk-load, which is idempotent (truncate-then-insert).
+ */
+export async function retryTransientCheckpoint<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  backoff: (attempt: number) => Promise<void> = (attempt) => delay(attempt * 25),
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= maxAttempts || !isTransientCheckpointError(err)) throw err;
+      await backoff(attempt);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // COPY FROM (subquery) bulk insert
 // ---------------------------------------------------------------------------
 //
@@ -570,7 +619,25 @@ export class GraphDbStore implements IGraphStore {
   // Bulk load
   // --------------------------------------------------------------------------
 
+  /**
+   * Bulk-load with a bounded retry for the transient lbug WAL→checkpoint
+   * IO race. Under CPU/IO pressure the native binding's auto-checkpoint can
+   * fail to rename `graph.lbug.wal` → `.wal.checkpoint` ("No such file or
+   * directory") even though the data is already durably in the WAL. The
+   * write otherwise succeeds (a reopen recovers the WAL), so the failure is
+   * a flaky teardown artifact, not data loss — but unretried it bubbles to
+   * the CLI's top-level catch and fails `analyze` with exit 1. Observed only
+   * on loaded CI runners (varies by leg), never on an idle box.
+   *
+   * replace-mode bulkLoad is idempotent (truncate-then-insert fully replaces
+   * prior contents), so a retry is safe. We retry only the transient
+   * checkpoint-rename class; every other error rethrows immediately.
+   */
   async bulkLoad(graph: KnowledgeGraph, opts: BulkLoadOptions = {}): Promise<BulkLoadStats> {
+    return retryTransientCheckpoint(() => this.#bulkLoadOnce(graph, opts));
+  }
+
+  async #bulkLoadOnce(graph: KnowledgeGraph, opts: BulkLoadOptions = {}): Promise<BulkLoadStats> {
     const pool = this.requirePool();
     const started = performance.now();
     const mode = opts.mode ?? "replace";
