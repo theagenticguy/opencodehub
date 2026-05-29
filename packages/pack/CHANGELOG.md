@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4](https://github.com/theagenticguy/opencodehub/compare/pack-v0.2.3...pack-v0.2.4) (2026-05-29)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.3
+    * @opencodehub/ingestion bumped to 0.4.5
+    * @opencodehub/storage bumped to 0.2.3
+
 ## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/pack-v0.2.2...pack-v0.2.3) (2026-05-29)
 
 

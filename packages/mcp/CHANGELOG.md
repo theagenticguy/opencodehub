@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.5](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.4.4...mcp-v0.4.5) (2026-05-29)
+
+
+### Features
+
+* **cli:** expose 9 read-only graph tools as CLI subcommands ([#174](https://github.com/theagenticguy/opencodehub/issues/174)) ([be15666](https://github.com/theagenticguy/opencodehub/commit/be156663e486eaee185c800089afaa589dd8a2af))
+
+
+### Documentation
+
+* **repo:** clarify `sql` targets the temporal store, not the node/edge graph ([#173](https://github.com/theagenticguy/opencodehub/issues/173)) ([814774a](https://github.com/theagenticguy/opencodehub/commit/814774a013331f5a090fb349bab10665f0ebe2ca))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.3
+    * @opencodehub/pack bumped to 0.2.4
+    * @opencodehub/scanners bumped to 0.2.3
+    * @opencodehub/search bumped to 0.2.3
+    * @opencodehub/storage bumped to 0.2.3
+
 ## [0.4.4](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.4.3...mcp-v0.4.4) (2026-05-29)
 
 

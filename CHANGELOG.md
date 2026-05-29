@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.7](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.6...root-v0.6.7) (2026-05-29)
+
+
+### Features
+
+* **cli:** expose 9 read-only graph tools as CLI subcommands ([#174](https://github.com/theagenticguy/opencodehub/issues/174)) ([be15666](https://github.com/theagenticguy/opencodehub/commit/be156663e486eaee185c800089afaa589dd8a2af))
+* **cli:** status surfaces retrieval mode (summaries / vectors / embedder) ([#172](https://github.com/theagenticguy/opencodehub/issues/172)) ([611e818](https://github.com/theagenticguy/opencodehub/commit/611e818cc76c890c4f7c4eaf8c8065d1fb5a3a1a))
+
+
+### Bug Fixes
+
+* **cli:** doctor verifies the bandit[sarif] formatter, not just the binary ([#171](https://github.com/theagenticguy/opencodehub/issues/171)) ([0d78c92](https://github.com/theagenticguy/opencodehub/commit/0d78c926bf284de8f1b22f4cba2b712e74d7bef1))
+* **scanners:** exclude indexer-ignored dirs from vulture/radon/ty (drop .venv noise) ([#168](https://github.com/theagenticguy/opencodehub/issues/168)) ([848aa34](https://github.com/theagenticguy/opencodehub/commit/848aa34eba622c976ba6be968383824f0912e6b3))
+
+
+### Documentation
+
+* **repo:** clarify `sql` targets the temporal store, not the node/edge graph ([#173](https://github.com/theagenticguy/opencodehub/issues/173)) ([814774a](https://github.com/theagenticguy/opencodehub/commit/814774a013331f5a090fb349bab10665f0ebe2ca))
+
 ## [0.6.6](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.5...root-v0.6.6) (2026-05-29)
 
 

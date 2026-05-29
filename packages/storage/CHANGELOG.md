@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.2...storage-v0.2.3) (2026-05-29)
+
+
+### Features
+
+* **cli:** status surfaces retrieval mode (summaries / vectors / embedder) ([#172](https://github.com/theagenticguy/opencodehub/issues/172)) ([611e818](https://github.com/theagenticguy/opencodehub/commit/611e818cc76c890c4f7c4eaf8c8065d1fb5a3a1a))
+
 ## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.1...storage-v0.2.2) (2026-05-29)
 
 

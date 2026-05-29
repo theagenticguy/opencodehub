@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.2...scanners-v0.2.3) (2026-05-29)
+
+
+### Bug Fixes
+
+* **scanners:** exclude indexer-ignored dirs from vulture/radon/ty (drop .venv noise) ([#168](https://github.com/theagenticguy/opencodehub/issues/168)) ([848aa34](https://github.com/theagenticguy/opencodehub/commit/848aa34eba622c976ba6be968383824f0912e6b3))
+
 ## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.1...scanners-v0.2.2) (2026-05-29)
 
 
