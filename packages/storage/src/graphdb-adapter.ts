@@ -406,16 +406,43 @@ const NODE_SENTINEL_ROW = buildNodeSentinel();
  * accept them silently. Synthesize a minimal placeholder so the bulk
  * load completes, with the original id preserved for round-trip.
  */
+/** Distinct from/to ids referenced by an edge batch. */
+function edgeEndpointIds(
+  edges: readonly { readonly from: NodeId; readonly to: NodeId }[],
+): readonly string[] {
+  const ids = new Set<string>();
+  for (const e of edges) {
+    ids.add(e.from as string);
+    ids.add(e.to as string);
+  }
+  return [...ids];
+}
+
+/**
+ * Synthesize a placeholder CodeNode for every edge endpoint id that has no
+ * real node, so lbug's COPY (which requires a real PK for each rel endpoint)
+ * succeeds.
+ *
+ * `alreadyPersisted` (upsert mode only) lists endpoint ids that already exist
+ * in the store. Those must NOT be synthesized: a placeholder would later be
+ * `mergeNodes`-ed (DETACH DELETE + re-insert), clobbering the real node. In
+ * replace mode the store was just truncated, so pass `undefined`.
+ */
 function synthesizePlaceholderNodes(
   nodes: readonly GraphNode[],
   edges: readonly { readonly from: NodeId; readonly to: NodeId }[],
+  alreadyPersisted?: ReadonlySet<string>,
 ): GraphNode[] {
   const known = new Set<string>();
   for (const n of nodes) known.add(n.id as string);
   const missing = new Set<string>();
   for (const e of edges) {
-    if (!known.has(e.from as string)) missing.add(e.from as string);
-    if (!known.has(e.to as string)) missing.add(e.to as string);
+    if (!known.has(e.from as string) && !(alreadyPersisted?.has(e.from as string) ?? false)) {
+      missing.add(e.from as string);
+    }
+    if (!known.has(e.to as string) && !(alreadyPersisted?.has(e.to as string) ?? false)) {
+      missing.add(e.to as string);
+    }
   }
   if (missing.size === 0) return [];
   const out: GraphNode[] = [];
@@ -677,7 +704,22 @@ export class GraphDbStore implements IGraphStore {
     // in `reason`) that never have a matching node. Synthesize one
     // CodeNode per orphan id so the COPY succeeds; downstream tools
     // recognise these by their well-known id prefix.
-    const synthetic = synthesizePlaceholderNodes(nodes, edges);
+    //
+    // Upsert mode caveat: a batch that carries ONLY new nodes (e.g.
+    // `ingest-sarif` upserts Finding nodes plus FOUND_IN edges into the
+    // already-persisted graph) references real, previously-loaded nodes
+    // that are absent from THIS batch. Synthesizing a placeholder for
+    // such an id and then `mergeNodes`-ing it (DETACH DELETE + re-insert)
+    // would DESTROY the real node — turning, e.g., the Function a finding
+    // was found in into a `<placeholder>` Route. So in upsert mode we must
+    // exclude ids that already exist in the store from synthesis; only
+    // genuinely-orphan ids (no node in the batch AND none in the store)
+    // get a placeholder.
+    const existingIds =
+      mode === "upsert"
+        ? await this.filterExistingNodeIds(pool, edgeEndpointIds(edges))
+        : undefined;
+    const synthetic = synthesizePlaceholderNodes(nodes, edges, existingIds);
     const allNodes = synthetic.length > 0 ? [...nodes, ...synthetic] : nodes;
     await this.insertNodes(pool, allNodes, mode, reportProgress, started);
 
@@ -748,6 +790,23 @@ export class GraphDbStore implements IGraphStore {
     await pool.query("MATCH ()-[r:EMBEDS]->() DELETE r");
     await pool.query("MATCH (n:Embedding) DELETE n");
     await pool.query("MATCH (n:CodeNode) DELETE n");
+  }
+
+  /**
+   * Return the subset of `candidateIds` that already exist as CodeNodes in the
+   * store. Used by upsert-mode bulkLoad to avoid synthesizing a placeholder
+   * (and then `mergeNodes`-clobbering) for an edge endpoint that is a real,
+   * previously-persisted node not present in the current batch. Reuses the
+   * `listNodes({ ids })` finder so id decoding stays in one place; passes no
+   * `limit` so every match is returned.
+   */
+  private async filterExistingNodeIds(
+    _pool: GraphDbPool,
+    candidateIds: readonly string[],
+  ): Promise<ReadonlySet<string>> {
+    if (candidateIds.length === 0) return new Set<string>();
+    const found = await this.listNodes({ ids: candidateIds as readonly NodeId[] });
+    return new Set(found.map((n) => n.id as string));
   }
 
   private async insertNodes(
