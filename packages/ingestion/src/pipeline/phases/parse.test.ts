@@ -123,6 +123,65 @@ describe("parsePhase (integration)", () => {
   });
 });
 
+describe("parsePhase (Python src-layout dotted import resolution)", () => {
+  // A src-layout package (src/pkg/...) imported via a dotted ABSOLUTE
+  // specifier (`pkg.client`) must resolve to the in-repo file, not stub as
+  // <external>. See field-report Issue 1 Bug B. Also exercises the multi-line
+  // parenthesized import (Bug A) end-to-end through the phase.
+  let repo: string;
+
+  before(async () => {
+    repo = await mkdtemp(path.join(tmpdir(), "och-parse-pysrc-"));
+    await fs.mkdir(path.join(repo, "src", "pkg"), { recursive: true });
+    await fs.writeFile(path.join(repo, "src", "pkg", "__init__.py"), "");
+    await fs.writeFile(
+      path.join(repo, "src", "pkg", "client.py"),
+      "def get_client():\n    return 1\n",
+    );
+    await fs.writeFile(
+      path.join(repo, "src", "pkg", "app.py"),
+      [
+        "from pkg.client import (",
+        "    get_client,",
+        ")",
+        "",
+        "def run():",
+        "    return get_client()",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  after(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  it("resolves a dotted absolute src-layout import to a file IMPORTS edge (no <external> stub)", async () => {
+    const { graph } = await runThreePhases(repo);
+    const nodes = [...graph.nodes()];
+
+    // No external stub minted for the in-repo dotted import.
+    const externalStub = nodes.find(
+      (n) => n.id.includes("<external>") && n.id.includes("pkg.client"),
+    );
+    assert.equal(externalStub, undefined, "in-repo dotted import must not stub as <external>");
+
+    // A real file→file IMPORTS edge app.py → client.py exists.
+    const imports = [...graph.edges()].filter(
+      (e) =>
+        e.type === "IMPORTS" &&
+        String(e.from).includes("app.py") &&
+        String(e.to).includes("client.py"),
+    );
+    assert.ok(
+      imports.length >= 1,
+      `expected file IMPORTS app.py -> client.py; edges: ${JSON.stringify(
+        [...graph.edges()].filter((e) => e.type === "IMPORTS").map((e) => `${e.from}->${e.to}`),
+      )}`,
+    );
+  });
+});
+
 describe("parsePhase (content-cache replay)", () => {
   let repo: string;
 
