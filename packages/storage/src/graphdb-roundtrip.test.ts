@@ -531,3 +531,125 @@ test("round-trip is deterministic across independent writes of the same graph", 
   assert.equal(hashA, hashB, "hashes across two stores must match");
   assert.equal(hashA, originalHash, "hash after round-trip must match the original graph hash");
 });
+
+// Regression: upsert-mode bulkLoad must NOT clobber an existing real node when
+// the upsert batch carries an edge that references it but not the node itself.
+//
+// ingest-sarif upserts Finding nodes + FOUND_IN edges into the already-loaded
+// graph. A FOUND_IN edge targets the Function the finding sits inside. That
+// Function id is absent from the upsert batch (which holds only Findings), so
+// synthesizePlaceholderNodes used to mint a `kind:Route` placeholder for it;
+// mergeNodes (DETACH DELETE + re-insert) then DESTROYED the real Function,
+// turning it into a `<placeholder>` Route. Net effect: every function/method
+// containing a scanner finding silently vanished from the graph, breaking
+// cross-module context/impact. The fix excludes already-persisted ids from
+// synthesis. See field-report Issue 1.
+test("upsert with an edge to an existing node does not clobber it into a placeholder", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const dbPath = await scratchDbPath();
+  const store = new GraphDbStore(dbPath);
+  try {
+    await store.open();
+    await store.createSchema();
+
+    // Phase 1 — replace-load a real Function node.
+    const fnId = makeNodeId("Function", "src/client.py", "get_bedrock_client");
+    const base = new KnowledgeGraph();
+    base.addNode({
+      id: fnId,
+      kind: "Function",
+      name: "get_bedrock_client",
+      filePath: "src/client.py",
+      startLine: 146,
+      endLine: 171,
+      isExported: true,
+    } as GraphNode);
+    await store.bulkLoad(base, { mode: "replace" });
+
+    // Phase 2 — upsert a Finding + a FOUND_IN edge targeting the Function.
+    // The Function node is intentionally NOT in this batch.
+    const findingId = makeNodeId("Finding", "src/client.py", "semgrep:logger-leak:165");
+    const upsert = new KnowledgeGraph();
+    upsert.addNode({
+      id: findingId,
+      kind: "Finding",
+      name: "logger-credential-leak",
+      filePath: "src/client.py",
+      startLine: 165,
+      endLine: 170,
+    } as GraphNode);
+    upsert.addEdge({
+      from: findingId,
+      to: fnId,
+      type: "FOUND_IN" as RelationType,
+      confidence: 1,
+      reason: "startLine=165;endLine=170",
+    });
+    await store.bulkLoad(upsert, { mode: "upsert" });
+
+    // The Function must still be a Function — not a synthesized Route
+    // placeholder, and not deleted.
+    const [node] = await store.listNodes({ ids: [fnId] });
+    assert.ok(node, "the Function node must survive the finding upsert");
+    assert.equal(
+      node.kind,
+      "Function",
+      `expected Function, got ${node.kind} (clobbered by placeholder)`,
+    );
+    assert.equal(node.name, "get_bedrock_client");
+    assert.equal(node.filePath, "src/client.py");
+    assert.notEqual(node.filePath, "<placeholder>");
+
+    // The Finding and its edge must also have landed.
+    const findings = await store.listNodesByKind("Finding", { limit: 10 });
+    assert.equal(findings.length, 1, "the upserted Finding must persist");
+  } finally {
+    await store.close();
+  }
+});
+
+// Companion: a genuinely-orphan edge endpoint (no node in batch, none in store)
+// still gets a placeholder so the COPY's PK constraint holds — the upsert fix
+// must not break the original unresolved-FETCHES use case.
+test("upsert still synthesizes a placeholder for a genuinely-orphan edge endpoint", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping");
+    return;
+  }
+  const dbPath = await scratchDbPath();
+  const store = new GraphDbStore(dbPath);
+  try {
+    await store.open();
+    await store.createSchema();
+    await store.bulkLoad(new KnowledgeGraph(), { mode: "replace" });
+
+    const srcId = makeNodeId("Function", "src/api.py", "call_remote");
+    const orphanId = "Route:<placeholder>:https://example.com/{id}" as NodeId;
+    const g = new KnowledgeGraph();
+    g.addNode({
+      id: srcId,
+      kind: "Function",
+      name: "call_remote",
+      filePath: "src/api.py",
+      startLine: 1,
+      endLine: 5,
+      isExported: true,
+    } as GraphNode);
+    g.addEdge({
+      from: srcId,
+      to: orphanId,
+      type: "FETCHES" as RelationType,
+      confidence: 0.5,
+      reason: "https://example.com/{id}",
+    });
+    await store.bulkLoad(g, { mode: "upsert" });
+
+    const [placeholder] = await store.listNodes({ ids: [orphanId] });
+    assert.ok(placeholder, "orphan FETCHES target must be synthesized so the edge COPY succeeds");
+  } finally {
+    await store.close();
+  }
+});
