@@ -17,7 +17,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultCobolProleapPaths, runIndexer } from "./index.js";
+import { defaultCobolProleapPaths, detectVersionManagerShimFailure, runIndexer } from "./index.js";
 
 test("runIndexer(cobol-proleap): skips with fallback message when opt-in is absent", async () => {
   const dir = mkdtempSync(join(tmpdir(), "scip-ingest-"));
@@ -77,4 +77,36 @@ test("defaultCobolProleapPaths: resolves under ~/.codehub/vendor/proleap", () =>
   const paths = defaultCobolProleapPaths("/Users/alice");
   assert.equal(paths.jarPath, "/Users/alice/.codehub/vendor/proleap/proleap-cobol-parser.jar");
   assert.equal(paths.wrapperDir, "/Users/alice/.codehub/vendor/proleap");
+});
+
+test("detectVersionManagerShimFailure: matches the mise no-version-set shim error", () => {
+  const stderr =
+    "mise ERROR No version is set for shim: scip-python\n" +
+    "Set a global default version with one of the following:\n" +
+    "mise use -g node@22.22.0\n" +
+    "mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information";
+  const reason = detectVersionManagerShimFailure("scip-python", stderr);
+  assert.ok(reason !== undefined, "should detect the mise shim failure");
+  assert.match(reason ?? "", /version-manager shim/);
+  assert.match(reason ?? "", /mise use scip-python@latest/);
+  assert.match(reason ?? "", /Skipping scip-python/);
+});
+
+test("detectVersionManagerShimFailure: matches an asdf no-version-set error", () => {
+  const reason = detectVersionManagerShimFailure(
+    "scip-python",
+    "No version is set for command scip-python\nConsider adding one of the following...",
+  );
+  assert.ok(reason !== undefined);
+  assert.match(reason ?? "", /version-manager shim/);
+});
+
+test("detectVersionManagerShimFailure: ignores a genuine indexer crash", () => {
+  // A real scip-python crash (traceback) must NOT be treated as a shim
+  // failure — it should still throw upstream so the operator sees it.
+  const stderr =
+    "Traceback (most recent call last):\n" +
+    '  File "scip_python/main.py", line 42, in <module>\n' +
+    "SyntaxError: invalid syntax in module foo.py";
+  assert.equal(detectVersionManagerShimFailure("scip-python", stderr), undefined);
 });

@@ -126,6 +126,13 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
     onProgress: (spec: ScannerSpec, status: ScannerStatus, note?: string) => {
       if (status === "error") {
         console.warn(`codehub scan: ${spec.id} errored: ${note ?? ""}`);
+      } else if (status === "warn" && note) {
+        // Advisory: the scan ran but emitted a note (non-clean exit code,
+        // SARIF parse fallback). Not a skip — the scanner still produced
+        // output. Label it distinctly so a non-zero-but-ran exit (e.g.
+        // osv-scanner exit 127 = general error) is not mistaken for "did
+        // not run".
+        console.warn(`codehub scan: ${spec.id}: ${note}`);
       } else if (status === "skipped" && note) {
         console.warn(`codehub scan: ${spec.id} skipped: ${note}`);
       } else {

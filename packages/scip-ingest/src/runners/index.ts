@@ -415,6 +415,25 @@ export async function runIndexer(
     };
   }
   if (indexOutcome.kind === "failed") {
+    // Tool-manager shim that resolved on PATH but cannot pick a version
+    // (e.g. mise/asdf shims when no version is pinned for the current
+    // project). The binary "exists" so `which`/spawn succeed, but the shim
+    // exits non-zero with a "No version is set" message before the real
+    // indexer ever runs. This is an environment/config gap, NOT an indexer
+    // crash — surface it as a graceful, actionable skip instead of throwing
+    // (a throw becomes the alarming "indexer failed" warning upstream).
+    const shimReason = detectVersionManagerShimFailure(plan.cmd, indexOutcome.stderr);
+    if (shimReason !== undefined) {
+      return {
+        kind,
+        scipPath,
+        tool: plan.tool,
+        version: "",
+        skipped: true,
+        skipReason: shimReason,
+        durationMs: Date.now() - start,
+      };
+    }
     throw new Error(
       `scip-ingest: ${kind} indexer ${plan.cmd} exited ${indexOutcome.exitCode}. Stderr: ${indexOutcome.stderr.slice(0, 400)}`,
     );
@@ -865,6 +884,38 @@ export function checkKotlinMinVersion(
     };
   }
   return { ok: true };
+}
+
+/**
+ * Detect a version-manager shim that resolved on PATH but failed to select
+ * a version for the current project (mise/asdf/rtx "No version is set for
+ * shim: <cmd>"). When the indexer is invoked through such a shim and the
+ * project hasn't pinned a version, the shim exits non-zero with this message
+ * BEFORE the real indexer runs — the binary appears present but is not
+ * actually runnable here.
+ *
+ * Returns an actionable skip reason when the failure matches, otherwise
+ * `undefined` (so the caller throws the generic indexer-crash error). The
+ * reason points the operator at both fixes: pin a version for the project,
+ * or install the indexer outside the shim so it resolves unconditionally.
+ *
+ * Exported for unit tests.
+ */
+export function detectVersionManagerShimFailure(cmd: string, stderr: string): string | undefined {
+  // mise: "mise ERROR No version is set for shim: scip-python"
+  // asdf: "No version is set for command <cmd>" / "asdf: No version set"
+  // rtx (legacy mise name): "rtx ERROR No version is set for shim: <cmd>"
+  const noVersionSet =
+    /no version (?:is )?set(?: for (?:shim|command))?/i.test(stderr) ||
+    /please specify a version|run `mise use|run `asdf (?:local|global)/i.test(stderr);
+  const looksLikeShim = /\b(mise|asdf|rtx)\b/i.test(stderr) || noVersionSet;
+  if (!noVersionSet || !looksLikeShim) return undefined;
+  return (
+    `${cmd} is exposed via a version-manager shim (mise/asdf) but no version ` +
+    `is pinned for this project, so the shim exited before the indexer ran. ` +
+    `Fix: pin it for the project (e.g. \`mise use ${cmd}@latest\`) or install ` +
+    `${cmd} outside the shim so it resolves unconditionally. Skipping ${cmd} for this run.`
+  );
 }
 
 type CommandOutcome =
