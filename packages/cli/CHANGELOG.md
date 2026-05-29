@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.5](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.4...cli-v0.5.5) (2026-05-29)
+
+
+### Bug Fixes
+
+* **cli:** doctor resolves @opencodehub/sarif as installed pkg, not monorepo path ([#164](https://github.com/theagenticguy/opencodehub/issues/164)) ([2b2b389](https://github.com/theagenticguy/opencodehub/commit/2b2b38939b719f8278e34c88be72949e7a8814a0))
+* **scanners:** uv-first bandit[sarif] install + pip-audit pyproject.toml support ([#166](https://github.com/theagenticguy/opencodehub/issues/166)) ([5ad02d8](https://github.com/theagenticguy/opencodehub/commit/5ad02d8184df9af69e7f6a70f3860af3927b8dd7))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/mcp bumped to 0.4.4
+    * @opencodehub/scanners bumped to 0.2.2
+
 ## [0.5.4](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.3...cli-v0.5.4) (2026-05-29)
 
 
