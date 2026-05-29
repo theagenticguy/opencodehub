@@ -42,7 +42,7 @@
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
-    "write-file-atomic": "8.0.0"
+    "write-file-atomic": "7.0.1"
   },
   "devDependencies": {
     "@types/node": "25.9.1",
