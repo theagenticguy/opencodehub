@@ -786,6 +786,174 @@ program
     });
   });
 
+// --- read-only graph capabilities (CLI siblings of the MCP tools) ----------
+// Each reuses the same underlying logic as its MCP tool (a shared
+// `@opencodehub/analysis` fn or an IGraphStore/ITemporalStore reader),
+// following the `verdict` CLI↔MCP shared-function pattern.
+
+program
+  .command("findings")
+  .description("List SARIF Finding nodes (sibling of the MCP list_findings tool)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--severity <level>", "Restrict to one SARIF severity: error | warning | note | none")
+  .option("--scanner <id>", "Restrict to a single scanner id (e.g. 'semgrep')")
+  .option("--rule-id <id>", "Restrict to a single rule id")
+  .option("--file-path <hint>", "Substring filter on the finding's file path")
+  .option("--limit <n>", "Maximum findings to return", (v) => Number.parseInt(v, 10), 500)
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/findings.js");
+    const sev = opts["severity"];
+    await mod.runFindings({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(sev === "error" || sev === "warning" || sev === "note" || sev === "none"
+        ? { severity: sev }
+        : {}),
+      ...(typeof opts["scanner"] === "string" ? { scanner: opts["scanner"] } : {}),
+      ...(typeof opts["ruleId"] === "string" ? { ruleId: opts["ruleId"] } : {}),
+      ...(typeof opts["filePath"] === "string" ? { filePath: opts["filePath"] } : {}),
+      ...(typeof opts["limit"] === "number" ? { limit: opts["limit"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("dead-code")
+  .description("List dead and unreachable-export symbols (sibling of MCP list_dead_code)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--file-path-pattern <hint>", "Substring filter on each symbol's file path")
+  .option("--include-unreachable-exports", "Also include exported-but-unreferenced symbols")
+  .option("--limit <n>", "Maximum symbols to return", (v) => Number.parseInt(v, 10), 100)
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/dead-code.js");
+    await mod.runDeadCode({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["filePathPattern"] === "string"
+        ? { filePathPattern: opts["filePathPattern"] }
+        : {}),
+      includeUnreachableExports: opts["includeUnreachableExports"] === true,
+      ...(typeof opts["limit"] === "number" ? { limit: opts["limit"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("license-audit")
+  .description("Classify Dependency nodes by license risk tier (sibling of MCP license_audit)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/license-audit.js");
+    await mod.runLicenseAudit({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("project-profile")
+  .description("Show the detected project profile (sibling of MCP project_profile)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/project-profile.js");
+    await mod.runProjectProfile({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("risk-trends")
+  .description("Per-community risk trend + 30-day projection (sibling of MCP risk_trends)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/risk-trends.js");
+    await mod.runRiskTrends({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["home"] === "string" ? { home: opts["home"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("owners <target>")
+  .description("List ranked OWNED_BY contributors for a node (sibling of MCP owners)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--limit <n>", "Maximum contributors to return", (v) => Number.parseInt(v, 10), 20)
+  .option("--json", "Emit JSON on stdout")
+  .action(async (target: string, opts: Record<string, unknown>) => {
+    const mod = await import("./commands/owners.js");
+    await mod.runOwners(target, {
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["limit"] === "number" ? { limit: opts["limit"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("route-map")
+  .description("Map HTTP routes to handlers and consumers (sibling of MCP route_map)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--route <hint>", "Substring match against Route.url (e.g. '/api/users')")
+  .option("--method <verb>", "Exact match against Route.method (e.g. 'GET')")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/route-map.js");
+    await mod.runRouteMap({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["route"] === "string" ? { route: opts["route"] } : {}),
+      ...(typeof opts["method"] === "string" ? { method: opts["method"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("api-impact")
+  .description("Score the blast radius of changing a Route's contract (sibling of MCP api_impact)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--route <hint>", "Substring match against Route.url")
+  .option("--file <hint>", "Substring match against Route.filePath")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/api-impact.js");
+    await mod.runApiImpact({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["route"] === "string" ? { route: opts["route"] } : {}),
+      ...(typeof opts["file"] === "string" ? { file: opts["file"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
+program
+  .command("dependencies")
+  .description("List external dependencies (sibling of MCP dependencies)")
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--ecosystem <id>", "Restrict to one ecosystem: npm | pypi | go | cargo | maven | nuget")
+  .option("--file-path <hint>", "Substring filter on the manifest/lockfile path")
+  .option("--limit <n>", "Maximum dependencies to return", (v) => Number.parseInt(v, 10), 500)
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/dependencies.js");
+    const eco = opts["ecosystem"];
+    await mod.runDependencies({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(eco === "npm" ||
+      eco === "pypi" ||
+      eco === "go" ||
+      eco === "cargo" ||
+      eco === "maven" ||
+      eco === "nuget"
+        ? { ecosystem: eco }
+        : {}),
+      ...(typeof opts["filePath"] === "string" ? { filePath: opts["filePath"] } : {}),
+      ...(typeof opts["limit"] === "number" ? { limit: opts["limit"] } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
 function splitList(raw: string): readonly string[] {
   return raw
     .split(",")

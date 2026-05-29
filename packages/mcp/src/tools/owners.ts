@@ -12,6 +12,7 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { listOwners } from "@opencodehub/analysis";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -42,13 +43,6 @@ const OwnersInput = {
     .describe("Maximum number of contributors to return (default 20, max 100)."),
 };
 
-interface OwnerRow {
-  readonly email: string;
-  readonly emailHash: string;
-  readonly name: string;
-  readonly weight: number;
-}
-
 interface OwnersArgs {
   readonly target: string;
   readonly repo?: string | undefined;
@@ -60,31 +54,7 @@ export async function runOwners(ctx: ToolContext, args: OwnersArgs): Promise<Too
   const limit = args.limit ?? 20;
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const graph = store.graph;
-      const ownedBy = await graph.listEdgesByType("OWNED_BY", { fromIds: [args.target] });
-      const sorted = [...ownedBy].sort((a, b) => {
-        const ac = a.confidence ?? 0;
-        const bc = b.confidence ?? 0;
-        if (ac !== bc) return bc - ac;
-        return a.to < b.to ? -1 : a.to > b.to ? 1 : 0;
-      });
-      const sliced = sorted.slice(0, limit);
-      const contributors = await graph.listNodesByKind("Contributor");
-      const contribById = new Map<string, (typeof contributors)[number]>();
-      for (const c of contributors) contribById.set(c.id, c);
-
-      const owners: OwnerRow[] = [];
-      for (const edge of sliced) {
-        const c = contribById.get(edge.to);
-        if (c === undefined) continue;
-        const plain = typeof c.emailPlain === "string" ? c.emailPlain : "";
-        owners.push({
-          email: plain,
-          emailHash: c.emailHash,
-          name: c.name,
-          weight: edge.confidence ?? 0,
-        });
-      }
+      const owners = await listOwners(store.graph, args.target, limit);
 
       const header = `Owners for ${args.target} in ${resolved.name} (${owners.length}):`;
       const body =
