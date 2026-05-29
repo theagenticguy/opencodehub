@@ -257,6 +257,30 @@ test("vendored-wasms check fails when the vendor dir cannot be resolved", async 
   }
 });
 
+// The @opencodehub/sarif check must resolve the INSTALLED package (its
+// prebuilt `dist/` ships in the tarball), not a `packages/sarif/dist`
+// monorepo path. Pointing `repoRoot` at a bogus dir kills the source-checkout
+// fallback, so an `ok` result proves the check resolves the real installed
+// package via `import.meta.resolve` — the customer (`npm i -g`) case. A `warn`
+// here would mean the check regressed to emitting the nonsensical
+// `pnpm -r build` hint to end users.
+test("sarif-build check reports ok against the installed package even with a bogus repoRoot", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sarif-ok-"));
+  try {
+    const checks = buildChecks({ home, skipNative: true, repoRoot: join(home, "nope") });
+    const sarif = checks.find((c) => c.name === "@opencodehub/sarif build");
+    assert.ok(sarif, "sarif-build check must always be registered");
+    const result = await sarif.run();
+    assert.equal(
+      result.status,
+      "ok",
+      `expected ok against installed package; got ${result.status}: ${result.message}`,
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // SCIP indexers — warn by default, fail under --strict
 // ---------------------------------------------------------------------------
