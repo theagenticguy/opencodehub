@@ -923,6 +923,33 @@ type CommandOutcome =
   | { kind: "failed"; exitCode: number; stdout: string; stderr: string }
   | { kind: "missing" };
 
+/**
+ * Prepend `~/.codehub/bin` to the spawn environment's PATH so SCIP indexers
+ * installed by `codehub setup --scip=<tool>` (clang, ruby, kotlin jar) win
+ * over an ambient version-manager shim that resolves on PATH but can't pick a
+ * version (the mise/asdf "No version is set for shim" failure — see
+ * `detectVersionManagerShimFailure`). Without this, a setup-installed indexer
+ * could be shadowed by a broken shim earlier on PATH and the language would
+ * skip even though codehub installed a working binary.
+ *
+ * Honors a caller-supplied PATH in `envOverlay` (we read the resolved value
+ * off `env`, not `process.env`). Cross-platform: matches the PATH key
+ * case-insensitively (Windows uses `Path`) and uses the platform delimiter.
+ * Idempotent — never double-prepends.
+ */
+export function withCodehubBinOnPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const binDir = join(homedir(), ".codehub", "bin");
+  // Find the PATH key honoring Windows' `Path` casing; default to "PATH".
+  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const current = env[pathKey] ?? "";
+  const sep = process.platform === "win32" ? ";" : ":";
+  const segments = current.split(sep);
+  // Idempotent: if binDir is already the first segment, leave env untouched.
+  if (segments[0] === binDir) return env;
+  const nextPath = current.length > 0 ? `${binDir}${sep}${current}` : binDir;
+  return { ...env, [pathKey]: nextPath };
+}
+
 function runCommand(
   cmd: string,
   args: readonly string[],
@@ -940,7 +967,7 @@ function runCommand(
     // (js/shell-command-*) that this is not a shell invocation.
     const child = spawn(cmd, args as string[], {
       cwd,
-      env: { ...process.env, ...envOverlay },
+      env: withCodehubBinOnPath({ ...process.env, ...envOverlay }),
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
     });
