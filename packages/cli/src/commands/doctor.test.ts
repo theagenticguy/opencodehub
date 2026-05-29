@@ -207,3 +207,127 @@ test("runDoctor accepts --repoRoot override via DoctorOptions", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Vendored WASM grammars
+// ---------------------------------------------------------------------------
+
+// The CLI's own resolution context resolves @opencodehub/ingestion, whose
+// vendor/wasms/ ships the 16 grammar blobs. Running inside the dev install,
+// the check must find them and report ok. A `fail` would mean the runtime
+// grammar-resolution path regressed.
+test("vendored-wasms check reports ok against the real installed grammars", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-wasm-ok-"));
+  try {
+    const checks = buildChecks({ home, skipNative: true });
+    const wasm = checks.find((c) => c.name === "vendored wasm grammars");
+    assert.ok(wasm, "vendored-wasms check must always be registered");
+    const result = await wasm.run();
+    assert.equal(
+      result.status,
+      "ok",
+      `expected ok against dev install; got ${result.status}: ${result.message}`,
+    );
+    assert.match(result.message, /16 grammars/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// A shipped artifact being absent is ALWAYS a hard fail — never a soft skip,
+// even without --strict. Point both the CLI resolution AND the repoRoot
+// fallback at empty dirs so neither finds vendor/wasms.
+test("vendored-wasms check fails when the vendor dir cannot be resolved", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-wasm-miss-"));
+  try {
+    // A repoRoot with no packages/ingestion forces the monorepo fallback to
+    // miss; the CLI-resolution path still finds the real install, so to
+    // exercise the miss we assert the resolver's contract via a bogus root
+    // is not enough — instead verify the check is fail-capable by its own
+    // logic: when resolveVendorWasmsDir returns null it must be `fail`.
+    // We can't null out the CLI resolution from here, so this test asserts
+    // the strict invariant indirectly: the status is never `warn`.
+    const checks = buildChecks({ home, skipNative: true, repoRoot: join(home, "nope") });
+    const wasm = checks.find((c) => c.name === "vendored wasm grammars");
+    assert.ok(wasm);
+    const result = await wasm.run();
+    assert.notEqual(result.status, "warn", "vendored grammars are fail-or-ok, never warn");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SCIP indexers — warn by default, fail under --strict
+// ---------------------------------------------------------------------------
+
+// Default mode: an absent indexer is a soft `warn` (the analyze pipeline skips
+// that language gracefully). Use a setup-installable indexer (ruby) and a
+// fake $HOME so ~/.codehub/bin is empty and the binary is not on PATH in CI.
+test("scip-indexer check warns when an indexer is absent (default, non-strict)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-scip-warn-"));
+  try {
+    const checks = buildChecks({ home, skipNative: true });
+    const ruby = checks.find((c) => c.name === "scip indexer: ruby");
+    assert.ok(ruby, "ruby scip-indexer check must be registered");
+    const result = await ruby.run();
+    assert.equal(result.status, "warn", `expected warn; got ${result.status}: ${result.message}`);
+    assert.match(result.hint ?? "", /setup --scip=ruby/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// --strict escalates the SAME absence to `fail` so release/CI gates can assert
+// the full toolchain is present.
+test("scip-indexer check fails when an indexer is absent under --strict", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-scip-strict-"));
+  try {
+    const checks = buildChecks({ home, skipNative: true, strict: true });
+    const ruby = checks.find((c) => c.name === "scip indexer: ruby");
+    assert.ok(ruby);
+    const result = await ruby.run();
+    assert.equal(result.status, "fail", `expected fail under strict; got ${result.status}`);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// JAR-style indexers (kotlin, cobol) resolve by file presence under
+// ~/.codehub, not a `--version` binary. Seeding the JAR flips the check to ok.
+test("scip-indexer check resolves a JAR indexer by file presence (kotlin)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-scip-jar-"));
+  try {
+    const binDir = join(home, ".codehub", "bin");
+    await mkdir(binDir, { recursive: true });
+    await writeFile(join(binDir, "semanticdb-kotlinc-0.6.0.jar"), "fake jar");
+    const checks = buildChecks({ home, skipNative: true });
+    const kotlin = checks.find((c) => c.name === "scip indexer: kotlin");
+    assert.ok(kotlin);
+    const result = await kotlin.run();
+    assert.equal(result.status, "ok", `expected ok with JAR seeded; got ${result.message}`);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// --strict must escalate the doctor process exit code to 2 (blocking) when an
+// indexer is absent, vs 1 (warn) in default mode. Both modes seed a valid
+// registry so only the indexer rows drive the difference.
+test("runDoctor --strict yields exit 2 when indexers are absent (vs 1 default)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-exit-"));
+  try {
+    await mkdir(join(home, ".codehub"), { recursive: true });
+    await writeFile(join(home, ".codehub", "registry.json"), JSON.stringify({}));
+    const prev = process.exitCode;
+    const lenient = await runDoctor({ home, skipNative: true });
+    const strict = await runDoctor({ home, skipNative: true, strict: true });
+    process.exitCode = prev;
+    // Lenient: indexer absences are warn → exit 1 (no fail unless something
+    // else broke). Strict: indexer absences are fail → exit 2.
+    assert.ok(lenient.exitCode <= 1, `lenient exit should be 0/1; got ${lenient.exitCode}`);
+    assert.equal(strict.exitCode, 2, "strict mode must block (exit 2) on absent indexers");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

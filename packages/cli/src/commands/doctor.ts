@@ -13,7 +13,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { access, readFile, stat } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { access, open as fsOpen, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -40,6 +41,16 @@ export interface DoctorOptions {
   readonly skipNative?: boolean;
   /** Override the repo root when resolving workspace packages. */
   readonly repoRoot?: string;
+  /**
+   * Escalate "soft" absences to hard failures. By default a missing SCIP
+   * indexer is `warn` (the analyze pipeline skips that language gracefully —
+   * a Python-only box doesn't need scip-go), matching the lenient runtime
+   * behavior. Under `--strict`, every absent indexer becomes `fail` (exit 2)
+   * so release/CI gates can assert the full toolchain is present. Vendored
+   * WASM grammars are `fail` in BOTH modes — a shipped artifact being absent
+   * or corrupt is always broken, never a soft skip.
+   */
+  readonly strict?: boolean;
 }
 
 export interface DoctorReport {
@@ -90,10 +101,19 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorReport>
 export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const home = opts.home ?? homedir();
   const repoRoot = opts.repoRoot ?? guessRepoRoot();
+  const strict = opts.strict === true;
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck()];
   if (opts.skipNative !== true) {
     list.push(duckdbWorksCheck(repoRoot));
     list.push(lbugWorksCheck(repoRoot));
+  }
+  // Vendored parse grammars: a shipped artifact, so absence/corruption is
+  // always a hard fail. One row covering all 16 blobs + the manifest pin.
+  list.push(vendoredWasmsCheck(repoRoot));
+  // SCIP indexers: one row per language. Soft `warn` by default (analyze
+  // skips an absent language), `fail` under --strict.
+  for (const indexer of SCIP_INDEXERS) {
+    list.push(scipIndexerCheck(indexer, home, strict));
   }
   list.push(
     binaryOnPathCheck(
@@ -260,6 +280,163 @@ function lbugWorksCheck(repoRoot: string): Check {
           hint: "the graph-db backend is opt-in; unset `CODEHUB_STORE=lbug` or reinstall the binding",
         };
       }
+    },
+  };
+}
+
+/**
+ * Vendored parse grammars. `@opencodehub/ingestion` ships 16 WASM blobs
+ * (15 grammars + the web-tree-sitter runtime) under `vendor/wasms/`, plus a
+ * `manifest.json` pinning their versions. The parse pipeline loads these at
+ * runtime with no install-time build, so a missing/empty/corrupt blob means
+ * parsing is silently broken for that language. This is ALWAYS a hard fail —
+ * a shipped artifact being absent is not a soft skip.
+ *
+ * Mirrors the prepublish gate `packages/ingestion/scripts/verify-vendor-wasms.mjs`
+ * (same EXPECTED list, same `\0asm` magic check) but runs against the
+ * installed package so `codehub doctor` validates a real deployment.
+ */
+const EXPECTED_WASMS: readonly string[] = [
+  "web-tree-sitter.wasm",
+  "tree-sitter-typescript.wasm",
+  "tree-sitter-tsx.wasm",
+  "tree-sitter-javascript.wasm",
+  "tree-sitter-python.wasm",
+  "tree-sitter-go.wasm",
+  "tree-sitter-rust.wasm",
+  "tree-sitter-java.wasm",
+  "tree-sitter-c_sharp.wasm",
+  "tree-sitter-c.wasm",
+  "tree-sitter-cpp.wasm",
+  "tree-sitter-ruby.wasm",
+  "tree-sitter-php_only.wasm",
+  "tree-sitter-kotlin.wasm",
+  "tree-sitter-swift.wasm",
+  "tree-sitter-dart.wasm",
+];
+
+// WASM binary magic bytes: \0 a s m.
+const WASM_MAGIC = Buffer.from([0x00, 0x61, 0x73, 0x6d]);
+
+function vendoredWasmsCheck(repoRoot: string): Check {
+  return {
+    name: "vendored wasm grammars",
+    async run() {
+      const vendorDir = resolveVendorWasmsDir(repoRoot);
+      if (vendorDir === null) {
+        return {
+          status: "fail",
+          message: "@opencodehub/ingestion vendor/wasms/ not found",
+          hint: "reinstall @opencodehub/cli; vendored grammars ship inside @opencodehub/ingestion",
+        };
+      }
+      const missing: string[] = [];
+      const corrupt: string[] = [];
+      for (const name of EXPECTED_WASMS) {
+        const file = join(vendorDir, name);
+        // Single open()+read of the first 4 bytes: covers existence, empty,
+        // and bad-magic in one syscall pair (no existsSync→statSync TOCTOU).
+        let fh: import("node:fs/promises").FileHandle | undefined;
+        try {
+          fh = await fsOpen(file, "r");
+          const buf = Buffer.alloc(4);
+          const { bytesRead } = await fh.read(buf, 0, 4, 0);
+          if (bytesRead < 4 || !buf.subarray(0, 4).equals(WASM_MAGIC)) {
+            corrupt.push(name);
+          }
+        } catch {
+          missing.push(name);
+        } finally {
+          await fh?.close();
+        }
+      }
+      if (missing.length > 0 || corrupt.length > 0) {
+        const parts: string[] = [];
+        if (missing.length > 0) parts.push(`${missing.length} missing`);
+        if (corrupt.length > 0) parts.push(`${corrupt.length} corrupt`);
+        const first = [...missing, ...corrupt][0];
+        return {
+          status: "fail",
+          message: `vendored grammars broken (${parts.join(", ")}; e.g. ${first})`,
+          hint: "reinstall @opencodehub/cli, or re-vendor with `bash scripts/build-vendor-wasms.sh` in a source checkout",
+        };
+      }
+      return { status: "ok", message: `all ${EXPECTED_WASMS.length} grammars present` };
+    },
+  };
+}
+
+/**
+ * SCIP indexer registry, one entry per language the ingestion pipeline can
+ * compiler-index. `binName` is the executable/JAR the runner shells out to
+ * (see `packages/scip-ingest/src/runners/index.ts`); `setupFlag` is the
+ * `codehub setup --scip=<flag>` value that installs it (undefined when the
+ * indexer is a system toolchain the user supplies themselves, e.g. go/rust/
+ * java SDKs). `jar: true` indexers resolve under `~/.codehub/` rather than
+ * by a `--version`-capable binary on PATH.
+ */
+interface ScipIndexerSpec {
+  readonly language: string;
+  readonly binName: string;
+  readonly setupFlag?: string;
+  /** True when the indexer is a JAR/asset under ~/.codehub, not a PATH binary. */
+  readonly jar?: boolean;
+}
+
+const SCIP_INDEXERS: readonly ScipIndexerSpec[] = [
+  { language: "typescript", binName: "scip-typescript" },
+  { language: "python", binName: "scip-python" },
+  { language: "go", binName: "scip-go" },
+  { language: "rust", binName: "rust-analyzer" },
+  { language: "java", binName: "scip-java" },
+  { language: "ruby", binName: "scip-ruby", setupFlag: "ruby" },
+  { language: "c/c++", binName: "scip-clang", setupFlag: "clang" },
+  { language: "c#", binName: "scip-dotnet", setupFlag: "dotnet" },
+  { language: "kotlin", binName: "semanticdb-kotlinc-0.6.0.jar", setupFlag: "kotlin", jar: true },
+  { language: "cobol", binName: "proleap-cobol-parser.jar", setupFlag: "cobol-proleap", jar: true },
+];
+
+function scipIndexerCheck(spec: ScipIndexerSpec, home: string, strict: boolean): Check {
+  const missingStatus: CheckStatus = strict ? "fail" : "warn";
+  const installHint = spec.setupFlag
+    ? `install with \`codehub setup --scip=${spec.setupFlag}\``
+    : `${spec.binName} is a system toolchain — install it via your package manager / language SDK`;
+  return {
+    name: `scip indexer: ${spec.language}`,
+    async run() {
+      if (spec.jar === true) {
+        // JAR/asset indexers aren't `--version`-able binaries: check the
+        // file exists under ~/.codehub (setup downloads them there).
+        const candidates =
+          spec.language === "cobol"
+            ? [join(home, ".codehub", "vendor", "proleap", spec.binName)]
+            : [join(home, ".codehub", "bin", spec.binName)];
+        for (const c of candidates) {
+          if (await fileExists(c)) {
+            return { status: "ok", message: `${spec.binName} present` };
+          }
+        }
+        return {
+          status: missingStatus,
+          message: `${spec.binName} not installed`,
+          hint: installHint,
+        };
+      }
+      // PATH binary: try `<bin> --version`. Also check ~/.codehub/bin, where
+      // `codehub setup --scip` installs the Sourcegraph indexers.
+      const res = await runCommand(spec.binName, ["--version"]);
+      if (res.status === 0) {
+        return { status: "ok", message: `${spec.binName}: ${firstLine(res.stdout)}` };
+      }
+      const localBin = join(home, ".codehub", "bin", spec.binName);
+      if (await fileExists(localBin)) {
+        return { status: "ok", message: `${spec.binName} present (~/.codehub/bin)` };
+      }
+      return {
+        status: missingStatus,
+        message: `${spec.binName} not on PATH`,
+        hint: installHint,
+      };
     },
   };
 }
@@ -465,6 +642,50 @@ function guessRepoRoot(): string {
  * We stop at the first hit. Returning `null` preserves the existing
  * semantics of the caller (`warn` result with a reinstall hint).
  */
+/**
+ * Locate `@opencodehub/ingestion`'s `vendor/wasms/` directory in the running
+ * deployment. The package's `exports` map does not expose `package.json`
+ * (`ERR_PACKAGE_PATH_NOT_EXPORTED`), so we resolve a known exported entry
+ * and walk up to the package root, then check `vendor/wasms`. Falls back to
+ * the monorepo layout (`packages/ingestion/vendor/wasms`) for source checkouts
+ * where the CLI runs from `packages/cli/dist`. Returns null if neither hits.
+ */
+function resolveVendorWasmsDir(repoRoot: string): string | null {
+  // 1. Resolve the installed package via `import.meta.resolve`, then walk up
+  //    to the directory that owns `vendor/wasms`. `@opencodehub/ingestion`'s
+  //    `exports` map declares only the ESM `import` condition (no `require`),
+  //    so `createRequire().resolve()` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
+  //    `import.meta.resolve` honors the `import` condition and is the path
+  //    that works in a real global `npm i -g @opencodehub/cli` install.
+  try {
+    const entryUrl = import.meta.resolve("@opencodehub/ingestion");
+    let dir = dirname(fileURLToPath(entryUrl));
+    for (let i = 0; i < 6; i++) {
+      const candidate = join(dir, "vendor", "wasms");
+      if (existsSyncSafe(join(candidate, "manifest.json"))) return candidate;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // fall through to monorepo layout
+  }
+  // 2. Monorepo / source-checkout fallback.
+  const monorepo = join(repoRoot, "packages", "ingestion", "vendor", "wasms");
+  if (existsSyncSafe(join(monorepo, "manifest.json"))) return monorepo;
+  return null;
+}
+
+/** Cheap synchronous existence probe used only during path resolution. */
+function existsSyncSafe(path: string): boolean {
+  try {
+    statSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveFromRoot(repoRoot: string, pkg: string): string | null {
   // 1. CLI's own resolution context — the canonical answer.
   try {
