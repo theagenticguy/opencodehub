@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.4](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.3...cli-v0.5.4) (2026-05-29)
+
+
+### Features
+
+* **cli:** doctor checks vendored wasm grammars + scip indexers (--strict) ([#159](https://github.com/theagenticguy/opencodehub/issues/159)) ([36a241e](https://github.com/theagenticguy/opencodehub/commit/36a241e709033374a07478cec04289bda8e08826))
+
+
+### Bug Fixes
+
+* **deps:** downgrade write-file-atomic 8.0.0→7.0.1 to match supported node range ([#155](https://github.com/theagenticguy/opencodehub/issues/155)) ([a723e53](https://github.com/theagenticguy/opencodehub/commit/a723e53d4442878fd2ec40b264349d728ff054ef))
+* **scanners:** correct scanner exit-code handling and stop duplicate skip logs ([#156](https://github.com/theagenticguy/opencodehub/issues/156)) ([5d30eb4](https://github.com/theagenticguy/opencodehub/commit/5d30eb4f5b26edfc0a4460ba1aef8bc728ea6120))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.3.2
+    * @opencodehub/ingestion bumped to 0.4.4
+    * @opencodehub/mcp bumped to 0.4.3
+    * @opencodehub/pack bumped to 0.2.3
+    * @opencodehub/scanners bumped to 0.2.1
+    * @opencodehub/search bumped to 0.2.2
+    * @opencodehub/storage bumped to 0.2.2
+    * @opencodehub/wiki bumped to 0.2.2
+
 ## [0.5.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.2...cli-v0.5.3) (2026-05-28)
 
 

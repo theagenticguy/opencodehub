@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.4...root-v0.6.5) (2026-05-29)
+
+
+### Features
+
+* **cli:** doctor checks vendored wasm grammars + scip indexers (--strict) ([#159](https://github.com/theagenticguy/opencodehub/issues/159)) ([36a241e](https://github.com/theagenticguy/opencodehub/commit/36a241e709033374a07478cec04289bda8e08826))
+
+
+### Bug Fixes
+
+* **ci:** isolate verify-global-install into a per-run npm prefix ([#162](https://github.com/theagenticguy/opencodehub/issues/162)) ([3b59373](https://github.com/theagenticguy/opencodehub/commit/3b59373d9546db6abda3f4f5731e49febc9c2089))
+* **deps:** bump qs 6.15.1→6.15.2 and tmp 0.2.4→0.2.6 to clear osv findings ([#151](https://github.com/theagenticguy/opencodehub/issues/151)) ([2f798ec](https://github.com/theagenticguy/opencodehub/commit/2f798eccb33515927d9241ac34eea0692bc97428))
+* **deps:** downgrade write-file-atomic 8.0.0→7.0.1 to match supported node range ([#155](https://github.com/theagenticguy/opencodehub/issues/155)) ([a723e53](https://github.com/theagenticguy/opencodehub/commit/a723e53d4442878fd2ec40b264349d728ff054ef))
+* **ingestion:** vendor graphty Leiden to drop node-pty install fetch ([#157](https://github.com/theagenticguy/opencodehub/issues/157)) ([790ca4e](https://github.com/theagenticguy/opencodehub/commit/790ca4e277fcf42046aecaf11431df4f607cb8b3))
+* **scanners:** correct scanner exit-code handling and stop duplicate skip logs ([#156](https://github.com/theagenticguy/opencodehub/issues/156)) ([5d30eb4](https://github.com/theagenticguy/opencodehub/commit/5d30eb4f5b26edfc0a4460ba1aef8bc728ea6120))
+* **scip-ingest:** prepend ~/.codehub/bin to indexer spawn PATH ([#160](https://github.com/theagenticguy/opencodehub/issues/160)) ([4418db9](https://github.com/theagenticguy/opencodehub/commit/4418db900dd995ceb52e6c63a86ccea94d3fbcd9))
+* **storage:** retry transient lbug WAL→checkpoint race in bulkLoad ([#161](https://github.com/theagenticguy/opencodehub/issues/161)) ([450714c](https://github.com/theagenticguy/opencodehub/commit/450714c07132e4d0c3d1579897812c2c2dc935d6))
+
 ## [0.6.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.3...root-v0.6.4) (2026-05-28)
 
 

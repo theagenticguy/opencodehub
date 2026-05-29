@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.0...scanners-v0.2.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* **scanners:** correct scanner exit-code handling and stop duplicate skip logs ([#156](https://github.com/theagenticguy/opencodehub/issues/156)) ([5d30eb4](https://github.com/theagenticguy/opencodehub/commit/5d30eb4f5b26edfc0a4460ba1aef8bc728ea6120))
+
 ## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.1.2...scanners-v0.2.0) (2026-05-16)
 
 

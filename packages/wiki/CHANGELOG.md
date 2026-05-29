@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/wiki-v0.2.1...wiki-v0.2.2) (2026-05-29)
+
+
+### Bug Fixes
+
+* **deps:** downgrade write-file-atomic 8.0.0→7.0.1 to match supported node range ([#155](https://github.com/theagenticguy/opencodehub/issues/155)) ([a723e53](https://github.com/theagenticguy/opencodehub/commit/a723e53d4442878fd2ec40b264349d728ff054ef))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/storage bumped to 0.2.2
+
 ## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/wiki-v0.2.0...wiki-v0.2.1) (2026-05-28)
 
 
