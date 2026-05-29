@@ -24,12 +24,17 @@ function makeFakeDeps(
     cmd: string,
     args: readonly string[],
   ) => { stdout: string; stderr?: string; exitCode?: number },
-  opts: { readonly missing?: readonly string[] } = {},
+  opts: {
+    readonly missing?: readonly string[];
+    /** Absolute paths the fake `fileExists` should report as present. */
+    readonly existing?: readonly string[];
+  } = {},
 ): {
   deps: WrapperDeps;
   calls: Array<{ cmd: string; args: readonly string[] }>;
 } {
   const missing = new Set(opts.missing ?? []);
+  const existing = new Set(opts.existing ?? []);
   const calls: Array<{ cmd: string; args: readonly string[] }> = [];
   const deps: WrapperDeps = {
     which: async (binary: string) => ({ found: !missing.has(binary) }),
@@ -42,6 +47,7 @@ function makeFakeDeps(
         exitCode: out.exitCode ?? 0,
       };
     },
+    fileExists: async (path: string) => existing.has(path),
   };
   return { deps, calls };
 }
@@ -250,10 +256,9 @@ test("pip-audit wrapper runs with --format json and converts to SARIF", async ()
       },
     ],
   };
-  const { deps, calls } = makeFakeDeps(() => ({
-    stdout: JSON.stringify(pipJson),
-    exitCode: 1, // pip-audit exits 1 on findings
-  }));
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify(pipJson), exitCode: 1 }), {
+    existing: [`${ctx.projectPath}/requirements.txt`],
+  });
   const out = await createPipAuditWrapper(deps).run(ctx);
   const args = calls[0]?.args ?? [];
   assert.equal(calls[0]?.cmd, "pip-audit");
@@ -273,16 +278,92 @@ test("pip-audit wrapper runs with --format json and converts to SARIF", async ()
   assert.deepEqual(ocProps?.["fixVersions"], ["2.20.0"]);
 });
 
-test("pip-audit wrapper honours custom requirementsPath", async () => {
-  const { deps, calls } = makeFakeDeps(() => ({
-    stdout: JSON.stringify({ dependencies: [] }),
-  }));
+test("pip-audit wrapper honours custom requirementsPath when it exists", async () => {
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify({ dependencies: [] }) }), {
+    existing: [`${ctx.projectPath}/requirements-dev.txt`],
+  });
   await createPipAuditWrapper(deps, {
-    requirementsPath: "pyproject.toml",
+    requirementsPath: "requirements-dev.txt",
   }).run(ctx);
   const args = calls[0]?.args ?? [];
   const idx = args.indexOf("-r");
-  assert.equal(args[idx + 1], "pyproject.toml");
+  assert.equal(args[idx + 1], "requirements-dev.txt");
+});
+
+// pyproject.toml (no requirements.txt) → uv export bridge, then audit the
+// export but label findings against pyproject.toml.
+test("pip-audit wrapper bridges pyproject.toml via uv export", async () => {
+  const pipJson = {
+    dependencies: [{ name: "jinja2", version: "3.1.0", vulns: [{ id: "GHSA-h5c8-rqwp-cp95" }] }],
+  };
+  const { deps, calls } = makeFakeDeps(
+    (cmd) => {
+      // uv export writes the file (exit 0, no stdout); pip-audit returns JSON.
+      if (cmd === "uv") return { stdout: "", exitCode: 0 };
+      return { stdout: JSON.stringify(pipJson), exitCode: 1 };
+    },
+    { existing: [`${ctx.projectPath}/pyproject.toml`] },
+  );
+  const out = await createPipAuditWrapper(deps, { exportDir: "/tmp/fake-repo/.codehub" }).run(ctx);
+
+  // First call exports via uv; second audits the exported file.
+  assert.equal(calls[0]?.cmd, "uv");
+  assert.ok(calls[0]?.args.includes("export"));
+  assert.ok(calls[0]?.args.includes("--format"));
+  assert.ok(calls[0]?.args.includes("requirements-txt"));
+  const exportIdx = calls[0]?.args.indexOf("-o") ?? -1;
+  assert.equal(
+    calls[0]?.args[exportIdx + 1],
+    "/tmp/fake-repo/.codehub/.pip-audit-requirements.txt",
+  );
+
+  assert.equal(calls[1]?.cmd, "pip-audit");
+  const auditIdx = calls[1]?.args.indexOf("-r") ?? -1;
+  assert.equal(calls[1]?.args[auditIdx + 1], "/tmp/fake-repo/.codehub/.pip-audit-requirements.txt");
+
+  // Finding is labelled against pyproject.toml, NOT the transient export.
+  const result = out.sarif.runs[0]?.results?.[0];
+  assert.equal(result?.ruleId, "GHSA-h5c8-rqwp-cp95");
+  assert.equal(result?.locations?.[0]?.physicalLocation?.artifactLocation?.uri, "pyproject.toml");
+});
+
+test("pip-audit wrapper warns when pyproject.toml present but uv missing", async () => {
+  const warnings: string[] = [];
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: "" }), {
+    missing: ["uv"],
+    existing: [`${ctx.projectPath}/pyproject.toml`],
+  });
+  const out = await createPipAuditWrapper(deps).run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  // pip-audit is never invoked — only the which("uv") probe runs, no runBinary.
+  assert.equal(calls.length, 0);
+  assert.equal(out.sarif.runs[0]?.results?.length, 0);
+  assert.ok(warnings.join(" | ").includes("uv"), `expected a uv advisory; got: ${warnings}`);
+});
+
+test("pip-audit wrapper warns when uv export fails", async () => {
+  const warnings: string[] = [];
+  const { deps } = makeFakeDeps(
+    (cmd) => {
+      if (cmd === "uv") return { stdout: "", stderr: "no lockfile", exitCode: 2 };
+      return { stdout: JSON.stringify({ dependencies: [] }) };
+    },
+    { existing: [`${ctx.projectPath}/pyproject.toml`] },
+  );
+  const out = await createPipAuditWrapper(deps).run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  assert.equal(out.sarif.runs[0]?.results?.length, 0);
+  assert.ok(warnings.join(" | ").includes("uv export"), `got: ${warnings}`);
+});
+
+test("pip-audit wrapper warns when neither requirements.txt nor pyproject.toml exists", async () => {
+  const warnings: string[] = [];
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: "" }), { existing: [] });
+  const out = await createPipAuditWrapper(deps).run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  assert.equal(calls.length, 0);
+  assert.equal(out.sarif.runs[0]?.results?.length, 0);
+  assert.ok(
+    warnings.join(" | ").includes("no requirements.txt or pyproject.toml"),
+    `got: ${warnings}`,
+  );
 });
 
 test("pip-audit wrapper emits empty SARIF when binary missing", async () => {
@@ -293,7 +374,9 @@ test("pip-audit wrapper emits empty SARIF when binary missing", async () => {
 });
 
 test("pip-audit wrapper emits empty SARIF when stdout is garbage", async () => {
-  const { deps } = makeFakeDeps(() => ({ stdout: "not json at all", exitCode: 2 }));
+  const { deps } = makeFakeDeps(() => ({ stdout: "not json at all", exitCode: 2 }), {
+    existing: [`${ctx.projectPath}/requirements.txt`],
+  });
   const out = await createPipAuditWrapper(deps).run(ctx);
   assert.equal(out.sarif.runs[0]?.results?.length, 0);
 });

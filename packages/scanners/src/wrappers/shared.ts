@@ -5,6 +5,7 @@
  * tests can mock `runBinary` without pulling in every other wrapper.
  */
 
+import { access } from "node:fs/promises";
 import { type SarifLog, SarifLogSchema } from "@opencodehub/sarif";
 import { type RunBinaryResult, runBinary, tryParseJson, which } from "../exec.js";
 import {
@@ -26,11 +27,26 @@ export interface WrapperDeps {
     args: readonly string[],
     opts: { readonly timeoutMs: number; readonly cwd?: string; readonly env?: NodeJS.ProcessEnv },
   ) => Promise<RunBinaryResult>;
+  /**
+   * Optional filesystem existence probe. Wrappers that branch on which
+   * manifest a project ships (e.g. pip-audit: requirements.txt vs
+   * pyproject.toml) use this. Optional so test fakes that only stub
+   * `which`/`runBinary` keep compiling; defaults to a real `access` probe.
+   */
+  readonly fileExists?: (path: string) => Promise<boolean>;
 }
 
 export const DEFAULT_DEPS: WrapperDeps = {
   which,
   runBinary: (cmd, args, opts) => runBinary(cmd, args, opts),
+  fileExists: async (path: string): Promise<boolean> => {
+    try {
+      await access(path);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };
 
 /**
