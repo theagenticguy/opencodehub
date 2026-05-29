@@ -14,9 +14,9 @@
 
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
-import { access, open as fsOpen, readFile, stat } from "node:fs/promises";
+import { access, open as fsOpen, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Table from "cli-table3";
@@ -51,7 +51,19 @@ export interface DoctorOptions {
    * or corrupt is always broken, never a soft skip.
    */
   readonly strict?: boolean;
+  /**
+   * Injectable command runner so tests can stub external binaries (bandit,
+   * pnpm, scip indexers) without depending on what is installed on the host.
+   * Defaults to the real {@link runCommand}. Same signature.
+   */
+  readonly runCommand?: RunCommandFn;
 }
+
+/** Signature of the injectable command runner (see {@link runCommand}). */
+export type RunCommandFn = (
+  cmd: string,
+  args: readonly string[],
+) => Promise<{ status: number; stdout: string; stderr: string }>;
 
 export interface DoctorReport {
   readonly rows: readonly { readonly name: string; readonly result: CheckResult }[];
@@ -102,7 +114,8 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const home = opts.home ?? homedir();
   const repoRoot = opts.repoRoot ?? guessRepoRoot();
   const strict = opts.strict === true;
-  const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck()];
+  const run = opts.runCommand ?? runCommand;
+  const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck(run)];
   if (opts.skipNative !== true) {
     list.push(duckdbWorksCheck(repoRoot));
     list.push(lbugWorksCheck(repoRoot));
@@ -113,37 +126,40 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   // SCIP indexers: one row per language. Soft `warn` by default (analyze
   // skips an absent language), `fail` under --strict.
   for (const indexer of SCIP_INDEXERS) {
-    list.push(scipIndexerCheck(indexer, home, strict));
+    list.push(scipIndexerCheck(indexer, home, strict, run));
   }
   list.push(
     binaryOnPathCheck(
       "semgrep",
       "P1 scanner — install semgrep via `brew install semgrep` or `uv tool install semgrep`",
+      run,
     ),
   );
   list.push(
     binaryOnPathCheck(
       "osv-scanner",
       "P1 scanner — install from https://github.com/google/osv-scanner",
+      run,
     ),
   );
-  list.push(
-    binaryOnPathCheck("bandit", "P1 scanner — install with `uv tool install 'bandit[sarif]'`"),
-  );
-  list.push(binaryOnPathCheck("ruff", "P1 scanner — install with `uv tool install ruff`"));
+  list.push(banditSarifCheck(run));
+  list.push(binaryOnPathCheck("ruff", "P1 scanner — install with `uv tool install ruff`", run));
   list.push(
     binaryOnPathCheck(
       "grype",
       "P1 scanner — install with `brew install anchore/grype/grype` or from https://github.com/anchore/grype",
+      run,
     ),
   );
-  list.push(binaryOnPathCheck("vulture", "P1 scanner — install with `uv tool install vulture`"));
   list.push(
-    binaryOnPathCheck("pip-audit", "P1 scanner — install with `uv tool install pip-audit`"),
+    binaryOnPathCheck("vulture", "P1 scanner — install with `uv tool install vulture`", run),
   );
-  list.push(binaryOnPathCheck("radon", "P2 scanner — install with `uv tool install radon`"));
   list.push(
-    binaryOnPathCheck("ty", "P2 scanner (beta) — install with `uv tool install ty` (Astral)"),
+    binaryOnPathCheck("pip-audit", "P1 scanner — install with `uv tool install pip-audit`", run),
+  );
+  list.push(binaryOnPathCheck("radon", "P2 scanner — install with `uv tool install radon`", run));
+  list.push(
+    binaryOnPathCheck("ty", "P2 scanner (beta) — install with `uv tool install ty` (Astral)", run),
   );
   list.push(embedderWeightsCheck(home));
   list.push(registryPathCheck(home));
@@ -173,11 +189,11 @@ function nodeVersionCheck(): Check {
   };
 }
 
-function pnpmInstalledCheck(): Check {
+function pnpmInstalledCheck(run: RunCommandFn): Check {
   return {
     name: "pnpm installed",
     async run() {
-      const res = await runCommand("pnpm", ["--version"]);
+      const res = await run("pnpm", ["--version"]);
       if (res.status !== 0) {
         return {
           status: "fail",
@@ -396,7 +412,12 @@ const SCIP_INDEXERS: readonly ScipIndexerSpec[] = [
   { language: "cobol", binName: "proleap-cobol-parser.jar", setupFlag: "cobol-proleap", jar: true },
 ];
 
-function scipIndexerCheck(spec: ScipIndexerSpec, home: string, strict: boolean): Check {
+function scipIndexerCheck(
+  spec: ScipIndexerSpec,
+  home: string,
+  strict: boolean,
+  run: RunCommandFn,
+): Check {
   const missingStatus: CheckStatus = strict ? "fail" : "warn";
   const installHint = spec.setupFlag
     ? `install with \`codehub setup --scip=${spec.setupFlag}\``
@@ -424,7 +445,7 @@ function scipIndexerCheck(spec: ScipIndexerSpec, home: string, strict: boolean):
       }
       // PATH binary: try `<bin> --version`. Also check ~/.codehub/bin, where
       // `codehub setup --scip` installs the Sourcegraph indexers.
-      const res = await runCommand(spec.binName, ["--version"]);
+      const res = await run(spec.binName, ["--version"]);
       if (res.status === 0) {
         return { status: "ok", message: `${spec.binName}: ${firstLine(res.stdout)}` };
       }
@@ -441,11 +462,11 @@ function scipIndexerCheck(spec: ScipIndexerSpec, home: string, strict: boolean):
   };
 }
 
-function binaryOnPathCheck(bin: string, hint: string): Check {
+function binaryOnPathCheck(bin: string, hint: string, run: RunCommandFn): Check {
   return {
     name: `${bin} binary`,
     async run() {
-      const res = await runCommand(bin, ["--version"]);
+      const res = await run(bin, ["--version"]);
       if (res.status !== 0) {
         return {
           status: "warn",
@@ -454,6 +475,50 @@ function binaryOnPathCheck(bin: string, hint: string): Check {
         };
       }
       return { status: "ok", message: `${bin}: ${firstLine(res.stdout)}` };
+    },
+  };
+}
+
+/**
+ * bandit needs the `[sarif]` extra (`bandit-sarif-formatter`) for `codehub
+ * scan` to work — without it, `bandit -f sarif` is argparse-rejected (exit 2
+ * + a `usage: bandit` banner) and the scan silently contributes zero findings.
+ * A plain `bandit --version` reports "ok" while the formatter is missing, so
+ * this check probes the formatter directly.
+ *
+ * The probe runs `bandit -f sarif` against an empty temp dir. argparse
+ * validates the `--format` choice list BEFORE walking any target, so a missing
+ * formatter still fails fast (~0.1s) without scanning the repo. The fail
+ * branch gates on the STRUCTURAL signature (exit 2 + `usage: bandit` banner),
+ * not on advisory prose, so it can't silently regress to "ok".
+ */
+function banditSarifCheck(run: RunCommandFn): Check {
+  const installHint = "P1 scanner — install with `uv tool install 'bandit[sarif]'`";
+  return {
+    name: "bandit binary",
+    async run() {
+      const version = await run("bandit", ["--version"]);
+      if (version.status !== 0) {
+        return { status: "warn", message: "bandit not on PATH", hint: installHint };
+      }
+      const probeDir = await mkdtemp(join(tmpdir(), "codehub-bandit-probe-"));
+      try {
+        const res = await run("bandit", ["-f", "sarif", "--quiet", "-r", probeDir]);
+        // argparse rejects an unknown --format choice with exit 2 + a usage
+        // banner. That means the SARIF formatter extra is absent.
+        const formatterMissing = res.status === 2 && /\busage:\s*bandit\b/i.test(res.stderr);
+        if (formatterMissing) {
+          return {
+            status: "fail",
+            message:
+              "bandit present but the [sarif] formatter is missing — scan would emit 0 findings",
+            hint: installHint,
+          };
+        }
+        return { status: "ok", message: `bandit: ${firstLine(version.stdout)} (sarif ok)` };
+      } finally {
+        await rm(probeDir, { recursive: true, force: true });
+      }
     },
   };
 }
