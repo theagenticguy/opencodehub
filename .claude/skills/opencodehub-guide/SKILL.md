@@ -5,7 +5,7 @@ description: "Use when the user asks about OpenCodeHub itself — available MCP 
 
 # OpenCodeHub Guide
 
-Quick reference for every OpenCodeHub MCP tool, MCP resource, and the DuckDB-backed graph schema.
+Quick reference for every OpenCodeHub MCP tool, MCP resource, and the graph + temporal store schema.
 
 ## Always Start Here
 
@@ -40,6 +40,7 @@ for the scope rationale.
 | Draft a PR description from the current diff  | `codehub-pr-description`      | "write the PR description", "summarize this branch" |
 | Write an onboarding guide with reading order  | `codehub-onboarding`          | "write ONBOARDING.md", "what should a new hire read first" |
 | Map inter-repo contracts for a group          | `codehub-contract-map`        | "map the contracts", "show the contract matrix for <group>" |
+| Build a deterministic 9-item code-pack BOM    | `codehub-code-pack`           | "pack this repo for an LLM", "deterministic code pack", "pack the platform group" |
 | Draft an ADR (P1 — not yet shipped)           | `codehub-adr` *(P1 backlog)*  | —                                               |
 
 Fire these directly; do not nest them inside analysis skills. Each is a
@@ -57,7 +58,7 @@ standalone artifact producer with its own preconditions and output path.
 | `mcp__opencodehub__impact`            | Blast radius with risk tier + `confidenceBreakdown`                       |
 | `mcp__opencodehub__detect_changes`    | Map an uncommitted or committed diff to affected symbols and flows        |
 | `mcp__opencodehub__rename`            | Graph-assisted multi-file rename; dry-run by default                      |
-| `mcp__opencodehub__sql`               | Read-only DuckDB SQL against the graph (5 s timeout)                      |
+| `mcp__opencodehub__sql`               | Read-only query: `sql` arg → temporal DuckDB (cochanges/summaries); `cypher` arg → lbug graph (5 s timeout) |
 | `mcp__opencodehub__signature`         | Function signature lookup for a target symbol                             |
 
 ### HTTP / RPC surface
@@ -111,63 +112,97 @@ Lightweight reads for navigation (every URI uses the `codehub://` scheme):
 | `codehub://repo/{name}/context`                | Stats + staleness envelope                  |
 | `codehub://repo/{name}/schema`                 | Live node kinds / relation types for `sql`  |
 
-> Cluster and process navigation resources (`codehub://repo/{name}/clusters`, `codehub://repo/{name}/processes`, etc.) are slated for a later wave. Use `sql` against the `nodes` table filtered to `kind = 'Community'` or `kind = 'Process'` in the meantime.
+> Cluster and process navigation resources (`codehub://repo/{name}/clusters`, `codehub://repo/{name}/processes`, etc.) are slated for a later wave. Until then, use the typed tools or Cypher (below) filtered to `kind = 'Community'` / `kind = 'Process'`.
 
-## Graph schema
+## Where the graph lives (ADR 0016)
 
-The graph is a DuckDB-backed store. One unified `nodes` table, one `relations` table, an `embeddings` table, a `cochanges` side table, and `store_meta`.
+There are **two stores**, and they are queried differently:
 
-**Node kinds** (load-bearing order — new kinds are appended):
-File, Folder, Function, Class, Method, Interface, Constructor, Struct, Enum, Macro, Typedef, Union, Namespace, Trait, Impl, TypeAlias, Const, Static, Variable, Property, Record, Delegate, Annotation, Template, Module, CodeElement, Community, Process, Route, Tool.
+- **Graph tier — `graph.lbug`** (ladybug, Cypher dialect). Holds nodes, edges,
+  and embeddings. Query it via the typed tools (`query` / `context` / `impact` /
+  `route_map` / …) or, for bespoke questions, **Cypher** via the MCP `sql`
+  tool's `cypher` argument. There is NO `nodes` or `relations` SQL table.
+- **Temporal tier — `temporal.duckdb`** (DuckDB SQL). Holds only the
+  `cochanges` and `symbol_summaries` tables. The `sql` argument of the MCP
+  `sql` tool (and `codehub sql` on the CLI) targets THIS store.
 
-**Relation types** (append-only):
-CONTAINS, DEFINES, IMPORTS, CALLS, EXTENDS, IMPLEMENTS, HAS_METHOD, HAS_PROPERTY, ACCESSES, METHOD_OVERRIDES, OVERRIDES, METHOD_IMPLEMENTS, MEMBER_OF, PROCESS_STEP, HANDLES_ROUTE, FETCHES, HANDLES_TOOL, ENTRY_POINT_OF, WRAPS, QUERIES, REFERENCES, FOUND_IN, DEPENDS_ON, OWNED_BY.
+Pass exactly one of `sql` (temporal DuckDB) or `cypher` (lbug graph) to the MCP
+`sql` tool.
 
-Cochange edges live in a **separate `cochanges` table**, NOT in `relations`. Do not query `relations` for them.
+### Graph schema (lbug / Cypher)
 
-## SQL cheat-sheet (use `mcp__opencodehub__sql`)
+One node label `CodeNode` carrying `kind` as a **property** (NOT a per-kind
+label). One relationship table per relation type. Properties are **snake_case**
+(`file_path`, `start_line`, `inferred_label`, `step_count`, `entry_point_id`);
+a camelCase RETURN alias comes back as the alias you give it, but the stored
+property names are snake_case.
+
+**Node kinds** (`n.kind` values): File, Folder, Function, Class, Method,
+Interface, Constructor, Struct, Enum, Macro, Typedef, Union, Namespace, Trait,
+Impl, TypeAlias, Const, Static, Variable, Property, Record, Delegate,
+Annotation, Template, Module, CodeElement, Community, Process, Route, Tool,
+Finding, Dependency, Contributor, Repo, ProjectProfile, Section.
+
+**Relationship types** (each is its own edge label): CONTAINS, DEFINES, IMPORTS,
+CALLS, EXTENDS, IMPLEMENTS, HAS_METHOD, HAS_PROPERTY, ACCESSES, METHOD_OVERRIDES,
+OVERRIDES, METHOD_IMPLEMENTS, MEMBER_OF, PROCESS_STEP, HANDLES_ROUTE, FETCHES,
+HANDLES_TOOL, ENTRY_POINT_OF, WRAPS, QUERIES, REFERENCES, FOUND_IN, DEPENDS_ON,
+OWNED_BY.
+
+Cochanges live only in the **temporal** `cochanges` table (DuckDB SQL), never as
+graph edges.
+
+## Cypher cheat-sheet (MCP `sql` tool, `cypher` arg)
 
 All inbound callers of a function by name:
 
-```sql
-SELECT caller.name, caller.file_path, caller.start_line, r.confidence, r.reason
-FROM relations r
-JOIN nodes caller ON caller.id = r.from_id
-JOIN nodes callee ON callee.id = r.to_id
-WHERE r.type = 'CALLS'
-  AND callee.name = 'validateUser'
-  AND callee.kind = 'Function'
+```cypher
+MATCH (caller:CodeNode)-[r:CALLS]->(callee:CodeNode)
+WHERE callee.name = 'validateUser' AND callee.kind = 'Function'
+RETURN caller.name AS name, caller.file_path AS file, caller.start_line AS line,
+       r.confidence AS confidence, r.reason AS reason
 ORDER BY r.confidence DESC
-LIMIT 50;
+LIMIT 50
 ```
 
 Top communities by cohesion:
 
-```sql
-SELECT name, inferred_label, cohesion, symbol_count, keywords
-FROM nodes
-WHERE kind = 'Community'
-ORDER BY cohesion DESC
-LIMIT 20;
+```cypher
+MATCH (n:CodeNode)
+WHERE n.kind = 'Community'
+RETURN n.name AS name, n.inferred_label AS label, n.cohesion AS cohesion,
+       n.symbol_count AS symbols
+ORDER BY n.cohesion DESC
+LIMIT 20
 ```
 
 Process entry points:
 
-```sql
-SELECT n.name, n.inferred_label, n.step_count, entry.name AS entry_point
-FROM nodes n
-LEFT JOIN nodes entry ON entry.id = n.entry_point_id
+```cypher
+MATCH (n:CodeNode)
 WHERE n.kind = 'Process'
-ORDER BY n.step_count DESC;
+RETURN n.name AS name, n.inferred_label AS label, n.step_count AS steps,
+       n.entry_point_id AS entry_point
+ORDER BY n.step_count DESC
 ```
 
-SCIP-confirmed edges only (for strict impact queries):
+SCIP-confirmed CALLS edges only (strict impact):
+
+```cypher
+MATCH ()-[r:CALLS]->()
+WHERE r.confidence >= 0.95 AND r.reason STARTS WITH 'scip:'
+RETURN r
+```
+
+### Temporal SQL cheat-sheet (MCP `sql` tool, `sql` arg)
+
+Tightest co-change pairs (DuckDB SQL — temporal store):
 
 ```sql
-SELECT from_id, to_id, type, reason
-FROM relations
-WHERE confidence >= 0.95
-  AND reason LIKE 'scip:%';
+SELECT source_file, target_file, lift, cocommit_count
+FROM cochanges
+ORDER BY lift DESC
+LIMIT 20;
 ```
 
 ## Invariants agents must respect

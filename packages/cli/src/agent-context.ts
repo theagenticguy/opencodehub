@@ -38,7 +38,7 @@ tiers.
 - \`impact\` — dependents of a target up to a configurable depth, with a risk tier.
 - \`detect_changes\` — map an uncommitted or committed diff to affected symbols.
 - \`rename\` — graph-assisted multi-file rename; dry-run is the default.
-- \`sql\` — read-only SQL against the local graph store with a 5 s timeout.
+- \`sql\` — read-only SQL against the local temporal store (cochanges + symbol_summaries), 5 s timeout; the node/edge graph is queried via the typed tools or Cypher via the MCP \`sql\` tool.
 
 Run \`codehub analyze\` after pulling new commits so the index stays aligned
 with the working tree. \`codehub status\` reports staleness.

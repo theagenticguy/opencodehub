@@ -149,7 +149,7 @@ export async function runListFindings(
             ]
           : [
               "call `context` with a finding's file path for caller/callee neighbours",
-              "call `sql` with 'SELECT * FROM relations WHERE type = ''FOUND_IN''' for raw edges",
+              "call `sql` with cypher 'MATCH ()-[r:FOUND_IN]->() RETURN r' for raw edges",
             ];
 
       return withNextSteps(
