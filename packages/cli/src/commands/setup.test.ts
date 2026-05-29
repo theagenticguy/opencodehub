@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import * as TOML from "@iarna/toml";
 import type { EditorId } from "../editors/types.js";
-import type { FetchFn as ScipFetchFn } from "../scip-downloader.js";
+import { detectPlatform, type FetchFn as ScipFetchFn } from "../scip-downloader.js";
 import {
   type FsApi,
   parseScipFlag,
@@ -439,6 +439,11 @@ test("runSetupScip installs a single tool via injected fetch + allowPlaceholder"
     type Pin = (typeof pinsModule.SCIP_PINS)["clang"];
     const mutable = pinsModule.SCIP_PINS as unknown as { clang: Pin };
     const original: Pin = mutable.clang;
+    // Pin the platform entry to the ACTUAL host (detectPlatform reads
+    // process.platform/arch) so the downloader finds a match wherever the
+    // test runs — linux-x64 in CI, darwin-arm64 on a dev Mac. Hard-coding
+    // linux-x64 made this test silently install nothing (0 tools) on macOS.
+    const host = detectPlatform();
     mutable.clang = {
       tool: original.tool,
       version: original.version,
@@ -446,7 +451,7 @@ test("runSetupScip installs a single tool via injected fetch + allowPlaceholder"
       binName: original.binName,
       placeholder: false,
       platforms: [
-        { os: "linux", arch: "x64", url: "https://example.test/clang", sha256: expected },
+        { os: host.os, arch: host.arch, url: "https://example.test/clang", sha256: expected },
       ],
     };
     try {
@@ -462,8 +467,6 @@ test("runSetupScip installs a single tool via injected fetch + allowPlaceholder"
         });
       };
       const logs: string[] = [];
-      // Force linux-x64 platform selection via the downloader internals — the
-      // test runs on AL2023 which is already linux-x64, so this is a no-op.
       const result = await runSetupScip({
         tool: "clang",
         destDir: dir,
