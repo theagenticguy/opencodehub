@@ -230,6 +230,26 @@ test("vulture wrapper emits empty SARIF when binary missing", async () => {
   assert.ok(out.skipped?.includes("not found on PATH"));
 });
 
+test("vulture wrapper anchors excludeGlobs to path segments (no .venv noise)", async () => {
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: "", exitCode: 0 }));
+  await createVultureWrapper(deps, { excludeGlobs: [".venv", "node_modules"] }).run(ctx);
+  const args = calls[0]?.args ?? [];
+  const idx = args.indexOf("--exclude");
+  assert.ok(idx >= 0, "must pass --exclude when excludeGlobs is non-empty");
+  const value = args[idx + 1] ?? "";
+  // Anchored to a full path segment — NOT the bare name, which vulture would
+  // substring-match and so suppress e.g. src/.venv_helpers.py.
+  assert.ok(value.includes("*/.venv/*"), `expected anchored .venv glob, got: ${value}`);
+  assert.ok(value.includes("*/node_modules/*"));
+  assert.ok(!value.split(",").includes(".venv"), "must not pass the bare name .venv");
+});
+
+test("vulture wrapper omits --exclude when no excludeGlobs given", async () => {
+  const { deps, calls } = makeFakeDeps(() => ({ stdout: "", exitCode: 0 }));
+  await createVultureWrapper(deps).run(ctx);
+  assert.ok(!(calls[0]?.args ?? []).includes("--exclude"));
+});
+
 // ---------- radon ---------------------------------------------------------
 
 test("radon wrapper parses cc JSON into SARIF results above threshold", async () => {
