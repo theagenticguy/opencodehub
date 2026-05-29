@@ -129,14 +129,61 @@ test("betterleaks wrapper uses `dir` mode and injects vendored config", async ()
   assert.match(cfgArg ?? "", /betterleaks\.default\.toml$/);
 });
 
-test("osv-scanner wrapper sends --offline-vulnerabilities", async () => {
+test("osv-scanner wrapper invokes `scan source` with --format=sarif (online default)", async () => {
   const sarif = fakeSarif("osv-scanner", "GHSA-xyz");
   const { deps, calls } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif) }));
   const wrapper = createOsvScannerWrapper(deps);
   const out = await wrapper.run(ctx);
   assert.equal(out.sarif.runs[0]?.tool.driver.name, "osv-scanner");
-  assert.ok(calls[0]?.args.includes("--offline-vulnerabilities"));
-  assert.ok(calls[0]?.args.includes("--format=sarif"));
+  const args = calls[0]?.args ?? [];
+  assert.equal(args[0], "scan");
+  assert.equal(args[1], "source");
+  assert.ok(args.includes("--format=sarif"));
+  assert.ok(args.includes("--recursive"));
+  // Offline-by-default removed: it required a pre-synced DB and otherwise
+  // produced a confusing exit-127 "ran but errored" signal on fresh repos.
+  assert.ok(!args.includes("--offline-vulnerabilities"), "must not force offline mode by default");
+});
+
+test("osv-scanner wrapper does NOT warn on exit 1 (vulnerabilities found)", async () => {
+  const sarif = fakeSarif("osv-scanner", "GHSA-xyz");
+  const warnings: string[] = [];
+  const { deps } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif), exitCode: 1 }));
+  const wrapper = createOsvScannerWrapper(deps);
+  await wrapper.run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  // Exit 1 = packages found + vulns present. That's the scan working as
+  // intended, not a failure — no advisory should fire.
+  assert.equal(warnings.length, 0, `expected no warnings on exit 1, got: ${warnings.join(" | ")}`);
+});
+
+test("osv-scanner wrapper warns on exit 127 (general error) with an offline-DB hint", async () => {
+  const warnings: string[] = [];
+  const { deps } = makeFakeDeps(() => ({
+    stdout: "",
+    stderr: "failed to load offline database",
+    exitCode: 127,
+  }));
+  const wrapper = createOsvScannerWrapper(deps);
+  await wrapper.run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  // stdout was empty → parseSarifOrEmpty warns, plus the exit-127 advisory.
+  const combined = warnings.join(" | ");
+  assert.ok(
+    combined.includes("general error"),
+    `expected general-error advisory, got: ${combined}`,
+  );
+  assert.ok(combined.includes("db-sync"), "exit-127 advisory should hint at codehub db-sync");
+});
+
+test("osv-scanner wrapper reports exit 128 as 'no packages discovered'", async () => {
+  const warnings: string[] = [];
+  const sarif = fakeSarif("osv-scanner", "GHSA-xyz");
+  const { deps } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif), exitCode: 128 }));
+  const wrapper = createOsvScannerWrapper(deps);
+  await wrapper.run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  assert.ok(
+    warnings.some((w) => w.includes("no packages discovered")),
+    `expected a 'no packages discovered' note, got: ${warnings.join(" | ")}`,
+  );
 });
 
 test("bandit wrapper passes -f sarif and recurses via -r <projectPath>", async () => {
@@ -147,6 +194,34 @@ test("bandit wrapper passes -f sarif and recurses via -r <projectPath>", async (
   assert.equal(calls[0]?.cmd, "bandit");
   // argv should be: -r, <projectPath>, -f, sarif, --quiet
   assert.deepEqual([...(calls[0]?.args ?? [])], ["-r", ctx.projectPath, "-f", "sarif", "--quiet"]);
+});
+
+test("bandit wrapper emits a SARIF-formatter advisory on exit 2 + usage banner", async () => {
+  const warnings: string[] = [];
+  const { deps } = makeFakeDeps(() => ({
+    stdout: "",
+    stderr:
+      "usage: bandit [-h] [-r] [-a {file,vuln}] [-n CONTEXT_LINES] ...\nbandit: error: argument -f/--format: invalid choice: 'sarif'",
+    exitCode: 2,
+  }));
+  const wrapper = createBanditWrapper(deps);
+  const out = await wrapper.run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  const combined = warnings.join(" | ");
+  assert.ok(combined.includes("SARIF formatter is not"), `got: ${combined}`);
+  assert.ok(combined.includes("bandit[sarif]"), "advisory should point at the bandit[sarif] extra");
+  // No misleading "stdout was not valid JSON" note on this path.
+  assert.ok(!combined.includes("not valid JSON"), "should suppress the generic JSON note");
+  assert.equal(out.sarif.runs[0]?.results?.length, 0);
+});
+
+test("bandit wrapper does NOT warn on exit 1 (issues found)", async () => {
+  const sarif = fakeSarif("bandit", "B101");
+  const warnings: string[] = [];
+  const { deps } = makeFakeDeps(() => ({ stdout: JSON.stringify(sarif), exitCode: 1 }));
+  const wrapper = createBanditWrapper(deps);
+  const out = await wrapper.run({ ...ctx, onWarn: (m) => warnings.push(m) });
+  assert.equal(warnings.length, 0, `expected no warnings on exit 1, got: ${warnings.join(" | ")}`);
+  assert.equal(out.sarif.runs[0]?.results?.[0]?.ruleId, "B101");
 });
 
 test("biome wrapper prefers global binary when available", async () => {

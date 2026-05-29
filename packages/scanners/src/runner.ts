@@ -23,7 +23,21 @@ import {
   type ScannerWrapper,
 } from "./spec.js";
 
-export type ScannerStatus = "start" | "done" | "error" | "skipped";
+/**
+ * Per-scanner lifecycle status.
+ *
+ *   - `start`   — the wrapper began executing.
+ *   - `warn`    — the wrapper surfaced an advisory via `onWarn` (e.g. a
+ *                 non-clean exit code, or a SARIF-parse fallback). The scan
+ *                 still ran and produced (possibly empty) output. Distinct
+ *                 from `skipped` so callers don't mislabel "ran with a
+ *                 non-zero exit" as "did not run".
+ *   - `done`    — the wrapper finished and produced output.
+ *   - `skipped` — the scan did not run (binary missing, etc.); `note`
+ *                 carries the reason.
+ *   - `error`   — the wrapper threw; `note` carries the error message.
+ */
+export type ScannerStatus = "start" | "warn" | "done" | "error" | "skipped";
 
 export interface RunScannersOptions {
   /** Cap on parallel scanners. Default min(availableParallelism(), 4). */
@@ -75,13 +89,32 @@ export async function runScanners(
       const started = performance.now();
       opts.onProgress?.(spec, "start");
       try {
+        // Wrappers call `onWarn` for advisories (non-clean exit code, SARIF
+        // parse fallback) and ALSO return a `skipped` string when the scan
+        // did not run. Route `onWarn` to the `warn` status (scan ran, here's
+        // a note) — NOT `skipped` — and track that it fired. Without this:
+        //   (1) a missing-binary wrapper that calls onWarn AND returns
+        //       `skipped` re-printed the same line twice (the duplicate
+        //       `pip-audit skipped: ...` lines), and
+        //   (2) an advisory-only wrapper (osv-scanner exit 127) was mislabeled
+        //       "skipped: ..." and then immediately followed by a "done" line.
+        // We coalesce the terminal event: when the wrapper already surfaced
+        // its `skipped` reason via `onWarn`, emit the terminal lifecycle
+        // status with no duplicate note.
+        let warned = false;
         const result = await wrapper.run({
           projectPath,
           timeoutMs,
-          onWarn: (m: string) => opts.onProgress?.(spec, "skipped", m),
+          onWarn: (m: string) => {
+            warned = true;
+            opts.onProgress?.(spec, "warn", m);
+          },
         });
         runs[myIdx] = result;
-        opts.onProgress?.(spec, result.skipped ? "skipped" : "done", result.skipped);
+        const terminal: ScannerStatus = result.skipped ? "skipped" : "done";
+        // If the wrapper already explained itself via onWarn, don't repeat
+        // the note on the terminal line.
+        opts.onProgress?.(spec, terminal, warned ? undefined : result.skipped);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         errored.push({ spec, error: message });

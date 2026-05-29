@@ -97,6 +97,54 @@ test("runScanners invokes onProgress lifecycle for each scanner", async () => {
   assert.ok(bEvents.some((e) => e.status === "done"));
 });
 
+test("runScanners routes onWarn to `warn` status and does not double-emit the skip note", async () => {
+  // A wrapper that warns via onWarn AND returns `skipped` (the missing-binary
+  // shape). Previously the runner re-emitted the same note on the terminal
+  // `skipped` event, producing two identical lines.
+  const spec = makeSpec("pip-audit");
+  const skipMsg = "pip-audit: binary 'pip-audit' not found on PATH";
+  const wrapper: ScannerWrapper = {
+    spec,
+    run: async (c: ScannerRunContext): Promise<ScannerRunResult> => {
+      c.onWarn?.(skipMsg);
+      return { spec, sarif: emptySarifFor(spec), skipped: skipMsg, durationMs: 1 };
+    },
+  };
+  const events: Array<{ status: string; note: string | undefined }> = [];
+  await runScanners("/tmp/repo", [wrapper], {
+    onProgress: (_spec, status, note) => events.push({ status, note }),
+  });
+  // The note must appear exactly once (via the `warn` event), and the
+  // terminal `skipped` event must carry NO note (no duplicate).
+  const noteOccurrences = events.filter((e) => e.note === skipMsg);
+  assert.equal(noteOccurrences.length, 1, `note should print once, got ${noteOccurrences.length}`);
+  assert.equal(noteOccurrences[0]?.status, "warn");
+  const terminal = events.filter((e) => e.status === "skipped");
+  assert.equal(terminal.length, 1);
+  assert.equal(terminal[0]?.note, undefined, "terminal skipped event must not repeat the note");
+});
+
+test("runScanners emits a single `done` (no note) when a wrapper warns but does not skip", async () => {
+  // The osv-scanner exit-127 shape: warns via onWarn but returns SARIF
+  // (not skipped). Should produce exactly one terminal `done`, not a
+  // contradictory `skipped` + `done` pair.
+  const spec = makeSpec("osv-scanner");
+  const wrapper: ScannerWrapper = {
+    spec,
+    run: async (c: ScannerRunContext): Promise<ScannerRunResult> => {
+      c.onWarn?.("osv-scanner: general error (exit 127)");
+      return { spec, sarif: emptySarifFor(spec), durationMs: 1 };
+    },
+  };
+  const events: Array<{ status: string; note: string | undefined }> = [];
+  await runScanners("/tmp/repo", [wrapper], {
+    onProgress: (_spec, status, note) => events.push({ status, note }),
+  });
+  assert.equal(events.filter((e) => e.status === "warn").length, 1);
+  assert.equal(events.filter((e) => e.status === "done").length, 1);
+  assert.equal(events.filter((e) => e.status === "skipped").length, 0);
+});
+
 test("runScanners respects concurrency cap", async () => {
   let inFlight = 0;
   let peak = 0;
