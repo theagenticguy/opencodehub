@@ -122,7 +122,7 @@ export async function runDependencies(
             ]
           : [
               "call `query` with one of the names above to find import sites",
-              "call `sql` with 'SELECT * FROM relations WHERE type = ''DEPENDS_ON''' for the raw edges",
+              "call `sql` with cypher 'MATCH ()-[r:DEPENDS_ON]->() RETURN r' for the raw edges",
             ];
 
       return withNextSteps(

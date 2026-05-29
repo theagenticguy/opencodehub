@@ -63,7 +63,7 @@ top-level subcommands by phase of the workflow.
 | `doctor`           | Probe the local environment and print actionable hints                     |
 | `ci-init`          | Emit GitHub Actions / GitLab CI workflow scaffolds                         |
 | `augment`          | Fast-path BM25 enrichment for editor PreToolUse hooks                      |
-| `sql`              | Read-only SQL against the graph store with a 5 s timeout                   |
+| `sql`              | Read-only SQL against the temporal store (cochanges + symbol_summaries)    |
 | `group <sub>`      | Cross-repo groups: `create`, `list`, `delete`, `status`, `query`, `sync`   |
 
 ## Design

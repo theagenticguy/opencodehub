@@ -11,7 +11,7 @@ tiers.
 - `impact` — dependents of a target up to a configurable depth, with a risk tier.
 - `detect_changes` — map an uncommitted or committed diff to affected symbols.
 - `rename` — graph-assisted multi-file rename; dry-run is the default.
-- `sql` — read-only SQL against the local graph store with a 5 s timeout.
+- `sql` — read-only SQL against the local temporal store (the `cochanges` and `symbol_summaries` tables), 5 s timeout. The node/edge graph lives in `graph.lbug` (ADR 0016) and is reached via the typed tools (`query`/`context`/`impact`) or Cypher via the MCP `sql` tool's `cypher` arg — NOT via this SQL path.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
 with the working tree. `codehub status` reports staleness.
