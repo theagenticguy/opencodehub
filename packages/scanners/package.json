@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/scanners",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "OpenCodeHub — Priority-1 scanner wrappers (semgrep, betterleaks, osv-scanner, bandit, biome)",
   "license": "Apache-2.0",
   "repository": {
