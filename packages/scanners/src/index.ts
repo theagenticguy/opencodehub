@@ -129,15 +129,15 @@ import { createHadolintWrapper, type HadolintWrapperOptions } from "./wrappers/h
 import { createNpmAuditWrapper } from "./wrappers/npm-audit.js";
 import { createOsvScannerWrapper } from "./wrappers/osv-scanner.js";
 import { createPipAuditWrapper, type PipAuditWrapperOptions } from "./wrappers/pip-audit.js";
-import { createRadonWrapper } from "./wrappers/radon.js";
+import { createRadonWrapper, type RadonWrapperOptions } from "./wrappers/radon.js";
 import { createRuffWrapper } from "./wrappers/ruff.js";
 import { createSemgrepWrapper } from "./wrappers/semgrep.js";
 import { DEFAULT_DEPS, type WrapperDeps } from "./wrappers/shared.js";
 import { createSpectralWrapper, type SpectralWrapperOptions } from "./wrappers/spectral.js";
 import { createTflintWrapper } from "./wrappers/tflint.js";
 import { createTrivyWrapper } from "./wrappers/trivy.js";
-import { createTyWrapper } from "./wrappers/ty.js";
-import { createVultureWrapper } from "./wrappers/vulture.js";
+import { createTyWrapper, type TyWrapperOptions } from "./wrappers/ty.js";
+import { createVultureWrapper, type VultureWrapperOptions } from "./wrappers/vulture.js";
 
 /**
  * Per-scanner context passed to `createDefaultWrappers`. Some wrappers
@@ -157,6 +157,12 @@ export interface DefaultWrapperContext {
   readonly hadolint?: HadolintWrapperOptions;
   readonly spectral?: SpectralWrapperOptions;
   readonly pipAudit?: PipAuditWrapperOptions;
+  // Python dead-code / complexity / type-check scanners walk the project
+  // tree directly; without an exclude they descend into `.venv` and report
+  // library noise. The CLI threads the indexer's ignore dirs in here.
+  readonly vulture?: VultureWrapperOptions;
+  readonly radon?: RadonWrapperOptions;
+  readonly ty?: TyWrapperOptions;
 }
 
 /**
@@ -216,11 +222,11 @@ function createWrapperFor(
     case GRYPE_SPEC.id:
       return deps ? createGrypeWrapper(deps) : createGrypeWrapper();
     case VULTURE_SPEC.id:
-      return deps ? createVultureWrapper(deps) : createVultureWrapper();
+      return createVultureWrapper(deps ?? DEFAULT_DEPS, ctx.vulture ?? {});
     case RADON_SPEC.id:
-      return deps ? createRadonWrapper(deps) : createRadonWrapper();
+      return createRadonWrapper(deps ?? DEFAULT_DEPS, ctx.radon ?? {});
     case TY_SPEC.id:
-      return deps ? createTyWrapper(deps) : createTyWrapper();
+      return createTyWrapper(deps ?? DEFAULT_DEPS, ctx.ty ?? {});
     case CLAMAV_SPEC.id:
       return deps ? createClamAvWrapper(deps) : createClamAvWrapper();
     case CHECKOV_DOCKER_COMPOSE_SPEC.id:

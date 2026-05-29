@@ -22,7 +22,33 @@ import { DEFAULT_DEPS, type WrapperDeps } from "./shared.js";
 /** Minimum confidence percentage vulture emits findings at. */
 const DEFAULT_MIN_CONFIDENCE = "80";
 
-export function createVultureWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerWrapper {
+export interface VultureWrapperOptions {
+  /**
+   * Directory names the indexer ignores (e.g. `.venv`, `node_modules`).
+   * Threaded from the CLI so vulture doesn't walk the virtualenv and drown
+   * real findings in library dead-code. Anchored to path-segment globs
+   * inside the wrapper so a bare `.venv` can't substring-match `src/distance.py`.
+   */
+  readonly excludeGlobs?: readonly string[];
+}
+
+/**
+ * Turn an ignore directory name into a vulture `--exclude` glob anchored to a
+ * path segment. vulture matches `--exclude` patterns against ABSOLUTE paths
+ * and treats a wildcard-free pattern as a substring match, so the bare name
+ * `.venv` would also suppress `src/.venv_helpers.py`. Wrapping it as a
+ * slash-delimited glob segment matches only when the name is a full directory
+ * segment. Patterns already containing a glob pass through untouched.
+ */
+function toVultureExcludeGlob(name: string): string {
+  if (/[*?[\]]/.test(name)) return name;
+  return `*/${name}/*`;
+}
+
+export function createVultureWrapper(
+  deps: WrapperDeps = DEFAULT_DEPS,
+  opts: VultureWrapperOptions = {},
+): ScannerWrapper {
   return {
     spec: VULTURE_SPEC,
     run: async (ctx: ScannerRunContext): Promise<ScannerRunResult> => {
@@ -38,7 +64,16 @@ export function createVultureWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerW
           durationMs: performance.now() - started,
         };
       }
-      const args: readonly string[] = [ctx.projectPath, "--min-confidence", DEFAULT_MIN_CONFIDENCE];
+      const excludeArgs =
+        opts.excludeGlobs !== undefined && opts.excludeGlobs.length > 0
+          ? ["--exclude", opts.excludeGlobs.map(toVultureExcludeGlob).join(",")]
+          : [];
+      const args: readonly string[] = [
+        ctx.projectPath,
+        "--min-confidence",
+        DEFAULT_MIN_CONFIDENCE,
+        ...excludeArgs,
+      ];
       const result = await deps.runBinary("vulture", args, {
         timeoutMs: ctx.timeoutMs,
         cwd: ctx.projectPath,

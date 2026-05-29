@@ -21,7 +21,20 @@ import type { ScannerRunContext, ScannerRunResult, ScannerWrapper } from "../spe
 import { emptySarifFor } from "../spec.js";
 import { DEFAULT_DEPS, type WrapperDeps } from "./shared.js";
 
-export function createTyWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerWrapper {
+export interface TyWrapperOptions {
+  /**
+   * Directory names to exclude (e.g. `.venv`, `node_modules`). ty uses
+   * gitignore-style excludes; a trailing `/` anchors to a directory. We also
+   * pass `--force-exclude` so the excludes apply even though the project path
+   * is given explicitly on the CLI (CLI-named paths bypass excludes otherwise).
+   */
+  readonly excludeGlobs?: readonly string[];
+}
+
+export function createTyWrapper(
+  deps: WrapperDeps = DEFAULT_DEPS,
+  opts: TyWrapperOptions = {},
+): ScannerWrapper {
   return {
     spec: TY_SPEC,
     run: async (ctx: ScannerRunContext): Promise<ScannerRunResult> => {
@@ -37,7 +50,14 @@ export function createTyWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerWrappe
           durationMs: performance.now() - started,
         };
       }
-      const args: readonly string[] = ["check", ctx.projectPath];
+      const excludeArgs =
+        opts.excludeGlobs !== undefined && opts.excludeGlobs.length > 0
+          ? [
+              ...opts.excludeGlobs.flatMap((g) => ["--exclude", g.endsWith("/") ? g : `${g}/`]),
+              "--force-exclude",
+            ]
+          : [];
+      const args: readonly string[] = ["check", ...excludeArgs, ctx.projectPath];
       const result = await deps.runBinary("ty", args, {
         timeoutMs: ctx.timeoutMs,
         cwd: ctx.projectPath,

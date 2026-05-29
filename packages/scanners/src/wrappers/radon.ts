@@ -21,7 +21,20 @@ import type { ScannerRunContext, ScannerRunResult, ScannerWrapper } from "../spe
 import { emptySarifFor } from "../spec.js";
 import { DEFAULT_DEPS, type WrapperDeps } from "./shared.js";
 
-export function createRadonWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerWrapper {
+export interface RadonWrapperOptions {
+  /**
+   * Directory names to skip (e.g. `.venv`, `node_modules`). radon's `-i`
+   * matches directory BASENAMES (not path globs), so the bare ignore names
+   * are passed through as-is. radon already skips hidden dirs by default, so
+   * `-i` mainly helps non-hidden entries (`node_modules`, `dist`, `build`).
+   */
+  readonly ignoreDirs?: readonly string[];
+}
+
+export function createRadonWrapper(
+  deps: WrapperDeps = DEFAULT_DEPS,
+  opts: RadonWrapperOptions = {},
+): ScannerWrapper {
   return {
     spec: RADON_SPEC,
     run: async (ctx: ScannerRunContext): Promise<ScannerRunResult> => {
@@ -37,7 +50,11 @@ export function createRadonWrapper(deps: WrapperDeps = DEFAULT_DEPS): ScannerWra
           durationMs: performance.now() - started,
         };
       }
-      const args: readonly string[] = ["cc", "-s", "-j", ctx.projectPath];
+      const ignoreArgs =
+        opts.ignoreDirs !== undefined && opts.ignoreDirs.length > 0
+          ? ["-i", opts.ignoreDirs.join(",")]
+          : [];
+      const args: readonly string[] = ["cc", "-s", "-j", ...ignoreArgs, ctx.projectPath];
       const result = await deps.runBinary("radon", args, {
         timeoutMs: ctx.timeoutMs,
         cwd: ctx.projectPath,
