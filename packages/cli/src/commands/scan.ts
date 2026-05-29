@@ -27,6 +27,7 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pipeline } from "@opencodehub/ingestion";
 import {
   applyBaselineState,
   applySuppressions,
@@ -45,10 +46,13 @@ import {
   P1_SPECS,
   PIP_AUDIT_SPEC,
   type ProjectProfileGate,
+  RADON_SPEC,
   runScanners,
   type ScannerSpec,
   type ScannerStatus,
   SPECTRAL_SPEC,
+  TY_SPEC,
+  VULTURE_SPEC,
 } from "@opencodehub/scanners";
 import { resolveRepoMetaDir } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
@@ -359,6 +363,20 @@ async function buildWrapperContext(
     // otherwise it bridges pyproject.toml through `uv export`. The transient
     // export lands in the gitignored .codehub/ meta dir.
     ctx.pipAudit = { exportDir: resolveRepoMetaDir(repoPath) };
+  }
+  // Python tree-walking scanners (vulture/radon/ty) descend into `.venv` and
+  // report library noise unless told to skip the same dirs the indexer
+  // ignores. Reuse the indexer's single source of truth so the exclude set
+  // can't drift. Each wrapper anchors / formats these for its own CLI.
+  const ignoreDirs = pipeline.HARDCODED_IGNORES;
+  if (ids.has(VULTURE_SPEC.id)) {
+    ctx.vulture = { excludeGlobs: ignoreDirs };
+  }
+  if (ids.has(RADON_SPEC.id)) {
+    ctx.radon = { ignoreDirs };
+  }
+  if (ids.has(TY_SPEC.id)) {
+    ctx.ty = { excludeGlobs: ignoreDirs };
   }
   return ctx;
 }
