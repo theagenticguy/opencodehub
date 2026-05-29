@@ -15,6 +15,7 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { listRouteMap } from "@opencodehub/analysis";
 import { z } from "zod";
 import { toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -38,16 +39,6 @@ const RouteMapInput = {
     .describe("Reserved for a future framework filter; currently ignored."),
 };
 
-interface RouteRow {
-  readonly id: string;
-  readonly url: string;
-  readonly method: string;
-  readonly filePath: string;
-  readonly responseKeys: readonly string[];
-  readonly handlers: readonly string[];
-  readonly consumers: readonly string[];
-}
-
 interface RouteMapArgs {
   readonly repo?: string | undefined;
   readonly repo_uri?: string | undefined;
@@ -59,49 +50,10 @@ interface RouteMapArgs {
 export async function runRouteMap(ctx: ToolContext, args: RouteMapArgs): Promise<ToolResult> {
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const graph = store.graph;
-      const opts: {
-        pathLike?: string;
-        methods?: readonly ("GET" | "POST" | "PUT" | "DELETE" | "PATCH")[];
-        limit?: number;
-      } = { limit: 500 };
-      if (args.route !== undefined && args.route.length > 0) opts.pathLike = args.route;
-      if (
-        args.method !== undefined &&
-        ["GET", "POST", "PUT", "DELETE", "PATCH"].includes(args.method)
-      ) {
-        opts.methods = [args.method as "GET" | "POST" | "PUT" | "DELETE" | "PATCH"];
-      }
-      let listed = await graph.listRoutes(opts);
-      if (
-        args.method !== undefined &&
-        !["GET", "POST", "PUT", "DELETE", "PATCH"].includes(args.method)
-      ) {
-        listed = listed.filter((r) => r.method === args.method);
-      }
-      const sortedRoutes = [...listed].sort((a, b) => {
-        if (a.url !== b.url) return a.url < b.url ? -1 : 1;
-        const am = a.method ?? "";
-        const bm = b.method ?? "";
-        return am < bm ? -1 : am > bm ? 1 : 0;
+      const routes = await listRouteMap(store.graph, {
+        ...(args.route !== undefined ? { route: args.route } : {}),
+        ...(args.method !== undefined ? { method: args.method } : {}),
       });
-
-      const routes: RouteRow[] = [];
-      for (const r of sortedRoutes) {
-        const [handlers, consumers] = await Promise.all([
-          fetchRelationFromIds(graph, r.id, "HANDLES_ROUTE"),
-          fetchRelationFromIds(graph, r.id, "FETCHES"),
-        ]);
-        routes.push({
-          id: r.id,
-          url: stringOr(r.url, ""),
-          method: stringOr(r.method, ""),
-          filePath: stringOr(r.filePath, ""),
-          responseKeys: r.responseKeys ?? [],
-          handlers,
-          consumers,
-        });
-      }
 
       const header = `Routes (${routes.length}) for ${resolved.name}${
         args.route ? ` · url~${args.route}` : ""
@@ -157,22 +109,4 @@ export function registerRouteMapTool(server: McpServer, ctx: ToolContext): void 
     },
     async (args) => fromToolResult(await runRouteMap(ctx, args)),
   );
-}
-
-async function fetchRelationFromIds(
-  graph: import("@opencodehub/storage").IGraphStore,
-  routeId: string,
-  type: "HANDLES_ROUTE" | "FETCHES",
-): Promise<readonly string[]> {
-  const edges = await graph.listEdgesByType(type, { toIds: [routeId] });
-  return edges
-    .map((e) => e.from)
-    .filter((s) => s.length > 0)
-    .sort();
-}
-
-function stringOr(v: unknown, fallback: string): string {
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return fallback;
 }

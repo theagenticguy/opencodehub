@@ -16,12 +16,13 @@
  *   - MISMATCH — at least one accessed key is NOT in responseKeys.
  *   - PARTIAL  — no accessed keys found (can't check).
  *
- * `classifyShape` is exported so `api_impact` can reuse it for its
- * `mismatches` count without re-walking the graph.
+ * `classifyShape` now lives in `@opencodehub/analysis` (so `api_impact` and
+ * the CLI surface can reuse it) and is re-exported here for backward compat.
  */
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { classifyShape, type ShapeStatus } from "@opencodehub/analysis";
 import type { CodeRelation, GraphNode } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
 import { z } from "zod";
@@ -37,12 +38,15 @@ import {
   withStore,
 } from "./shared.js";
 
+export type { ShapeStatus };
+// Re-export so callers that imported `classifyShape` / `ShapeStatus` from
+// this module keep working after the lift into @opencodehub/analysis.
+export { classifyShape };
+
 const ShapeCheckInput = {
   ...repoArgShape,
   route: z.string().optional().describe("Substring match against Route.url."),
 };
-
-export type ShapeStatus = "MATCH" | "MISMATCH" | "PARTIAL";
 
 export interface ConsumerShape {
   readonly file: string;
@@ -146,18 +150,6 @@ export async function loadRouteShapes(
     routes.push({ url: r.url, method: r.method ?? "", responseKeys, consumers });
   }
   return routes;
-}
-
-/** Classify a set of accessed keys against responseKeys. */
-export function classifyShape(
-  accessedKeys: readonly string[],
-  responseKeys: readonly string[],
-): { status: ShapeStatus; missing: readonly string[] } {
-  if (accessedKeys.length === 0) return { status: "PARTIAL", missing: [] };
-  const known = new Set(responseKeys);
-  const missing = accessedKeys.filter((k) => !known.has(k));
-  if (missing.length === 0) return { status: "MATCH", missing: [] };
-  return { status: "MISMATCH", missing };
 }
 
 async function collectConsumerShapes(

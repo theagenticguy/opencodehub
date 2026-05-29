@@ -15,6 +15,8 @@ export type {
 } from "@opencodehub/wiki";
 /** @deprecated Use `@opencodehub/wiki`. */
 export { generateWiki } from "@opencodehub/wiki";
+export type { ApiImpactFilter, ApiImpactRow } from "./api-impact.js";
+export { listApiImpact, scoreRisk, worseRisk } from "./api-impact.js";
 export type {
   DeadCodeResult,
   Deadness,
@@ -83,6 +85,8 @@ export type {
   LicenseTier,
 } from "./license-classify.js";
 export { classifyDependencies } from "./license-classify.js";
+export type { OwnerRow } from "./owners.js";
+export { listOwners } from "./owners.js";
 export type { Adjacency, EdgeLike } from "./page-rank.js";
 export { buildAdjacency, pageRank } from "./page-rank.js";
 export { runRename } from "./rename.js";
@@ -112,6 +116,10 @@ export {
   SNAPSHOT_RETENTION,
   snapshotFilename,
 } from "./risk-snapshot.js";
+export type { RouteMapFilter, RouteMapRow } from "./route-map.js";
+export { listRouteMap } from "./route-map.js";
+export type { ShapeStatus } from "./shape.js";
+export { classifyShape } from "./shape.js";
 export { computeStaleness } from "./staleness.js";
 export type {
   AffectedModule,
