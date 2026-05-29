@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.1...scanners-v0.2.2) (2026-05-29)
+
+
+### Bug Fixes
+
+* **scanners:** uv-first bandit[sarif] install + pip-audit pyproject.toml support ([#166](https://github.com/theagenticguy/opencodehub/issues/166)) ([5ad02d8](https://github.com/theagenticguy/opencodehub/commit/5ad02d8184df9af69e7f6a70f3860af3927b8dd7))
+
 ## [0.2.1](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.0...scanners-v0.2.1) (2026-05-29)
 
 
