@@ -771,13 +771,16 @@ function resolveImportTarget(
 
   // Only relative / absolute-in-repo specifiers can be resolved without a
   // package-manager layer. External packages (e.g. `react`, `numpy`) fall
-  // through to `undefined` and are skipped by the caller.
+  // through to `undefined` and are skipped by the caller — EXCEPT for
+  // namespace-import languages (Python), where a dotted ABSOLUTE specifier
+  // like `pkg.sub.mod` may still resolve to an in-repo file. We try that
+  // below before giving up.
   if (
     !preprocessed.startsWith("./") &&
     !preprocessed.startsWith("../") &&
     !preprocessed.startsWith("/")
   ) {
-    return undefined;
+    return resolveDottedAbsoluteImport(preprocessed, provider, structure);
   }
 
   const importerDir = parentDir(importerRel);
@@ -791,6 +794,61 @@ function resolveImportTarget(
     if (structure.pathSet.has(c)) return c;
   }
   return undefined;
+}
+
+/**
+ * Resolve a dotted ABSOLUTE import (`pkg.sub.mod`) to an in-repo file for
+ * namespace-import languages (Python). The same module can sit at the repo
+ * root (`pkg/sub/mod.py`) or under a src-layout root (`src/pkg/sub/mod.py`),
+ * so we convert dots→slashes and probe both shapes against `pathSet`. A
+ * dotted specifier that resolves to no in-repo file is a third-party package
+ * (`boto3.session`) and returns undefined — the caller emits the external
+ * stub as before.
+ *
+ * Only `namespace` importSemantics opt in; ES-module languages never carry a
+ * bare dotted absolute specifier that maps to a repo file this way.
+ */
+function resolveDottedAbsoluteImport(
+  specifier: string,
+  provider: LanguageProvider,
+  structure: StructureOutput,
+): string | undefined {
+  if (provider.importSemantics !== "namespace") return undefined;
+  if (!specifier.includes(".")) return undefined;
+  const asPath = specifier.replace(/\./g, "/");
+  // Probe the module path at the repo root and under each detected src-layout
+  // root. `discoverSourceRoots` is cheap (set scan) and cached per call site
+  // is unnecessary — pathSet membership is O(1) and the root list is tiny.
+  const bases = [asPath, ...discoverSourceRoots(structure).map((r) => `${r}/${asPath}`)];
+  for (const base of bases) {
+    for (const c of candidatePathsFor(base, provider.extensions, provider.id)) {
+      if (structure.pathSet.has(c)) return c;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Source-layout roots present in the repo. A package imported as `pkg.mod`
+ * may live at `src/pkg/mod.py` (PEP 517/518 src-layout) rather than
+ * `pkg/mod.py`. We detect a root by looking for a path segment that commonly
+ * holds package sources and actually exists in `pathSet`. Kept conservative
+ * (`src`) to avoid false roots; extend the list if a layout needs it.
+ */
+const SOURCE_ROOT_SEGMENTS: readonly string[] = ["src"];
+
+function discoverSourceRoots(structure: StructureOutput): readonly string[] {
+  const roots = new Set<string>();
+  for (const seg of SOURCE_ROOT_SEGMENTS) {
+    const prefix = `${seg}/`;
+    for (const p of structure.pathSet) {
+      if (p.startsWith(prefix)) {
+        roots.add(seg);
+        break;
+      }
+    }
+  }
+  return [...roots];
 }
 
 function candidatePathsFor(

@@ -113,6 +113,37 @@ describe("pythonProvider (behavior)", () => {
     assert.equal(utils?.isWildcard, true);
   });
 
+  it("parses multi-line parenthesized and backslash-continued imports", () => {
+    // black/ruff wrap long import lists in parens; a line-based parser drops
+    // these silently (rest='(' → 0 names). See field-report Issue 1 Bug A.
+    const source = [
+      "from pkg.client import (",
+      "    CredentialError,",
+      "    get_client,",
+      "    preflight,",
+      ")",
+      "from other import a, \\",
+      "    b",
+      "from solo import (only_one)",
+    ].join("\n");
+    const imports = pythonProvider.extractImports({ filePath: "m.py", sourceText: source });
+    const byName = (s: string) => imports.find((i) => i.source === s);
+
+    const client = byName("pkg.client");
+    assert.ok(client, "multi-line parenthesized import must be extracted");
+    assert.deepEqual([...(client?.importedNames ?? [])].sort(), [
+      "CredentialError",
+      "get_client",
+      "preflight",
+    ]);
+
+    const other = byName("other");
+    assert.deepEqual([...(other?.importedNames ?? [])].sort(), ["a", "b"]);
+
+    const solo = byName("solo");
+    assert.deepEqual([...(solo?.importedNames ?? [])], ["only_one"]);
+  });
+
   it("extracts self-receiver calls in methods", () => {
     const defs = pythonProvider.extractDefinitions({
       filePath: fx.filePath,
