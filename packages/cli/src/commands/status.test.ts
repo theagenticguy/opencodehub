@@ -116,3 +116,54 @@ test("status surfaces every group the repo belongs to, alphabetical", async () =
   assert.match(groupsLine, /groups:\s+alpha, zeta$/);
   assert.doesNotMatch(groupsLine, /unrelated/);
 });
+
+test("status reports bm25-only + summaries count from the retrieval probe", async () => {
+  const home = await scratch();
+  const repoPath = await seedRepo(home, "bm25repo");
+  const cap = captureStdout();
+  try {
+    await runStatus(repoPath, {
+      home,
+      probeRetrieval: async () => ({ summaries: 0, vectors: "bm25-only" }),
+    });
+  } finally {
+    cap.restore();
+  }
+  assert.ok(
+    cap.lines.some((l) => /^summaries:\s+0$/.test(l)),
+    `expected 'summaries: 0'; got:\n${cap.lines.join("\n")}`,
+  );
+  assert.ok(cap.lines.some((l) => /^vectors:\s+bm25-only$/.test(l)));
+});
+
+test("status reports populated vectors when the probe says so", async () => {
+  const home = await scratch();
+  const repoPath = await seedRepo(home, "hybridrepo");
+  const cap = captureStdout();
+  try {
+    await runStatus(repoPath, {
+      home,
+      probeRetrieval: async () => ({ summaries: 42, vectors: "populated" }),
+    });
+  } finally {
+    cap.restore();
+  }
+  assert.ok(cap.lines.some((l) => /^summaries:\s+42$/.test(l)));
+  assert.ok(cap.lines.some((l) => /^vectors:\s+populated$/.test(l)));
+});
+
+test("status degrades to summaries:- / vectors:unknown when the store can't open", async () => {
+  const home = await scratch();
+  const repoPath = await seedRepo(home, "degraded");
+  const cap = captureStdout();
+  try {
+    // Default probe: no graph.lbug exists in the seeded repo → undefined.
+    await runStatus(repoPath, { home, probeRetrieval: async () => undefined });
+  } finally {
+    cap.restore();
+  }
+  assert.ok(cap.lines.some((l) => /^summaries:\s+-$/.test(l)));
+  assert.ok(cap.lines.some((l) => /^vectors:\s+unknown$/.test(l)));
+  // The rest of status still renders (groups line present).
+  assert.ok(cap.lines.some((l) => l.startsWith("groups:")));
+});

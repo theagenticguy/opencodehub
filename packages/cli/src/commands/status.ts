@@ -8,12 +8,48 @@
  */
 
 import { resolve } from "node:path";
+import { embeddingsPopulated } from "@opencodehub/search";
 import { readStoreMeta } from "@opencodehub/storage";
 import { listGroups } from "../groups.js";
 import { readRegistry } from "../registry.js";
+import { openStoreForCommand } from "./open-store.js";
+
+/**
+ * Retrieval-mode probe result for the status output. `summaries` is the count
+ * of distinct nodes with an LLM summary (dense-leg input); `vectors` reports
+ * whether the embeddings table is populated. Both are best-effort: a degraded
+ * or absent store yields `summaries: null`.
+ */
+export interface RetrievalState {
+  readonly summaries: number | null;
+  readonly vectors: "populated" | "bm25-only";
+}
 
 export interface StatusOptions {
   readonly home?: string;
+  /**
+   * Test seam: open a read-only store and return its retrieval state. Defaults
+   * to opening the real composed store. Tests inject a stub so they don't need
+   * a live graph.lbug on disk.
+   */
+  readonly probeRetrieval?: (repoPath: string) => Promise<RetrievalState | undefined>;
+}
+
+async function defaultProbeRetrieval(repoPath: string): Promise<RetrievalState | undefined> {
+  let store: Awaited<ReturnType<typeof openStoreForCommand>>["store"] | undefined;
+  try {
+    const opened = await openStoreForCommand({ repo: repoPath, readOnly: true });
+    store = opened.store;
+    const summaries = await store.temporal.countSymbolSummaries();
+    const populated = await embeddingsPopulated(store.graph);
+    return { summaries, vectors: populated ? "populated" : "bm25-only" };
+  } catch {
+    // No index / degraded store / missing binding — caller degrades the
+    // output rather than failing the whole status command.
+    return undefined;
+  } finally {
+    await store?.close();
+  }
 }
 
 export async function runStatus(path: string, opts: StatusOptions = {}): Promise<void> {
@@ -34,6 +70,24 @@ export async function runStatus(path: string, opts: StatusOptions = {}): Promise
   console.log(`lastCommit:     ${meta.lastCommit ?? "-"}`);
   console.log(`nodes:          ${meta.nodeCount}`);
   console.log(`edges:          ${meta.edgeCount}`);
+
+  // Retrieval mode. `query` runs BM25-only unless the embeddings table is
+  // populated AND the active embedder's modelId matches `meta.embedderModelId`
+  // — so report the embedder id from meta (no second probe) alongside the
+  // vector state, instead of implying hybrid will fire. Summaries are a
+  // distinct table (dense-leg context), not what gates BM25-vs-hybrid; we
+  // surface the count so an empty-summaries index is visible.
+  const probe = opts.probeRetrieval ?? defaultProbeRetrieval;
+  const retrieval = await probe(repoPath);
+  if (retrieval === undefined) {
+    console.log("summaries:      -");
+    console.log("vectors:        unknown");
+  } else {
+    console.log(`summaries:      ${retrieval.summaries ?? "-"}`);
+    console.log(`vectors:        ${retrieval.vectors}`);
+  }
+  console.log(`embedder:       ${meta.embedderModelId ?? "none"}`);
+
   if (registryHit === undefined) {
     console.log("registry:       missing — run `codehub analyze` to re-register");
   } else {

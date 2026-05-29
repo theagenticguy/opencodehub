@@ -329,6 +329,25 @@ export class DuckDbStore implements ITemporalStore {
     }
   }
 
+  async countSymbolSummaries(): Promise<number> {
+    try {
+      const c = this.requireConn();
+      const stmt = await c.prepare("SELECT COUNT(DISTINCT node_id) AS n FROM symbol_summaries");
+      try {
+        const reader = await stmt.runAndReadAll();
+        const first = reader.getRowObjects()[0] as Record<string, unknown> | undefined;
+        const n = first?.["n"];
+        return typeof n === "bigint" ? Number(n) : typeof n === "number" ? n : 0;
+      } finally {
+        stmt.destroySync();
+      }
+    } catch {
+      // Missing table / degraded store → report 0 rather than throwing, so
+      // `codehub status` degrades gracefully.
+      return 0;
+    }
+  }
+
   // --------------------------------------------------------------------------
   // exec — read-only SQL escape hatch (codehub query --sql, MCP sql tool)
   // --------------------------------------------------------------------------

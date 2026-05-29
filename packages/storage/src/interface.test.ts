@@ -122,6 +122,7 @@ test("ITemporalStore-shaped value lacks graph methods at runtime", () => {
     bulkLoadSymbolSummaries: async () => {},
     lookupSymbolSummary: async () => undefined,
     lookupSymbolSummariesByNode: async () => [],
+    countSymbolSummaries: async () => 0,
   };
 
   const bag = temporalOnly as unknown as Record<string, unknown>;
