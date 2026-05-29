@@ -12,7 +12,20 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildChecks, runDoctor } from "./doctor.js";
+import { buildChecks, type RunCommandFn, runDoctor } from "./doctor.js";
+
+/**
+ * A command runner that reports every binary as present and healthy. Lets a
+ * test isolate the behavior under test (indexer absence, registry state) from
+ * whatever scanner binaries happen to be installed on the host. bandit's
+ * `-f sarif` probe returns exit 0 + non-usage output, i.e. the formatter is
+ * present.
+ */
+const okRunCommand: RunCommandFn = async (cmd) => ({
+  status: 0,
+  stdout: `${cmd} 1.0.0`,
+  stderr: "",
+});
 
 test("runDoctor emits a non-empty report with --skip-native", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-"));
@@ -344,13 +357,81 @@ test("runDoctor --strict yields exit 2 when indexers are absent (vs 1 default)",
     await mkdir(join(home, ".codehub"), { recursive: true });
     await writeFile(join(home, ".codehub", "registry.json"), JSON.stringify({}));
     const prev = process.exitCode;
-    const lenient = await runDoctor({ home, skipNative: true });
-    const strict = await runDoctor({ home, skipNative: true, strict: true });
+    // Stub the command runner so installed/absent scanner binaries on the host
+    // can't perturb the exit code — this test is about indexer absence only.
+    // With every binary "present", lenient has no fail rows → exit ≤ 1.
+    const lenient = await runDoctor({ home, skipNative: true, runCommand: okRunCommand });
+    const strict = await runDoctor({
+      home,
+      skipNative: true,
+      strict: true,
+      runCommand: okRunCommand,
+    });
     process.exitCode = prev;
     // Lenient: indexer absences are warn → exit 1 (no fail unless something
     // else broke). Strict: indexer absences are fail → exit 2.
     assert.ok(lenient.exitCode <= 1, `lenient exit should be 0/1; got ${lenient.exitCode}`);
     assert.equal(strict.exitCode, 2, "strict mode must block (exit 2) on absent indexers");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// The bandit check must verify the [sarif] FORMATTER, not just the binary.
+// Without the extra, `bandit -f sarif` argparse-rejects (exit 2 + usage
+// banner) and `codehub scan` silently emits 0 findings — doctor must surface
+// that as a fail, not a false "ok". See field-report Issue 6.
+test("bandit check fails when the [sarif] formatter is missing (exit 2 + usage banner)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-bandit-"));
+  try {
+    const noFormatter: RunCommandFn = async (_cmd, args) => {
+      if (args.includes("--version")) return { status: 0, stdout: "bandit 1.9.4", stderr: "" };
+      // `-f sarif` probe → argparse rejection shape.
+      return {
+        status: 2,
+        stdout: "",
+        stderr:
+          "usage: bandit [-h] [-r] ... [-f {csv,custom,html,json,screen,txt,xml,yaml}]\nbandit: error: argument -f/--format: invalid choice: 'sarif'",
+      };
+    };
+    const checks = buildChecks({ home, skipNative: true, runCommand: noFormatter });
+    const bandit = checks.find((c) => c.name === "bandit binary");
+    assert.ok(bandit, "bandit check must be registered under the 'bandit binary' row");
+    const result = await bandit.run();
+    assert.equal(result.status, "fail", `expected fail; got ${result.status}: ${result.message}`);
+    assert.match(result.hint ?? "", /bandit\[sarif\]/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("bandit check reports ok when the [sarif] formatter is present", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-bandit-ok-"));
+  try {
+    const withFormatter: RunCommandFn = async (_cmd, args) => {
+      if (args.includes("--version")) return { status: 0, stdout: "bandit 1.9.4", stderr: "" };
+      // `-f sarif` probe against an empty dir → no findings, clean exit.
+      return { status: 0, stdout: '{"runs":[]}', stderr: "" };
+    };
+    const checks = buildChecks({ home, skipNative: true, runCommand: withFormatter });
+    const bandit = checks.find((c) => c.name === "bandit binary");
+    assert.ok(bandit);
+    const result = await bandit.run();
+    assert.equal(result.status, "ok", `expected ok; got ${result.status}: ${result.message}`);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("bandit check warns (not fails) when the binary is absent", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-bandit-missing-"));
+  try {
+    const missing: RunCommandFn = async () => ({ status: 127, stdout: "", stderr: "not found" });
+    const checks = buildChecks({ home, skipNative: true, runCommand: missing });
+    const bandit = checks.find((c) => c.name === "bandit binary");
+    assert.ok(bandit);
+    const result = await bandit.run();
+    assert.equal(result.status, "warn", `absent binary is a soft warn; got ${result.status}`);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
