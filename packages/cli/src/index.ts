@@ -653,9 +653,13 @@ program
 program
   .command("doctor")
   .description(
-    "Probe the local environment (node/pnpm/native bindings/scanners/registry) and print actionable hints",
+    "Probe the local environment (node/pnpm/native bindings/vendored grammars/scip indexers/scanners/registry) and print actionable hints",
   )
   .option("--skip-native", "Skip checks that require native bindings (duckdb / lbug)")
+  .option(
+    "--strict",
+    "Treat a missing SCIP indexer as a failure (exit 2), not a warning — for release/CI gates",
+  )
   .option(
     "--repoRoot <path>",
     "Override the workspace root used as a fallback for native-binding resolution",
@@ -664,6 +668,7 @@ program
     const mod = await import("./commands/doctor.js");
     await mod.runDoctor({
       skipNative: opts["skipNative"] === true,
+      strict: opts["strict"] === true,
       ...(typeof opts["repoRoot"] === "string" && opts["repoRoot"].length > 0
         ? { repoRoot: opts["repoRoot"] }
         : {}),
