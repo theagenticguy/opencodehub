@@ -66,14 +66,21 @@ fail=0
 # and a first-class product name in docs); kept as a hook for future
 # situational allowlists.
 #
-# Indexed by literal. A line is only forgiven if EVERY banned-literal match
-# on that line is covered by the tolerated pattern.
-declare -A LITERAL_ALLOWLIST_REGEX=()
+# Returns a regex of tolerated substrings for the given literal, or empty. A
+# line is only forgiven if EVERY banned-literal match on it is covered. This
+# is a `case` function rather than an associative array (`declare -A`) so the
+# script runs on stock macOS bash 3.2; add `LITERAL) printf '<regex>' ;;`
+# arms here as future allowlists arise.
+literal_allowlist_regex() {
+  case "$1" in
+    *) printf '' ;;
+  esac
+}
 
 # Literal-string sweep (case-insensitive).
 for pat in "${BANNED_LITERALS[@]}"; do
   if matches=$(git grep -I -n -i -e "$pat" --untracked -- "${EXCLUDES[@]}" 2>/dev/null); then
-    allow="${LITERAL_ALLOWLIST_REGEX[$pat]:-}"
+    allow="$(literal_allowlist_regex "$pat")"
     if [ -n "$allow" ]; then
       # Strip every allow-listed occurrence from each hit; if the line still
       # contains the banned literal, it's a real fail.
