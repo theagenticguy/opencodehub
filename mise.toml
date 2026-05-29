@@ -5,6 +5,7 @@ python = "3.12"
 uv = "latest"
 "npm:node-gyp" = "latest"  # fallback native build for @duckdb/node-api / onnxruntime-node when a platform prebuild is missing (parsing is WASM-only — ADR 0015)
 "aqua:betterleaks/betterleaks" = "1.2.0"  # secret scanner — used by analyze + pre-release gate
+lefthook = "2.1.8"  # git hooks — must satisfy lefthook.yml min_version (2.1.6); matches root devDep so a stale global mise install can't shadow it
 
 [env]
 # Python venv used to be anchored at packages/eval/.venv while the eval
