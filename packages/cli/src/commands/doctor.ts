@@ -539,6 +539,26 @@ function sarifSchemaCheck(repoRoot: string): Check {
   return {
     name: "@opencodehub/sarif build",
     async run() {
+      // 1. Installed deployment (the customer case): resolve the ESM entry
+      //    the CLI would actually `import`. `@opencodehub/sarif`'s `exports`
+      //    map declares only the `import` condition (no `require`), so
+      //    `createRequire().resolve()` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
+      //    `import.meta.resolve` honors `import` and is the path that works in
+      //    a real `npm i -g @opencodehub/cli`. A resolvable, on-disk entry
+      //    means the package shipped its prebuilt `dist/`; there is no
+      //    `packages/sarif/` tree to build, so `pnpm -r build` would be
+      //    nonsensical advice here.
+      try {
+        const entryPath = fileURLToPath(import.meta.resolve("@opencodehub/sarif"));
+        if (existsSyncSafe(entryPath)) {
+          return { status: "ok", message: "@opencodehub/sarif built" };
+        }
+      } catch {
+        // fall through to the monorepo source-checkout layout
+      }
+      // 2. Monorepo / source-checkout fallback: the CLI runs from
+      //    `packages/cli/dist` while a sibling `@opencodehub/sarif` may be
+      //    unbuilt. Only here is the `pnpm -r build` hint correct.
       const pkgDir = join(repoRoot, "packages", "sarif", "dist");
       try {
         const s = await stat(pkgDir);
