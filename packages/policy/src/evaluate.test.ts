@@ -236,6 +236,93 @@ test("ownership_required: matches single-segment wildcard with '*'", () => {
   assert.equal(decision.violations.length, 1);
 });
 
+test("ownership_required: '**/' anchors on a segment boundary and does not over-match a partial trailing segment", () => {
+  const policy: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "storage-dir",
+        paths: ["**/storage"],
+        require_approval_from: ["@storage-team"],
+      },
+    ],
+  };
+  const decision = evaluatePolicy(
+    policy,
+    emptyCtx({
+      // `mystorage` ends with the literal `storage` but is a different
+      // segment, so `**/storage` must NOT capture it. `packages/storage`
+      // is a real segment match and must be gated.
+      touchedPaths: ["packages/mystorage", "packages/storage"],
+      approvals: [],
+    }),
+  );
+  assert.equal(decision.status, "block");
+  assert.equal(decision.violations.length, 1);
+  assert.match(decision.violations[0]?.reason ?? "", /"packages\/storage"/);
+});
+
+test("ownership_required: '**/' before a file name does not over-match a partial file segment", () => {
+  const policy: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "test-file",
+        paths: ["**/test.ts"],
+        require_approval_from: ["@qa"],
+      },
+    ],
+  };
+  const decision = evaluatePolicy(
+    policy,
+    emptyCtx({
+      // `mytest.ts` shares the `test.ts` suffix but is one segment, so it
+      // must NOT match. `src/test.ts` and a root-level `test.ts` are real
+      // segment matches.
+      touchedPaths: ["src/mytest.ts", "src/test.ts", "test.ts"],
+      approvals: [],
+    }),
+  );
+  assert.equal(decision.status, "block");
+  assert.equal(decision.violations.length, 2);
+  const reasons = decision.violations.map((v) => v.reason).join("\n");
+  assert.match(reasons, /"src\/test\.ts"/);
+  assert.match(reasons, /"test\.ts"/);
+  assert.doesNotMatch(reasons, /mytest/);
+});
+
+test("ownership_required: 'packages/**/file' still matches the zero-segment case", () => {
+  const policy: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "nested-file",
+        paths: ["packages/**/build.ts"],
+        require_approval_from: ["@maintainers"],
+      },
+    ],
+  };
+  const decision = evaluatePolicy(
+    policy,
+    emptyCtx({
+      // The `**/` group is optional, so both the direct child and a deeply
+      // nested path are gated.
+      touchedPaths: ["packages/build.ts", "packages/a/b/build.ts", "packages/abuild.ts"],
+      approvals: [],
+    }),
+  );
+  assert.equal(decision.status, "block");
+  assert.equal(decision.violations.length, 2);
+  const reasons = decision.violations.map((v) => v.reason).join("\n");
+  assert.match(reasons, /"packages\/build\.ts"/);
+  assert.match(reasons, /"packages\/a\/b\/build\.ts"/);
+  // `packages/abuild.ts` ends with `build.ts` but is a partial segment.
+  assert.doesNotMatch(reasons, /abuild/);
+});
+
 // ---- multi-rule determinism ---------------------------------------------
 
 test("evaluatePolicy: violations are sorted by ruleId across mixed rule types", () => {

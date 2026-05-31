@@ -32,14 +32,21 @@
  *     because it's symmetric with the per-adapter row decoder).
  *
  * **`stringArrayOrNull` round-trip note** — `[]` and
- * `undefined` are now distinct on the wire. Empty arrays pass through to
- * the native TEXT[] / STRING[] binder as 0-length array literals (NOT
- * NULL); only non-array inputs collapse to NULL. Symmetric readers
- * (`setStringArrayField` in duckdb-adapter.ts, `setStringArrayFieldGd` in
- * graphdb-adapter.ts, `stringArrayField` in analyze.ts) re-attach the
- * empty array as the field value instead of dropping the key. Net effect:
- * `{keywords: []}` round-trips byte-identically to itself instead of
- * collapsing to `{}` (canonical-JSON / graphHash distinction preserved).
+ * `undefined` are kept distinct on the wire. {@link stringArrayOrNull}
+ * returns a typed 0-length array for an empty-array input and `null` for a
+ * non-array input. The two backends preserve that distinction differently:
+ *   - DuckDB `TEXT[]` stores a 0-length array literal natively, so the
+ *     symmetric reader re-attaches `[]` as the field value.
+ *   - lbug `STRING[]` collapses a 0-length array to SQL NULL on write
+ *     (v0.16.1), so the graph-db adapter encodes an explicit empty array as
+ *     a single-element marker on write and decodes it back to `[]` on read
+ *     (`encodeNodeCol` + `setStringArrayFieldGd` in graphdb-adapter.ts); a
+ *     non-array input is written as `[]` → stored NULL → dropped (= absent).
+ * The CLI read path (`stringArrayField` in analyze.ts) mirrors the DuckDB
+ * reader. Net effect: `{keywords: []}` round-trips byte-identically to
+ * itself instead of collapsing to `{}` (canonical-JSON / graphHash
+ * distinction preserved on every backend). Enforced end-to-end by
+ * `graph-hash-parity.test.ts`.
  *
  * **`frameworks_json` unification** — before the hoist, the DuckDB
  * adapter wrote the v2.0 polymorphic shape via `frameworksJsonOrNull`
@@ -314,19 +321,19 @@ export function booleanOrNull(v: unknown): boolean | null {
  * - Array inputs round-trip as a typed array — including `[]` (0-length).
  *   Non-string elements are filtered silently.
  *
- * **Preserve `[]` distinct from absent.** Both
- * backends store this column as a native array type (DuckDB `TEXT[]`,
- * graph-db `STRING[]`); both binders distinguish a 0-length array literal
- * from SQL NULL natively. Returning `[]` on an empty-array input lets the
- * "explicit empty" signal survive through the binder, the on-disk row,
- * and the read-back step. The symmetric reader change in
- * `duckdb-adapter.ts:setStringArrayField`,
- * `graphdb-adapter.ts:setStringArrayFieldGd`, and
+ * **Preserve `[]` distinct from absent.** Returning a typed `[]` on an
+ * empty-array input (rather than `null`) carries the "explicit empty"
+ * signal into each adapter's writer. DuckDB `TEXT[]` stores a 0-length
+ * literal natively; lbug `STRING[]` cannot (it collapses `[]` to NULL on
+ * write), so the graph-db adapter substitutes an empty-array marker on the
+ * way in and decodes it back on the way out — see `encodeNodeCol` +
+ * `setStringArrayFieldGd` in `graphdb-adapter.ts`. The symmetric reader
+ * change in `duckdb-adapter.ts:setStringArrayField` and
  * `analyze.ts:stringArrayField` re-attaches `[]` instead of dropping the
  * field when the read-back array has length zero. Combined, this preserves
  * the canonical-JSON shape difference between `{keywords: []}` and `{}`
- * (graphHash content-shape change — see graph-hash-parity test fixture
- * `medium-with-empty-keywords`).
+ * (graphHash content-shape change — see the empty-keywords fixture in
+ * `graph-hash-parity.test.ts`).
  */
 export function stringArrayOrNull(v: unknown): readonly string[] | null {
   if (!Array.isArray(v)) return null;

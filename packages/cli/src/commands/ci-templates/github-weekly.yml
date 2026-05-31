@@ -20,8 +20,8 @@ jobs:
       - run: npm install -g @opencodehub/cli@latest
       - name: deep scan (P1 + P2)
         run: |
-          codehub analyze --force --sbom --scan \
-            --with trivy,checkov,hadolint,tflint,spectral
+          codehub analyze --force --sbom --scan
+          codehub scan --with trivy,checkov,hadolint,tflint,spectral
       - name: license audit
         id: license
         run: |

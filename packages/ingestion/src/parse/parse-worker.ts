@@ -9,8 +9,16 @@
  *   3. Parses each task's buffer and maps captures to {@link ParseCapture}.
  *   4. Returns a {@link ParseResult} per task.
  *
- * Per-task wall-clock timeout: 30 seconds. On timeout the task returns a
- * result with empty captures and a warning rather than crashing the worker.
+ * Per-task timeout: 30 seconds, enforced as a SOFT async-only bound. The
+ * timer is a `setTimeout`-backed rejection that races the parse promise, so
+ * it only fires for stalls that yield the event loop (a slow grammar load,
+ * an awaited I/O hop). It CANNOT interrupt the synchronous body of
+ * `WasmParserHandle.runQuery` — `parser.parse()` and `query.matches()` run to
+ * completion on the worker thread, blocking the same event loop the timer
+ * lives on. The real guard against a pathological in-thread hang is the
+ * pre-parse {@link MAX_FILE_BYTES} cap, which skips oversize inputs before
+ * any WASM call. On timeout (or any parse error) the task returns a result
+ * with empty captures and a warning rather than crashing the worker.
  *
  * `web-tree-sitter` is the sole runtime as of 0.4.0. Native `tree-sitter`
  * was removed from the runtime install graph; grammar `.wasm` blobs are
@@ -24,7 +32,8 @@ import { getUnifiedQuery } from "./unified-queries.js";
 import { openWasmParser, type WasmParserHandle } from "./wasm-runtime.js";
 
 const PER_FILE_TIMEOUT_MS = 30_000;
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+/** Pre-parse byte cap. Inputs above this are skipped before any WASM call. */
+export const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 // Per-worker WASM parser cache. Each worker_thread has its own module
 // instance so this lives per-worker.
@@ -41,7 +50,16 @@ export default async function parseBatch(batch: ParseBatch): Promise<ParseResult
   return results;
 }
 
-async function parseOne(task: ParseTask): Promise<ParseResult> {
+/**
+ * Parse one task. `parseFn` is the WASM parse step; it is injectable so the
+ * oversize-skip and error-to-warning branches can be exercised in a unit
+ * test without standing up a real grammar. Production always uses the
+ * default {@link runParse}.
+ */
+export async function parseOne(
+  task: ParseTask,
+  parseFn: (language: LanguageId, content: Buffer) => Promise<readonly ParseCapture[]> = runParse,
+): Promise<ParseResult> {
   const start = performance.now();
   const warnings: string[] = [];
   // piscina's structured-clone transport converts a Buffer into a plain
@@ -70,7 +88,7 @@ async function parseOne(task: ParseTask): Promise<ParseResult> {
 
   try {
     const captures = await withTimeout(
-      runParse(task.language, content),
+      parseFn(task.language, content),
       PER_FILE_TIMEOUT_MS,
       `parse timed out after ${PER_FILE_TIMEOUT_MS}ms`,
     );
@@ -133,7 +151,12 @@ async function runWasm(language: LanguageId, source: string): Promise<readonly P
   return out;
 }
 
-// --- wall-clock timeout ----------------------------------------------------
+// --- soft async-only timeout -----------------------------------------------
+//
+// Races a `setTimeout` rejection against the parse promise. This only bounds
+// stalls that release the event loop; a synchronous WASM parse holds the
+// thread and the timer cannot fire until it returns. See the module
+// docstring — the {@link MAX_FILE_BYTES} cap is the hard guard.
 
 function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {

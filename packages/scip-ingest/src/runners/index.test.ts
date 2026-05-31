@@ -13,7 +13,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -71,6 +71,34 @@ test("runIndexer(cobol-proleap): legacy allowBuildScripts=true also activates (w
     cobolProleapJarPath: jarPath,
   });
   assert.equal(res.skipped, false);
+});
+
+test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
+  skip: process.platform === "win32" ? "POSIX shim shell only" : false,
+}, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "scip-ingest-"));
+  const bin = mkdtempSync(join(tmpdir(), "scip-ingest-bin-"));
+  // Shim a `scip-go` that exits fast for the `--version` probe but hangs
+  // for the index invocation, so the spawn timer is the only thing that
+  // can end it.
+  const shim = join(bin, "scip-go");
+  writeFileSync(
+    shim,
+    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nsleep 30\n',
+  );
+  chmodSync(shim, 0o755);
+
+  const res = await runIndexer("go", {
+    projectRoot: dir,
+    outputDir: dir,
+    timeoutMs: 50,
+    envOverlay: { PATH: bin },
+  });
+
+  assert.equal(res.kind, "go");
+  assert.equal(res.skipped, true);
+  assert.match(res.skipReason ?? "", /exceeded 50ms/);
+  assert.match(res.skipReason ?? "", /terminated/);
 });
 
 test("defaultCobolProleapPaths: resolves under ~/.codehub/vendor/proleap", () => {

@@ -198,8 +198,7 @@ export interface PipelineOptions {
    * When `true`, detectors that pattern-match on receiver identifiers
    * skip heuristic-only matches entirely — edges are emitted only when a
    * receiver's module origin was confirmed via the import graph or
-   * ts-morph. Exposed by the `codehub analyze --strict-detectors` flag
-   * (DET-O-001).
+   * ts-morph. Exposed by the `codehub analyze --strict-detectors` flag.
    */
   readonly strictDetectors?: boolean;
 }

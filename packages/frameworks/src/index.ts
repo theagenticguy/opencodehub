@@ -1,17 +1,26 @@
 /**
- * `@opencodehub/frameworks` — 5-stage framework detection over a curated
- * 23-entry registry.
+ * `@opencodehub/frameworks` — framework detection over a curated catalog.
  *
- * Stages (each emits `{name, version?, confidence, evidence[]}`):
- *   1. Manifest presence (`package.json`, `pyproject.toml`, `pom.xml`, …)
- *   2. Lockfile + exact versions (`package-lock.json`, `pnpm-lock.yaml`,
- *      `Gemfile.lock`, `poetry.lock`, `uv.lock`, `Cargo.lock`)
- *   3. Config AST (`next.config.*`, `astro.config.*`, `vite.config.*`,
- *      `spring.factories`)
- *   4. Folder convention (`app/`, `pages/`, `src/main/java/`, …)
- *   5. Import / SCIP usage patterns (consumes the graph's `IMPORTS` edges)
+ * The dispatcher (`detector.ts`) merges three stages into each
+ * `FrameworkDetection` (`{name, version?, confidence, evidence[]}`):
+ *   1. Manifest presence + declared deps (`package.json`, `pyproject.toml`,
+ *      `pom.xml`, …)
+ *   2. Lockfile exact versions, overriding manifest semver ranges
+ *      (`package-lock.json`, `pnpm-lock.yaml`, `Gemfile.lock`,
+ *      `poetry.lock`, `uv.lock`, `Cargo.lock`)
+ *   4. Folder / file-marker convention (`app/`, `pages/`, `vite.config.ts`,
+ *      `src/main/java/`, …)
  *
- * All stages are pure-local file-system + string/regex inspection; no
+ * Two further stages ship as standalone, independently tested modules but
+ * are not yet wired into the ingestion profile phase (their findings do not
+ * reach `FrameworkDetection.evidence` until a caller passes the extra
+ * inputs through):
+ *   3. Config AST (`config-ast.ts`) — `next.config.*`, `astro.config.*`,
+ *      `vite.config.*`, `spring.factories`; needs the config-file text.
+ *   5. Import / SCIP (`imports.ts`) — consumes the graph's `IMPORTS` edges;
+ *      needs the `KnowledgeGraph`.
+ *
+ * Every stage is pure-local file-system + string/regex inspection; no
  * network, no LLM, no subprocess.
  */
 

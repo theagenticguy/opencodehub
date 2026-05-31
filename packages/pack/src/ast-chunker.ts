@@ -2,9 +2,10 @@
  * BOM body item: AST-aware code chunks (item 5/9).
  *
  * Wraps `@chonkiejs/core`'s `CodeChunker`, which builds chunks from a
- * tree-sitter AST (children grouped by token budget). Each input file is
- * CRLF→LF normalized BEFORE chunking — two repos differing only by
- * line-ending style must produce the same `pack_hash`.
+ * tree-sitter AST (children grouped by token budget). Each input file has
+ * its line endings normalized to LF (CRLF and lone CR alike) BEFORE
+ * chunking — two repos differing only by line-ending style must produce
+ * the same `pack_hash`.
  *
  * Determinism:
  *   - Strict path: `CodeChunker.create({language})` succeeds for every
@@ -282,13 +283,15 @@ function pushLineSplitChunks(
   }
 }
 
-/** Decode raw bytes as UTF-8 and CRLF→LF normalize for line-ending byte-identity. */
+/** Decode raw bytes as UTF-8 and normalize line endings for byte-identity. */
 function decodeAndNormalize(bytes: Uint8Array): string {
   // `fatal: false` so malformed sequences become U+FFFD instead of throwing —
   // the BOM is best-effort over arbitrary repo bytes; it does not validate
   // encoding here.
   const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  return decoded.replace(/\r\n/g, "\n");
+  // Collapse CRLF and lone CR (classic-Mac) to LF so two repos differing only
+  // by line-ending style chunk identically and produce the same pack_hash.
+  return decoded.replace(/\r\n?/g, "\n");
 }
 
 /** Path ASC primary sort. */

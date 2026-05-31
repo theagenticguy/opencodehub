@@ -665,6 +665,42 @@ test("generateWiki: renders all 5 page families on a populated graph", async () 
   }
 });
 
+test("generateWiki: api-surface is one repo-wide page, not a per-framework fan-out", async () => {
+  // Before the collapse, two detected frameworks (express + fastapi) each got
+  // their own page carrying byte-identical Route/Operation/Fetch tables — the
+  // split added no information because the graph has no framework attribution
+  // on Route/Operation/FETCHES nodes. The fix emits a single repo-wide page.
+  const store = seededStore();
+  const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-apisurface-"));
+  try {
+    const result = await generateWiki(store, { outputDir: dir });
+    const rels = result.filesWritten.map((f) => path.relative(dir, f)).sort();
+
+    const apiPages = rels.filter((r) => r.startsWith("api-surface/"));
+    assert.deepEqual(
+      apiPages,
+      ["api-surface/index.md"],
+      "api-surface should be exactly one repo-wide page, no per-framework fan-out",
+    );
+    // The seeded frameworks must NOT have produced their own pages.
+    assert.ok(!rels.includes("api-surface/express.md"), "no per-framework express.md");
+    assert.ok(!rels.includes("api-surface/fastapi.md"), "no per-framework fastapi.md");
+
+    // The single page carries the full tables (the route + operation + fetch
+    // rows that the old per-framework pages duplicated).
+    const apis = await readFile(path.join(dir, "api-surface/index.md"), "utf8");
+    assert.match(apis, /## Routes/);
+    assert.match(apis, /## Operations/);
+    assert.match(apis, /## Cross-stack fetches/);
+    assert.ok(apis.includes("/login"), "route table should list the /login route");
+    assert.ok(apis.includes("/invoice/:id"), "operation table should list the /invoice/:id path");
+    // Detected frameworks are summarised, not split into pages.
+    assert.ok(apis.includes("express") && apis.includes("fastapi"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("generateWiki: two runs produce byte-identical output (determinism)", async () => {
   const storeA = seededStore();
   const storeB = seededStore();

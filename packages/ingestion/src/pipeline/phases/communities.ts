@@ -65,23 +65,25 @@ export const communitiesPhase: PipelinePhase<CommunitiesOutput> = {
 };
 
 function runCommunities(ctx: PipelineContext): CommunitiesOutput {
-  // ---- : incremental carry-forward short-circuit. ---------------
+  // ---- Incremental carry-forward (empty-closure only). ------------------
   //
-  // Leiden is deterministic given a fixed seed AND a fixed input graph,
-  // but its partition is sensitive to every edge weight — running on a
-  // sparsified subgraph drifts in the general case. For the determinism
-  // gate (`--full` vs `--incremental` at the same commit must byte-equal)
-  // we take the conservative path: when the incremental view is active,
-  // carry forward every Community node + MEMBER_OF edge from the prior
-  // graph verbatim, and skip Leiden entirely. The post-parse callable
-  // graph is byte-identical to the prior run under no-semantic-change, so
-  // re-running Leiden would produce the same partition anyway; skipping
-  // the work is a pure speedup. If the closure introduces new callables
-  // whose community assignment matters, the 30% safety valve in
-  // incremental-scope flips mode back to "full" and Leiden runs normally.
+  // Leiden is deterministic given a fixed seed AND a fixed input graph, but
+  // its partition is global — it is sensitive to every edge weight, so a
+  // partial recompute over a closure subgraph would drift from a full run
+  // (unlike cross-file/mro/processes, whose outputs are per-file or per-
+  // entry-point and so split cleanly into carry-forward + recompute halves).
+  // Carry-forward verbatim is byte-identical to a full run ONLY when the
+  // post-parse callable graph is unchanged, which the incremental view
+  // guarantees exactly when the changed-file closure is empty. When the
+  // closure is non-empty a single hot file may have added or removed
+  // callables/CALLS edges that shift the global partition, so we fall
+  // through and re-run Leiden on the reconstructed full graph (cross-file
+  // already replayed the non-closure CALLS edges), which reproduces the
+  // full-run partition byte-for-byte.
   const view = resolveIncrementalView(ctx);
   if (
     view.active &&
+    view.closure.size === 0 &&
     view.previousGraph?.edges !== undefined &&
     view.previousGraph.nodes !== undefined
   ) {

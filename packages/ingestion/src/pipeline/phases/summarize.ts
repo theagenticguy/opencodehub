@@ -52,13 +52,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SCIP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
+import { canonicalJson, SCIP_PROVENANCE_PREFIXES } from "@opencodehub/core-types";
 import type { SymbolSummaryRow } from "@opencodehub/storage";
 import {
   DEFAULT_MODEL_ID,
   SUMMARIZER_PROMPT_VERSION,
   type SummarizeInput,
   type SummarizerResult,
+  type SymbolSummaryT,
 } from "@opencodehub/summarizer";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { CONFIDENCE_DEMOTE_PHASE_NAME } from "./confidence-demote.js";
@@ -321,6 +322,7 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
       const result = await summarizer.summarize(input);
       const summary = result.summary;
       const signatureSummary = buildSignatureSummary(summary);
+      const structuredJson = buildStructuredJson(summary);
       const row: SymbolSummaryRow = {
         nodeId: entry.candidate.nodeId,
         contentHash: entry.contentHash,
@@ -329,6 +331,7 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
         summaryText: summary.purpose,
         ...(signatureSummary !== undefined ? { signatureSummary } : {}),
         returnsTypeSummary: summary.returns.type_summary,
+        ...(structuredJson !== undefined ? { structuredJson } : {}),
         createdAt: now().toISOString(),
       };
       rows.push(row);
@@ -468,6 +471,44 @@ function buildSignatureSummary(summary: {
 }): string | undefined {
   if (summary.inputs.length === 0) return undefined;
   return summary.inputs.map((i) => `${i.name}: ${i.type}`).join(", ");
+}
+
+/**
+ * Serialize the validated structured fields the flat `SymbolSummaryRow`
+ * columns drop — per-input descriptions, `returns.details`, `side_effects`,
+ * `invariants`, and the line-range `citations` that back a staleness
+ * detector. Emitted via `canonicalJson` (sorted keys) so the row is
+ * byte-deterministic across runs and the temporal-store content hash stays
+ * stable. Returns `undefined` when there is nothing beyond the flat columns
+ * to persist, so legacy rows keep round-tripping with `structured_json` NULL.
+ */
+function buildStructuredJson(summary: SymbolSummaryT): string | undefined {
+  const hasInputDetails = summary.inputs.some((i) => i.description.length > 0);
+  const hasInvariants = summary.invariants !== null && summary.invariants.length > 0;
+  if (
+    !hasInputDetails &&
+    summary.side_effects.length === 0 &&
+    !hasInvariants &&
+    summary.returns.details.length === 0 &&
+    summary.citations.length === 0
+  ) {
+    return undefined;
+  }
+  return canonicalJson({
+    inputs: summary.inputs.map((i) => ({
+      name: i.name,
+      type: i.type,
+      description: i.description,
+    })),
+    returns: { type: summary.returns.type, details: summary.returns.details },
+    side_effects: summary.side_effects,
+    invariants: summary.invariants ?? [],
+    citations: summary.citations.map((c) => ({
+      field_name: c.field_name,
+      line_start: c.line_start,
+      line_end: c.line_end,
+    })),
+  });
 }
 
 /**

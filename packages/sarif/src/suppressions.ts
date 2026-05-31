@@ -11,8 +11,14 @@
  *        // codehub-suppress: <ruleId> <reason>
  *        # codehub-suppress: <ruleId> <reason>
  *        /* codehub-suppress: <ruleId> <reason> *\/
- *      The ruleId must match the Result.ruleId exactly; everything after
- *      it is the justification.
+ *        -- codehub-suppress: <ruleId> <reason>
+ *        <!-- codehub-suppress: <ruleId> <reason> -->
+ *      The marker is honored only when it sits inside a comment — it must
+ *      be preceded by a comment opener (`//`, `#`, `/*`, `--`, or `<!--`)
+ *      on the same line. A bare `codehub-suppress:` in a string literal or
+ *      data value does NOT suppress, so a finding can't be hidden by its
+ *      own source text. The ruleId must match the Result.ruleId exactly;
+ *      everything after it is the justification.
  *
  * Both paths append to `result.suppressions[]` using SARIF 2.1.0's
  *   { kind: "external" | "inSource", justification: string }
@@ -245,7 +251,15 @@ export function findInlineSuppressionReason(
   return undefined;
 }
 
-const INLINE_MARKER = /codehub-suppress\s*:\s*(\S+)\s*(.*)$/;
+// The marker only counts inside a comment. A comment opener (`//`, `#`,
+// `/*`, `--`, or `<!--`) must come first on the line; the marker must then
+// be the first non-space token of that comment body. Anchoring this way
+// stops a literal `codehub-suppress:` inside a string/regex/data value from
+// silently dropping a real finding — a security gate defeat.
+const COMMENT_OPENER = /(?:\/\/|#|\/\*|--|<!--)\s*/;
+const INLINE_MARKER = new RegExp(
+  `${COMMENT_OPENER.source}codehub-suppress\\s*:\\s*(\\S+)\\s*(.*)$`,
+);
 
 function extractInlineReason(line: string, ruleId: string): string | undefined {
   const match = INLINE_MARKER.exec(line);
@@ -253,10 +267,10 @@ function extractInlineReason(line: string, ruleId: string): string | undefined {
   const markerRuleId = match[1];
   const reasonRaw = match[2] ?? "";
   if (markerRuleId !== ruleId) return undefined;
-  // Strip a trailing C-family block-comment closer if one rode in with the
-  // reason, then collapse whitespace. If the user wrote no reason, fall
-  // back to a generic marker so the Result still reads as suppressed.
-  const cleaned = reasonRaw.replace(/\*+\/\s*$/, "").trim();
+  // Strip a trailing C-family / HTML block-comment closer if one rode in
+  // with the reason, then collapse whitespace. If the user wrote no reason,
+  // fall back to a generic marker so the Result still reads as suppressed.
+  const cleaned = reasonRaw.replace(/(?:\*+\/|--!?>)\s*$/, "").trim();
   return cleaned.length > 0 ? cleaned : "suppressed in source";
 }
 
@@ -319,14 +333,17 @@ function applyToResult(
   const uri = getResultUri(result);
   const existing = ensureSuppressions(result);
 
-  // External rule matches.
-  if (uri !== undefined) {
-    for (const rule of rules) {
-      if (rule.ruleId !== ruleId) continue;
-      if (!matchesPath(rule.filePathPattern, uri)) continue;
-      if (hasKindJustification(existing, "external", rule.reason)) continue;
-      existing.push({ kind: "external", justification: rule.reason });
-    }
+  // External rule matches. A Result with no primary location URI is legal
+  // under SARIF 2.1.0 (file-less secret/dependency findings are common); a
+  // rule can still suppress it by ruleId as long as its pattern would match
+  // the empty path — only a catch-all such as `**` does. Matching against ""
+  // keeps the path-scoped rules from leaking onto location-less findings.
+  for (const rule of rules) {
+    if (rule.ruleId !== ruleId) continue;
+    const target = uri ?? "";
+    if (!matchesPath(rule.filePathPattern, target)) continue;
+    if (hasKindJustification(existing, "external", rule.reason)) continue;
+    existing.push({ kind: "external", justification: rule.reason });
   }
 
   // Inline-comment matches.

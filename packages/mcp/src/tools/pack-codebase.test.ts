@@ -213,7 +213,7 @@ test("pack_codebase honors budget+tokenizer overrides on the pack engine", async
   });
 });
 
-test("pack_codebase returns a structured error when the repo cannot be resolved", async () => {
+test("pack_codebase returns a NOT_FOUND envelope when the repo is not registered", async () => {
   await withHarness(async ({ ctx }) => {
     const deps: PackCodebaseDeps = {
       _runPackEngine: async () => ({ outDir: "x", packHash: "x", bomItemCount: 0 }),
@@ -232,5 +232,84 @@ test("pack_codebase returns a structured error when the repo cannot be resolved"
       deps,
     );
     assert.equal(result.isError, true);
+    const err = (result.structuredContent as { error: Record<string, unknown> }).error;
+    // The resolver's structured code must survive — not be flattened to INTERNAL.
+    assert.equal(err["code"], "NOT_FOUND");
   });
+});
+
+test("pack_codebase surfaces the AMBIGUOUS_REPO envelope when ≥ 2 repos are registered", async () => {
+  // Two registered repos with neither `repo` nor `repo_uri` supplied: the
+  // resolver throws RepoResolveError(AMBIGUOUS_REPO). pack_codebase must emit
+  // the structured envelope (error_code + choices + total_matches) rather than
+  // flattening it to INTERNAL through the catch-all.
+  const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-pack-ambig-"));
+  try {
+    const repoA = resolve(home, "repoA");
+    const repoB = resolve(home, "repoB");
+    await mkdir(repoA, { recursive: true });
+    await mkdir(repoB, { recursive: true });
+    const regDir = resolve(home, ".codehub");
+    await mkdir(regDir, { recursive: true });
+    await writeFile(
+      resolve(regDir, "registry.json"),
+      JSON.stringify({
+        "github.com/org/repoA": {
+          name: "github.com/org/repoA",
+          path: repoA,
+          indexedAt: "2026-04-18T00:00:00Z",
+          nodeCount: 0,
+          edgeCount: 0,
+        },
+        "github.com/org/repoB": {
+          name: "github.com/org/repoB",
+          path: repoB,
+          indexedAt: "2026-04-18T00:00:00Z",
+          nodeCount: 0,
+          edgeCount: 0,
+        },
+      }),
+    );
+    const pool = {
+      acquire: async () => {
+        throw new Error("pool.acquire should not be called by pack_codebase");
+      },
+      release: async () => {},
+      shutdown: async () => {},
+      // biome-ignore lint/suspicious/noExplicitAny: stub doesn't implement the full ConnectionPool surface
+    } as any as ConnectionPool;
+    const ctx: ToolContext = { pool, home };
+    const deps: PackCodebaseDeps = {
+      _runPackEngine: async () => {
+        throw new Error("pack engine should not run when repo is ambiguous");
+      },
+    };
+    const result = await runPackCodebase(
+      ctx,
+      {
+        // No repo / repo_uri — trigger the ambiguous path.
+        engine: "pack",
+        budget: DEFAULT_PACK_BUDGET,
+        tokenizer: DEFAULT_PACK_TOKENIZER,
+        style: "xml",
+        compress: true,
+        removeComments: false,
+      },
+      deps,
+    );
+    assert.equal(result.isError, true);
+    const err = (result.structuredContent as { error: Record<string, unknown> }).error;
+    assert.equal(err["code"], "AMBIGUOUS_REPO");
+    assert.equal(err["error_code"], "AMBIGUOUS_REPO");
+    assert.equal(err["jsonrpc_code"], -32602);
+    assert.equal(err["total_matches"], 2);
+    const choices = err["choices"] as Array<{ repo_uri: string }>;
+    assert.equal(choices.length, 2);
+    assert.deepEqual(choices.map((c) => c.repo_uri).sort(), [
+      "github.com/org/repoA",
+      "github.com/org/repoB",
+    ]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

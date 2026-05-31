@@ -98,6 +98,25 @@ test("parseNodeId: qualified name may contain colons from file path edges", () =
   assert.equal(parsed.qualifiedName, "Outer::Inner");
 });
 
+test("parseNodeId: non-callable kind keeps a #N tail as part of the name", () => {
+  // A Variable literally named `tmp#42` is not an arity suffix — only callable
+  // kinds carry `#paramCount`. The tail must survive round-trip intact.
+  const id = makeNodeId("Variable", "src/a.ts", "tmp#42");
+  assert.equal(id, "Variable:src/a.ts:tmp#42");
+  const parsed = parseNodeId(id);
+  assert.equal(parsed.kind, "Variable");
+  assert.equal(parsed.filePath, "src/a.ts");
+  assert.equal(parsed.qualifiedName, "tmp#42");
+  assert.equal(parsed.parameterCount, undefined);
+});
+
+test("parseNodeId: callable kind still recovers a real #N arity tail", () => {
+  const id = makeNodeId("Function", "src/a.ts", "f", { parameterCount: 3 });
+  const parsed = parseNodeId(id);
+  assert.equal(parsed.qualifiedName, "f");
+  assert.equal(parsed.parameterCount, 3);
+});
+
 test("makeEdgeId: deterministic concatenation form", () => {
   const from = "Function:a.ts:f" as NodeId;
   const to = "Function:b.ts:g" as NodeId;

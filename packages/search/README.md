@@ -5,29 +5,49 @@ OpenCodeHub. Powers the `query` and `group_query` MCP tools.
 
 ## Surface
 
+`hybridSearch` takes positional arguments: the graph store, a query object,
+and an optional embedder. The query object uses `text` (not `query`); there
+is **no `alpha` weight** — fusion is pure RRF.
+
 ```ts
 import { hybridSearch } from "@opencodehub/search";
 
-const results = await hybridSearch({
-  store,         // StorageAdapter from @opencodehub/storage
-  query: "authentication middleware",
-  limit: 20,
-  alpha: 0.5,    // 0 = BM25 only, 1 = vector only
-});
+// BM25 + vector, fused with RRF. Pass an embedder to enable the vector leg.
+const fused = await hybridSearch(
+  graph, // IGraphStore from @opencodehub/storage
+  {
+    text: "authentication middleware",
+    limit: 20, // optional, defaults to DEFAULT_HYBRID_LIMIT (50)
+    kinds: ["Function", "Class"], // optional NodeKind filter
+    mode: "flat", // "flat" (default) | "zoom"
+    granularity: "symbol", // optional tier filter on the vector leg
+  },
+  embedder, // optional Embedder; omit for BM25-only
+);
+// fused: readonly FusedHit[] — { nodeId, score, sources: ("bm25" | "vector")[] }
 ```
 
 - **BM25** — full-text search via DuckDB FTS, run directly in the graph
   store (`packages/storage`).
 - **Dense vector** — cosine ANN search via DuckDB's `hnsw_acorn` extension.
-- **RRF fusion** — rank lists from both paths are merged with
-  Reciprocal Rank Fusion (k=60) before the final `limit` is applied.
+- **RRF fusion** — the BM25 and vector rank lists are merged with
+  Reciprocal Rank Fusion (`DEFAULT_RRF_K = 60`) before the final `limit` is
+  applied. Each `FusedHit.sources` records which runs (`"bm25"`, `"vector"`)
+  voted for that node.
 
-## Design
+## Behaviour
 
-- `alpha` defaults to 0.5 (equal weight). Set to 0 for pure BM25 (no
-  embeddings required), useful in offline mode.
-- When the embedding column is absent (embeddings not enabled during
-  ingestion), the vector path is silently skipped and BM25 results are
-  returned unchanged.
-- Results are grouped by process/community cluster so an agent sees
-  semantically related symbols together, not just the top-k by score.
+- **No embedder → BM25 only.** When `embedder` is omitted, the vector leg is
+  skipped and BM25 rows are returned unchanged, each tagged
+  `sources: ["bm25"]`. Callers stay on a single codepath whether or not an
+  embedder is active. `hybridBm25Only(store, q)` returns the raw BM25
+  `SymbolHit` rows for callers that want the keyword path directly.
+- **`mode: "zoom"`** runs a coarse file-tier ANN query first, collects the
+  shortlisted file paths, then runs a symbol-tier ANN query restricted to
+  symbols under those files before fusing with BM25. `zoomFanout` (default
+  `DEFAULT_ZOOM_FANOUT = 10`) caps the coarse file-tier shortlist. If the
+  file tier isn't populated, zoom falls back to an unrestricted symbol-tier
+  query.
+- **`granularity`** hard-filters the vector leg to one or more embedding
+  tiers (`"symbol"` | `"file"` | `"community"`). Flat mode defaults to
+  `"symbol"`.

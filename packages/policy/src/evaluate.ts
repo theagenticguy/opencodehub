@@ -182,12 +182,18 @@ function globToRegex(pattern: string): RegExp {
     const ch = pattern[i];
     if (ch === "*") {
       if (pattern[i + 1] === "*") {
-        // `**` -> match any number of characters including /.
-        out += ".*";
         i += 2;
-        // Skip a trailing `/` after `**` so `packages/**/file` matches
-        // `packages/file` too.
-        if (pattern[i] === "/") i += 1;
+        if (pattern[i] === "/") {
+          // `**/` -> match zero or more whole `/`-terminated segments. The
+          // optional group keeps `packages/**/file` matching `packages/file`
+          // too, while the trailing `/` anchors on a segment boundary so
+          // `**/storage` does not match `mystorage`.
+          out += "(?:.*/)?";
+          i += 1;
+        } else {
+          // bare trailing `**` -> match the rest of the path, including `/`.
+          out += ".*";
+        }
         continue;
       }
       // `*` -> one path segment (no `/`).

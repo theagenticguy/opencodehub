@@ -57,6 +57,13 @@ export interface DoctorOptions {
    * Defaults to the real {@link runCommand}. Same signature.
    */
   readonly runCommand?: RunCommandFn;
+  /**
+   * Injectable npm-package resolver for the native-binding checks. Lets a
+   * test simulate an absent `@ladybugdb/core` (the mandatory graph binding
+   * is installed in every dev/CI checkout, so the only way to exercise the
+   * hard-fail path is to stub resolution). Defaults to {@link resolveFromRoot}.
+   */
+  readonly resolveBinding?: (root: string, pkg: string) => string | null;
 }
 
 /** Signature of the injectable command runner (see {@link runCommand}). */
@@ -118,7 +125,11 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck(run)];
   if (opts.skipNative !== true) {
     list.push(duckdbWorksCheck(repoRoot));
-    list.push(lbugWorksCheck(repoRoot));
+    list.push(
+      opts.resolveBinding !== undefined
+        ? lbugWorksCheck(repoRoot, opts.resolveBinding)
+        : lbugWorksCheck(repoRoot),
+    );
   }
   // Vendored parse grammars: a shipped artifact, so absence/corruption is
   // always a hard fail. One row covering all 16 blobs + the manifest pin.
@@ -254,30 +265,36 @@ function duckdbWorksCheck(repoRoot: string): Check {
 }
 
 /**
- * Mirror of {@link duckdbWorksCheck} for the optional `@ladybugdb/core`
- * graph-db backend. Emits `warn` (not `fail`) when the package is
- * uninstalled because `@ladybugdb/core` is opt-in: a default `duck`
- * deployment never needs it. When the package IS installed and the
- * smoke test fails we surface `fail` so a broken native binding can be
- * triaged the same way duckdb's is.
+ * Mirror of {@link duckdbWorksCheck} for the `@ladybugdb/core` graph
+ * binding. The graph tier is mandatory and always-on: there is no
+ * selector env var, no probe, and no fallback — a failed binding throws
+ * `GraphDbBindingError` and aborts every graph operation. So a
+ * missing/broken binding is a hard `fail` here, exactly like a missing
+ * shipped artifact (see {@link vendoredWasmsCheck}) — never a soft `warn`.
+ *
+ * `resolve` is injectable so tests can simulate an absent binding without
+ * uninstalling the real dependency; production passes {@link resolveFromRoot}.
  */
-function lbugWorksCheck(repoRoot: string): Check {
+function lbugWorksCheck(
+  repoRoot: string,
+  resolve: (root: string, pkg: string) => string | null = resolveFromRoot,
+): Check {
   return {
     name: "graph-db native binding",
     async run() {
       try {
-        const lbugPath = resolveFromRoot(repoRoot, "@ladybugdb/core");
+        const lbugPath = resolve(repoRoot, "@ladybugdb/core");
         if (!lbugPath) {
           return {
-            status: "warn",
-            message: "@ladybugdb/core not installed (optional graph-db backend)",
-            hint: "run `pnpm install` and set `CODEHUB_STORE=lbug` to opt in; otherwise ignore",
+            status: "fail",
+            message: "@ladybugdb/core not installed (required graph backend)",
+            hint: "run `pnpm install` — the lbug graph binding ships with the CLI and is mandatory",
           };
         }
-        // The opt-in graph-db backend uses `@ladybugdb/core`'s `Database`
-        // entry. We exercise the load-and-close cycle the same way the
-        // duckdb check does — anything heavier would couple this probe to
-        // the adapter's evolving smoke-test surface.
+        // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
+        // exercise the load-and-close cycle the same way the duckdb check
+        // does — anything heavier would couple this probe to the adapter's
+        // evolving smoke-test surface.
         const mod = (await import(lbugPath)) as Record<string, unknown>;
         const ctorRaw =
           mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
@@ -285,7 +302,7 @@ function lbugWorksCheck(repoRoot: string): Check {
           return {
             status: "fail",
             message: "@ladybugdb/core is installed but exports no Database constructor",
-            hint: "re-run `pnpm install` to refresh the graph-db backend bindings",
+            hint: "re-run `pnpm install` to refresh the graph backend binding",
           };
         }
         return { status: "ok", message: "@ladybugdb/core load OK" };
@@ -293,7 +310,7 @@ function lbugWorksCheck(repoRoot: string): Check {
         return {
           status: "fail",
           message: `@ladybugdb/core failed to load: ${err instanceof Error ? err.message : String(err)}`,
-          hint: "the graph-db backend is opt-in; unset `CODEHUB_STORE=lbug` or reinstall the binding",
+          hint: "reinstall the graph backend binding with `pnpm install`",
         };
       }
     },

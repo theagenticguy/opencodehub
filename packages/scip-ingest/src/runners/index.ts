@@ -414,6 +414,21 @@ export async function runIndexer(
       durationMs: Date.now() - start,
     };
   }
+  if (indexOutcome.kind === "timeout") {
+    // A deliberate timeout is an environment/scale signal, NOT an indexer
+    // crash. Surface it as a graceful, actionable skip — mirroring the
+    // shim-failure branch — so the configured timeout (and the fact that it
+    // was hit) is visible instead of an alarming "exited -1" throw.
+    return {
+      kind,
+      scipPath,
+      tool: plan.tool,
+      version,
+      skipped: true,
+      skipReason: `${kind} indexer exceeded ${indexOutcome.timeoutMs}ms and was terminated`,
+      durationMs: Date.now() - start,
+    };
+  }
   if (indexOutcome.kind === "failed") {
     // Tool-manager shim that resolved on PATH but cannot pick a version
     // (e.g. mise/asdf shims when no version is pinned for the current
@@ -921,6 +936,7 @@ export function detectVersionManagerShimFailure(cmd: string, stderr: string): st
 type CommandOutcome =
   | { kind: "ok"; stdout: string; stderr: string }
   | { kind: "failed"; exitCode: number; stdout: string; stderr: string }
+  | { kind: "timeout"; timeoutMs: number; stdout: string; stderr: string }
   | { kind: "missing" };
 
 /**
@@ -974,8 +990,12 @@ function runCommand(
     let stdout = "";
     let stderr = "";
     let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(() => {
+        // Record the deliberate timeout before killing so the `exit` handler
+        // surfaces a `timeout` outcome instead of a generic non-zero failure.
+        timedOut = true;
         child.kill("SIGTERM");
       }, timeoutMs);
     }
@@ -992,6 +1012,10 @@ function runCommand(
     });
     child.on("exit", (code) => {
       if (timer) clearTimeout(timer);
+      if (timedOut) {
+        res({ kind: "timeout", timeoutMs: timeoutMs as number, stdout, stderr });
+        return;
+      }
       if (code === 0) res({ kind: "ok", stdout, stderr });
       else res({ kind: "failed", exitCode: code ?? -1, stdout, stderr });
     });

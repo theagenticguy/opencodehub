@@ -7,19 +7,41 @@ compiler-derived symbol information.
 ## Surface
 
 ```ts
-import { loadScip, runScipIndexer } from "@opencodehub/scip-ingest";
+import { readFileSync } from "node:fs";
+import {
+  buildSymbolDefIndex,
+  deriveIndex,
+  parseScipIndex,
+  runIndexer,
+} from "@opencodehub/scip-ingest";
 
-// Load a pre-existing .scip index
-const index = await loadScip("/path/to/index.scip");
+// Run the per-language indexer; it writes <outputDir>/<lang>.scip and
+// reports whether it ran or was skipped (missing tool, timeout, etc.).
+const result = await runIndexer("typescript", {
+  projectRoot: "/path/to/repo",
+  outputDir: "/path/to/repo/.codehub/scip",
+});
 
-// Run the appropriate indexer for the repo's language and produce a .scip file
-await runScipIndexer({ repoRoot: "/path/to/repo", language: "typescript" });
+// Decode the .scip bytes the caller reads, then derive caller->callee edges.
+if (!result.skipped) {
+  const index = parseScipIndex(readFileSync(result.scipPath));
+  const derived = deriveIndex(index);
+  const defs = buildSymbolDefIndex(index);
+  // `derived.edges` are graph-ready DerivedEdge values; `defs` maps each
+  // SCIP symbol to its defining document + range.
+}
 ```
 
-- Decodes the SCIP protobuf format using `@bufbuild/protobuf`.
-- The `scip-index` pipeline phase calls `runScipIndexer` for each detected
-  language, then merges the outputs before the `confidence-demote` phase
-  runs (`packages/ingestion/src/pipeline/phases/default-set.ts:90-95`).
+- Decodes the SCIP protobuf format with a hand-rolled minimal protobuf wire
+  reader (`src/proto-reader.ts`) — zero runtime dependencies, no codegen.
+- `runIndexer(kind, opts)` shells out to the per-language SCIP indexer and
+  returns an `IndexerResult` (`{ kind, scipPath, tool, version, skipped,
+  skipReason?, durationMs }`). A missing indexer, a deliberate `timeoutMs`
+  hit, or an unmet preflight surfaces as `skipped: true` with a `skipReason`
+  rather than throwing.
+- The `scip-index` pipeline phase fans `runIndexer` out across the languages
+  reported by `detectLanguages`, then merges the parsed outputs before the
+  `confidence-demote` phase runs.
 - SCIP-confirmed edges carry confidence 1.0; unconfirmed heuristic edges
   are demoted to 0.2 with a `+scip-unconfirmed` reason suffix.
 

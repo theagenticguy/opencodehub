@@ -2,14 +2,16 @@
  * BOM body item: aggregated LICENSES + NOTICES (item 9 partial).
  *
  * Reads `Dependency` nodes via `IGraphStore.listNodes()`, classifies them
- * via `classifyDependencies` from `@opencodehub/analysis`, and renders
- * both:
+ * via `classifyDependencies` from `@opencodehub/analysis`, and renders:
  *
- *   - `licensesMd` — Markdown body listing every dependency by tier
- *     (BLOCK / WARN / OK) and a per-package section in
- *     `(ecosystem, name, version)` ASC order.
- *   - `noticesMd` — concatenated `NOTICE` / `NOTICES` / `NOTICE.md` files
- *     read from the repo root if any exist; empty string otherwise.
+ *   - `licensesMd` — the full item-9 Markdown body: every dependency by
+ *     tier (BLOCK / WARN / OK) in a per-package section in
+ *     `(ecosystem, name, version)` ASC order, followed by a `## Notices`
+ *     section carrying the aggregated NOTICE content when present. This
+ *     is the payload that `generatePack` writes to `licenses.md`.
+ *   - `noticesMd` — the same concatenated `NOTICE` / `NOTICES` /
+ *     `NOTICE.md` content in isolation (empty string when none exist),
+ *     returned raw for consumers that want the NOTICE section alone.
  *
  * Determinism contract:
  *   - Dependency rows are alpha-sorted by `(ecosystem, name, version, id)`
@@ -68,8 +70,13 @@ const NOTICE_FILES = ["NOTICE", "NOTICE.md", "NOTICES"] as const;
 export async function buildLicenses(opts: LicensesOpts): Promise<LicensesContent> {
   const deps = await loadDependencyRefs(opts.store);
   const classification = classifyDependencies(deps);
-  const licensesMd = renderLicensesMd(deps, classification);
   const noticesMd = await readNotices(opts);
+  // The BOM's item-9 body is "LICENSES / NOTICES": the rendered markdown
+  // carries both the dependency-license tier and any aggregated NOTICE
+  // content so the on-disk `licenses.md` is the complete payload. Callers
+  // serialize `licensesMd` directly; `noticesMd` is also returned raw for
+  // consumers that want the NOTICE section in isolation.
+  const licensesMd = renderLicensesMd(deps, classification, noticesMd);
   return { licensesMd, noticesMd, classification };
 }
 
@@ -103,11 +110,14 @@ async function loadDependencyRefs(store: IGraphStore): Promise<readonly Dependen
 
 /**
  * Render the deterministic Markdown body. Header section lists the tier
- * + counts; the body lists every package in sorted order.
+ * + counts; the body lists every package in sorted order; the optional
+ * `noticesMd` (aggregated NOTICE content) is appended under its own
+ * `## Notices` heading when non-empty so the item-9 file carries both.
  */
 function renderLicensesMd(
   deps: readonly DependencyRef[],
   classification: LicenseAuditResult,
+  noticesMd: string,
 ): string {
   const lines: string[] = [];
   lines.push("# Licenses");
@@ -136,6 +146,15 @@ function renderLicensesMd(
     }
   }
 
+  if (noticesMd.length > 0) {
+    lines.push("## Notices");
+    lines.push("");
+    // `noticesMd` is already LF-only with its own trailing newline; trim it
+    // here so the outer trimEnd + single trailing newline stays canonical.
+    lines.push(noticesMd.trimEnd());
+    lines.push("");
+  }
+
   // LF-only join + trailing newline so the file ends in a newline (the
   // POSIX-text convention that keeps `git diff` clean).
   return `${lines.join("\n").trimEnd()}\n`;
@@ -154,8 +173,8 @@ async function readNotices(opts: LicensesOpts): Promise<string> {
     if (content === undefined || content.length === 0) continue;
     chunks.push(`# ${filename}`);
     chunks.push("");
-    // CRLF→LF normalize for byte-identity.
-    chunks.push(content.replace(/\r\n/g, "\n").trimEnd());
+    // Collapse CRLF and lone CR to LF for byte-identity across line-ending styles.
+    chunks.push(content.replace(/\r\n?/g, "\n").trimEnd());
     chunks.push("");
   }
   if (chunks.length === 0) return "";

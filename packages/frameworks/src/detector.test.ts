@@ -761,3 +761,41 @@ describe("framework detection — stage 2 lockfile version override", () => {
     assert.equal(react?.version, "^18.0.0", "manifest range used when lockfile silent");
   });
 });
+
+describe("framework detection — version resolves from either dependency bucket", () => {
+  it("vite version resolves when declared under dependencies (not devDependencies)", () => {
+    const input = mkInput(
+      ["package.json", "vite.config.ts"],
+      [["package.json", JSON.stringify({ dependencies: { vite: "5.0.0" } })]],
+      ["typescript"],
+    );
+    const out = detectFrameworksStructured(input);
+    const vite = findByName(out, "vite");
+    assert.ok(vite, "vite detected");
+    assert.equal(vite?.version, "5.0.0", "version read from dependencies bucket");
+  });
+
+  it("electron version resolves when declared under dependencies (not devDependencies)", () => {
+    const input = mkInput(
+      ["package.json"],
+      [["package.json", JSON.stringify({ dependencies: { electron: "28.0.0" } })]],
+      ["javascript"],
+    );
+    const out = detectFrameworksStructured(input);
+    const electron = findByName(out, "electron");
+    assert.ok(electron, "electron detected");
+    assert.equal(electron?.version, "28.0.0", "version read from dependencies bucket");
+  });
+
+  it("vite version still resolves from devDependencies (the declared bucket)", () => {
+    const input = mkInput(
+      ["package.json", "vite.config.ts"],
+      [["package.json", JSON.stringify({ devDependencies: { vite: "5.4.0" } })]],
+      ["typescript"],
+    );
+    const out = detectFrameworksStructured(input);
+    const vite = findByName(out, "vite");
+    assert.ok(vite, "vite detected");
+    assert.equal(vite?.version, "5.4.0", "version read from devDependencies bucket");
+  });
+});

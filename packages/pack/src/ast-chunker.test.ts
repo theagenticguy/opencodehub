@@ -14,6 +14,7 @@
  *        degraded.
  *   - H. File without a language goes through the line-split fallback per file
  *        but the overall result is still strict if other files chunk OK.
+ *   - J. Lone-CR (classic-Mac) input normalizes to LF, matching LF-only chunks.
  */
 
 import { strict as assert } from "node:assert";
@@ -189,6 +190,25 @@ test("H. file without language uses the line-split fallback per file but result 
   const txtChunk = result.chunks.find((c) => c.path === "src/data.txt");
   assert.ok(txtChunk !== undefined);
   assert.equal(txtChunk.language, undefined);
+});
+
+test("J. lone-CR input normalizes to LF and matches the LF-only chunks", async () => {
+  const cr: AstChunkerOpts = {
+    ...BASE_OPTS,
+    // Classic-Mac line endings: lone CR, no LF.
+    files: [{ path: "x.ts", bytes: utf8("a\rb\r"), language: "typescript" }],
+  };
+  const lf: AstChunkerOpts = {
+    ...BASE_OPTS,
+    files: [{ path: "x.ts", bytes: utf8("a\nb\n"), language: "typescript" }],
+  };
+  const fromCr = await buildAstChunks(cr, { _loadChonkie: makeFakeLoader() });
+  const fromLf = await buildAstChunks(lf, { _loadChonkie: makeFakeLoader() });
+  // After lone-CR→LF the texts are byte-identical, so chunks (and therefore
+  // the eventual pack_hash) must match regardless of input line-ending style.
+  assert.equal(canonicalJson(fromCr.chunks), canonicalJson(fromLf.chunks));
+  assert.equal(fromCr.chunks[0]?.startByte, 0);
+  assert.equal(fromCr.chunks[0]?.endByte, 4);
 });
 
 test("I. degraded fallback emits chunks bounded by ~chunkSize*4 chars", async () => {

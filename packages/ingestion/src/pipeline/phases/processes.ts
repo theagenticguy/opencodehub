@@ -42,7 +42,7 @@ import type { NodeId, ProcessNode } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { COMMUNITIES_PHASE_NAME } from "./communities.js";
-import { resolveIncrementalView } from "./incremental-helper.js";
+import { buildFilePathLookup, resolveIncrementalView } from "./incremental-helper.js";
 import { INCREMENTAL_SCOPE_PHASE_NAME } from "./incremental-scope.js";
 import { ROUTES_PHASE_NAME } from "./routes.js";
 import { STRUCTURE_PHASE_NAME } from "./structure.js";
@@ -284,32 +284,55 @@ interface NodeMeta {
 }
 
 function runProcesses(ctx: PipelineContext): ProcessesOutput {
-  // ---- Incremental carry-forward short-circuit. -------------------------
+  // ---- Incremental carry-forward (closure-aware). -----------------------
   //
-  // BFS re-rooting is expensive and its outputs (Process nodes, PROCESS_STEP
-  // edges, ENTRY_POINT_OF edges) are deterministic functions of the post-
-  // parse call graph + route/tool set. When the incremental view is active
-  // the current call graph matches the prior run under no-semantic-change,
-  // so the safest byte-identical incremental path is to carry forward every
-  // Process node and PROCESS_STEP / ENTRY_POINT_OF edge from the prior
-  // graph and skip BFS altogether. The 30% safety valve keeps us honest:
-  // whenever the closure balloons past threshold the phase falls through
-  // to a fresh BFS that observes any new entry points.
+  // A Process is the deterministic forward-BFS closure of one entry point
+  // over the post-parse CALLS graph plus the Route/Tool set. When the
+  // incremental view is active we carry forward only processes anchored
+  // OUTSIDE the changed-file closure and re-BFS the ones anchored inside it,
+  // mirroring how cross-file and mro split carry-forward from recompute.
+  //
+  // This stays byte-identical to a full run because incremental-scope widens
+  // the closure along the IMPORTS graph: any entry point that could reach a
+  // changed file is itself pulled into the closure, so a carried-forward
+  // (out-of-closure) process only traverses unchanged call edges. The
+  // previous verbatim carry-forward ignored the closure entirely, leaving a
+  // stale Process / ENTRY_POINT_OF structure whenever a single hot file's
+  // entry points changed under the 30% safety valve.
   const view = resolveIncrementalView(ctx);
-  if (
+  const carryForwardActive =
     view.active &&
     view.previousGraph?.edges !== undefined &&
-    view.previousGraph.nodes !== undefined
-  ) {
-    let carriedProcesses = 0;
-    let carriedSteps = 0;
-    for (const n of view.previousGraph.nodes) {
+    view.previousGraph.nodes !== undefined;
+  const carriedProcessIds = new Set<string>();
+  let carriedProcesses = 0;
+  let carriedSteps = 0;
+  if (carryForwardActive) {
+    const priorNodes = view.previousGraph?.nodes ?? [];
+    const priorEdges = view.previousGraph?.edges ?? [];
+    const filePathByNodeId = buildFilePathLookup(priorNodes);
+    for (const n of priorNodes) {
       if (n.kind !== "Process") continue;
+      // Re-BFS in-closure processes below; carry forward the rest verbatim.
+      if (view.closure.has(n.filePath)) continue;
       ctx.graph.addNode(n);
+      carriedProcessIds.add(n.id);
       carriedProcesses += 1;
     }
-    for (const e of view.previousGraph.edges) {
-      if (e.type !== "PROCESS_STEP" && e.type !== "ENTRY_POINT_OF") continue;
+    for (const e of priorEdges) {
+      if (e.type === "ENTRY_POINT_OF") {
+        // Route/Tool -> Process: keep only when its Process was carried.
+        if (!carriedProcessIds.has(e.to as string)) continue;
+      } else if (e.type === "PROCESS_STEP") {
+        // symbol -> symbol: keep only when neither endpoint sits in the
+        // closure, so a recomputed in-closure process owns its own steps.
+        const fromPath = filePathByNodeId.get(e.from as string);
+        const toPath = filePathByNodeId.get(e.to as string);
+        if (fromPath !== undefined && view.closure.has(fromPath)) continue;
+        if (toPath !== undefined && view.closure.has(toPath)) continue;
+      } else {
+        continue;
+      }
       ctx.graph.addEdge({
         from: e.from,
         to: e.to,
@@ -320,10 +343,6 @@ function runProcesses(ctx: PipelineContext): ProcessesOutput {
       });
       if (e.type === "PROCESS_STEP") carriedSteps += 1;
     }
-    return {
-      processCount: carriedProcesses,
-      avgStepsPerProcess: carriedProcesses === 0 ? 0 : carriedSteps / carriedProcesses,
-    };
   }
 
   // ---- Collect candidate nodes + adjacency. -----------------------------
@@ -435,6 +454,13 @@ function runProcesses(ctx: PipelineContext): ProcessesOutput {
   let totalSteps = 0;
 
   for (const ep of entryPoints) {
+    // In active incremental mode, entry points anchored outside the closure
+    // were carried forward verbatim above; re-BFS only the in-closure ones.
+    // The full `entryPoints` set is identical to a full run (metaById spans
+    // the whole carried-forward graph), so the recomputed slice plus the
+    // carry-forward slice reconstruct the full-run output byte-for-byte.
+    if (carryForwardActive && !view.closure.has(ep.meta.filePath)) continue;
+
     const steps = bfs(ep.id, adjacency);
     if (steps.length < MIN_STEPS_PER_PROCESS) continue;
 
@@ -502,9 +528,13 @@ function runProcesses(ctx: PipelineContext): ProcessesOutput {
     totalSteps += steps.length;
   }
 
+  // Fold in the carried-forward (out-of-closure) processes so the reported
+  // counts match a full run's totals.
+  const allProcesses = processCount + carriedProcesses;
+  const allSteps = totalSteps + carriedSteps;
   return {
-    processCount,
-    avgStepsPerProcess: processCount === 0 ? 0 : totalSteps / processCount,
+    processCount: allProcesses,
+    avgStepsPerProcess: allProcesses === 0 ? 0 : allSteps / allProcesses,
   };
 }
 

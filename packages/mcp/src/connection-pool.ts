@@ -12,7 +12,9 @@
  *      second connection opening the same file in read-write mode.
  *   2. Reference counting. Release must decrement a per-entry counter; an
  *      eviction that lands on a still-in-use entry MUST NOT close it. We
- *      mark it `closed` deferred and the last release actually closes.
+ *      set `closePending` and park the entry in a side table (it has left
+ *      the cache, so `release` can no longer find it via the cache) so the
+ *      last release actually closes it.
  *   3. Idle TTL. lru-cache@11 bumps recency on every acquire, so a repo
  *      that is actively queried never evicts; an idle repo closes after
  *      15 minutes.
@@ -68,6 +70,15 @@ const defaultFactory: StoreFactory = async (dbPath) => {
 export class ConnectionPool {
   private readonly cache: LRUCache<string, PoolEntry>;
   private readonly inflight = new Map<string, Promise<PoolEntry>>();
+  /**
+   * Entries evicted from the LRU while still in use (`refCount > 0`). Once
+   * `dispose` removes a key from the cache, `cache.peek` can no longer find
+   * it, so without this side table the deferred-close path in `release`
+   * would be unreachable and the still-open store would leak. We park the
+   * entry here, look it up from `release`, and drain it once the last
+   * reference is returned and the store is closed.
+   */
+  private readonly evicted = new Map<string, PoolEntry>();
   private readonly factory: StoreFactory;
   private disposed = false;
 
@@ -89,7 +100,10 @@ export class ConnectionPool {
             /* swallow — best effort during eviction */
           });
         } else {
+          // Still in use: defer the close to the last `release`. Park the
+          // entry so `release` can find it after it leaves the cache.
           entry.closePending = true;
+          this.evicted.set(key, entry);
         }
         // Ensure we don't leak a stale inflight promise for an evicted key.
         this.inflight.delete(key);
@@ -151,6 +165,9 @@ export class ConnectionPool {
     if (entry.refCount > 0) entry.refCount -= 1;
     if (entry.refCount === 0 && entry.closePending && !entry.closed) {
       entry.closed = true;
+      // The entry left the cache on eviction; once closed it must also leave
+      // the evicted side table so we don't retain the handle forever.
+      this.evicted.delete(repoKey);
       await entry.store.close().catch(() => {
         /* swallow */
       });
@@ -172,6 +189,11 @@ export class ConnectionPool {
     const entries: PoolEntry[] = [];
     for (const entry of this.cache.values()) entries.push(entry);
     this.cache.clear(); // triggers dispose on remaining entries
+    // Include entries that were evicted while in use: they live in the
+    // side table, not the cache, so the loop above would miss them and
+    // leave their stores open. The `closed` guard below dedupes.
+    for (const entry of this.evicted.values()) entries.push(entry);
+    this.evicted.clear();
 
     await Promise.allSettled(
       entries.map(async (entry) => {
@@ -188,16 +210,14 @@ export class ConnectionPool {
     return this.cache.size;
   }
 
-  private findEvicted(_repoKey: string): PoolEntry | undefined {
-    // After dispose runs, the entry is gone from the cache; the caller
-    // holds no direct reference to it here. We intentionally don't store
-    // a secondary map — reference counting for evicted entries is tracked
-    // inside the entry object itself, which remains reachable via the
-    // store reference that the tool handler still holds. For the current
-    // MVP usage (single-threaded tool handlers that acquire + release in
-    // the same function) this branch is unreachable, so we return
-    // undefined and rely on the dispose path to have already closed the
-    // store if refCount was 0.
-    return undefined;
+  private findEvicted(repoKey: string): PoolEntry | undefined {
+    // After dispose runs on a still-in-use entry, the key is gone from the
+    // cache so `cache.peek` returns undefined. The entry was parked in the
+    // `evicted` side table; return it so `release` can run the deferred
+    // close once the last reference comes back. Concurrent tool calls can
+    // hold > poolMax distinct repos in flight at once, so this path is
+    // reachable in practice — not just the single-threaded acquire/release
+    // case.
+    return this.evicted.get(repoKey);
   }
 }

@@ -71,3 +71,37 @@ package's `tsconfig.json`, including a hypothetical
 OCH applied the pattern to: `ci.yml` typecheck + test, `release.yml`
 build + publish-dry-run, `och-self-scan.yml` build. `pages.yml` is the
 sole owner of the docs build.
+
+## The local-tooling corollary: `mise run check` must mirror the CI filter
+
+(Added 2026-05-30, session-bba601 full-repo sweep.) The original fix only
+touched `.github/workflows/*`. The `mise.toml` `build` / `test` /
+`typecheck` tasks kept plain `pnpm -r <cmd>` — so `mise run check` (the
+documented local gate, and what `CONTRIBUTING.md` tells contributors to
+run) was RED on any machine without Playwright's Chromium cached, while CI
+was green. The lesson's own line "the docs build worked LOCALLY (dev had
+Chromium cached)" is the trap: a *fresh* clone, a CI-like container, or a
+new contributor's laptop has no cached browser, so local check silently
+diverges from the merge gate. A gate that only passes on the original
+author's warm machine is not a gate.
+
+Fix: apply the identical `--filter '!@opencodehub/docs'` exclusion to the
+`mise.toml` `build`, `test`, and `typecheck` tasks, and add a dedicated
+`docs:build` task that runs `playwright install chromium` first so the
+docs site stays buildable locally on demand:
+
+```toml
+[tasks."docs:build"]
+depends = ["install"]
+run = """
+pnpm --filter @opencodehub/docs exec playwright install chromium
+pnpm --filter @opencodehub/docs build
+"""
+```
+
+**Rule:** whenever you add a heavy-package exclusion to CI, grep the repo's
+task runner (`mise.toml`, `Makefile`, `package.json` scripts, `justfile`)
+for the un-excluded `-r` form in the SAME change. CI fidelity is only real
+if the local one-command gate runs the same filter. See also
+[[parallel-act-subagents-with-shared-git-tree]] for the stale-`dist` /
+clean-rebuild discipline that surfaced alongside this during the sweep.

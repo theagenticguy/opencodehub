@@ -59,6 +59,11 @@ export interface ParseCobolDeepOptions {
    */
   readonly timeoutMs?: number;
   /**
+   * Grace window in milliseconds between the SIGTERM sent on timeout and the
+   * SIGKILL escalation for a JVM that ignores SIGTERM. Default: 3 000.
+   */
+  readonly killGraceMs?: number;
+  /**
    * Structured log sink. Default: silent.
    */
   readonly log?: (message: string) => void;

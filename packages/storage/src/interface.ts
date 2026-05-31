@@ -587,6 +587,18 @@ export interface SymbolSummaryRow {
   readonly signatureSummary?: string;
   /** Compact summary of what the symbol returns (`returns.type_summary`). */
   readonly returnsTypeSummary?: string;
+  /**
+   * Canonical-JSON blob carrying the validated structured payload the
+   * summarizer produces beyond the three flattened fields above —
+   * citations (with `line_start` / `line_end`), `side_effects`,
+   * `invariants`, per-input descriptions, and `returns.details`. Persisted
+   * verbatim so a downstream staleness detector can fetch the cited line
+   * ranges and downrank summaries whose source has drifted. The storage
+   * layer treats this as an opaque pre-canonicalized string (the
+   * summarizer owns the shape); `undefined` when the producing prompt
+   * emitted no structured payload.
+   */
+  readonly structuredJson?: string;
   /** ISO-8601 UTC timestamp when the row was produced. */
   readonly createdAt: string;
 }

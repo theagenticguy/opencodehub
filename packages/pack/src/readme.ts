@@ -82,7 +82,7 @@ export function buildReadme(opts: ReadmeOpts): string {
   );
   lines.push("");
   lines.push(
-    "All file bytes use LF line endings; CRLF inputs are normalized before hashing so two repos differing only in line-ending style produce the same `pack_hash`.",
+    "All file bytes use LF line endings; CRLF and lone-CR inputs are normalized before hashing so two repos differing only in line-ending style produce the same `pack_hash`.",
   );
   lines.push("");
 

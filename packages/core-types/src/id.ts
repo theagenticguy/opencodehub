@@ -52,6 +52,20 @@ export interface ParsedNodeId {
 }
 
 export function parseNodeId(id: NodeId): ParsedNodeId {
+  // Anchor parsing to the node kind FIRST. The arity (`#N`), type-hash
+  // (`~<6hex>`), and const (`$const`) suffixes are only ever appended by
+  // makeNodeId, and the `#N` arity is reserved for callable kinds. Stripping
+  // them unconditionally is lossy for symbols whose qualifiedName legitimately
+  // contains those characters (e.g. a Variable literally named `tmp#42`), so we
+  // only peel a suffix off when the kind makes it a suffix makeNodeId could have
+  // produced.
+  const firstColon = (id as string).indexOf(":");
+  if (firstColon === -1) {
+    throw new Error(`Invalid node id (missing kind separator): ${id}`);
+  }
+  const kind = (id as string).slice(0, firstColon) as NodeKind;
+  const isCallable = CALLABLE_KINDS.has(kind);
+
   let rest = id as string;
   let isConst = false;
   if (rest.endsWith("$const")) {
@@ -65,19 +79,16 @@ export function parseNodeId(id: NodeId): ParsedNodeId {
     rest = rest.slice(0, tildeIdx);
   }
   let parameterCount: number | undefined;
-  const hashIdx = rest.lastIndexOf("#");
-  if (hashIdx !== -1) {
-    const maybeNum = rest.slice(hashIdx + 1);
-    if (/^\d+$/.test(maybeNum)) {
-      parameterCount = Number(maybeNum);
-      rest = rest.slice(0, hashIdx);
+  if (isCallable) {
+    const hashIdx = rest.lastIndexOf("#");
+    if (hashIdx !== -1) {
+      const maybeNum = rest.slice(hashIdx + 1);
+      if (/^\d+$/.test(maybeNum)) {
+        parameterCount = Number(maybeNum);
+        rest = rest.slice(0, hashIdx);
+      }
     }
   }
-  const firstColon = rest.indexOf(":");
-  if (firstColon === -1) {
-    throw new Error(`Invalid node id (missing kind separator): ${id}`);
-  }
-  const kind = rest.slice(0, firstColon) as NodeKind;
   const afterKind = rest.slice(firstColon + 1);
   const secondColon = afterKind.indexOf(":");
   if (secondColon === -1) {

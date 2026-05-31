@@ -12,6 +12,7 @@ interface ResultInit {
   readonly ruleId: string;
   readonly uri: string;
   readonly startLine: number;
+  readonly startColumn?: number;
   readonly messageText?: string;
   readonly level?: "none" | "note" | "warning" | "error";
   readonly fingerprint?: string;
@@ -31,7 +32,10 @@ function makeResult(init: ResultInit): SarifResult {
       {
         physicalLocation: {
           artifactLocation: { uri: init.uri },
-          region: { startLine: init.startLine },
+          region: {
+            startLine: init.startLine,
+            ...(init.startColumn !== undefined ? { startColumn: init.startColumn } : {}),
+          },
         },
       },
     ],
@@ -185,6 +189,30 @@ test("diffSarif: falls back to (ruleId, uri, startLine) tuple when fingerprint a
   // Different startLine with no fingerprint → distinct tuples → fixed + new.
   assert.equal(movedDiff.fixed.length, 1);
   assert.equal(movedDiff.new.length, 1);
+});
+
+test("diffSarif: column-precise findings on the same line are not collapsed", () => {
+  // Two genuinely distinct findings share (ruleId, uri, startLine) but
+  // differ by startColumn — common for column-precise scanners and no
+  // fingerprint present. Each must keep its own tuple key so neither is
+  // silently dropped from the delta.
+  const baseline = makeLog([]);
+  const current = makeLog([
+    { ruleId: "r.sqli", uri: "api/b.ts", startLine: 20, startColumn: 5, messageText: "first" },
+    { ruleId: "r.sqli", uri: "api/b.ts", startLine: 20, startColumn: 40, messageText: "second" },
+  ]);
+  const diff = diffSarif(baseline, current);
+  assert.equal(diff.new.length, 2, "both column-distinct findings should appear as new");
+  const messages = diff.new.map((r) => r.message?.text).sort();
+  assert.deepEqual(messages, ["first", "second"]);
+
+  // applyBaselineState must tag both, not just the first occurrence.
+  const tagged = applyBaselineState(current, baseline);
+  const taggedResults = tagged.runs[0]?.results ?? [];
+  assert.equal(taggedResults.length, 2);
+  for (const r of taggedResults) {
+    assert.equal((r as unknown as { baselineState?: string }).baselineState, "new");
+  }
 });
 
 test("diffSarif: output arrays are sorted by (ruleId, uri, startLine)", () => {

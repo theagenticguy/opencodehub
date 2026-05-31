@@ -1,6 +1,20 @@
 export const SCHEMA_VERSION = "1.2.0" as const;
 
-export type SchemaCompareResult = "ok" | "major-drift" | "minor-drift";
+/**
+ * Result of comparing an indexed graph's schema version against the running
+ * binary's {@link SCHEMA_VERSION}.
+ *
+ * - `ok` — same major, same minor. Patch differences are deliberately treated
+ *   as `ok`: patch bumps are reserved for backward- and forward-compatible
+ *   changes that never alter graph bytes or invariants.
+ * - `major-drift` — major versions differ; the graph must be re-indexed.
+ * - `minor-drift` — the indexed graph is an OLDER minor than the binary; it may
+ *   be missing fields/invariants the newer binary expects (backward gap).
+ * - `forward-incompat` — the indexed graph is a NEWER minor than the binary; an
+ *   older binary cannot assume it understands fields/invariants the newer
+ *   schema introduced (forward gap).
+ */
+export type SchemaCompareResult = "ok" | "major-drift" | "minor-drift" | "forward-incompat";
 
 interface Semver {
   readonly major: number;
@@ -28,5 +42,6 @@ export function compareSchemaVersion(indexed: string): SchemaCompareResult {
   const b = parseSemver(SCHEMA_VERSION);
   if (a.major !== b.major) return "major-drift";
   if (a.minor < b.minor) return "minor-drift";
+  if (a.minor > b.minor) return "forward-incompat";
   return "ok";
 }

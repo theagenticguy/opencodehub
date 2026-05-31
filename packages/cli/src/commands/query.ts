@@ -167,7 +167,16 @@ export async function runQuery(
               `Embedder mismatch: store was indexed with '${compat.persistedModelId}', ` +
                 `current embedder is '${compat.currentModelId}'.\n${compat.hint}\n`,
             );
-            process.exit(2);
+            // Set the distinct exit code and return rather than calling
+            // process.exit(2): an immediate process.exit() terminates the
+            // event loop before either the inner `embedder.close()` finally
+            // (line ~186) or the outer `store.close()` finally (line ~241)
+            // runs, leaking the native ONNX session and the composed store's
+            // graph + temporal handles on this abort path. `return` unwinds
+            // through both finally blocks first, honoring this file's own
+            // "always release the native session" contract.
+            process.exitCode = 2;
+            return;
           }
           const fused = await hybridSearch(
             graph,

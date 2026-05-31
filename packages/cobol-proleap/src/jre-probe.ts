@@ -56,25 +56,33 @@ export const defaultJreProbe: JreProbe = async () => {
  *
  *   openjdk 17.0.2 2022-01-18       → 17
  *   openjdk 21 2023-09-19            → 21
+ *   openjdk 9.0.4 2018-01-16        → 9    (single-digit modern major)
  *   java 17.0.12 2024-07-16 LTS      → 17
  *   java version "1.8.0_292"         → 8   (Java 8 used 1.x naming)
+ *   java version "9"                 → 9   (single-digit, quoted)
  *   java version "11.0.12" 2021-07-20 → 11
  */
 export function parseJreMajor(output: string | undefined): number | undefined {
   if (output === undefined) return undefined;
-  // Legacy 1.x form (Java 1.8 = Java 8).
-  const legacy = output.match(/\b1\.(\d+)(?:\.[\d_]+)?\b/);
-  if (legacy?.[1] !== undefined) {
-    const parsed = Number.parseInt(legacy[1], 10);
+  // Anchor extraction to the leading version token only. Scanning the whole
+  // string for any digit run mis-reads the release date (e.g. "2018-01-16"
+  // yields a spurious "01") — the version token always follows the vendor
+  // word (`openjdk`/`java`), optionally preceded by the literal `version`
+  // and an opening quote.
+  const token = output.match(/(?:openjdk|java)(?:\s+version)?\s+"?(\d+(?:\.\d+)*)/i);
+  if (token?.[1] === undefined) return undefined;
+  const segments = token[1].split(".");
+  const head = segments[0];
+  if (head === undefined) return undefined;
+  // Legacy 1.x form (Java 1.8 = Java 8): the real major is the second segment.
+  if (head === "1" && segments[1] !== undefined) {
+    const parsed = Number.parseInt(segments[1], 10);
     if (Number.isFinite(parsed)) return parsed;
   }
-  // Modern N.x form: take the first standalone leading integer that's not a
-  // preceding "1." (already handled above).
-  const modern = output.match(/\b(\d{2,3})(?:\.\d+)?\b/);
-  if (modern?.[1] !== undefined) {
-    const parsed = Number.parseInt(modern[1], 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
+  // Modern N.x form (including single-digit majors like 9): the major is the
+  // first segment of the anchored token.
+  const parsed = Number.parseInt(head, 10);
+  if (Number.isFinite(parsed)) return parsed;
   return undefined;
 }
 

@@ -248,8 +248,8 @@ export class DuckDbStore implements ITemporalStore {
         `INSERT INTO symbol_summaries (
           node_id, content_hash, prompt_version, model_id,
           summary_text, signature_summary, returns_type_summary,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS TIMESTAMP))`,
+          structured_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS TIMESTAMP))`,
       );
       try {
         for (const r of sorted) {
@@ -261,7 +261,8 @@ export class DuckDbStore implements ITemporalStore {
           bindParam(insStmt, 5, r.summaryText);
           bindParam(insStmt, 6, r.signatureSummary ?? null);
           bindParam(insStmt, 7, r.returnsTypeSummary ?? null);
-          bindParam(insStmt, 8, r.createdAt);
+          bindParam(insStmt, 8, r.structuredJson ?? null);
+          bindParam(insStmt, 9, r.createdAt);
           await insStmt.run();
         }
       } finally {
@@ -282,7 +283,8 @@ export class DuckDbStore implements ITemporalStore {
     const c = this.requireConn();
     const stmt = await c.prepare(
       `SELECT node_id, content_hash, prompt_version, model_id,
-              summary_text, signature_summary, returns_type_summary, created_at
+              summary_text, signature_summary, returns_type_summary,
+              structured_json, created_at
          FROM symbol_summaries
         WHERE node_id = ? AND content_hash = ? AND prompt_version = ?
         LIMIT 1`,
@@ -309,7 +311,8 @@ export class DuckDbStore implements ITemporalStore {
     const placeholders = nodeIds.map(() => "?").join(",");
     const stmt = await c.prepare(
       `SELECT node_id, content_hash, prompt_version, model_id,
-              summary_text, signature_summary, returns_type_summary, created_at
+              summary_text, signature_summary, returns_type_summary,
+              structured_json, created_at
          FROM symbol_summaries
         WHERE node_id IN (${placeholders})
         ORDER BY node_id ASC, prompt_version ASC, content_hash ASC`,
@@ -643,6 +646,7 @@ function summaryRowFromRecord(row: Record<string, unknown>): SymbolSummaryRow {
   }
   const sig = row["signature_summary"];
   const ret = row["returns_type_summary"];
+  const structured = row["structured_json"];
   return {
     nodeId: String(row["node_id"] ?? ""),
     contentHash: String(row["content_hash"] ?? ""),
@@ -651,6 +655,9 @@ function summaryRowFromRecord(row: Record<string, unknown>): SymbolSummaryRow {
     summaryText: String(row["summary_text"] ?? ""),
     ...(sig !== null && sig !== undefined ? { signatureSummary: String(sig) } : {}),
     ...(ret !== null && ret !== undefined ? { returnsTypeSummary: String(ret) } : {}),
+    ...(structured !== null && structured !== undefined
+      ? { structuredJson: String(structured) }
+      : {}),
     createdAt,
   };
 }

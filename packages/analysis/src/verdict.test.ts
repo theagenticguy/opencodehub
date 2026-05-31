@@ -12,8 +12,12 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
+import { FakeStore } from "./test-utils.js";
 import {
+  collectFindingsForTest,
+  collectReviewersForTest,
   computeBoundaryForTest,
   computeLabelsForTest,
   decideTierFromAggregate,
@@ -22,6 +26,11 @@ import {
 } from "./verdict.js";
 import { renderVerdictMarkdown } from "./verdict-markdown.js";
 import { DEFAULT_VERDICT_CONFIG, type VerdictTier } from "./verdict-types.js";
+
+/** sha256 of the lowercased email — the persisted Contributor.emailHash form. */
+function emailHash(email: string): string {
+  return createHash("sha256").update(email.toLowerCase()).digest("hex");
+}
 
 function emptyFindings(): {
   errorCount: number;
@@ -297,4 +306,120 @@ test("verdict tier-flip: Function with cyclomaticComplexity=15 + low coverage �
   });
   assert.equal(tierBaseline, "auto_merge");
   assert.equal(exitCodeForTier(tierBaseline), 0);
+});
+
+test("collectReviewers: PR author excluded by emailHash in privacy mode (no emailPlain)", async () => {
+  const store = new FakeStore();
+  const file = "src/payments.ts";
+  const fileNodeId = `File:${file}:${file}`;
+  // Privacy mode: contributors carry only `emailHash` (no `emailPlain`).
+  // The author has the heaviest blame weight, so a naive top-N would
+  // recommend them as a reviewer of their own PR unless excluded by hash.
+  store.addNode({
+    id: "Contributor:author",
+    kind: "Contributor",
+    name: "Author",
+    filePath: "<contributors>",
+    emailHash: emailHash("author@example.com"),
+  });
+  store.addNode({
+    id: "Contributor:reviewer",
+    kind: "Contributor",
+    name: "Reviewer",
+    filePath: "<contributors>",
+    emailHash: emailHash("reviewer@example.com"),
+  });
+  store.addEdge({
+    fromId: fileNodeId,
+    toId: "Contributor:author",
+    type: "OWNED_BY",
+    confidence: 0.9,
+  });
+  store.addEdge({
+    fromId: fileNodeId,
+    toId: "Contributor:reviewer",
+    type: "OWNED_BY",
+    confidence: 0.3,
+  });
+
+  const reviewers = await collectReviewersForTest(store, [file], "author@example.com");
+  const names = reviewers.map((r) => r.name);
+  // The author must NOT recommend themselves; only the reviewer remains.
+  assert.deepEqual(names, ["Reviewer"]);
+});
+
+test("collectReviewers: author match is case-insensitive via lowercased hash", async () => {
+  const store = new FakeStore();
+  const file = "src/a.ts";
+  const fileNodeId = `File:${file}:${file}`;
+  store.addNode({
+    id: "Contributor:author",
+    kind: "Contributor",
+    name: "Author",
+    filePath: "<contributors>",
+    emailHash: emailHash("author@example.com"),
+  });
+  store.addEdge({
+    fromId: fileNodeId,
+    toId: "Contributor:author",
+    type: "OWNED_BY",
+    confidence: 1,
+  });
+
+  // Caller supplies a mixed-case author email; exclusion still fires because
+  // both sides hash the lowercased form.
+  const reviewers = await collectReviewersForTest(store, [file], "Author@Example.com");
+  assert.deepEqual(reviewers, []);
+});
+
+test("collectFindings: overlapping symbol+file finding on same ruleId is counted once, not dropped", async () => {
+  const store = new FakeStore();
+  const sym = "Function:handler";
+  store.addNode({ id: sym, kind: "Function", name: "handler", filePath: "src/h.ts" });
+  // A symbol-level WARNING and a file-level ERROR that share one ruleId.
+  // The old fallback de-duped by ruleId, so the file error's severity was
+  // never counted — understating errorCount and lowering the tier.
+  store.addNode({
+    id: "Finding:warn",
+    kind: "Finding",
+    name: "warn",
+    filePath: "src/h.ts",
+    ruleId: "no-unused",
+    severity: "warning",
+  });
+  store.addNode({
+    id: "Finding:err",
+    kind: "Finding",
+    name: "err",
+    filePath: "src/h.ts",
+    ruleId: "no-unused",
+    severity: "error",
+  });
+  store.addEdge({ fromId: "Finding:warn", toId: sym, type: "FOUND_IN", confidence: 1 });
+
+  const summary = await collectFindingsForTest(store, [sym], ["src/h.ts"]);
+  assert.equal(summary.errorCount, 1);
+  assert.equal(summary.warningCount, 1);
+  // Two distinct findings sharing one ruleId → byRule count of 2.
+  assert.equal(summary.byRule.get("no-unused"), 2);
+});
+
+test("collectFindings: a finding reachable by both symbol and file paths is not double-counted", async () => {
+  const store = new FakeStore();
+  const sym = "Function:handler";
+  store.addNode({ id: sym, kind: "Function", name: "handler", filePath: "src/h.ts" });
+  store.addNode({
+    id: "Finding:err",
+    kind: "Finding",
+    name: "err",
+    filePath: "src/h.ts",
+    ruleId: "boom",
+    severity: "error",
+  });
+  // Same finding is tied to the symbol AND lives in a changed file.
+  store.addEdge({ fromId: "Finding:err", toId: sym, type: "FOUND_IN", confidence: 1 });
+
+  const summary = await collectFindingsForTest(store, [sym], ["src/h.ts"]);
+  assert.equal(summary.errorCount, 1);
+  assert.equal(summary.byRule.get("boom"), 1);
 });
