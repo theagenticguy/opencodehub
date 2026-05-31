@@ -89,7 +89,6 @@ export type { OwnerRow } from "./owners.js";
 export { listOwners } from "./owners.js";
 export type { Adjacency, EdgeLike } from "./page-rank.js";
 export { buildAdjacency, pageRank } from "./page-rank.js";
-export { runRename } from "./rename.js";
 export type { OrphanGrade } from "./risk.js";
 export {
   maxOrphanMultiplier,
@@ -134,9 +133,6 @@ export type {
   ImpactQuery,
   ImpactResult,
   NodeRef,
-  RenameEdit,
-  RenameQuery,
-  RenameResult,
   RiskLevel,
   StalenessResult,
 } from "./types.js";

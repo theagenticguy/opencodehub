@@ -45,7 +45,7 @@ flowchart LR
   C -->|detect communities and flows| E[Processes and clusters]
   D --> F[MCP server]
   E --> F
-  F -->|29 tools| G[AI coding agent]
+  F -->|28 tools| G[AI coding agent]
 ```
 
 Clustering, execution-flow tracing, and blast-radius analysis all happen

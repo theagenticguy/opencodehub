@@ -36,6 +36,11 @@ auto-discovered by Claude Code when the plugin is installed.
     description="Group-only. Consumer/producer contract matrix across a repo group, with Mermaid flow."
     href="/opencodehub/skills/codehub-contract-map/"
   />
+  <LinkCard
+    title="codehub-code-pack"
+    description="Deterministic 9-item code-pack BOM for a repo or group — byte-identical given the same (commit, tokenizer, budget)."
+    href="/opencodehub/skills/codehub-code-pack/"
+  />
 </CardGrid>
 
 ## How they compose
@@ -46,15 +51,18 @@ flowchart LR
   pr[codehub-pr-description<br/>PR body] --> verdict
   onb[codehub-onboarding<br/>ONBOARDING.md] --> codegraph
   map[codehub-contract-map<br/>contracts.md] --> groupcontracts[group_contracts]
+  pack[codehub-code-pack<br/>9-item BOM] --> packtool[pack_codebase]
   verdict[verdict + impact + owners] --> codegraph[(code graph)]
   groupcontracts --> codegraph
+  packtool --> codegraph
   docmeta --> refresh[--refresh<br/>staleness hook]
 ```
 
-The four skills share the OpenCodeHub MCP toolkit. `codehub-document` is
-the only skill that dispatches subagents; the others are linear. All four
-write to `.codehub/` by default (gitignored); `--committed` opts in to a
-git-tracked path.
+The five skills share the OpenCodeHub MCP toolkit. `codehub-document` is
+the only skill that dispatches subagents; the others are linear. The four
+documentation skills write to `.codehub/` by default (gitignored), with
+`--committed` opting in to a git-tracked path; `codehub-code-pack` writes
+a deterministic code-pack BOM via `pack_codebase`.
 
 ## Invocation cheatsheet
 
@@ -66,6 +74,7 @@ git-tracked path.
 | "draft release notes for HEAD" | `codehub-pr-description` |
 | "write ONBOARDING.md" / "what should a new hire read first" | `codehub-onboarding` |
 | "map the contracts" / "show the contract matrix for `<group>`" | `codehub-contract-map <group>` |
+| "pack this repo for an LLM" / "deterministic code pack" | `codehub-code-pack` |
 
 ## Discoverability hooks
 

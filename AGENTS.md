@@ -13,7 +13,6 @@ tiers.
 - `context` — inbound/outbound refs and participating flows for one symbol.
 - `impact` — dependents of a target up to a configurable depth, with a risk tier.
 - `detect_changes` — map an uncommitted or committed diff to affected symbols.
-- `rename` — graph-assisted multi-file rename; dry-run is the default.
 - `sql` — read-only SQL against the local temporal store (the `cochanges` and `symbol_summaries` tables), 5 s timeout. The node/edge graph lives in `graph.lbug` (ADR 0016) and is reached via the typed tools (`query`/`context`/`impact`) or Cypher via the MCP `sql` tool's `cypher` arg — NOT via this SQL path.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
@@ -21,8 +20,8 @@ with the working tree. `codehub status` reports staleness.
 
 ## Full MCP surface
 
-The full MCP surface is **29 tools** (see `packages/mcp/src/server.ts`);
-the 7 listed above are the high-frequency exploration tools. For the
+The full MCP surface is **28 tools** (see `packages/mcp/src/server.ts`);
+the 6 listed above are the high-frequency exploration tools. For the
 full inventory, use the `/opencodehub-guide` skill.
 
 ## AMBIGUOUS_REPO
@@ -79,7 +78,7 @@ making graph-index or retrieval changes.
 ## Claude Code plugin
 
 This repo ships a Claude Code plugin at `plugins/opencodehub/` — it
-provides a `code-analyst` subagent and 10 skills. Install via
+provides a `code-analyst` subagent and 11 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
 
 ## Storage backend — lbug graph + DuckDB temporal

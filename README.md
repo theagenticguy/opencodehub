@@ -12,7 +12,7 @@
 npm install -g @opencodehub/cli
 cd /path/to/your/repo
 codehub init && codehub analyze
-# your agent now has impact, query, context, detect_changes, rename — 29 tools over MCP
+# your agent now has impact, query, context, detect_changes — 28 tools over MCP
 ```
 
 ## Why this exists
@@ -67,7 +67,7 @@ flowchart LR
   C -->|detect communities + flows| E[Processes / clusters]
   D --> F[MCP server]
   E --> F
-  F -->|29 tools| G[AI coding agent]
+  F -->|28 tools| G[AI coding agent]
 ```
 
 ## Design choices worth knowing
@@ -109,12 +109,12 @@ codehub init
 # index the repo (WASM parser, no native binaries needed)
 codehub analyze
 
-# your agent can now call impact, query, context, detect_changes, rename, …
+# your agent can now call impact, query, context, detect_changes, …
 ```
 
 ### Build from source
 
-**Requirements:** Node 22 or 24; pnpm 10+; Python 3.12 (only needed for
+**Requirements:** Node 22 or 24; pnpm 11+; Python 3.12 (only needed for
 SCIP indexers on Python-heavy repos); `mise` recommended.
 
 ```bash
@@ -126,20 +126,20 @@ pnpm run check          # lint + typecheck + test + banned-strings
 mise run cli:link       # puts `codehub` on your PATH
 ```
 
-## MCP tool surface (29 tools)
+## MCP tool surface (28 tools)
 
 | Tool | Purpose |
 |---|---|
 | `query` | Process-grouped code intelligence — execution flows related to a concept |
 | `context` | 360-degree symbol view — callers, callees, processes, ACCESSES edges |
+| `signature` | Symbol declaration + stubbed members — class/interface header with method & property signatures, bodies elided |
 | `impact` | Blast radius — what breaks at depth 1/2/3 with confidence + risk tier |
 | `detect_changes` | Git-diff impact — what do your current changes affect |
-| `rename` | Multi-file coordinated rename with confidence-tagged edits |
 | `route_map` / `api_impact` / `shape_check` / `tool_map` | HTTP route & MCP tool intelligence |
 | `group_query` / `group_status` / `group_contracts` / `group_cross_repo_links` / `group_sync` / `group_list` | Cross-repo federation — fan out BM25, contracts, and staleness across a named group |
 | `list_repos` · `sql` | Registry & escape-hatch SQL (read-only, timeout-guarded) |
 | `pack_codebase` | Deterministic Repomix-compatible code pack export |
-| …and the rest | `verdict`, `risk_trends`, `project_profile`, `dependencies`, `license_audit`, `owners`, `list_findings`, `list_findings_delta`, `list_dead_code`, `remove_dead_code`, `scan` |
+| …and the rest | `verdict`, `risk_trends`, `project_profile`, `dependencies`, `license_audit`, `owners`, `list_findings`, `list_findings_delta`, `list_dead_code`, `scan` |
 
 Architecture decision records live in [`docs/adr/`](./docs/adr/). A
 Claude Code plugin at `plugins/opencodehub/` wraps the MCP tools into
@@ -147,7 +147,7 @@ skills + a code-analyst subagent — install via `codehub init`.
 
 ## Repository layout
 
-The monorepo is organised as 17 workspace packages under `packages/`:
+The monorepo is organised as 18 workspace packages under `packages/`:
 
 | Package | Purpose |
 |---|---|
@@ -158,11 +158,11 @@ The monorepo is organised as 17 workspace packages under `packages/`:
 | `embedder` | Embedding backends — local ONNX, HTTP, SageMaker; deterministic `embedderId` fingerprint |
 | `frameworks` | HTTP route + MCP tool detectors used by `route_map` / `api_impact` / `tool_map` |
 | `ingestion` | Tree-sitter + WASM parsers, symbol extraction, import resolution, complexity phase |
-| `mcp` | Model Context Protocol server — 29 tools, resources, structured error envelopes |
+| `mcp` | Model Context Protocol server — 28 tools, resources, structured error envelopes |
 | `pack` | Deterministic Repomix-compatible code-pack generator (M5) |
 | `policy` | Allowlist + license-tier policy engine driving `license_audit` and CI gates |
 | `sarif` | SARIF schema validation and scanner output normalisation |
-| `scanners` | Subprocess wrappers for 20 scanners — OSV, Semgrep, hadolint, tflint, detect-secrets, and the rest |
+| `scanners` | Subprocess wrappers for 19 scanners — OSV, Semgrep, hadolint, tflint, betterleaks, and the rest |
 | `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) — emits CALLS, REFERENCES, IMPLEMENTS, TYPE_OF |
 | `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
 | `storage` | `IGraphStore` (`@ladybugdb/core`) + `ITemporalStore` (DuckDB) adapters; deterministic `graphHash` |
@@ -171,8 +171,8 @@ The monorepo is organised as 17 workspace packages under `packages/`:
 
 The retrieval / graph-quality evaluation harness and the per-language F1
 regression gym used to live here as `eval` and `gym`; they were
-extracted into a sibling testbed in M5 so the production package set
-ships free of test-time dependencies.
+extracted into the sibling `opencodehub-testbed` repository so the
+production package set ships free of test-time dependencies.
 
 ## Embedding backends
 
@@ -250,8 +250,8 @@ superseded.
 ## Status
 
 **v1 — feature-complete on M1–M7.** Tracks A (M7 graph-DB default + the
-`IGraphStore` / `ITemporalStore` interface segregation), B (20-scanner
-fleet incl. detect-secrets), C (debt sweep — embedder fingerprint, SCIP
+`IGraphStore` / `ITemporalStore` interface segregation), B (19-scanner
+fleet incl. betterleaks), C (debt sweep — embedder fingerprint, SCIP
 REFERENCES + TYPE_OF), and D (dogfood polish) have all merged. The
 current shipped tag remains `0.1.1`; `1.0.0` is cut once schema +
 tool-surface stability is signed off.

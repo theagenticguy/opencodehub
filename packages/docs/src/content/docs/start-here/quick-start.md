@@ -117,7 +117,7 @@ codehub impact validateUser --depth 2
 
 - [Your first query](/opencodehub/start-here/first-query/) walks through
   `query`, `context`, and `impact` with sample output.
-- [MCP tools](/opencodehub/mcp/tools/) lists all 29 tools the server
+- [MCP tools](/opencodehub/mcp/tools/) lists all 28 tools the server
   exposes.
 - [Using with Claude Code](/opencodehub/guides/using-with-claude-code/)
   covers the plugin path (PreToolUse hooks) and the MCP-only path.

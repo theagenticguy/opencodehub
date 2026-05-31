@@ -43,23 +43,26 @@ deterministic, blast-radius-aware answer in one tool call.
   request the API serves. No risk tier, no review escalation, merged.
 </Card>
 
-`impact`, `rename --dry-run`, and `verdict` close all three.
+`impact`, `detect_changes`, and `verdict` close all three — the agent
+sees the blast radius and the affected diff *before* it writes the edit.
 
 ## What changes after `codehub init`
 
-The agent gets 29 MCP tools at the next session start, grouped into
-four families:
+The agent gets 28 MCP tools at the next session start, grouped into
+four families. Every tool is **read-only with respect to your source** —
+they tell the agent what a change touches; the agent (or your editor)
+makes the edit:
 
 - **Exploration** — `query`, `context`, `impact`, `detect_changes`,
-  `rename`, `sql`, `list_repos`. Concept-to-code search; per-symbol
+  `sql`, `list_repos`. Concept-to-code search; per-symbol
   callers, callees, and processes; blast-radius depth-N.
 - **Cross-repo groups** — `group_list`, `group_query`, `group_status`,
   `group_contracts`, `group_cross_repo_links`, `group_sync`. Federate
   the same questions across a named set of repos.
 - **Findings and verdicts** — `scan`, `list_findings`,
-  `list_findings_delta`, `list_dead_code`, `remove_dead_code`,
-  `license_audit`, `verdict`, `risk_trends`. Scanner output, PR
-  decisions, license tiers, dead code.
+  `list_findings_delta`, `list_dead_code`, `license_audit`, `verdict`,
+  `risk_trends`. Scanner output, PR decisions, license tiers, dead-code
+  listing.
 - **HTTP and routing** — `route_map`, `api_impact`, `shape_check`,
   `tool_map`. HTTP routes and handlers; structural drift in payloads;
   CLI/MCP tool surfaces.

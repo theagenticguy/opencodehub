@@ -33,12 +33,6 @@ Next: run 'codehub analyze' to build the graph, then restart Claude Code.
 .claude/
 ├── agents/
 │   └── code-analyst.md            # graph-grounded analysis subagent
-├── commands/                      # 5 slash commands
-│   ├── probe.md
-│   ├── verdict.md
-│   ├── owners.md
-│   ├── audit-deps.md
-│   └── rename.md
 ├── hooks/                         # PostToolUse / Stop scripts
 │   ├── augment.sh                 # enriches Bash/Grep/Glob with graph context
 │   └── docs-staleness.sh          # non-blocking "/codehub-document --refresh" hint

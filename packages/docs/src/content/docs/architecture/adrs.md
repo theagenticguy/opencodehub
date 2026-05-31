@@ -17,9 +17,9 @@ considered, and consequences.
 DuckDB via `@duckdb/node-api` plus the `hnsw_acorn` community
 extension for filter-aware vector search and the official `fts`
 extension for BM25. SQLite + `sqlite-vec` was rejected because FTS5
-has no filtered-HNSW story. Superseded as the default by ADR 0011 +
-ADR 0013, but DuckDB is still the temporal-store backend and the
-single-file opt-in fallback.
+has no filtered-HNSW story. Superseded as the graph backend by ADR
+0011 + ADR 0013, and the single-file DuckDB graph layout was removed
+entirely in ADR 0016; DuckDB now backs the temporal store only.
 
 [Read ADR 0001](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0001-storage-backend.md)
 
@@ -139,6 +139,26 @@ Drop native `tree-sitter` from the install graph entirely. WASM
 builds and zero GitHub fetches. Supersedes ADR 0013 (parse runtime).
 
 [Read ADR 0015](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md)
+
+### ADR 0016 — DuckDB graph rip-out
+
+Remove the DuckDB graph backend, the `CODEHUB_STORE` env var, the
+backend probe, and the single-file `graph.duckdb` layout. The graph
+tier is always `@ladybugdb/core` (`graph.lbug`); the temporal tier is
+always DuckDB (`temporal.duckdb`); both files are written on every
+`analyze`, with no selector. A missing graph binding hard-fails with
+`GraphDbBindingError`. The segregated `IGraphStore` / `ITemporalStore`
+interfaces stay as the community-fork adapter contract.
+
+[Read ADR 0016](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0016-duckdb-graph-rip.md)
+
+### ADR 0017 — Drop detect-secrets, tune betterleaks
+
+Remove `detect-secrets` from the scanner fleet in favour of
+`betterleaks`, bringing the catalog to 19 scanners. Records the
+tuning rationale and the secret-detection coverage tradeoff.
+
+[Read ADR 0017](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0017-drop-detect-secrets-tune-betterleaks.md)
 
 ## Superseded
 

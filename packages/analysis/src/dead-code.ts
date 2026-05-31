@@ -50,9 +50,8 @@ export interface DeadCodeResult {
 /**
  * Relation types whose inbound edges count as "this symbol is referenced".
  *
- * Mirrors `GRAPH_REFERRER_RELATIONS` in `rename.ts`, plus `REFERENCES` so a
- * generic reference edge (e.g. type-only usage on the Python provider) also
- * keeps a symbol alive.
+ * Includes `REFERENCES` so a generic reference edge (e.g. type-only usage on
+ * the Python provider) also keeps a symbol alive.
  */
 const REFERRER_RELATIONS: readonly RelationType[] = [
   "CALLS",

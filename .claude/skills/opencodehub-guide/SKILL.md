@@ -24,7 +24,7 @@ For any task that touches code understanding, debugging, impact analysis, refact
 | Understand architecture / "How does X work?"  | `opencodehub-exploring`       |
 | Blast radius / "What breaks if I change X?"   | `opencodehub-impact-analysis` |
 | Trace bugs / "Why is X failing?"              | `opencodehub-debugging`       |
-| Rename / extract / split / restructure        | `opencodehub-refactoring`     |
+| Plan a rename / extract / move (analysis only) | `opencodehub-refactoring`     |
 | Review a PR / "Is this safe to merge?"        | `opencodehub-pr-review`       |
 | Tools, resources, schema reference            | `opencodehub-guide` (here)    |
 
@@ -46,7 +46,9 @@ for the scope rationale.
 Fire these directly; do not nest them inside analysis skills. Each is a
 standalone artifact producer with its own preconditions and output path.
 
-## Tool Inventory (27 MCP tools)
+## Tool Inventory (28 MCP tools)
+
+> Every tool is **read-only with respect to your source**. No MCP tool edits the working tree; planning and verification tools surface what to change, and you (or your editor) apply the edit.
 
 ### Code intelligence (per-repo)
 
@@ -57,9 +59,8 @@ standalone artifact producer with its own preconditions and output path.
 | `mcp__opencodehub__context`           | 360-degree symbol view + `confidenceBreakdown` + `cochanges` side-section |
 | `mcp__opencodehub__impact`            | Blast radius with risk tier + `confidenceBreakdown`                       |
 | `mcp__opencodehub__detect_changes`    | Map an uncommitted or committed diff to affected symbols and flows        |
-| `mcp__opencodehub__rename`            | Graph-assisted multi-file rename; dry-run by default                      |
 | `mcp__opencodehub__sql`               | Read-only query: `sql` arg → temporal DuckDB (cochanges/summaries); `cypher` arg → lbug graph (5 s timeout) |
-| `mcp__opencodehub__signature`         | Function signature lookup for a target symbol                             |
+| `mcp__opencodehub__signature`         | Symbol declaration + stubbed members (class/interface header + method/property signatures, bodies elided) |
 
 ### HTTP / RPC surface
 
@@ -78,6 +79,8 @@ standalone artifact producer with its own preconditions and output path.
 | `mcp__opencodehub__group_query`       | BM25 fan-out across a group with reciprocal-rank fusion                   |
 | `mcp__opencodehub__group_status`      | Per-repo staleness + contract freshness for a group                       |
 | `mcp__opencodehub__group_contracts`   | HTTP contract cross-links (consumer FETCHES edge → producer Route)        |
+| `mcp__opencodehub__group_cross_repo_links` | Audit trail of every typed cross-repo edge, both endpoints `repo_uri`-qualified |
+| `mcp__opencodehub__group_sync`        | Rebuild the cross-repo contract registry + link table after a re-index    |
 
 ### Supply-chain / PR review (OpenCodeHub differentiators)
 
@@ -87,13 +90,13 @@ standalone artifact producer with its own preconditions and output path.
 | `mcp__opencodehub__scan`                 | Run Priority-1 scanners (openWorld — spawns child processes)           |
 | `mcp__opencodehub__list_findings`        | Browse SARIF findings produced by `scan` or `ingest-sarif`             |
 | `mcp__opencodehub__list_findings_delta`  | Diff latest scan vs. frozen baseline (new / fixed / unchanged / updated) |
-| `mcp__opencodehub__list_dead_code`       | Unreferenced exported symbols                                          |
-| `mcp__opencodehub__remove_dead_code`     | Scripted removal of dead-code items (dry-run by default)               |
+| `mcp__opencodehub__list_dead_code`       | Unreferenced exported symbols (read-only listing — you delete them)    |
 | `mcp__opencodehub__license_audit`        | Copyleft / unknown / proprietary tier check over dependencies          |
 | `mcp__opencodehub__dependencies`         | External package list (ecosystem + version + manifest path)            |
 | `mcp__opencodehub__owners`               | File/symbol ownership from CODEOWNERS + git blame signal               |
 | `mcp__opencodehub__risk_trends`          | Per-community trend lines and 30-day projections                       |
 | `mcp__opencodehub__project_profile`      | High-level repo summary (languages, stacks, entry points)              |
+| `mcp__opencodehub__pack_codebase`        | Deterministic LLM-ready code-pack snapshot of the repo                 |
 
 ## Differentiators to surface in responses
 
@@ -210,5 +213,5 @@ LIMIT 20;
 - Every per-repo tool accepts an optional `repo` argument. When exactly one repo is indexed, `repo` is optional. When two or more are indexed and `repo` is omitted, the tool returns `AMBIGUOUS_REPO` — pass `repo` explicitly.
 - Every response may carry `_meta.codehub/staleness` when the index is behind HEAD. Surface that to the user when it is present.
 - Every response includes a `next_steps` array under `structuredContent`. Use it to pick the next tool without guessing.
-- `rename` is dry-run by default — explicitly pass `dry_run: false` to apply edits.
+- No MCP tool edits user source. Tools like `impact`, `context`, and `detect_changes` tell you what a change touches; you (or your editor) make the edit, then re-run `detect_changes` to verify.
 - `scan` has `openWorldHint: true` — it spawns child processes. Do not invoke it on every turn.

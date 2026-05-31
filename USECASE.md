@@ -91,11 +91,13 @@ for agents".
   `codehub setup` and `codehub analyze` once.
 - **Frame 5 — Action.** She re-asks the agent. This time the agent
   calls `impact("validateUser")`, gets `risk: HIGH, direct callers: 14,
-  affected processes: 3`, then `rename validateUser validateAccount`
-  (dry-run by default) and gets a coordinated edit plan with
-  per-site confidence.
-- **Frame 6 — Resolution.** She reviews the plan, applies it. Tests
-  pass. Zero Monday fires.
+  affected processes: 3`, and `context("validateUser")` for every
+  inbound reference — including the two Python call sites grep missed.
+  OpenCodeHub is read-only, so the agent uses that complete edit list to
+  drive the rename in the editor itself, then calls `detect_changes` to
+  confirm the diff covers all 14 sites.
+- **Frame 6 — Resolution.** She reviews the verified diff, applies it.
+  Tests pass. Zero Monday fires.
 - **Frame 7 — Ongoing benefit.** The plugin's `PostToolUse` hook
   re-analyzes after every `git commit | merge | rebase | pull`, so the
   graph stays current without her thinking about it.

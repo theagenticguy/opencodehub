@@ -26,7 +26,7 @@ Top-level sections under `src/content/docs/`:
 
 - `start-here/` — install, quick-start, first query.
 - `guides/` — editor integrations and task-oriented walkthroughs.
-- `mcp/` — server overview, tool catalog, resources, prompts.
+- `mcp/` — server overview, tool catalog, resources, and the prompts page (which documents that the prompts surface is intentionally empty — 0 prompts).
 - `reference/` — CLI, error codes, language matrix, configuration.
 - `architecture/` — monorepo map, determinism, supply chain, ADR index.
 - `skills/` — Claude Code skill references.
@@ -34,8 +34,8 @@ Top-level sections under `src/content/docs/`:
 
 ## ADRs
 
-Architecture decision records live at `/docs/adr/` at the repo root — 10
-files, numbered `0001-*.md` through `0010-*.md`. The Starlight site
+Architecture decision records live at `/docs/adr/` at the repo root — 18
+files, numbered `0001` through `0017` (with a duplicate `0013`). The Starlight site
 surfaces them through an index page at
 `src/content/docs/architecture/adrs.md`, so readers get both the canonical
 source and a browsable index.

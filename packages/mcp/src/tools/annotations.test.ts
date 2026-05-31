@@ -84,48 +84,49 @@ test("every registered tool advertises all 5 annotation fields + a title", async
   }
 });
 
-test("destructive tools are correctly flagged", async () => {
+test("no source-mutating tool is registered; non-read-only tools only write artifacts", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-mcp-destructive-"));
   const running = buildServer({ home, silentEmbedderProbe: true });
   try {
     const tools = enumerateTools(running.server);
-    // `rename` is the only v1.0 tool that mutates user files.
+    // RAIL: the MCP surface never edits a user's source files. The two tools
+    // that did (`rename`, `remove_dead_code`) were removed; assert they are
+    // gone so they cannot be re-added without this test failing.
+    assert.equal(tools["rename"], undefined, "rename (source mutator) must not be registered");
     assert.equal(
-      tools["rename"]?.annotations?.destructiveHint,
-      true,
-      "rename must declare destructiveHint=true",
+      tools["remove_dead_code"],
+      undefined,
+      "remove_dead_code (source mutator) must not be registered",
     );
-    assert.equal(
-      tools["rename"]?.annotations?.readOnlyHint,
-      false,
-      "rename must declare readOnlyHint=false",
-    );
-    // `scan` writes .codehub/scan.sarif and spawns external scanners.
-    assert.equal(
-      tools["scan"]?.annotations?.readOnlyHint,
-      false,
-      "scan must declare readOnlyHint=false",
-    );
+    // No registered tool may declare destructiveHint=true — that flag is
+    // reserved for source mutation, which the rail forbids.
+    for (const [name, def] of Object.entries(tools)) {
+      assert.notEqual(
+        def?.annotations?.destructiveHint,
+        true,
+        `${name} declares destructiveHint=true — no MCP tool may mutate user source`,
+      );
+    }
+    // The surviving non-read-only tools are ARTIFACT writers (SARIF, code
+    // packs, contract registries under .codehub/), not source mutators. They
+    // are readOnlyHint=false but destructiveHint=false.
+    for (const name of ["scan", "pack_codebase", "group_sync"]) {
+      assert.equal(
+        tools[name]?.annotations?.readOnlyHint,
+        false,
+        `${name} writes an artifact, so readOnlyHint must be false`,
+      );
+      assert.notEqual(
+        tools[name]?.annotations?.destructiveHint,
+        true,
+        `${name} writes an artifact (not user source), so destructiveHint must not be true`,
+      );
+    }
+    // `scan` spawns external scanner binaries.
     assert.equal(
       tools["scan"]?.annotations?.openWorldHint,
       true,
       "scan must declare openWorldHint=true (spawns external binaries)",
-    );
-    // `remove_dead_code` deletes source ranges when apply=true.
-    assert.equal(
-      tools["remove_dead_code"]?.annotations?.destructiveHint,
-      true,
-      "remove_dead_code must declare destructiveHint=true",
-    );
-    assert.equal(
-      tools["remove_dead_code"]?.annotations?.readOnlyHint,
-      false,
-      "remove_dead_code must declare readOnlyHint=false",
-    );
-    assert.equal(
-      tools["remove_dead_code"]?.annotations?.openWorldHint,
-      false,
-      "remove_dead_code must declare openWorldHint=false",
     );
   } finally {
     await running.shutdown();

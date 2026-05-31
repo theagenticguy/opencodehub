@@ -18,7 +18,7 @@ anti-pattern column says what _not_ to reach for first.
 | "What does this function do?" | `context` | Returns the symbol's signature, callers, callees, and the processes it participates in — one call. | `query` (returns search hits, not the 360° view); `Read` (you'll miss the call graph). |
 | "If I change this, what breaks?" | `impact` | Computes upstream/downstream blast radius up to depth N, with a risk tier. | `Grep` (misses re-exports and dynamic dispatch). |
 | "Find me code about X" | `query` | Hybrid BM25 + vector search, results grouped by execution flow. | Embeddings-only search; `Grep` for concepts. |
-| "Coordinate a rename across files" | `rename` (dry-run first) | Graph-aware. Catches dynamic dispatch, re-exports, and shadowed locals. | Editor's textual rename; sed; `Edit` per file. |
+| "Plan a rename / refactor across files" | `context` + `impact` | Read-only. `context` lists every inbound/outbound ref, `impact` gives the dependent edit list and risk tier; you apply the edits in your editor, then verify with `detect_changes`. Catches dynamic dispatch, re-exports, and shadowed locals an editor's textual rename misses. | Expecting an MCP tool to write the edits — the surface is read-only. |
 | "Bundle the codebase for an LLM" | `pack_codebase` | Deterministic 9-item BOM (manifest, skeleton, file-tree, deps, AST chunks, xrefs, optional embeddings, findings, licenses + readme) — byte-identical for the same `(commit, tokenizer, budget)`. | Hand-rolled `cat **/*.ts` blob. |
 | "Who owns this file?" | `owners` | Top contributors with commit counts, last-touched dates, lines changed. | `git blame` parsing. |
 | "What's the repo's overall shape?" | `project_profile` | One call: language mix, top processes, hotspots, dependencies summary. | Multiple `query` calls. |
@@ -31,8 +31,7 @@ anti-pattern column says what _not_ to reach for first.
 | "What HTTP routes does this service expose?" | `route_map` | Method, path, handler, file:line. Works across Express, Fastify, Hono, FastAPI, Flask, Spring, etc. | `Grep` for `app.get(`. |
 | "What's the structural shape of this payload?" | `shape_check` | Detects payload/type drift across handlers and clients. | Manual diff of TypeScript interfaces. |
 | "What CLI/MCP tools does this codebase ship?" | `tool_map` | Surfaces commander/yargs/click handlers and MCP tool registrations. | Reading every entry-point manually. |
-| "What's been deprecated or dead?" | `list_dead_code` | Unreferenced exports, dead functions, orphan files. | `tsc --noUnusedLocals` (catches different things). |
-| "Apply the dead-code removal" | `remove_dead_code` | Writes the deletes after a `list_dead_code` review. **Destructive — confirm first.** | Calling `remove_dead_code` without the list_dead_code review step. |
+| "What's been deprecated or dead?" | `list_dead_code` | Read-only listing of unreferenced exports, dead functions, orphan files. Review the candidates, then delete them yourself — no MCP tool edits source. | `tsc --noUnusedLocals` (catches different things). |
 | "What's the license tier of my deps?" | `license_audit` | Tiers each transitive dep: permissive / weak-copyleft / strong-copyleft / proprietary / unknown. | `license-checker` raw output. |
 | "Which areas are getting riskier?" | `risk_trends` | Per-community trend lines + 30-day projection from temporal data. | One-off risk snapshots. |
 | "Who is changing what most, and where" | `risk_trends` + `owners` | Trends point to communities; `owners` names the people. | Either alone. |
@@ -58,8 +57,9 @@ Some questions decompose:
 - **PR review without `verdict`**: chain `detect_changes` → `impact`
   → `list_findings_delta` → summarize. `verdict` does this in one call
   with a tier; use the chain when you need bespoke shaping.
-- **Pre-rename safety**: `context` → `impact` → `rename --dry-run` →
-  human review → `rename --apply`.
+- **Pre-rename safety**: `context` → `impact` → review the edit list →
+  apply edits in your editor → `detect_changes` to verify scope. The MCP
+  surface is read-only; it plans and verifies, you make the edits.
 - **New-engineer onboarding**: `project_profile` → top processes from
   `query` → entry points from `route_map` and `tool_map` →
   `owners` per area. The `codehub-onboarding` skill orchestrates this

@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"${CLAUDE_TOOL_INPUT:-}\" | grep -qE 'git (commit|merge|rebase|pull)'; then codehub analyze --incremental --quiet || true; fi"
+            "command": "if echo \"${CLAUDE_TOOL_INPUT:-}\" | grep -qE 'git (commit|merge|rebase|pull)'; then codehub analyze || true; fi"
           },
           {
             "type": "command",

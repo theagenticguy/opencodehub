@@ -50,8 +50,6 @@ export { runListRepos } from "./tools/list-repos.js";
 export { runOwners } from "./tools/owners.js";
 export { runProjectProfile } from "./tools/project-profile.js";
 export { runQuery } from "./tools/query.js";
-export { runRemoveDeadCode } from "./tools/remove-dead-code.js";
-export { runRename } from "./tools/rename.js";
 export { runRiskTrends } from "./tools/risk-trends.js";
 export { runRouteMap } from "./tools/route-map.js";
 export { runScan } from "./tools/scan.js";

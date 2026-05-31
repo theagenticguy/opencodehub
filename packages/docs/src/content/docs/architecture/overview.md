@@ -28,7 +28,7 @@ indexers (TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin,
 Ruby) upgrade heuristic edges to compiler-grade references where
 available. The graph persists into LadybugDB, with DuckDB
 carrying the temporal sibling. Communities and
-processes are precomputed. An stdio MCP server with 29 tools answers
+processes are precomputed. An stdio MCP server with 28 tools answers
 agent queries.
 
 ## Where the data lives

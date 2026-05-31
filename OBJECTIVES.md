@@ -1,82 +1,73 @@
 # OBJECTIVES.md — OpenCodeHub
 
-A concise set of project objectives inferred from the repo. What success
-looks like, where the quality bar sits, and what is deliberately out of
-scope.
+Project objectives inferred from the repo: what success looks like, where the
+quality bar sits, and what is deliberately out of scope.
 
 ## Primary objectives
 
-1. **Give AI coding agents graph-aware code context in one MCP tool
-   call.** *Because the README's problem statement is exactly this:
-   grep is textual, language servers are per-file, embeddings are
-   lossy; agents need callers, callees, processes, and blast radius
-   answered before they write a diff, and the 29-tool MCP surface is
-   the primary product.*
+1. **Answer graph questions in one MCP call.** AI coding agents need callers,
+   callees, processes, and blast radius before they write a diff. Grep is
+   textual. Language servers work one file at a time. Embeddings lose
+   precision. OpenCodeHub answers all four from a persisted graph, and the
+   28-tool MCP surface is the primary product.
 
-2. **Stay Apache-2.0 end-to-end, with every transitive runtime
-   dependency on the permissive allowlist.** *Because CI already
-   enforces the allowlist (Apache-2.0 / MIT / BSD / ISC / CC0 /
-   BlueOak / 0BSD), scanner license incompatibilities (hadolint GPL,
-   tflint MPL/BUSL) are resolved by subprocess-only invocation, and the
-   README explicitly frames this as a fork-and-embed posture.*
+2. **Stay Apache-2.0 across every runtime dependency.** Each transitive
+   dependency sits on the permissive allowlist: Apache-2.0, MIT, BSD, ISC,
+   CC0, BlueOak, 0BSD. CI enforces it on every push. Scanners with
+   incompatible licenses never link into the host. hadolint (GPL) and tflint
+   (MPL/BUSL) run as subprocesses instead. The README frames this as a
+   fork-and-embed posture.
 
-3. **Keep the index local, offline-capable, and deterministic.**
-   *Because `--offline` is asserted to open zero sockets, `graphHash`
-   must be byte-identical across full and incremental runs at the same
-   commit, and `scripts/acceptance.sh` gate 6 gates on exactly that
-   invariant.*
+3. **Keep the index local, offline, and deterministic.** `codehub analyze
+   --offline` opens zero sockets. The `graphHash` is byte-identical whether
+   you run a full or an incremental index at the same commit. Acceptance gate
+   6 checks that invariant on every run.
 
-4. **Cover the 15 GA languages (14 via tree-sitter plus a regex
-   provider for fixed-format COBOL) and upgrade five of them
-   (TypeScript, Python, Go, Rust, Java) with SCIP indexers.**
-   *Because heuristic call-graph edges miss cross-module resolution,
-   the `scip-index` phase runs each language's native SCIP indexer
-   once, the `confidence-demote` phase reconciles heuristic and
-   compiler-grade edges, and the gym harness (extracted to a sibling
-   testbed in M5) gates per-language F1 with SCIP-derived baselines.*
+4. **Cover 15 languages; deepen five with SCIP.** Fourteen parse through
+   tree-sitter, and a regex provider handles fixed-format COBOL. Five
+   (TypeScript, Python, Go, Rust, Java) also run a native SCIP indexer.
+   Heuristic call edges miss cross-module resolution. So the `scip-index`
+   phase indexes each language once, and the `confidence-demote` phase
+   reconciles heuristic edges against compiler-grade ones. A sibling testbed
+   repo holds the gym that gates per-language F1 against SCIP baselines.
 
 ## Quality bar
 
-5. **Hold a three-layer regression gate on every eval and gym run.**
-   *Because the sibling testbed's absolute-F1-floor + relative-F1-delta
-   + per-case non-regression layering is baked into the harness, and
-   acceptance gate 9 requires ≥ 40/49 Python-eval cases to pass — soft
-   regressions are not an option.*
+5. **Gate every eval and gym run in three layers.** The testbed checks an
+   absolute F1 floor, a relative F1 delta, and per-case non-regression.
+   Acceptance gate 9 requires at least 40 of 49 Python-eval cases to pass. A
+   soft regression fails the run.
 
-6. **Fail CI on any non-zero exit.** *Because `pnpm run check` chains
-   lint → typecheck → test → banned-strings and exits on first
-   failure, CI runs the same chain plus OSV, CodeQL, Scorecard, SARIF
-   schema validation, commitlint, and license allowlist — with the
-   banned-strings sweep enforcing clean-room IP hygiene.*
+6. **Fail CI on any non-zero exit.** `pnpm run check` chains lint, typecheck,
+   test, and banned-strings, stopping at the first failure. CI runs the same
+   chain plus OSV, CodeQL, Scorecard, SARIF schema validation, commitlint, and
+   the license allowlist. The banned-strings sweep enforces clean-room IP
+   hygiene.
 
-7. **Keep the MCP server responses structured, versioned, and
-   self-describing.** *Because every tool must return a `next_steps`
-   array, a `_meta["codehub/staleness"]` envelope when the index lags
-   HEAD, and a typed error code (e.g. `AMBIGUOUS_REPO`) rather than
-   free-form failure strings — this is what makes the tools safe for
-   automated agent loops.*
+7. **Keep MCP responses structured, versioned, and self-describing.** Every
+   tool returns a `next_steps` array. When the index lags HEAD, it adds a
+   `_meta["codehub/staleness"]` envelope. Failures carry a typed code such as
+   `AMBIGUOUS_REPO`, never a free-form string. That shape is what makes the
+   tools safe inside automated agent loops.
 
 ## Non-goals
 
-8. **Do not operate a server or SaaS.** *Because DuckDB is embedded,
-   the MCP server is a stdio process, and ADR 0001 explicitly rejects
-   engines that would require a daemon; the product is a CLI + MCP
-   server, not a hosted product.*
+8. **Do not operate a server or SaaS.** DuckDB is embedded. The MCP server is
+   a stdio process. ADR 0001 rejects any engine that would need a daemon. The
+   product ships as a CLI plus an MCP server, nothing hosted.
 
-9. **Do not port to Rust before it's needed.** *Because ADR 0002
-   measured p95 single-file incremental at 195-250ms on the 100-file
-   fixture (well under the 1s hard gate) and extrapolates cold 100k-LOC
-   analyze to 3-5 seconds — Rust is deferred to v2.1+ with explicit
-   re-trigger conditions tied to measured latency on user repos.*
+9. **Do not port to Rust before it is needed.** ADR 0002 measured p95
+   single-file incremental analysis at 195-250ms on the 100-file fixture, well
+   under the 1s gate. It projects a cold 100k-LOC analyze at 3 to 5 seconds.
+   Rust is deferred to v2.1 or later. The re-trigger conditions are tied to
+   measured latency on real user repos.
 
 ## Measurable outcomes
 
-10. **A user can go from `git clone` to a wired MCP server to their
-    agent calling `impact`, `detect_changes`, and `rename` on a real
-    repo in a single quick-start sequence (`mise install` →
-    `pnpm install --frozen-lockfile` → `codehub setup` →
-    `codehub analyze`), with acceptance gates 1-8 confirming the happy
-    path and gates 10-15 confirming the opt-in paths (embeddings,
-    scanners, SARIF validation, license audit, verdict).** *Because
-    that end-to-end flow is what the README promises and what
-    `scripts/acceptance.sh` verifies; everything else rolls up to it.*
+10. **Get from clone to a working agent in one sequence.** A user runs `mise
+    install`, then `pnpm install --frozen-lockfile`, then `codehub setup`,
+    then `codehub analyze`. After that, their agent can call `impact`,
+    `detect_changes`, and `context` on a real repo. Acceptance gates 1-8
+    confirm this happy path. Gates 10-15 confirm the opt-in paths for
+    embeddings, scanners, SARIF validation, license audit, and verdict. The
+    README promises this flow. `scripts/acceptance.sh` verifies it.

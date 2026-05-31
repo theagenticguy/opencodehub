@@ -1,14 +1,14 @@
 {
   "$schema": "https://opencodehub.dev/schemas/tool-catalog-v1.json",
   "version": "1.0.0",
-  "description": "Machine-readable catalog of the 29 MCP tools the OpenCodeHub server registers. Generated to be fetched by an AI coding agent that wants the catalog without scraping the docs.",
+  "description": "Machine-readable catalog of the 28 MCP tools the OpenCodeHub server registers. Every tool is read-only with respect to user source — no tool edits the working tree. Generated to be fetched by an AI coding agent that wants the catalog without scraping the docs.",
   "server": {
     "name": "opencodehub",
     "transport": "stdio",
     "launch_command": "codehub mcp",
     "capabilities": ["tools", "resources"]
   },
-  "tool_count": 29,
+  "tool_count": 28,
   "families": {
     "exploration": "High-frequency code-graph tools.",
     "group": "Cross-repo federation tools (require a named group).",
@@ -63,22 +63,22 @@
       "example": "detect_changes({scope: 'compare', compare_ref: 'origin/main'})"
     },
     {
-      "name": "rename",
-      "family": "exploration",
-      "description": "Coordinated multi-file symbol rename with confidence-tagged edits. Default mode is dry-run.",
-      "when_to_use": "Renaming a symbol used across multiple files.",
-      "when_not_to_use": "The rename is in a single file — let the editor handle it.",
-      "signature_sketch": "rename({from, to, repo?, repo_uri?, dry_run?}) -> {edits, cross_module_refs, next_steps}",
-      "example": "rename({from: 'oldName', to: 'newName'})"
-    },
-    {
       "name": "sql",
       "family": "exploration",
-      "description": "Read-only SQL against the graph store. 5-second timeout.",
-      "when_to_use": "Custom view of the graph that no other tool exposes.",
-      "when_not_to_use": "A typed tool (context, impact, query) already covers the question.",
+      "description": "Read-only SQL against the DuckDB temporal store (cochanges + symbol_summaries). 5-second timeout. The node/edge graph is queried via the typed tools or Cypher.",
+      "when_to_use": "Custom view of the temporal store (cochanges + symbol_summaries) that no other tool exposes.",
+      "when_not_to_use": "A typed tool (context, impact, query) already covers the question, or you need the node/edge graph (reach it via the typed tools or Cypher).",
       "signature_sketch": "sql({query, repo?, repo_uri?}) -> {rows, row_count, next_steps}",
-      "example": "sql({query: 'SELECT name, file_path FROM nodes WHERE kind = ? LIMIT 10', params: ['Class']})"
+      "example": "sql({query: 'SELECT * FROM cochanges LIMIT 10'})"
+    },
+    {
+      "name": "signature",
+      "family": "exploration",
+      "description": "Symbol declaration + stubbed members: a class/interface header plus its method and property signatures with bodies elided (stub syntax per language). For a standalone function, returns a single signature.",
+      "when_to_use": "You want a symbol's shape without reading the whole file — saves tokens.",
+      "when_not_to_use": "You need callers/callees — call context instead.",
+      "signature_sketch": "signature({name?, uid?, file_path?, kind?, repo?, repo_uri?}) -> {target, language, member_count, members, stub, next_steps}",
+      "example": "signature({name: 'GraphDbStore'})"
     },
     {
       "name": "group_list",
@@ -169,15 +169,6 @@
       "when_not_to_use": "Looking for one specific symbol's callers — call context.",
       "signature_sketch": "list_dead_code({repo?, repo_uri?}) -> {candidates: Array<{id, name, file_path, kind, reason}>}",
       "example": "list_dead_code()"
-    },
-    {
-      "name": "remove_dead_code",
-      "family": "scan",
-      "description": "Remove specific dead symbols from disk. Default mode is dry-run.",
-      "when_to_use": "After list_dead_code, with explicit targets.",
-      "when_not_to_use": "Speculative cleanup — always dry-run first.",
-      "signature_sketch": "remove_dead_code({repo?, repo_uri?, targets, dry_run?}) -> {removed, skipped, next_steps}",
-      "example": "remove_dead_code({targets: ['oldHelper'], dry_run: true})"
     },
     {
       "name": "license_audit",

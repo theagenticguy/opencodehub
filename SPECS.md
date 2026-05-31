@@ -4,31 +4,37 @@
 
 OpenCodeHub is an Apache-2.0, local-first code-intelligence toolchain for AI
 coding agents. It ingests a source tree into a hybrid knowledge graph
-(structural relations + semantic vectors) stored in an embedded DuckDB file
-and exposes that graph over the Model Context Protocol and a `codehub` CLI.
-Agents use it to answer "what breaks if I change this, what depends on it,
-where does this data flow" *before* they produce a diff.
+(structural relations + semantic vectors) stored as a two-tier split — an
+lbug graph (`@ladybugdb/core`, `graph.lbug`) plus a DuckDB temporal sibling
+(`temporal.duckdb`), both under `<repo>/.codehub/` (ADR 0016) — and exposes
+that graph over the Model Context Protocol and a `codehub` CLI. Agents use
+it to answer "what breaks if I change this, what depends on it, where does
+this data flow" *before* they produce a diff.
 
-At ingestion time the system parses 14 languages via native `tree-sitter`
-bindings (WASM fallback available), runs native SCIP indexers for
-TypeScript/JavaScript, Python, Go, Rust, and Java to upgrade tree-sitter
+At ingestion time the system parses 15 GA languages via `web-tree-sitter`
+(WASM) — the only parse runtime, with no native opt-in (ADR 0015) — for the
+first 14 plus a regex provider for fixed-format COBOL, runs SCIP indexers
+for TypeScript/JavaScript, Python, Go, Rust, and Java to upgrade tree-sitter
 heuristic edges to compiler-grade edges, clusters the graph into
 Communities and Processes, and optionally populates embeddings from a
 pinned gte-modernbert-base ONNX model (fp32 ~596 MB or int8 ~150 MB) or
 an OpenAI-compatible HTTP endpoint.
 
-At query time it exposes an MCP server with roughly 27 tools (`query`,
-`context`, `impact`, `detect_changes`, `rename`, `sql`, scanner /
+At query time it exposes an MCP server with 28 tools (`query`, `context`,
+`impact`, `signature`, `detect_changes`, `sql`, scanner /
 finding / dependency / verdict / route tools, and cross-repo `group_*`
 tools), along with a CLI that mirrors the main tools plus administrative
-commands (`analyze`, `setup`, `doctor`, `ci-init`, `wiki`, etc.).
+commands (`analyze`, `setup`, `doctor`, `ci-init`, `wiki`, etc.). The MCP
+surface is read-only with respect to user source: no tool edits the
+working tree.
 
 ## What this system is not
 
 - Not a language server. It runs SCIP indexers as one-shot artifact
   producers and does not speak LSP to editors directly.
-- Not a SaaS. There is no server to operate; the graph is a single DuckDB
-  file under `~/.codehub/` (or `${CODEHUB_HOME}`).
+- Not a SaaS. There is no server to operate; the graph lives as two
+  embedded files under `<repo>/.codehub/` (the lbug `graph.lbug` plus the
+  DuckDB `temporal.duckdb`).
 - Not a hosted vector DB. Embeddings are optional and local; there is no
   network dependency for analyze or query.
 - Not a ranking / recommendation product. The graph is precomputed at index
@@ -88,12 +94,14 @@ files reuse prior extraction output.
 
 ## 2. Language coverage
 
-2.1 The system shall provide tree-sitter extractors for TypeScript,
-JavaScript (incl. TSX/JSX), Python, Go, Rust, Java, C#, C, C++, Ruby,
-Kotlin, Swift, PHP, and Dart.
+2.1 The system shall provide `web-tree-sitter` (WASM) extractors for
+TypeScript, JavaScript (incl. TSX/JSX), Python, Go, Rust, Java, C#, C, C++,
+Ruby, Kotlin, Swift, PHP, and Dart, plus a regex provider for fixed-format
+COBOL — 15 GA languages in total.
 
-2.2 Where a native tree-sitter binding is unavailable at runtime, the
-system shall fall back to a WASM grammar.
+2.2 The system shall run `web-tree-sitter` (WASM) as the only parse runtime
+on Node 20, 22, and 24; there is no native opt-in (ADR 0015). All 15
+grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`.
 
 2.3 Adding a new language shall require: registering a grammar dependency,
 implementing the `LanguageProvider` interface, and registering the
@@ -122,27 +130,35 @@ indexers agree on `package{manager,name,version}`.
 
 ## 3. Storage & schema
 
-3.1 The system shall persist graphs to a single DuckDB file
-(`DB_FILE_NAME`) located under `resolveDbPath(repoMetaDir)` and managed
-via `@duckdb/node-api`.
+3.1 The system shall persist the graph tier to an lbug graph file
+(`graph.lbug`, `@ladybugdb/core`) and the temporal tier — cochanges and
+structured symbol summaries — to a DuckDB file (`temporal.duckdb`), both
+under `<repo>/.codehub/`. Both files are written on every analyze; there is
+no `CODEHUB_STORE` env var, no backend probe, and no single-file DuckDB
+graph layout (ADR 0016).
 
-3.2 The storage layer shall expose `IGraphStore` (open, close,
-createSchema, bulkLoad, upsertEmbeddings, query, search, vectorSearch,
-traverse, get/setMeta, healthCheck) so an alternate backend (e.g.
-LanceDB) can slot in without consumer changes.
+3.2 The storage layer shall segregate `IGraphStore` (graph workload: nodes,
+edges, embeddings, multi-hop traversal) from `ITemporalStore` (cochanges,
+summary cache). `IGraphStore` lives only on `GraphDbStore`; `DuckDbStore`
+implements `ITemporalStore` only; `openStore()` composes them. The
+segregated interfaces are the v1.0 contract for community-fork adapters
+(AGE / Memgraph / Neo4j / Neptune target `IGraphStore`). If the lbug
+binding fails to load, `open()` throws `GraphDbBindingError`.
 
 3.3 While executing the `sql` MCP tool or `codehub sql` CLI, the system
-shall reject non-read-only statements via `assertReadOnlySql` and apply a
-5-second default timeout.
+shall reject non-read-only statements and apply a 5-second default timeout.
+The `sql` path targets the DuckDB temporal store (`cochanges` +
+`symbol_summaries`); the node/edge graph is queried via the typed tools or
+via Cypher (the `sql` tool's `cypher` argument), not this SQL path.
 
-3.4 The vector search path shall use `hnsw_acorn` with filter-aware
-predicate pushdown when embeddings are populated.
+3.4 The vector search path shall use the lbug graph's filter-aware
+nearest-neighbour traversal when embeddings are populated.
 
-3.5 The full-text search path shall use the DuckDB `fts` extension with
-BM25 scoring.
+3.5 The full-text search path shall use BM25 scoring over the indexed
+symbols.
 
-3.6 Graph traversal beyond depth 1 shall be implemented with recursive
-CTEs using `USING KEY`.
+3.6 Multi-hop graph traversal shall be expressed in the lbug graph's Cypher
+dialect rather than recursive SQL CTEs.
 
 3.7 The storage layer shall write metadata (schema version, graph hash,
 last-analyzed commit) atomically and expose it via `getMeta`.
@@ -172,7 +188,7 @@ single repo errors — per-repo errors must surface in
 
 ---
 
-## 5. Impact, rename, diff, verdict
+## 5. Impact, diff, verdict
 
 5.1 When `impact` is invoked, the system shall traverse CALLS / REFERENCES
 / EXTENDS / METHOD_* / IMPLEMENTS / ACCESSES edges from the target up to
@@ -184,16 +200,12 @@ breakdown, and a risk tier (`LOW` / `MEDIUM` / `HIGH` / `CRITICAL`).
 changed hunks to `AffectedSymbol`, `AffectedModule`, and
 `AffectedProcess` records with line-range precision.
 
-5.3 When `rename` is invoked, the system shall default to dry-run and
-produce `RenameEdit` objects tagged with per-site confidence; callers
-must opt in to apply the edits.
-
-5.4 When `verdict` is invoked, the system shall classify a diff into one
+5.3 When `verdict` is invoked, the system shall classify a diff into one
 of five tiers (`auto_merge`, `single_review`, `dual_review`,
 `expert_review`, `block`) with structured reasoning signals and
 recommended reviewers.
 
-5.5 The CLI `verdict` command shall set `process.exitCode` to 0 for
+5.4 The CLI `verdict` command shall set `process.exitCode` to 0 for
 merge-safe tiers, 1 for review-required tiers, and 2 for `block`.
 
 ---
@@ -203,13 +215,15 @@ merge-safe tiers, 1 for review-required tiers, and 2 for `block`.
 6.1 The MCP server shall advertise itself as `opencodehub` over stdio with
 an `instructions` block steering clients to call `list_repos` first.
 
-6.2 The server shall register tools for: `list_repos`, `query`, `context`,
-`impact`, `detect_changes`, `rename`, `sql`, `group_list`, `group_query`,
-`group_status`, `group_contracts`, `group_sync`, `project_profile`,
-`dependencies`, `license_audit`, `owners`, `list_findings`,
-`list_findings_delta`, `list_dead_code`, `remove_dead_code`, `scan`,
-`verdict`, `risk_trends`, `route_map`, `api_impact`, `shape_check`, and
-`tool_map`.
+6.2 The server shall register 28 tools: `list_repos`, `query`, `context`,
+`impact`, `signature`, `detect_changes`, `sql`, `group_list`,
+`group_query`, `group_status`, `group_contracts`, `group_cross_repo_links`,
+`group_sync`, `project_profile`, `dependencies`, `license_audit`, `owners`,
+`list_findings`, `list_findings_delta`, `list_dead_code`,
+`scan`, `verdict`, `risk_trends`, `route_map`,
+`api_impact`, `shape_check`, `tool_map`, and `pack_codebase`. No registered
+tool mutates user source files; the MCP surface is read-only with respect
+to the working tree.
 
 6.3 Every per-repo tool shall accept an optional `repo` argument; when
 exactly one repo is registered, `repo` shall default to that repo; when
@@ -304,9 +318,9 @@ buckets.
 and topic contracts for every repo in the group and write
 `contracts.json` matching the `ContractRegistry` shape.
 
-9.3 The `group_contracts` MCP tool shall return DuckDB-backed
-FETCHES↔Route edges together with the registry's signature-matched
-cross-links.
+9.3 The `group_contracts` MCP tool shall return graph-backed
+FETCHES↔Route cross-links together with the registry's signature-matched
+contracts.
 
 9.4 While `group_query` is executing, the system shall never abort the
 fan-out on a single-repo failure.
@@ -315,27 +329,25 @@ fan-out on a single-repo failure.
 
 ## 10. Evaluation & quality gates
 
-10.1 The Python eval harness (`packages/eval`) shall run 49 parametrized
-cases (7 MVP languages × 7 MCP tools) against the real `codehub mcp`
-stdio server; the acceptance gate requires ≥ 40 passes.
+10.1 The retrieval / graph-quality evaluation harness and the per-language
+F1 regression gym shall live in the sibling `opencodehub-testbed`
+repository, not in this core repo's package set. The on-disk
+`packages/eval/` directory carries no git-tracked files; any local
+`.venv/`, `.pytest_cache/`, `.ruff_cache/`, or `src/` is untracked and
+gitignored.
 
-10.2 The gym harness (`packages/gym`) shall replay SCIP indexer golden
-manifests for TypeScript, Python, Go, Rust, and (optionally) Java, and
-gate on three layers: absolute F1 floor, relative F1 delta, and
-per-case non-regression.
+10.2 The evaluation harness in `opencodehub-testbed` shall run its case
+matrix against the real `codehub mcp` stdio server, and the gym shall
+replay SCIP indexer golden manifests gating on three layers: absolute F1
+floor, relative F1 delta, and per-case non-regression. The full freeze /
+replay manifest contract lives with the testbed.
 
-10.3 Every gym run shall emit a JSONL freeze/replay manifest pinning
-`{manifest_version, corpus_commit, tool{name,version,sha256}, request,
-result_set, captured_at}` for bit-exact replay — the `tool.name` is the
-SCIP indexer identifier (e.g. `scip-python`, `rust-analyzer`) and the
-indexer is re-invoked per replay rather than a long-running server.
-
-10.4 `scripts/acceptance.sh` shall execute 15 named gates and exit
+10.3 `scripts/acceptance.sh` shall execute 15 named gates and exit
 non-zero if any mandatory gate fails; soft gates (incremental p95,
 scanner smoke without semgrep, embeddings determinism without weights)
 may `SKIP` without changing the exit code.
 
-10.5 `pnpm run check` shall run lint, typecheck, test, and banned-strings
+10.4 `pnpm run check` shall run lint, typecheck, test, and banned-strings
 in that order and shall fail on the first non-zero exit.
 
 ---
@@ -386,10 +398,10 @@ blocks.
 
 ## 13. Environment & distribution
 
-13.1 The repo shall declare Node `>= 22` and pnpm `>= 10` in
-`package.json.engines`.
+13.1 The repo shall declare Node `>= 22` and pnpm `>= 11` in
+`package.json.engines` (with `packageManager` pinned to `pnpm@11.1.0`).
 
-13.2 `mise.toml` shall pin `node = "22"`, `pnpm = "10.32"`, `python =
+13.2 `mise.toml` shall pin `node = "22"`, `pnpm = "11.1.0"`, `python =
 "3.12"`, and `uv = "latest"`; `mise install` shall be sufficient
 bootstrap.
 
@@ -418,20 +430,3 @@ transport.
 
 14.3 When the embedder weights probe fails, the server shall log a single
 structured warning and continue with BM25-only search.
-
----
-
-## 15. Open questions I noticed but couldn't resolve from the code
-
-- CLI self-version is hardcoded as `"0.0.0"` in `packages/cli/src/index.ts`
-  and the MCP server version is `"0.0.0"` in `packages/mcp/src/server.ts`,
-  while the root `package.json` is `0.1.1` and the README names `v0.1.0`
-  as the initial public release. I couldn't tell whether a release-time
-  rewrite is expected to stamp these.
-- The README advertises "27 tools" but the `server.ts` registration list
-  I counted enumerates 27 tool registrations; the instructions prose
-  lists a similar but not identical subset. I couldn't tell whether
-  `group_contracts` is user-visible in the prose on purpose.
-- ADR 0002 references a v2.0 and v2.1+ without a PRD file in the tree I
-  can see, so I could not verify which milestone the current main branch
-  corresponds to.

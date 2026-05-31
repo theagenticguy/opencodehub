@@ -6,7 +6,7 @@ sidebar:
 ---
 
 There are two ways to connect OpenCodeHub to Claude Code. The **plugin** path
-adds a PreToolUse hook that auto-augments rename-class edits with `impact` and
+adds a PreToolUse hook that auto-augments refactor-class edits with `impact` and
 `detect_changes`. The **MCP-only** path wires the server without the hook.
 
 ## Plugin (preferred)
@@ -17,7 +17,7 @@ codehub setup --plugin
 
 `--plugin` installs the OpenCodeHub plugin into Claude Code. The plugin
 registers a PreToolUse hook that runs before any edit that looks like a
-rename or a cross-file refactor. The hook calls `impact` and
+cross-file refactor. The hook calls `impact` and
 `detect_changes`, then feeds the results back to Claude Code as inline
 context so the agent can adjust its plan before writing a diff.
 
@@ -93,7 +93,7 @@ entries in `.mcp.json` are preserved.
 
 ## Next
 
-- [MCP tools](/opencodehub/mcp/tools/) — the full catalogue of 29 tools
+- [MCP tools](/opencodehub/mcp/tools/) — the full catalogue of 28 tools
   Claude Code will see.
 - [MCP overview](/opencodehub/mcp/overview/) — server name, transport,
   envelope conventions.

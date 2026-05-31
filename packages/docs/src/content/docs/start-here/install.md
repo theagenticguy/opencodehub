@@ -33,7 +33,7 @@ pnpm -r build
 mise run cli:link          # puts `codehub` on your PATH
 ```
 
-`mise install` activates the Node 22, pnpm 10.33.2, and Python 3.12 pins
+`mise install` activates the Node 22, pnpm 11.1.0, and Python 3.12 pins
 from `mise.toml`. `pnpm install --frozen-lockfile` installs exactly the
 lockfile-pinned dependencies. `pnpm -r build` compiles every TypeScript
 package so the CLI entrypoint at `packages/cli/dist/index.js` is
@@ -55,8 +55,8 @@ If you already manage Node and pnpm another way:
    from [nodejs.org](https://nodejs.org)). Every supported version uses
    the same `web-tree-sitter` (WASM) parse runtime — there is no native
    parser and no opt-in (ADR 0015).
-2. Install pnpm `>=10.0.0` (`corepack enable pnpm`, or `npm install -g
-   pnpm@10`).
+2. Install pnpm `>=11.0.0` (`corepack enable pnpm`, or `npm install -g
+   pnpm@11`).
 3. Clone, build, and link:
 
    ```bash

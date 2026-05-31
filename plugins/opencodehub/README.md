@@ -1,6 +1,6 @@
 # OpenCodeHub — Claude Code plugin
 
-Apache-2.0 code intelligence for coding agents. This plugin wires a `code-analyst` subagent, the **artifact-generation skill family** (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`) with up to 17 `doc-*` subagents (dispatched as 10 always-on + 4 conditional + 3 cross-repo), and a `PreToolUse` graph-context hook plus two `PostToolUse` hooks (auto-reindex on git mutations + non-blocking docs-staleness hint) — all backed by the `codehub` MCP server.
+Apache-2.0 code intelligence for coding agents. This plugin wires a `code-analyst` subagent, the **artifact-generation skill family** (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`, `codehub-code-pack`) with up to 17 `doc-*` subagents (dispatched as 10 always-on + 4 conditional + 3 cross-repo), and a `PreToolUse` graph-context hook plus two `PostToolUse` hooks (auto-reindex on git mutations + non-blocking docs-staleness hint) — all backed by the `codehub` MCP server.
 
 > Targets Claude Code ≥ the version shipping the plugin/MCP settings format used by `codehub init`. Tested against the current `main` branch; regenerate `.mcp.json` via `codehub init` if incompatibilities appear.
 
@@ -38,7 +38,7 @@ Restart Claude Code so it picks up the new agent, skills, and hooks. The auto-re
 
 ## What ships
 
-- **10 skills** — 4 artifact-factory (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`) + 6 analysis (`opencodehub-guide`, `opencodehub-exploring`, `opencodehub-impact-analysis`, `opencodehub-debugging`, `opencodehub-refactoring`, `opencodehub-pr-review`).
+- **11 skills** — 5 artifact-factory (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`, `codehub-code-pack`) + 6 analysis (`opencodehub-guide`, `opencodehub-exploring`, `opencodehub-impact-analysis`, `opencodehub-debugging`, `opencodehub-refactoring`, `opencodehub-pr-review`).
 - **18 agents** — `code-analyst` for analysis, plus 17 `doc-*` subagents dispatched by `codehub-document`, grouped into six families:
   - **analysis** (3) — `doc-analysis-dead-code`, `doc-analysis-ownership`, `doc-analysis-risk-hotspots`.
   - **architecture** (3) — `doc-architecture-data-flow`, `doc-architecture-module-map`, `doc-architecture-system-overview`.
