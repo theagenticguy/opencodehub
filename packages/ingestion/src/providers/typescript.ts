@@ -27,11 +27,9 @@ export const typescriptProvider: LanguageProvider = {
   inferImplicitReceiver: () => "this",
   preprocessImportPath: preprocessTsImportPath,
   isExportedIdentifier: (_name, context) => context === "top-level",
-  // Opt into the clean-room stack-graphs evaluator. The router in
-  // resolver-strategy.ts dispatches this name by provider.id; the TS/TSX/JS
-  // backend handles barrel re-exports, default/namespace imports, and falls
-  // back to the three-tier walker when stack-graphs can't resolve.
-  resolverStrategyName: "stack-graphs",
+  // Reference resolution runs through the three-tier walker
+  // (same-file -> import-scoped -> global). SCIP edges, when present,
+  // overlay as the precision oracle on top of the walker's output.
   complexityDefinitionKinds: [
     "function_declaration",
     "function_expression",

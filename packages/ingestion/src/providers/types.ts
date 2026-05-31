@@ -124,15 +124,6 @@ export interface LanguageProvider {
   readonly inferImplicitReceiver?: (callerKind: string) => "self" | "this" | undefined;
 
   /**
-   * Optional opt-in for an alternative reference-resolution backend. Unset
-   * providers use the three-tier walker (`"three-tier-default"`). Known
-   * values map to the registry in `resolution/resolver-strategy.ts`:
-   *   - `"stack-graphs"` — clean-room stack-graphs evaluator (Python only).
-   * Unknown values silently fall back to the default.
-   */
-  readonly resolverStrategyName?: string;
-
-  /**
    * Tree-sitter node-type names that start a new function/method/constructor
    * body for complexity counting. The complexity phase dispatches on these;
    * providers without a table are silently skipped by the phase.

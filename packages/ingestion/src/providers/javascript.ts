@@ -93,8 +93,9 @@ export const javascriptProvider: LanguageProvider = {
   heritageEdge: "EXTENDS",
   inferImplicitReceiver: () => "this",
   isExportedIdentifier: (_name, context) => context === "top-level",
-  // Shares the TS-family stack-graphs backend — see typescript.ts.
-  resolverStrategyName: "stack-graphs",
+  // Reference resolution runs through the three-tier walker
+  // (same-file -> import-scoped -> global). SCIP edges, when present,
+  // overlay as the precision oracle on top of the walker's output.
   complexityDefinitionKinds: [
     "function_declaration",
     "function_expression",
