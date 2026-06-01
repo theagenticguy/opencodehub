@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/summarizer",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "OpenCodeHub — structured code-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4)",
   "license": "Apache-2.0",
   "repository": {

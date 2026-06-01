@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.4](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.3...scanners-v0.2.4) (2026-06-01)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/sarif bumped to 0.2.0
+
 ## [0.2.3](https://github.com/theagenticguy/opencodehub/compare/scanners-v0.2.2...scanners-v0.2.3) (2026-05-29)
 
 

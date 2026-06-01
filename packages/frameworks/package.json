@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/frameworks",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "OpenCodeHub — framework detection (manifest → lockfile version → folder/file marker) over a curated catalog",
   "license": "Apache-2.0",
   "repository": {

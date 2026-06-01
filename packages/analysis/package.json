@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/analysis",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "OpenCodeHub — impact, detect_changes, staleness",
   "license": "Apache-2.0",
   "repository": {

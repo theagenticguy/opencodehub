@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/wiki",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "OpenCodeHub — Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph store",
   "license": "Apache-2.0",
   "repository": {

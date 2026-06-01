@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.6.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.6...cli-v0.6.0) (2026-06-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sweep:** the `rename` and `remove_dead_code` MCP tools are removed. OpenCodeHub plans and verifies refactors via read-only analysis (impact/context/detect_changes); it does not apply source edits.
+
+### Features
+
+* **sweep:** remediate 44 findings, rip stack-graphs + source-mutating MCP tools ([#175](https://github.com/theagenticguy/opencodehub/issues/175)) ([dbb574a](https://github.com/theagenticguy/opencodehub/commit/dbb574a11ae2d457f8f26ed69278e157189d8dad))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/analysis bumped to 0.4.0
+    * @opencodehub/core-types bumped to 0.4.0
+    * @opencodehub/embedder bumped to 0.1.3
+    * @opencodehub/ingestion bumped to 0.5.0
+    * @opencodehub/mcp bumped to 0.5.0
+    * @opencodehub/pack bumped to 0.3.0
+    * @opencodehub/policy bumped to 0.2.0
+    * @opencodehub/sarif bumped to 0.2.0
+    * @opencodehub/scanners bumped to 0.2.4
+    * @opencodehub/search bumped to 0.3.0
+    * @opencodehub/storage bumped to 0.3.0
+    * @opencodehub/wiki bumped to 0.3.0
+
 ## [0.5.6](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.5...cli-v0.5.6) (2026-05-29)
 
 
