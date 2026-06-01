@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/pack",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "OpenCodeHub — deterministic 9-item code-pack BOM",
   "license": "Apache-2.0",
   "repository": {

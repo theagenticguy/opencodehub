@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.7...root-v0.7.0) (2026-06-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sweep:** the `rename` and `remove_dead_code` MCP tools are removed. OpenCodeHub plans and verifies refactors via read-only analysis (impact/context/detect_changes); it does not apply source edits.
+
+### Features
+
+* **sweep:** remediate 44 findings, rip stack-graphs + source-mutating MCP tools ([#175](https://github.com/theagenticguy/opencodehub/issues/175)) ([dbb574a](https://github.com/theagenticguy/opencodehub/commit/dbb574a11ae2d457f8f26ed69278e157189d8dad))
+
 ## [0.6.7](https://github.com/theagenticguy/opencodehub/compare/root-v0.6.6...root-v0.6.7) (2026-05-29)
 
 

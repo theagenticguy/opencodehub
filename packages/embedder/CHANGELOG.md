@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.3](https://github.com/theagenticguy/opencodehub/compare/embedder-v0.1.2...embedder-v0.1.3) (2026-06-01)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @opencodehub/core-types bumped to 0.4.0
+
 ## [0.1.2](https://github.com/theagenticguy/opencodehub/compare/embedder-v0.1.1...embedder-v0.1.2) (2026-05-12)
 
 
