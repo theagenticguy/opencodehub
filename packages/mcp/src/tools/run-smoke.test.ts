@@ -49,8 +49,6 @@ import { runListRepos } from "./list-repos.js";
 import { runOwners } from "./owners.js";
 import { runProjectProfile } from "./project-profile.js";
 import { runQuery } from "./query.js";
-import { runRemoveDeadCode } from "./remove-dead-code.js";
-import { runRename } from "./rename.js";
 import { runRiskTrends } from "./risk-trends.js";
 import { runRouteMap } from "./route-map.js";
 import { runScan } from "./scan.js";
@@ -237,17 +235,6 @@ test("runScan returns a ToolResult shape", async () => {
   });
 });
 
-test("runRename returns a ToolResult shape", async () => {
-  await withHarness(async (ctx) => {
-    const result = await runRename(ctx, {
-      symbol_name: "foo",
-      new_name: "bar",
-      repo: "fakerepo",
-    });
-    assertToolResultShape(result);
-  });
-});
-
 test("runApiImpact returns a ToolResult shape", async () => {
   await withHarness(async (ctx) => {
     const result = await runApiImpact(ctx, { repo: "fakerepo" });
@@ -349,13 +336,6 @@ test("runSignature returns a ToolResult shape", async () => {
 test("runListDeadCode returns a ToolResult shape", async () => {
   await withHarness(async (ctx) => {
     const result = await runListDeadCode(ctx, { repo: "fakerepo" });
-    assertToolResultShape(result);
-  });
-});
-
-test("runRemoveDeadCode returns a ToolResult shape", async () => {
-  await withHarness(async (ctx) => {
-    const result = await runRemoveDeadCode(ctx, { repo: "fakerepo" });
     assertToolResultShape(result);
   });
 });

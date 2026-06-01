@@ -12,8 +12,10 @@
  * silently reparses every input path via the regex hot path.
  *
  * Timeouts: the default 60 s cap per batch is generous enough that even a
- * large copybook tree finishes; beyond that the subprocess is killed and
- * the batch is treated as a crash.
+ * large copybook tree finishes; beyond that the subprocess is sent SIGTERM
+ * and the batch is treated as a crash. A wedged JVM that ignores SIGTERM is
+ * escalated to SIGKILL after a short grace window, and the batch Promise is
+ * resolved from the buffered partial so it never hangs.
  */
 
 import { spawn } from "node:child_process";
@@ -78,19 +80,70 @@ export async function runBatch(
   }
   await requireJre17();
 
-  const timeoutMs = opts.timeoutMs ?? 60_000;
   const javaBin = opts.javaBin ?? "java";
   const classpath = [opts.jarPath, opts.wrapperClassPath].join(delimiter);
   const args = ["-cp", classpath, "cobol_to_scip"];
 
+  return await superviseProcess(javaBin, args, paths, {
+    timeoutMs: opts.timeoutMs ?? 60_000,
+    killGraceMs: opts.killGraceMs ?? 3_000,
+  });
+}
+
+/**
+ * Spawn `command`, feed `stdinLines` (one per line) on stdin, buffer stdout
+ * as NDJSON, and supervise the lifetime:
+ *
+ *   - On a clean exit, the buffered stdout is parsed and returned (`ok`, or
+ *     `crashed` for a non-zero code / malformed NDJSON).
+ *   - On `timeoutMs`, the child is sent SIGTERM. If it ignores SIGTERM and no
+ *     `'exit'` follows within `killGraceMs`, it is escalated to SIGKILL and
+ *     the returned Promise is settled from the buffered partial — so a wedged
+ *     child can never leave this Promise unresolved.
+ *
+ * Extracted from {@link runBatch} so the timeout/kill supervision can be
+ * exercised against a stand-in process without a live JVM.
+ */
+export async function superviseProcess(
+  command: string,
+  args: readonly string[],
+  stdinLines: readonly string[],
+  opts: { readonly timeoutMs: number; readonly killGraceMs: number },
+): Promise<RunOutcome> {
+  const { timeoutMs, killGraceMs } = opts;
   return await new Promise<RunOutcome>((resolve) => {
-    const child = spawn(javaBin, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, [...args], { stdio: ["pipe", "pipe", "pipe"] });
     let stdoutBuf = "";
     let stderrBuf = "";
     let timedOut = false;
+    let sigkillSent = false;
+    let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearTimers = (): void => {
+      clearTimeout(timer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+    };
+    const settle = (outcome: RunOutcome): void => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolve(outcome);
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
+      // Escalate to SIGKILL if the child ignores SIGTERM (e.g. a JVM wedged
+      // in native code), and settle from the buffered partial so the Promise
+      // never hangs even if no 'exit' event ever fires.
+      killTimer = setTimeout(() => {
+        sigkillSent = true;
+        child.kill("SIGKILL");
+        settle({
+          kind: "crashed",
+          reason: `JVM subprocess timed out after ${timeoutMs}ms and ignored SIGTERM (SIGKILL sent)`,
+          partial: parseRecords(stdoutBuf),
+        });
+      }, killGraceMs);
     }, timeoutMs);
 
     child.stdout.setEncoding("utf8");
@@ -102,27 +155,33 @@ export async function runBatch(
       stderrBuf += d;
     });
     child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({
+      settle({
         kind: "crashed",
-        reason: `spawn ${javaBin}: ${err.message}`,
+        reason: `spawn ${command}: ${err.message}`,
         partial: parseRecords(stdoutBuf),
       });
     });
-    child.on("exit", (code) => {
-      clearTimeout(timer);
+    child.on("exit", (code, signal) => {
       const records = parseRecords(stdoutBuf);
       if (timedOut) {
-        resolve({
+        // Distinguish how the timed-out child actually died: a clean SIGTERM
+        // exit vs. an escalation to SIGKILL (either the kill timer already
+        // fired, or the OS reports the exit signal as SIGKILL). The test
+        // harness installs a SIGTERM-ignoring child to force the escalation
+        // path, so the reason must name SIGKILL whenever it was sent.
+        const killed = sigkillSent || signal === "SIGKILL";
+        settle({
           kind: "crashed",
-          reason: `JVM subprocess timed out after ${timeoutMs}ms`,
+          reason: killed
+            ? `JVM subprocess timed out after ${timeoutMs}ms and ignored SIGTERM (SIGKILL sent)`
+            : `JVM subprocess timed out after ${timeoutMs}ms`,
           partial: records,
         });
         return;
       }
       if (code !== 0) {
         const tail = stderrBuf.trim().slice(-400);
-        resolve({
+        settle({
           kind: "crashed",
           reason: `JVM exited ${code}. Stderr tail: ${tail}`,
           partial: records,
@@ -130,19 +189,19 @@ export async function runBatch(
         return;
       }
       if (records.malformed) {
-        resolve({
+        settle({
           kind: "crashed",
           reason: `Malformed NDJSON on stdout (${records.malformed} bad line(s))`,
           partial: records,
         });
         return;
       }
-      resolve({ kind: "ok", records });
+      settle({ kind: "ok", records });
     });
 
     // Feed the file list on stdin. The wrapper reads one path per line and
     // terminates when it sees EOF.
-    for (const p of paths) {
+    for (const p of stdinLines) {
       child.stdin.write(`${p}\n`);
     }
     child.stdin.end();
@@ -155,7 +214,7 @@ export async function runBatch(
  * triggers a fallback. The return value is an Array augmented with
  * the count so callers can read it without a second pass.
  */
-function parseRecords(raw: string): readonly JvmRecord[] & { malformed: number } {
+export function parseRecords(raw: string): readonly JvmRecord[] & { malformed: number } {
   const out = [] as unknown as JvmRecord[] & { malformed: number };
   out.malformed = 0;
   for (const line of raw.split("\n")) {
@@ -175,11 +234,40 @@ function parseRecords(raw: string): readonly JvmRecord[] & { malformed: number }
   return out;
 }
 
+const SYMBOL_KINDS = new Set<JvmRecord["kind"]>([
+  "program-id",
+  "paragraph",
+  "perform",
+  "copy",
+  "cics",
+  "data-item",
+  "file-descriptor",
+]);
+
 function isValidRecord(v: unknown): v is JvmRecord {
   if (v === null || typeof v !== "object") return false;
-  const rec = v as { kind?: unknown; filePath?: unknown };
+  const rec = v as {
+    kind?: unknown;
+    filePath?: unknown;
+    name?: unknown;
+    startLine?: unknown;
+    endLine?: unknown;
+    message?: unknown;
+  };
   if (typeof rec.kind !== "string" || typeof rec.filePath !== "string") return false;
-  return true;
+  if (rec.kind === "diagnostic") {
+    return typeof rec.message === "string";
+  }
+  // Every non-diagnostic kind is a symbol ref; recordToElement copies
+  // name/startLine/endLine straight through, so a record missing any of them
+  // would leak undefined fields into a CobolDeepElement. Reject those as
+  // malformed rather than trust them.
+  if (!SYMBOL_KINDS.has(rec.kind as JvmRecord["kind"])) return false;
+  return (
+    typeof rec.name === "string" &&
+    typeof rec.startLine === "number" &&
+    typeof rec.endLine === "number"
+  );
 }
 
 /**

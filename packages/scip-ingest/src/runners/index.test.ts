@@ -13,11 +13,49 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultCobolProleapPaths, detectVersionManagerShimFailure, runIndexer } from "./index.js";
+import {
+  ALLOWED_COMMANDS,
+  defaultCobolProleapPaths,
+  detectVersionManagerShimFailure,
+  isAllowedCommand,
+  runIndexer,
+} from "./index.js";
+
+test("isAllowedCommand: every command buildCommand emits is on the spawn allowlist", () => {
+  // The spawn boundary (runCommand) refuses anything outside ALLOWED_COMMANDS.
+  // These are the exact executables buildCommand / the dotnet probe / the
+  // Kotlin `sh -c` chain hand off to it. If buildCommand gains a new indexer
+  // without allowlisting it, runCommand would reject it at runtime — this
+  // test pins the contract so that surfaces here first.
+  for (const cmd of [
+    "scip-typescript",
+    "scip-python",
+    "scip-go",
+    "scip-java",
+    "scip-clang",
+    "scip-ruby",
+    "scip-dotnet",
+    "cobol-proleap",
+    "kotlinc",
+    "rust-analyzer",
+    "dotnet",
+    "sh",
+  ]) {
+    assert.equal(isAllowedCommand(cmd), true, `${cmd} must be allowlisted`);
+  }
+});
+
+test("isAllowedCommand: rejects an arbitrary or injected command", () => {
+  for (const bad of ["bash", "rm", "/bin/sh", "scip-typescript; rm -rf /", "", "node"]) {
+    assert.equal(isAllowedCommand(bad), false, `${bad} must be rejected`);
+  }
+  // The allowlist is a closed set, not a prefix/substring match.
+  assert.equal(ALLOWED_COMMANDS.has("scip-typescript "), false);
+});
 
 test("runIndexer(cobol-proleap): skips with fallback message when opt-in is absent", async () => {
   const dir = mkdtempSync(join(tmpdir(), "scip-ingest-"));
@@ -71,6 +109,34 @@ test("runIndexer(cobol-proleap): legacy allowBuildScripts=true also activates (w
     cobolProleapJarPath: jarPath,
   });
   assert.equal(res.skipped, false);
+});
+
+test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
+  skip: process.platform === "win32" ? "POSIX shim shell only" : false,
+}, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "scip-ingest-"));
+  const bin = mkdtempSync(join(tmpdir(), "scip-ingest-bin-"));
+  // Shim a `scip-go` that exits fast for the `--version` probe but hangs
+  // for the index invocation, so the spawn timer is the only thing that
+  // can end it.
+  const shim = join(bin, "scip-go");
+  writeFileSync(
+    shim,
+    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nsleep 30\n',
+  );
+  chmodSync(shim, 0o755);
+
+  const res = await runIndexer("go", {
+    projectRoot: dir,
+    outputDir: dir,
+    timeoutMs: 50,
+    envOverlay: { PATH: bin },
+  });
+
+  assert.equal(res.kind, "go");
+  assert.equal(res.skipped, true);
+  assert.match(res.skipReason ?? "", /exceeded 50ms/);
+  assert.match(res.skipReason ?? "", /terminated/);
 });
 
 test("defaultCobolProleapPaths: resolves under ~/.codehub/vendor/proleap", () => {

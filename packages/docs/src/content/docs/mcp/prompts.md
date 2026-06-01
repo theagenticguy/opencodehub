@@ -34,7 +34,7 @@ covers the playbook surface:
 | Impact / blast-radius analysis | `opencodehub-impact-analysis` skill + `verdict` MCP tool |
 | PR review | `opencodehub-pr-review` skill + `codehub-pr-description` skill |
 | Codebase exploration | `opencodehub-exploring` skill + `codehub-onboarding` skill |
-| Dependency audit | `audit-deps` slash command + `license_audit` MCP tool |
+| Dependency audit | `dependencies` MCP tool + `license_audit` MCP tool |
 | Route / tool map generation | `codehub-document` skill + `route_map` / `tool_map` MCP tools |
 
 Each skill is richer than a static template because it inspects graph

@@ -11,13 +11,12 @@ jobs:
         with:
           node-version: 20
       - run: npm install -g @opencodehub/cli@latest
-      - run: codehub analyze --incremental
+      - run: codehub analyze
       - name: verdict
         id: verdict
         run: |
-          codehub verdict --base origin/${MAIN_BRANCH} --head HEAD \
-            --output-format markdown --pr-comment > /tmp/verdict.md
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          codehub verdict --base origin/${MAIN_BRANCH} --head HEAD > /tmp/verdict.md || true
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
       - run: gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/verdict.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

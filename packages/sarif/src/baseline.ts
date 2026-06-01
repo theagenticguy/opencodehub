@@ -65,6 +65,7 @@ interface ResultLocator {
   readonly ruleId: string;
   readonly uri: string;
   readonly startLine: number;
+  readonly startColumn: number;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -77,7 +78,9 @@ function locator(result: SarifResult): ResultLocator {
   const uri =
     typeof physical?.artifactLocation.uri === "string" ? physical.artifactLocation.uri : "";
   const startLine = typeof physical?.region?.startLine === "number" ? physical.region.startLine : 0;
-  return { ruleId, uri, startLine };
+  const startColumn =
+    typeof physical?.region?.startColumn === "number" ? physical.region.startColumn : 0;
+  return { ruleId, uri, startLine, startColumn };
 }
 
 function fingerprintOf(result: SarifResult): string | undefined {
@@ -89,14 +92,20 @@ function fingerprintOf(result: SarifResult): string | undefined {
 
 /**
  * Deterministic match key. Prefers the `opencodehub/v1` fingerprint;
- * falls back to `ruleId\x00uri\x00startLine`. The fallback is namespaced
- * with `tuple:` so it can't collide with a hex fingerprint.
+ * falls back to `ruleId\x00uri\x00startLine\x00startColumn`. The fallback is
+ * namespaced with `tuple:` so it can't collide with a hex fingerprint.
+ *
+ * `startColumn` is part of the tuple so two findings on the same
+ * `(ruleId, uri, startLine)` but different columns — common for
+ * column-precise scanners — get distinct keys and neither is dropped at
+ * index time. `startColumn` defaults to 0 when absent, so column-less
+ * findings keep their pre-existing line-only behavior.
  */
 function matchKey(result: SarifResult): string {
   const fp = fingerprintOf(result);
   if (fp !== undefined) return `fp:${fp}`;
   const loc = locator(result);
-  return `tuple:${loc.ruleId}\x00${loc.uri}\x00${loc.startLine}`;
+  return `tuple:${loc.ruleId}\x00${loc.uri}\x00${loc.startLine}\x00${loc.startColumn}`;
 }
 
 /**
@@ -157,8 +166,13 @@ function indexResults(log: SarifLog): Map<string, SarifResult> {
     for (const r of results) {
       if (r === undefined) continue;
       const key = matchKey(r);
-      // First occurrence wins; duplicates within a single log are uncommon
-      // and the GHAS dedup contract already filters them at scanner level.
+      // First occurrence wins for a given key. The key now carries
+      // startColumn (see `matchKey`), so column-precise findings that share
+      // a (ruleId, uri, startLine) no longer collapse. Two results that
+      // collide on the FULL tuple — same rule, uri, line, AND column — with
+      // no distinguishing fingerprint are treated as one observation of the
+      // same site; emit distinct `opencodehub/v1` fingerprints upstream to
+      // diff them independently.
       if (!out.has(key)) out.set(key, r);
     }
   }

@@ -45,6 +45,13 @@ interface FakeStoreOptions {
   readonly nodes?: ReadonlyMap<string, FakeNode>;
   /** P04 symbol summaries — keyed by nodeId. Omit to simulate legacy indexes. */
   readonly summaryRows?: ReadonlyMap<string, SymbolSummaryRow>;
+  /**
+   * Persisted embedder model id returned by `getMeta()`. Omit to simulate a
+   * legacy / untagged store (the compatibility check passes). Set to a value
+   * that differs from the active embedder's modelId to exercise the
+   * mismatch-refusal path.
+   */
+  readonly metaModelId?: string;
 }
 
 interface FakeStoreHandle {
@@ -62,6 +69,7 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   const vectorRows = opts.vectorRows ?? [];
   const nodes = opts.nodes ?? new Map<string, FakeNode>();
   const summaryRows = opts.summaryRows;
+  const metaModelId = opts.metaModelId;
 
   const handle: FakeStoreHandle = {
     lastQuery: null,
@@ -115,7 +123,11 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
     // modelId against the currently-active embedder. Returning `undefined`
     // makes every fake store look like a legacy / pre-tag store, so the
     // compatibility check passes without any test having to set a model id.
-    getMeta: async () => undefined,
+    // Set `metaModelId` to exercise the mismatch-refusal branch instead.
+    getMeta: async () =>
+      metaModelId !== undefined
+        ? ({ embedderModelId: metaModelId } as Awaited<ReturnType<IGraphStore["getMeta"]>>)
+        : undefined,
   };
 
   // The temporal-tier surface the query path touches is just
@@ -635,4 +647,84 @@ test("cli query: store without lookupSymbolSummariesByNode degrades silently", a
   });
   const parsed = JSON.parse(stdout) as { results: Array<{ summary?: string }> };
   assert.equal(parsed.results[0]?.summary, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Embedder fingerprint mismatch — the abort path must run cleanup, not leak.
+// ---------------------------------------------------------------------------
+
+// On a persisted-vs-active embedder mismatch, the query must abort with exit
+// code 2 BUT still close the native ONNX session and the composed store. An
+// immediate process.exit(2) would have skipped both finally blocks, leaking
+// the embedder session and the graph + temporal handles.
+test("cli query: embedder mismatch sets exit code 2 and still closes embedder + store", async () => {
+  const handle = makeFakeStore({
+    embeddingRows: 5,
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+    vectorRows: [{ nodeId: "F:foo", distance: 0.1 }],
+    // Persisted model id differs from the active embedder's "fake-embedder/test".
+    metaModelId: "gte-modernbert-base/fp32",
+  });
+  const fake = new FakeEmbedder();
+  const prevExitCode = process.exitCode;
+  try {
+    await captureStderr(async () => {
+      await runQuery(
+        "auth handler",
+        { json: true },
+        { ...hooksFor(handle, "/tmp/fake"), openEmbedder: async () => fake },
+      );
+    });
+    assert.equal(process.exitCode, 2, "an embedder mismatch must set the distinct exit code 2");
+    assert.equal(
+      fake.closeCount,
+      1,
+      "embedder.close() must run on the mismatch abort path (inner finally)",
+    );
+    assert.equal(
+      handle.closed,
+      true,
+      "store.close() must run on the mismatch abort path (outer finally)",
+    );
+    assert.equal(handle.vectorCalls, 0, "hybridSearch must not run after a refused mismatch");
+  } finally {
+    process.exitCode = prevExitCode;
+  }
+});
+
+// `--force-backend-mismatch` overrides the refusal: the mismatch is accepted,
+// the hybrid search runs, and cleanup still happens (the normal happy path).
+test("cli query: --force-backend-mismatch bypasses the refusal and runs hybrid", async () => {
+  const nodes: ReadonlyMap<string, FakeNode> = new Map([
+    ["F:foo", { name: "foo", kind: "Function", filePath: "src/foo.ts" }],
+  ]);
+  const handle = makeFakeStore({
+    embeddingRows: 5,
+    searchRows: [
+      { nodeId: "F:foo", score: 2, filePath: "src/foo.ts", name: "foo", kind: "Function" },
+    ],
+    vectorRows: [{ nodeId: "F:foo", distance: 0.1 }],
+    nodes,
+    metaModelId: "gte-modernbert-base/fp32",
+  });
+  const fake = new FakeEmbedder();
+  const prevExitCode = process.exitCode;
+  try {
+    const stdout = await captureStdout(async () => {
+      await runQuery(
+        "auth handler",
+        { json: true, forceBackendMismatch: true },
+        { ...hooksFor(handle, "/tmp/fake"), openEmbedder: async () => fake },
+      );
+    });
+    const parsed = JSON.parse(stdout) as { mode: "bm25" | "hybrid" };
+    assert.equal(parsed.mode, "hybrid", "force-mismatch must let the hybrid path run");
+    assert.equal(handle.vectorCalls, 1, "hybridSearch must run when the mismatch is forced");
+    assert.equal(fake.closeCount, 1, "embedder.close() must still run on the happy path");
+    assert.equal(handle.closed, true, "store.close() must still run on the happy path");
+  } finally {
+    process.exitCode = prevExitCode;
+  }
 });

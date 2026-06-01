@@ -1,5 +1,5 @@
 /**
- * Default pipeline phase set — full 14-phase DAG.
+ * Default pipeline phase set — the full ingestion DAG.
  *
  * The runner treats this array as the canonical ordering source. Adding or
  * removing a phase is a one-line change here; the DAG validator catches
@@ -7,10 +7,10 @@
  *
  * Phase ordering (topologically):
  *   scan → profile
- *        → structure → markdown → parse → complexity → routes → tools →
- *                                         orm → crossFile → mro →
- *                                         communities → dead-code →
- *                                         processes → temporal → annotate
+ *        → structure → coverage → markdown → parse → complexity → routes →
+ *                                 tools → orm → crossFile → mro →
+ *                                 communities → dead-code →
+ *                                 processes → temporal → annotate
  *
  * `markdown` depends on `structure` and could run alongside `parse`; the
  * runner serialises everything since determinism dominates the latency
@@ -27,6 +27,7 @@ import { cochangePhase } from "./cochange.js";
 import { communitiesPhase } from "./communities.js";
 import { complexityPhase } from "./complexity.js";
 import { confidenceDemotePhase } from "./confidence-demote.js";
+import { coveragePhase } from "./coverage.js";
 import { crossFilePhase } from "./cross-file.js";
 import { deadCodePhase } from "./dead-code.js";
 import { dependenciesPhase } from "./dependencies.js";
@@ -61,6 +62,12 @@ export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   // from the graph by MCP tools at query time, not consumed by later phases.
   repoNodePhase,
   structurePhase,
+  // `coverage` depends on scan + profile + structure and annotates `File`
+  // nodes with coveragePercent / coveredLines from an external test-runner
+  // report. It is a silent no-op unless `options.coverage === true`, so the
+  // default pipeline carries it inertly until `codehub analyze --coverage`
+  // is passed.
+  coveragePhase,
   markdownPhase,
   parsePhase,
   // incremental-scope is passive at v1.0: it consumes scan output and emits

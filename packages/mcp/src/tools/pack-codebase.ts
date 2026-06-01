@@ -26,9 +26,9 @@ import { dirname, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { generatePack as defaultGeneratePack } from "@opencodehub/pack";
 import { z } from "zod";
-import { toolErrorFromUnknown } from "../error-envelope.js";
+import { toolAmbiguousRepoError, toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
-import { resolveRepo } from "../repo-resolver.js";
+import { RepoResolveError, resolveRepo } from "../repo-resolver.js";
 import { fromToolResult, type ToolContext, type ToolResult, toToolResult } from "./shared.js";
 
 const DEFAULT_REPOMIX_VERSION = "1.14.0";
@@ -135,6 +135,24 @@ export async function runPackCodebase(
     }
     return await runPackPath(entry, input, deps);
   } catch (err) {
+    // Repo-resolution failures carry a structured code (AMBIGUOUS_REPO /
+    // NO_INDEX / NOT_FOUND). Mirror `withStore` so pack_codebase returns the
+    // same envelope every other per-repo tool does — otherwise the catch-all
+    // below would flatten them to INTERNAL and drop the `choices[]` /
+    // `total_matches` / `hint` payload the AMBIGUOUS_REPO contract promises.
+    if (err instanceof RepoResolveError) {
+      if (err.code === "AMBIGUOUS_REPO" && err.ambiguous !== undefined) {
+        return toToolResult(
+          toolAmbiguousRepoError({
+            message: err.message,
+            hint: err.hint,
+            choices: err.ambiguous.choices,
+            totalMatches: err.ambiguous.totalMatches,
+          }),
+        );
+      }
+      return toToolResult(toolError(err.code, err.message, err.hint));
+    }
     return toToolResult(toolErrorFromUnknown(err));
   }
 }

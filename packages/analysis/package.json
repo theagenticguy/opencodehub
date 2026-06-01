@@ -1,7 +1,7 @@
 {
   "name": "@opencodehub/analysis",
   "version": "0.3.3",
-  "description": "OpenCodeHub — impact, rename, detect_changes, staleness",
+  "description": "OpenCodeHub — impact, detect_changes, staleness",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -62,7 +62,6 @@
     "static-analysis",
     "blast-radius",
     "impact-analysis",
-    "rename",
     "detect-changes"
   ],
   "engines": {

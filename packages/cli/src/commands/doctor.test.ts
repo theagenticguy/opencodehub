@@ -436,3 +436,65 @@ test("bandit check warns (not fails) when the binary is absent", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Graph binding (@ladybugdb/core) — mandatory, so absence is a HARD fail.
+// ---------------------------------------------------------------------------
+
+// The graph tier is always-on with no selector env var, no probe, and no
+// fallback — a failed binding throws GraphDbBindingError and aborts every
+// graph op. So a missing/unresolvable binding must be `fail`, never `warn`.
+// The real package is installed in every dev/CI checkout, so we inject a
+// resolver that returns null to exercise the absent path.
+test("graph-db binding check hard-fails (not warns) when @ladybugdb/core cannot be resolved", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-lbug-miss-"));
+  try {
+    const checks = buildChecks({
+      home,
+      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
+    });
+    const lbug = checks.find((c) => c.name === "graph-db native binding");
+    assert.ok(lbug, "graph-db binding check must be registered when skipNative is false");
+    const result = await lbug.run();
+    assert.equal(
+      result.status,
+      "fail",
+      `a missing mandatory graph binding must fail, never warn; got ${result.status}`,
+    );
+    // The hint must not reference the removed CODEHUB_STORE selector.
+    assert.doesNotMatch(result.hint ?? "", /CODEHUB_STORE/);
+    assert.doesNotMatch(result.message, /optional/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// No doctor row may mention the phantom CODEHUB_STORE env var or frame the
+// graph backend as "optional" — that selector was removed when lbug became
+// the mandatory graph tier.
+test("doctor surfaces no CODEHUB_STORE selector or optional-backend framing", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-no-store-var-"));
+  try {
+    await mkdir(join(home, ".codehub"), { recursive: true });
+    await writeFile(join(home, ".codehub", "registry.json"), JSON.stringify({}));
+    const prev = process.exitCode;
+    const report = await runDoctor({
+      home,
+      runCommand: okRunCommand,
+      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
+    });
+    process.exitCode = prev;
+    for (const { result } of report.rows) {
+      assert.doesNotMatch(result.message, /CODEHUB_STORE/);
+      assert.doesNotMatch(result.hint ?? "", /CODEHUB_STORE/);
+    }
+    // The absent graph binding makes the whole probe blocking (exit 2).
+    assert.equal(
+      report.exitCode,
+      2,
+      "an absent mandatory graph binding must block the doctor exit",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

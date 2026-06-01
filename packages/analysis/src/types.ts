@@ -88,31 +88,6 @@ export interface ImpactResult {
   readonly hint?: string;
 }
 
-export interface RenameQuery {
-  readonly symbolName: string;
-  readonly newName: string;
-  readonly dryRun?: boolean;
-  readonly scope?: { readonly filePath?: string };
-}
-
-export interface RenameEdit {
-  readonly filePath: string;
-  readonly line: number;
-  readonly column: number;
-  readonly before: string;
-  readonly after: string;
-  readonly confidence: number;
-  readonly source: "graph" | "text";
-}
-
-export interface RenameResult {
-  readonly edits: readonly RenameEdit[];
-  readonly applied: boolean;
-  readonly skipped: readonly { readonly filePath: string; readonly reason: string }[];
-  readonly ambiguous: boolean;
-  readonly hint?: string;
-}
-
 export interface DetectChangesQuery {
   readonly scope: "unstaged" | "staged" | "all" | "compare";
   readonly compareRef?: string;

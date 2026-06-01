@@ -268,9 +268,33 @@ function resolveVersion(
   // Fallback to the manifest-declared range.
   const parsed = manifestJson.get(rule.versionKey.file);
   if (parsed === undefined || parsed === null) return undefined;
-  const v = getPath(parsed, rule.versionKey.path);
-  if (typeof v !== "string") return undefined;
-  return v;
+  // Try the declared versionKey.path first, then the sibling dependency
+  // bucket. Many rules declare `manifestKeys` for BOTH `dependencies.<dep>`
+  // and `devDependencies.<dep>` (e.g. vite, electron, jest, vitest,
+  // playwright) but pin `versionKey` to a single bucket. Without this
+  // fallback a project that declares the dep in the *other* bucket is
+  // detected but reports `version: undefined`. We probe both common
+  // buckets so the version is resolved regardless of which one carries it.
+  for (const candidate of versionKeyCandidates(rule.versionKey.path)) {
+    const v = getPath(parsed, candidate);
+    if (typeof v === "string") return v;
+  }
+  return undefined;
+}
+
+/**
+ * Yield the declared version path plus its sibling dependency bucket. A
+ * path of `dependencies.vite` also tries `devDependencies.vite` and vice
+ * versa; paths that don't name a dependency bucket are returned as-is.
+ */
+function versionKeyCandidates(path: string): readonly string[] {
+  if (path.startsWith("dependencies.")) {
+    return [path, `devDependencies.${path.slice("dependencies.".length)}`];
+  }
+  if (path.startsWith("devDependencies.")) {
+    return [path, `dependencies.${path.slice("devDependencies.".length)}`];
+  }
+  return [path];
 }
 
 function lastPathSegment(path: string): string | null {

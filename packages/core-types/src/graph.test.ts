@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { KnowledgeGraph } from "./graph.js";
+import { graphHash } from "./graph-hash.js";
 import type { NodeId } from "./id.js";
 import { makeNodeId } from "./id.js";
 import type { GraphNode } from "./nodes.js";
@@ -76,6 +77,51 @@ test("addEdge: different step values treated as distinct", () => {
   g.addEdge({ from, to, type: "PROCESS_STEP", confidence: 1, step: 1 });
   g.addEdge({ from, to, type: "PROCESS_STEP", confidence: 1, step: 2 });
   assert.equal(g.edgeCount(), 2);
+});
+
+test("addNode: equal field-count merge is insertion-order independent", () => {
+  const id = makeNodeId("Class", "src/a.ts", "Foo");
+  // Two records for the same id, each with the same number of defined fields
+  // but differing values (startLine 10 vs 99). Before the canonical-JSON
+  // tiebreak the first writer won, so A-then-B and B-then-A kept different
+  // startLines and produced different graph hashes.
+  const a = cls(id, { startLine: 10, endLine: 42 });
+  const b = cls(id, { startLine: 99, endLine: 42 });
+
+  const gAB = new KnowledgeGraph();
+  gAB.addNode(a);
+  gAB.addNode(b);
+  const gBA = new KnowledgeGraph();
+  gBA.addNode(b);
+  gBA.addNode(a);
+
+  assert.equal(graphHash(gAB), graphHash(gBA));
+  // The deterministic survivor is the canonically-smaller record (startLine 10).
+  const kept = gAB.getNode(id);
+  assert.equal(kept && "startLine" in kept ? kept.startLine : undefined, 10);
+});
+
+test("addEdge: equal-confidence merge is insertion-order independent", () => {
+  const from = makeNodeId("Function", "a.ts", "f");
+  const to = makeNodeId("Function", "b.ts", "g");
+  // Same (from, type, to, step) and same confidence, but different `reason`.
+  // `reason` is serialized into the graph hash, so the survivor must not depend
+  // on which writer arrived first.
+  const eAlpha = { from, to, type: "CALLS", confidence: 0.7, reason: "alpha" } as const;
+  const eBeta = { from, to, type: "CALLS", confidence: 0.7, reason: "beta" } as const;
+
+  const gAB = new KnowledgeGraph();
+  gAB.addEdge(eAlpha);
+  gAB.addEdge(eBeta);
+  const gBA = new KnowledgeGraph();
+  gBA.addEdge(eBeta);
+  gBA.addEdge(eAlpha);
+
+  assert.equal(graphHash(gAB), graphHash(gBA));
+  const [only] = [...gAB.edges()];
+  assert.ok(only);
+  // Canonically-smaller record wins: "alpha" < "beta".
+  assert.equal(only.reason, "alpha");
 });
 
 test("orderedNodes / orderedEdges: produce canonical sort", () => {

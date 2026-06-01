@@ -458,12 +458,19 @@ export type FrameworkCategory =
 
 /**
  * Structured evidence for a single framework detection. Each entry is a
- * citation — which of the 5 pipeline stages produced it, which source
- * file or symbol supplied the signal, and a short human-readable detail.
- * Replaces the unstructured `signals: string[]` field on v1.0 graphs.
+ * citation — which detection stage produced it, which source file or symbol
+ * supplied the signal, and a short human-readable detail. Replaces the
+ * unstructured `signals: string[]` field on v1.0 graphs.
+ *
+ * The wired profile-time pipeline emits stages 1 (manifest), 2 (lockfile),
+ * and 4 (folder/file marker). Stages 3 (config-AST) and 5 (imports) ship as
+ * standalone, independently-tested modules in `@opencodehub/frameworks` but
+ * are not yet wired — stage 5 in particular needs the materialized IMPORTS
+ * edges, which do not exist at profile time (profile is a leaf on `scan`).
+ * The `stage` union keeps 3 and 5 as reserved, forward-looking values.
  */
 export interface Evidence {
-  /** Which pipeline stage produced this evidence (1=manifest, 2=lockfile, 3=config-AST, 4=folder, 5=imports). */
+  /** Which detection stage produced this evidence (1=manifest, 2=lockfile, 3=config-AST, 4=folder, 5=imports). Profile-time wiring emits 1/2/4; 3 and 5 are reserved. */
   readonly stage: 1 | 2 | 3 | 4 | 5;
   /** Source file path or symbol id that supplied the signal. */
   readonly source: string;
@@ -478,7 +485,7 @@ export interface FrameworkDetection {
   readonly version?: string;
   readonly confidence: "deterministic" | "heuristic" | "composite";
   /**
-   * Structured evidence the 5-stage detection pipeline produced. Sorted
+   * Structured evidence the framework-detection pipeline produced. Sorted
    * deterministically by (stage, source, detail) for byte-stable output.
    */
   readonly evidence: readonly Evidence[];

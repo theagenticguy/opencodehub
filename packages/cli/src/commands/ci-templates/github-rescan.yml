@@ -26,7 +26,6 @@ jobs:
         id: rescan
         run: |
           codehub scan --scanners osv-scanner,grype \
-            --sbom .codehub/sbom.cyclonedx.json \
             --severity HIGH,CRITICAL \
             --output /tmp/rescan.sarif || true
           NEW_CVES=$(jq -r '.runs[].results[]?.ruleId // empty' /tmp/rescan.sarif | sort -u)

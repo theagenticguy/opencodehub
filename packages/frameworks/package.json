@@ -1,7 +1,7 @@
 {
   "name": "@opencodehub/frameworks",
   "version": "0.1.1",
-  "description": "OpenCodeHub — 5-stage framework detection (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry",
+  "description": "OpenCodeHub — framework detection (manifest → lockfile version → folder/file marker) over a curated catalog",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -39,8 +39,7 @@
   "dependencies": {
     "@iarna/toml": "2.2.5",
     "@opencodehub/core-types": "workspace:*",
-    "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@types/node": "25.9.1",

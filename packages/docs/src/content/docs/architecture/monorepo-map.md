@@ -6,26 +6,27 @@ sidebar:
 ---
 
 OpenCodeHub is a pnpm workspace under `packages/*`. Seventeen
-TypeScript packages plus the documentation site. The CLI is the only
-binary; every other package is a library imported by `cli`, `mcp`,
-`ingestion`, or `analysis`.
+TypeScript library packages plus the documentation site (eighteen
+package directories in all). The CLI is the only binary; every other
+package is a library imported by `cli`, `mcp`, `ingestion`, or
+`analysis`.
 
 ## All packages
 
 | Package | Folder | Purpose |
 |---|---|---|
-| `@opencodehub/analysis` | `packages/analysis` | `impact`, `rename`, `detect_changes`, staleness, group cross-repo links. |
+| `@opencodehub/analysis` | `packages/analysis` | `impact`, `detect_changes`, staleness, group cross-repo links. |
 | `@opencodehub/cli` | `packages/cli` | The `codehub` binary (analyze, setup, mcp, query, context, impact, sql, group, scan, verdict, code-pack, ...). |
 | `@opencodehub/cobol-proleap` | `packages/cobol-proleap` | Optional JVM ProLeap deep-parse bridge for COBOL — gated behind `--allow-build-scripts=proleap`. |
 | `@opencodehub/core-types` | `packages/core-types` | Shared graph schema, `LanguageId`, `RelationType`, determinism primitives. |
 | `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`gte-modernbert-base`), modelId fingerprint, three-backend cascade. |
 | `@opencodehub/frameworks` | `packages/frameworks` | Five-stage framework detector (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry. |
 | `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, summaries, ...). |
-| `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 29 tool registrations, 7 resources, the error envelope, the staleness `_meta` block. |
+| `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 28 tool registrations (all read-only with respect to user source), 7 resources, the error envelope, the staleness `_meta` block. |
 | `@opencodehub/pack` | `packages/pack` | Deterministic 9-item code-pack BOM (the artifact attached to every release). |
 | `@opencodehub/policy` | `packages/policy` | `opencodehub.policy.yaml` loader, validator, evaluator. |
 | `@opencodehub/sarif` | `packages/sarif` | SARIF 2.1.0 Zod schemas, merge + enrich, suppressions, baseline diffing. |
-| `@opencodehub/scanners` | `packages/scanners` | Nineteen scanner wrappers (semgrep, osv-scanner, bandit, ruff, grype, vulture, pip-audit, npm-audit, biome, betterleaks, trivy, checkov, hadolint, tflint, spectral, radon, ty, clamav, och self-scan). |
+| `@opencodehub/scanners` | `packages/scanners` | Nineteen scanner wrappers (semgrep, betterleaks, osv-scanner, bandit, biome, pip-audit, npm-audit, trivy, checkov, checkov-docker-compose, hadolint, tflint, spectral, ruff, grype, vulture, radon, ty, clamav). |
 | `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
 | `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
 | `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the LadybugDB graph adapter and DuckDB temporal adapter, and `openStore()` that composes them. |

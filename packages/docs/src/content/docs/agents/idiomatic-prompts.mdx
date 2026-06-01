@@ -20,25 +20,26 @@ they were validated on.
 Before I rename `parseConfig` to `parseAppConfig` across this repo,
 audit the blast radius. Use OpenCodeHub:
 
-1. Get the 360° context for `parseConfig`.
+1. Get the 360° context for `parseConfig` — every inbound and outbound ref.
 2. Compute upstream blast radius depth 3.
-3. Dry-run the rename and show me the file list with edit counts.
-4. Flag any dynamic-dispatch or shadowed-local risks.
+3. From those two, give me the full edit list: every file:line I need to
+   touch, grouped by file, with a count.
+4. Flag any dynamic-dispatch or shadowed-local references the graph can see
+   but a textual edit might miss.
 
-Tell me LOW/MEDIUM/HIGH/CRITICAL risk and the one-line reason.
-Do NOT apply the rename. I will say "apply" if I'm satisfied.
+Tell me LOW/MEDIUM/HIGH/CRITICAL risk and the one-line reason. Do NOT edit
+any files — OpenCodeHub is read-only; I will make the edits in my editor.
 ```
 
-**Expected tool calls:** `context` → `impact(direction: upstream, depth: 3)`
-→ `rename(dry_run: true)`.
+**Expected tool calls:** `context` → `impact(direction: upstream, depth: 3)`.
 
 **Expected output shape:** Risk tier on line 1; affected file count
-and call-site count; bullet list of risk flags; explicit "no files
-written" confirmation.
+and call-site count; a per-file edit checklist; a bullet list of
+dynamic-reference risk flags to check by hand.
 
 The Claude Code plugin's `code-analyst` subagent runs the same
-`context` → `impact` → `rename(dry_run: true)` chain when invoked with
-this prompt.
+`context` → `impact` chain when invoked with this prompt, then hands
+you the edit plan to apply.
 
 ## 2. Surface processes that touch the auth flow
 

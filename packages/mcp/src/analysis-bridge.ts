@@ -1,8 +1,8 @@
 /**
  * Bridge to `@opencodehub/analysis`.
  *
- * The analysis package exposes `runImpact`, `runRename`, `runDetectChanges`,
- * and `computeStaleness`, which this bridge re-exports for the tool handlers.
+ * The analysis package exposes `runImpact`, `runDetectChanges`, and
+ * `computeStaleness`, which this bridge re-exports for the tool handlers.
  * A slim inline-impact fallback remains as a safety net for repos where
  * analysis cannot resolve the target — e.g. a bare node-id with no
  * declaration row — so the `impact` tool always returns something actionable.
@@ -11,15 +11,10 @@
 import {
   runDetectChanges as analysisRunDetectChanges,
   runImpact as analysisRunImpact,
-  runRename as analysisRunRename,
-  createNodeFs,
   type DetectChangesQuery,
   type DetectChangesResult,
-  type FsAbstraction,
   type ImpactQuery,
   type ImpactResult,
-  type RenameQuery,
-  type RenameResult,
 } from "@opencodehub/analysis";
 import type { IGraphStore } from "@opencodehub/storage";
 
@@ -28,22 +23,10 @@ export type {
   DetectChangesResult,
   ImpactQuery,
   ImpactResult,
-  RenameEdit,
-  RenameQuery,
-  RenameResult,
 } from "@opencodehub/analysis";
 
 export async function callRunImpact(store: IGraphStore, q: ImpactQuery): Promise<ImpactResult> {
   return analysisRunImpact(store, q);
-}
-
-export async function callRunRename(
-  store: IGraphStore,
-  q: RenameQuery,
-  repoRoot: string,
-  fs?: FsAbstraction,
-): Promise<RenameResult> {
-  return analysisRunRename(store, q, fs ?? createNodeFs(), repoRoot);
 }
 
 export async function callRunDetectChanges(

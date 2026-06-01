@@ -38,6 +38,7 @@ import {
   resolveGraphPath,
   resolveRepoMetaDir,
   type Store,
+  type StoreMeta,
   writeStoreMeta,
 } from "@opencodehub/storage";
 import { writeAgentContextFiles } from "../agent-context.js";
@@ -381,18 +382,18 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     const parseCache = result.stats.parseCache;
     const cacheDir = join(repoPath, ".codehub", "parse-cache");
     const cacheSize = await pipeline.computeCacheSize(cacheDir);
-    const storeMeta = {
-      schemaVersion: SCHEMA_VERSION,
+    const storeMeta = buildStoreMeta({
       indexedAt,
       nodeCount: result.graph.nodeCount(),
       edgeCount: result.graph.edgeCount(),
       ...(result.stats.currentCommit !== undefined
-        ? { lastCommit: result.stats.currentCommit }
+        ? { currentCommit: result.stats.currentCommit }
         : {}),
       stats: byKindStats,
       ...(parseCache !== undefined ? { cacheHitRatio: parseCache.ratio } : {}),
       cacheSizeBytes: cacheSize.bytes,
-    };
+      ...(result.embeddings !== undefined ? { embeddings: result.embeddings } : {}),
+    });
     await store.graph.setMeta(storeMeta);
     await writeStoreMeta(repoPath, storeMeta);
 
@@ -625,6 +626,57 @@ export function resolveSbomEnabled(flag: boolean | undefined): boolean {
  */
 export function resolveScanEnabled(flag: boolean | undefined): boolean {
   return flag !== false;
+}
+
+/**
+ * Minimal slice of the `embeddings` phase output {@link buildStoreMeta}
+ * needs to tag the store with the embedder that populated it. Declared
+ * locally (rather than importing `EmbedderPhaseOutput`) so the helper stays
+ * trivially unit-testable without staging the full phase result.
+ */
+export interface StoreMetaEmbeddingsInput {
+  readonly ranEmbedder: boolean;
+  readonly embeddingsModelId: string;
+}
+
+/** Fields {@link buildStoreMeta} folds into a {@link StoreMeta}. */
+export interface BuildStoreMetaInput {
+  readonly indexedAt: string;
+  readonly nodeCount: number;
+  readonly edgeCount: number;
+  readonly currentCommit?: string;
+  readonly stats: Record<string, number>;
+  readonly cacheHitRatio?: number;
+  readonly cacheSizeBytes: number;
+  readonly embeddings?: StoreMetaEmbeddingsInput;
+}
+
+/**
+ * Assemble the {@link StoreMeta} persisted by `setMeta` + `writeStoreMeta`.
+ *
+ * Critically, this stamps `embedderModelId` from the embeddings phase output
+ * so the query-path fingerprint guard (`assertEmbedderCompatible` in
+ * cli/query + mcp/query) has a persisted value to compare against. We only
+ * tag it when the embedder actually ran AND reported a non-empty modelId —
+ * a `--no-embeddings` run leaves the field unset so the meta does not claim
+ * an embedder produced vectors it never wrote.
+ *
+ * Exported for unit tests; the production call site is in {@link runAnalyze}.
+ */
+export function buildStoreMeta(input: BuildStoreMetaInput): StoreMeta {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    indexedAt: input.indexedAt,
+    nodeCount: input.nodeCount,
+    edgeCount: input.edgeCount,
+    ...(input.currentCommit !== undefined ? { lastCommit: input.currentCommit } : {}),
+    stats: input.stats,
+    ...(input.cacheHitRatio !== undefined ? { cacheHitRatio: input.cacheHitRatio } : {}),
+    cacheSizeBytes: input.cacheSizeBytes,
+    ...(input.embeddings?.ranEmbedder === true && input.embeddings.embeddingsModelId.length > 0
+      ? { embedderModelId: input.embeddings.embeddingsModelId }
+      : {}),
+  };
 }
 
 /**

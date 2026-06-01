@@ -164,6 +164,84 @@ test("applySuppressions: inline `# codehub-suppress` (Python) and block comment 
   assert.equal(cSuppArr[0]?.justification, "c-family block style");
 });
 
+test("applySuppressions: a marker inside a string literal does NOT suppress", () => {
+  // The marker text rides inside a quoted string, NOT a comment. Treating
+  // it as a suppression would let a finding hide behind its own source
+  // text — a security gate defeat. It must stay un-suppressed.
+  const source = [
+    "def f():",
+    '    example = "codehub-suppress: B101 do not actually suppress"',
+    "    return example",
+  ].join("\n");
+  const applied = applySuppressions(makeLog({ startLine: 2 }), [], () => source);
+  assert.equal(firstResult(applied)["suppressions"], undefined);
+});
+
+test("applySuppressions: a marker in a comment on the line above DOES suppress", () => {
+  // Same marker text, this time inside a real `#` comment above the
+  // finding. This is the supported usage and must suppress.
+  const source = ["def f():", "    # codehub-suppress: B101 asserts ok here", "    assert ok"].join(
+    "\n",
+  );
+  const applied = applySuppressions(makeLog({ startLine: 3 }), [], () => source);
+  const supp = firstResult(applied)["suppressions"] as { kind: string; justification: string }[];
+  assert.ok(Array.isArray(supp));
+  assert.equal(supp[0]?.kind, "inSource");
+  assert.equal(supp[0]?.justification, "asserts ok here");
+});
+
+test("applySuppressions: SQL `--` and HTML `<!--` comment markers suppress", () => {
+  const sqlSource = ["SELECT *", "FROM t -- codehub-suppress: B101 sql comment marker"].join("\n");
+  const sqlApplied = applySuppressions(makeLog({ startLine: 2 }), [], () => sqlSource);
+  const sqlSupp = firstResult(sqlApplied)["suppressions"] as {
+    kind: string;
+    justification: string;
+  }[];
+  assert.equal(sqlSupp[0]?.kind, "inSource");
+  assert.equal(sqlSupp[0]?.justification, "sql comment marker");
+
+  const htmlSource = ["<div>", "  <!-- codehub-suppress: B101 html comment marker -->"].join("\n");
+  const htmlApplied = applySuppressions(makeLog({ startLine: 2 }), [], () => htmlSource);
+  const htmlSupp = firstResult(htmlApplied)["suppressions"] as {
+    kind: string;
+    justification: string;
+  }[];
+  assert.equal(htmlSupp[0]?.kind, "inSource");
+  assert.equal(htmlSupp[0]?.justification, "html comment marker");
+});
+
+test("applySuppressions: location-less result is suppressed by a catch-all `**` rule", () => {
+  // SARIF 2.1.0 allows a Result with a ruleId but no locations[] (file-less
+  // secret/dependency findings). A catch-all rule must still be able to
+  // suppress it by ruleId; a path-scoped rule must not.
+  const log: SarifLog = {
+    version: "2.1.0",
+    runs: [
+      {
+        tool: { driver: { name: "betterleaks", version: "1.0.0" } },
+        results: [{ ruleId: "B101", level: "error", message: { text: "file-less finding" } }],
+      },
+    ],
+  };
+
+  const catchAll: SuppressionRule[] = [
+    { ruleId: "B101", filePathPattern: "**", reason: "accepted risk" },
+  ];
+  const applied = applySuppressions(log, catchAll);
+  const supp = firstResult(applied)["suppressions"] as { kind: string; justification: string }[];
+  assert.ok(Array.isArray(supp));
+  assert.equal(supp.length, 1);
+  assert.equal(supp[0]?.kind, "external");
+  assert.equal(supp[0]?.justification, "accepted risk");
+
+  // A path-scoped rule must NOT leak onto the location-less finding.
+  const scoped: SuppressionRule[] = [
+    { ruleId: "B101", filePathPattern: "tests/**", reason: "scoped" },
+  ];
+  const scopedApplied = applySuppressions(log, scoped);
+  assert.equal(firstResult(scopedApplied)["suppressions"], undefined);
+});
+
 test("applySuppressions: preserves pre-existing suppressions[]", () => {
   const preExisting = [{ kind: "external" as const, justification: "vendor rule" }];
   const log = makeLog({ suppressions: preExisting });

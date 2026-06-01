@@ -33,7 +33,7 @@ Three concrete reasons:
 An input is:
 
 - Source tree contents at the current commit.
-- Toolchain versions (Node 22 or 24, pnpm 10.x, tree-sitter grammars
+- Toolchain versions (Node 22 or 24, pnpm 11.x, tree-sitter grammars
   pinned in `packages/ingestion/package.json`, SCIP indexer versions
   pinned in `.github/workflows/gym.yml` per ADR 0006).
 - OpenCodeHub version (the monorepo version pinned in

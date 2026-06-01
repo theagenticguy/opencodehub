@@ -99,7 +99,7 @@ down` restricts to dependencies (who do I call), and `--direction both`
 ## Next
 
 - [MCP tools overview](/opencodehub/mcp/overview/) for the full server
-  capabilities (29 tools across exploration, federation, scan, HTTP,
+  capabilities (28 tools across exploration, federation, scan, HTTP,
   and meta).
 - [Using with Claude Code](/opencodehub/guides/using-with-claude-code/)
   to let the agent run these tools for you.

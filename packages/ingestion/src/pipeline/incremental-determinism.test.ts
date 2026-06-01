@@ -166,6 +166,66 @@ describe("incremental-determinism", () => {
     }
   });
 
+  it("Test D: change one entry-point file (non-empty closure) → incremental hash equals full hash", async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), "och-inc-det-d-"));
+    try {
+      await writeFixture(repo);
+      // Baseline full run at commit A → prior graph snapshot.
+      const fullA = await runIngestion(repo, { skipGit: true });
+      const prior = previousGraphFromResult(fullA);
+
+      // Semantic change to a hot file: rewrite entry.ts with a different
+      // multi-step flow. Nothing imports entry.ts, so the closure is just
+      // { entry.ts } — well under the 30% safety valve given 20+ pad files —
+      // yet the Process / PROCESS_STEP structure rooted in entry.ts changes.
+      // This is the case the old verbatim carry-forward got wrong: it would
+      // replay commit A's stale processes instead of re-BFS-ing the closure.
+      await fs.writeFile(
+        path.join(repo, "entry.ts"),
+        [
+          "import { Child } from './child.js';",
+          "export function handleRequest(): string {",
+          "  const c = new Child();",
+          "  return alpha(c);",
+          "}",
+          "function alpha(c: Child): string {",
+          "  return beta(c);",
+          "}",
+          "function beta(c: Child): string {",
+          "  return gamma(c);",
+          "}",
+          "function gamma(c: Child): string {",
+          "  return c.greet();",
+          "}",
+          "",
+        ].join("\n"),
+      );
+
+      // Full run at commit B (the changed tree) — the determinism oracle.
+      const fullB = await runIngestion(repo, { skipGit: true });
+      // Incremental run at commit B carrying forward commit A's graph.
+      const incB = await runIngestion(repo, { skipGit: true, incrementalFrom: prior });
+
+      assert.equal(incB.incrementalScope?.mode, "incremental", "expected incremental mode");
+      assert.ok(
+        (incB.incrementalScope?.closureFiles.length ?? 0) > 0,
+        "expected a non-empty closure after a content change",
+      );
+      assert.notEqual(
+        fullB.graphHash,
+        fullA.graphHash,
+        "the content change must alter the full-run hash (sanity)",
+      );
+      assert.equal(
+        incB.graphHash,
+        fullB.graphHash,
+        "incremental hash drifted from full hash under a non-empty closure",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("Test B: touch one file with no semantic change → incremental hash equals full hash", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "och-inc-det-b-"));
     try {

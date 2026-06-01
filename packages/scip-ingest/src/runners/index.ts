@@ -25,6 +25,35 @@ export type IndexerKind =
   | "dotnet"
   | "kotlin";
 
+/**
+ * Closed allowlist of every executable `runCommand` may spawn. The command
+ * names are hard-coded by `buildCommand` (the SCIP indexers, the JVM helpers,
+ * and `sh` for the Kotlin compile chain), never derived from repository
+ * contents — but `runCommand` validates against this set anyway so a future
+ * caller cannot introduce an arbitrary binary, and so the spawn boundary
+ * carries an explicit, auditable barrier. `cwd`, `args`, and the `sh -c`
+ * payload remain `shellQuote`-escaped at their construction sites.
+ */
+export const ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
+  "scip-typescript",
+  "scip-python",
+  "scip-go",
+  "scip-java",
+  "scip-clang",
+  "scip-ruby",
+  "scip-dotnet",
+  "cobol-proleap",
+  "kotlinc",
+  "rust-analyzer",
+  "dotnet",
+  "sh",
+]);
+
+/** True iff `cmd` is on the {@link ALLOWED_COMMANDS} spawn allowlist. */
+export function isAllowedCommand(cmd: string): boolean {
+  return ALLOWED_COMMANDS.has(cmd);
+}
+
 /** File extensions that signal a C/C++ project. */
 const CLANG_EXTENSIONS: readonly string[] = [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"];
 
@@ -411,6 +440,21 @@ export async function runIndexer(
       version: "",
       skipped: true,
       skipReason: `indexer binary not found: ${plan.cmd}`,
+      durationMs: Date.now() - start,
+    };
+  }
+  if (indexOutcome.kind === "timeout") {
+    // A deliberate timeout is an environment/scale signal, NOT an indexer
+    // crash. Surface it as a graceful, actionable skip — mirroring the
+    // shim-failure branch — so the configured timeout (and the fact that it
+    // was hit) is visible instead of an alarming "exited -1" throw.
+    return {
+      kind,
+      scipPath,
+      tool: plan.tool,
+      version,
+      skipped: true,
+      skipReason: `${kind} indexer exceeded ${indexOutcome.timeoutMs}ms and was terminated`,
       durationMs: Date.now() - start,
     };
   }
@@ -921,6 +965,7 @@ export function detectVersionManagerShimFailure(cmd: string, stderr: string): st
 type CommandOutcome =
   | { kind: "ok"; stdout: string; stderr: string }
   | { kind: "failed"; exitCode: number; stdout: string; stderr: string }
+  | { kind: "timeout"; timeoutMs: number; stdout: string; stderr: string }
   | { kind: "missing" };
 
 /**
@@ -958,14 +1003,23 @@ function runCommand(
   timeoutMs: number | undefined,
 ): Promise<CommandOutcome> {
   return new Promise((res) => {
-    // `shell: false` is explicit — the cmd + args are passed to the OS
-    // exec call as separate argv entries and never reach a shell parser.
-    // Every `cmd` value is a fixed indexer name (see buildCommand) and
-    // `args` is constructed as an array of literal flags + resolved
-    // paths, so user-controlled path segments cannot inject shell
-    // metacharacters. The explicit `shell: false` is what tells CodeQL
-    // (js/shell-command-*) that this is not a shell invocation.
-    const child = spawn(cmd, args as string[], {
+    // Validate the command against the closed allowlist BEFORE spawning, and
+    // spawn the value recovered from the allowlist (not the incoming `cmd`),
+    // so the executable name reaching the OS exec call is provably one of a
+    // fixed set. This is the taint barrier for CodeQL's js/shell-command-*
+    // queries and a real defense-in-depth check.
+    if (!isAllowedCommand(cmd)) {
+      res({ kind: "failed", exitCode: -1, stdout: "", stderr: `disallowed command: ${cmd}` });
+      return;
+    }
+    // Recover the canonical, allowlisted literal — `safeCmd` is sourced from
+    // the constant Set, never from caller input.
+    const safeCmd = [...ALLOWED_COMMANDS].find((c) => c === cmd) as string;
+    // `shell: false` is explicit — `safeCmd` + args are passed to the OS exec
+    // call as separate argv entries and never reach a shell parser. `args` is
+    // built as an array of literal flags + `shellQuote`-escaped paths, so
+    // user-controlled path segments cannot inject shell metacharacters.
+    const child = spawn(safeCmd, args as string[], {
       cwd,
       env: withCodehubBinOnPath({ ...process.env, ...envOverlay }),
       stdio: ["ignore", "pipe", "pipe"],
@@ -974,8 +1028,12 @@ function runCommand(
     let stdout = "";
     let stderr = "";
     let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(() => {
+        // Record the deliberate timeout before killing so the `exit` handler
+        // surfaces a `timeout` outcome instead of a generic non-zero failure.
+        timedOut = true;
         child.kill("SIGTERM");
       }, timeoutMs);
     }
@@ -992,6 +1050,10 @@ function runCommand(
     });
     child.on("exit", (code) => {
       if (timer) clearTimeout(timer);
+      if (timedOut) {
+        res({ kind: "timeout", timeoutMs: timeoutMs as number, stdout, stderr });
+        return;
+      }
       if (code === 0) res({ kind: "ok", stdout, stderr });
       else res({ kind: "failed", exitCode: code ?? -1, stdout, stderr });
     });

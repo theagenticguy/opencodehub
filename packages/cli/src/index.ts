@@ -537,7 +537,7 @@ program
   .option("--base <ref>", "Base git ref", "main")
   .option("--head <ref>", "Head git ref", "HEAD")
   .option("--repo <name>", "Registered repo name (default: current directory)")
-  .option("--json", "Emit JSON on stdout instead of Markdown")
+  .option("--json", "Emit JSON on stdout instead of the default text summary")
   .action(async (opts: Record<string, unknown>) => {
     const mod = await import("./commands/verdict.js");
     await mod.runVerdict({

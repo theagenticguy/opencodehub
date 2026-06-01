@@ -19,6 +19,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -435,6 +436,35 @@ export function exitCodeForTier(tier: VerdictTier): 0 | 1 | 2 {
   return TIER_EXIT_CODES[tier];
 }
 
+/** @internal test-visible findings aggregation over a store. */
+export async function collectFindingsForTest(
+  store: IGraphStore,
+  symbolIds: readonly string[],
+  files: readonly string[],
+): Promise<FindingSummary> {
+  const state: AggregateState = {
+    signals: [],
+    communities: new Set<string>(),
+    communityLabels: new Set<string>(),
+    blastRadius: 0,
+    maxOrphanGrade: undefined,
+    maxFixFollowFeat: 0,
+    findings: { errorCount: 0, warningCount: 0, byRule: new Map() },
+    complexAndUntested: false,
+  };
+  await collectFindings(store, symbolIds, files, state);
+  return state.findings;
+}
+
+/** @internal test-visible reviewer recommendation over a store. */
+export function collectReviewersForTest(
+  store: IGraphStore,
+  files: readonly string[],
+  authorEmail: string | undefined,
+): Promise<readonly RecommendedReviewer[]> {
+  return collectReviewers(store, files, authorEmail);
+}
+
 function decideTier(state: AggregateState, cfg: VerdictConfig): VerdictTier {
   const { blastRadius, communities, findings, maxOrphanGrade, maxFixFollowFeat } = state;
 
@@ -547,6 +577,23 @@ async function collectFindings(
   const byRule = new Map<string, number>();
   let errorCount = 0;
   let warningCount = 0;
+  // De-dup by finding id (not ruleId): the symbol path and the file fallback
+  // can surface the same finding, and many distinct findings legitimately
+  // share one ruleId. Counting once per id keeps overlapping symbol+file
+  // findings from being double-counted while still tallying every unique
+  // finding's severity — de-duping by ruleId silently dropped file-level
+  // errors/warnings whose rule was already seen on a symbol.
+  const countedIds = new Set<string>();
+
+  const tally = (f: FindingNode): void => {
+    if (countedIds.has(f.id)) return;
+    if (isFindingSuppressed(f)) return;
+    countedIds.add(f.id);
+    const ruleId = f.ruleId ?? "";
+    if (ruleId.length > 0) byRule.set(ruleId, (byRule.get(ruleId) ?? 0) + 1);
+    if (f.severity === "error") errorCount += 1;
+    else if (f.severity === "warning") warningCount += 1;
+  };
 
   if (symbolIds.length > 0) {
     try {
@@ -564,11 +611,7 @@ async function collectFindings(
         const targetSet = new Set(findingIds);
         for (const f of findings) {
           if (!targetSet.has(f.id)) continue;
-          if (isFindingSuppressed(f)) continue;
-          const ruleId = f.ruleId ?? "";
-          if (ruleId.length > 0) byRule.set(ruleId, (byRule.get(ruleId) ?? 0) + 1);
-          if (f.severity === "error") errorCount += 1;
-          else if (f.severity === "warning") warningCount += 1;
+          tally(f);
         }
       }
     } catch {
@@ -589,13 +632,7 @@ async function collectFindings(
       const findings = await store.listFindings();
       for (const f of findings) {
         if (!fileSet.has(f.filePath)) continue;
-        if (isFindingSuppressed(f)) continue;
-        const ruleId = f.ruleId ?? "";
-        if (ruleId.length > 0 && !byRule.has(ruleId)) {
-          byRule.set(ruleId, 1);
-          if (f.severity === "error") errorCount += 1;
-          else if (f.severity === "warning") warningCount += 1;
-        }
+        tally(f);
       }
     } catch {
       // Ignore.
@@ -777,11 +814,11 @@ async function collectReviewers(
 }
 
 function hashEmail(email: string): string {
-  // We avoid importing crypto here; the cheap contains-check on raw email
-  // handles the common case. `email_hash` collisions are still rare in
-  // practice because blame always supplies plaintext in memory; the hashed
-  // column is stable at write time.
-  return email.toLowerCase();
+  // Contributor.emailHash is the sha256 of the lowercased email (the
+  // ownership phase lowercases blame emails before hashing). Mirror that
+  // exactly so author-exclusion still works in privacy-hash mode, where
+  // `emailPlain` is omitted and the only handle on the author is the hash.
+  return createHash("sha256").update(email.toLowerCase()).digest("hex");
 }
 
 async function discoverAuthorEmail(repoPath: string): Promise<string | undefined> {

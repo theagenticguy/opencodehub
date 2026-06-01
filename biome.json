@@ -1,8 +1,18 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
   "root": true,
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
-    "includes": ["packages/**/src/**", "packages/**/test/**", "scripts/**/*.{js,mjs,ts}"],
+    "includes": [
+      "packages/**/src/**",
+      "packages/**/test/**",
+      "scripts/**/*.{js,mjs,ts}",
+      "!!**/.claude/worktrees"
+    ],
     "ignoreUnknown": true
   },
   "formatter": {

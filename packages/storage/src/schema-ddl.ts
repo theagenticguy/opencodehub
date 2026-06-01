@@ -44,7 +44,13 @@ export function generateSchemaDDL(_opts: SchemaOptions = {}): readonly string[] 
     // Symbol-level structured summaries. Keyed by (node_id, content_hash,
     // prompt_version) so prompt iteration and source-text drift don't
     // collide. Summaries are side-channel content — they do NOT participate
-    // in the graph edge set.
+    // in the graph edge set. `structured_json` carries the validated
+    // structured payload (citations + side_effects + invariants + per-input
+    // descriptions + returns.details) as a canonical-JSON blob so the
+    // citation-grounded fields the summarizer validates survive ingestion
+    // instead of being discarded after `summaryText` / `signatureSummary` /
+    // `returnsTypeSummary` are extracted. NULL when the producing prompt
+    // emitted no structured payload (e.g. a pre-structured-summaries row).
     `CREATE TABLE IF NOT EXISTS symbol_summaries (
       node_id              TEXT NOT NULL,
       content_hash         TEXT NOT NULL,
@@ -53,6 +59,7 @@ export function generateSchemaDDL(_opts: SchemaOptions = {}): readonly string[] 
       summary_text         TEXT NOT NULL,
       signature_summary    TEXT,
       returns_type_summary TEXT,
+      structured_json      TEXT,
       created_at           TIMESTAMP NOT NULL,
       PRIMARY KEY (node_id, content_hash, prompt_version)
     )`,

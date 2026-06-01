@@ -20,6 +20,28 @@ test("parseJreMajor: openjdk 21", () => {
   assert.equal(parseJreMajor(out), 21);
 });
 
+test("parseJreMajor: single-digit modern major (Java 9) is not misread as 1", () => {
+  // The release date "2018-01-16" contains "01"; the parser must anchor to
+  // the leading version token and report 9, not 1.
+  const out = "openjdk 9.0.4 2018-01-16";
+  assert.equal(parseJreMajor(out), 9);
+});
+
+test("parseJreMajor: single-digit modern major (Java 10)", () => {
+  const out = "openjdk 10.0.2 2018-07-17";
+  assert.equal(parseJreMajor(out), 10);
+});
+
+test('parseJreMajor: quoted single-digit modern major (java version "9")', () => {
+  const out = 'java version "9" 2017-09-21';
+  assert.equal(parseJreMajor(out), 9);
+});
+
+test("parseJreMajor: leading version token wins over a date-only second line", () => {
+  const out = "openjdk 17.0.9 2023-10-17\nOpenJDK 64-Bit Server VM (build 17.0.9+9)";
+  assert.equal(parseJreMajor(out), 17);
+});
+
 test("parseJreMajor: legacy java 8 (1.8.0 form)", () => {
   const out = 'java version "1.8.0_292"';
   assert.equal(parseJreMajor(out), 8);

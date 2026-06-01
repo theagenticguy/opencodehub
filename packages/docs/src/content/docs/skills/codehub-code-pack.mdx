@@ -1,0 +1,82 @@
+---
+title: "codehub-code-pack"
+description: "Deterministic 9-item code-pack BOM for a repo or group — byte-identical given the same (commit, tokenizer, budget)."
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+Standalone skill. Surfaces the `pack_codebase` MCP tool to produce a
+**deterministic, 9-item Bill of Materials (BOM)** at
+`<repo>/.codehub/packs/<packHash>/` that is byte-identical given the same
+`(commit, tokenizer, budget, chonkie_version, duckdb_version,
+grammar_commits)`. The pack is the durable artifact agents hand to a
+long-context LLM, archive for later replay, or diff between commits to
+prove invariants did not change.
+
+<Aside type="note" title="vs. the repomix fallback">
+For a one-shot bandwidth-saving dump that does not need byte-identity, use
+`pack_codebase --engine repomix` directly — no `packHash`, no 9-item BOM,
+no reproducibility contract. This skill is the default for any pack request
+that wants reproducibility, archival, or cross-commit comparison.
+</Aside>
+
+## Frontmatter
+
+```yaml
+name: codehub-code-pack
+argument-hint: "[<repo-or-group>] [--budget <N>] [--tokenizer <id>]"
+allowed-tools: pack_codebase, list_repos, project_profile, list_findings
+model: sonnet
+```
+
+## Single-repo process
+
+1. `mcp__opencodehub__list_repos` — confirm the repo is indexed. If two or
+   more repos are indexed and no `repo` argument was supplied, retry with a
+   `structuredContent.error.choices[].repo_uri` value from the
+   `AMBIGUOUS_REPO` envelope.
+2. `mcp__opencodehub__project_profile` — confirm graph freshness; surface
+   any `_meta.codehub/staleness` envelope so the user knows the pack
+   reflects the last `codehub analyze`, not HEAD.
+3. `mcp__opencodehub__list_findings` — optional, only when findings are
+   requested in the pack.
+4. `mcp__opencodehub__pack_codebase` with the default `engine: "pack"`.
+   The tool resolves the output to `<repoRoot>/.codehub/packs/<packHash>/`
+   and writes the 9 items plus `manifest.json`.
+5. Report back the `packHash`, the `determinismClass`, and the absolute
+   output directory; name the cause when the class is `best_effort` or
+   `degraded`.
+
+## Group mode
+
+Run the single-repo flow per member of the named group, then emit a table
+of `(repoUri, packHash, determinismClass, outDir)`. `packHash` is per-repo,
+not per-group — a group pack is the union of the member BOMs.
+
+## The 9-item BOM
+
+| # | File | Determinism contract |
+|---|------|----------------------|
+| 1 | `manifest.json` | RFC 8785 canonical JSON; pack-hash field omitted from the preimage; CRLF normalized to LF before hashing |
+| 2 | `skeleton.jsonl` | PageRank score DESC, then `id` ASC |
+| 3 | `file-tree.jsonl` | `path` ASC |
+| 4 | `deps.jsonl` | `(ecosystem, name, version, id)` lexicographic ASC |
+| 5 | `ast-chunks.jsonl` | LF-normalized; degrades to line-split with `determinismClass: degraded` |
+| 6 | `xrefs.jsonl` | community rows first, then call rows |
+| 7 | `embeddings.parquet` | OPTIONAL — absent entirely when no embeddings exist |
+| 8 | `findings.jsonl` | severity rank then `ruleId` ASC |
+| 9 | `licenses.md` + `readme.md` | alpha-sorted dependency list + manifest-derived header |
+
+## Determinism class
+
+| Class | Meaning |
+|-------|---------|
+| `strict` | Same inputs → same `packHash`; the full reproducibility contract holds. |
+| `best_effort` | The tokenizer is an Anthropic API tokenizer that may rotate behind the model name; other inputs stay pinned. |
+| `degraded` | A primitive fallback was used (e.g. line-split chunker). Re-runs match locally but not across machines. |
+
+## Related
+
+- [pack package overview](/opencodehub/architecture/monorepo-map/)
+- [MCP tools — `pack_codebase`](/opencodehub/mcp/tools/)
+- [Skills index](/opencodehub/skills/)

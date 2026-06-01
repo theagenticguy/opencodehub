@@ -277,6 +277,28 @@ describe("summarizePhase — live summarize with cap", () => {
       assert.equal(row.createdAt, "2026-04-22T12:00:00.000Z");
       assert.ok(row.summaryText.startsWith("purpose for "));
       assert.ok((row.returnsTypeSummary ?? "").startsWith("gist for "));
+      // structured_json carries the validated fields the flat columns drop:
+      // per-input descriptions, returns.details, and line-range citations.
+      // It must be present (okResult has inputs + details + citations) and
+      // be canonical (sorted keys) so the temporal-store content is stable.
+      assert.ok(row.structuredJson !== undefined, "structuredJson is persisted");
+      const parsed = JSON.parse(row.structuredJson) as Record<string, unknown>;
+      assert.deepEqual(Object.keys(parsed), [
+        "citations",
+        "inputs",
+        "invariants",
+        "returns",
+        "side_effects",
+      ]);
+      assert.equal(
+        (parsed["inputs"] as { description: string }[])[0]?.description,
+        "the thing to process deeply",
+      );
+      assert.equal(
+        (parsed["returns"] as { details: string }).details,
+        "The computed value after processing.",
+      );
+      assert.equal((parsed["citations"] as unknown[]).length, 2);
     }
   });
 });

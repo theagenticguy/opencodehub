@@ -12,10 +12,8 @@ verdict:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - codehub analyze --incremental
-    - |
-      codehub verdict --base origin/${MAIN_BRANCH} --head HEAD \
-        --output-format markdown --pr-comment > verdict.md
+    - codehub analyze
+    - codehub verdict --base origin/${MAIN_BRANCH} --head HEAD > verdict.md
     - cat verdict.md
   artifacts:
     when: always
@@ -44,9 +42,8 @@ weekly:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $OCH_JOB == "weekly"
   script:
-    - |
-      codehub analyze --force --sbom --scan \
-        --with trivy,checkov,hadolint,tflint,spectral
+    - codehub analyze --force --sbom --scan
+    - codehub scan --with trivy,checkov,hadolint,tflint,spectral
     - codehub scan --scanners license_audit --output license.sarif || true
   artifacts:
     when: always

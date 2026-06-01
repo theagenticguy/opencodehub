@@ -10,6 +10,9 @@
  *   - F. No NOTICE file → empty `noticesMd`.
  *   - G. CRLF in NOTICE content normalizes to LF.
  *   - H. Empty graph still produces a valid markdown body with tier=OK.
+ *   - K. NOTICE content is folded into the written `licensesMd` body.
+ *   - L. No NOTICE file → no `## Notices` heading in `licensesMd`.
+ *   - M. Lone-CR (classic-Mac) NOTICE content normalizes to LF.
  */
 
 import { strict as assert } from "node:assert";
@@ -168,4 +171,39 @@ test("J. licensesMd ends in a single trailing newline", async () => {
   const result = await buildLicenses({ store, repoPath: "/tmp/repo", readFile: noopReader });
   assert.ok(result.licensesMd.endsWith("\n"));
   assert.ok(!result.licensesMd.endsWith("\n\n"));
+});
+
+test("K. NOTICE content is folded into licensesMd under a Notices heading", async () => {
+  const store = makeStore(DEPS_MIXED);
+  const reader = async (path: string) => {
+    if (path === "/tmp/repo/NOTICE") return "Copyright 2026 Example Corp.";
+    return undefined;
+  };
+  const result = await buildLicenses({ store, repoPath: "/tmp/repo", readFile: reader });
+  // The notice payload must reach the written BOM body, not just noticesMd.
+  assert.ok(result.licensesMd.includes("## Notices"));
+  assert.ok(result.licensesMd.includes("Copyright 2026 Example Corp."));
+  // Single trailing newline survives the appended section.
+  assert.ok(result.licensesMd.endsWith("\n"));
+  assert.ok(!result.licensesMd.endsWith("\n\n"));
+});
+
+test("L. no NOTICE file → licensesMd has no Notices heading", async () => {
+  const store = makeStore(DEPS_MIXED);
+  const result = await buildLicenses({ store, repoPath: "/tmp/repo", readFile: noopReader });
+  assert.ok(!result.licensesMd.includes("## Notices"));
+});
+
+test("M. lone-CR NOTICE content normalizes to LF", async () => {
+  const store = makeStore(DEPS_MIXED);
+  const reader = async (path: string) => {
+    // Classic-Mac line endings: lone CR, no LF.
+    if (path === "/tmp/repo/NOTICE") return "line one\rline two\r";
+    return undefined;
+  };
+  const result = await buildLicenses({ store, repoPath: "/tmp/repo", readFile: reader });
+  assert.ok(!result.noticesMd.includes("\r"));
+  assert.ok(result.noticesMd.includes("line one\nline two"));
+  // Folded body is CR-free too.
+  assert.ok(!result.licensesMd.includes("\r"));
 });

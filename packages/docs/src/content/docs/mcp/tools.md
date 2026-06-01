@@ -1,13 +1,14 @@
 ---
 title: MCP tools
-description: All 29 MCP tools the opencodehub server registers, grouped by functional family.
+description: All 28 MCP tools the opencodehub server registers, grouped by functional family. Every tool is read-only with respect to user source.
 sidebar:
   order: 20
 ---
 
-The `opencodehub` MCP server registers **29 tools**, imported and
+The `opencodehub` MCP server registers **28 tools**, imported and
 invoked from `packages/mcp/src/server.ts`. The number is taken live
-from `buildServer()` at startup.
+from `buildServer()` at startup. Every tool is **read-only with respect
+to user source** — no tool edits the working tree.
 
 Every per-repo tool accepts an optional `repo` argument (registry
 name) or `repo_uri` alias (Sourcegraph-style URI). See
@@ -68,23 +69,23 @@ The high-frequency tools. Most agent loops live here.
 | **Inputs** | `repo?`, `repo_uri?`, `scope?: "unstaged" \| "staged" \| "all" \| "compare"` (default `all`), `compare_ref?`, `strict?` |
 | **Returns** | `{ symbols, files, processes, max_risk, next_steps }` |
 
-### `rename`
-
-| | |
-|---|---|
-| **Use when** | Coordinating a multi-file symbol rename. Default mode is dry-run. |
-| **Avoid when** | The rename is in a single file — let the editor handle it. |
-| **Inputs** | `from`, `to`, `repo?`, `repo_uri?`, `dry_run?` (default `true`) |
-| **Returns** | `{ edits: [{ file_path, line, before, after, confidence }], cross_module_refs, next_steps }` |
-
 ### `sql`
 
 | | |
 |---|---|
-| **Use when** | You need a custom view of the graph that no other tool exposes. Read-only. 5-second timeout. |
-| **Avoid when** | A typed tool (`context`, `impact`, `query`) already covers the question. SQL is the escape hatch. |
+| **Use when** | You need a custom view of the temporal store (`cochanges` + `symbol_summaries`) that no other tool exposes. Read-only. 5-second timeout. |
+| **Avoid when** | A typed tool (`context`, `impact`, `query`) already covers the question, or you need the node/edge graph — that lives in `graph.lbug` and is reached via the typed tools or Cypher (ADR 0016), not this SQL path. |
 | **Inputs** | `query` (required), `repo?`, `repo_uri?` |
 | **Returns** | `{ rows: [...], row_count, next_steps }` |
+
+### `signature`
+
+| | |
+|---|---|
+| **Use when** | You want a symbol's shape without reading the whole file — a class/interface declaration plus its method and property signatures with bodies elided (stub syntax per language). For a standalone function, returns a single signature. |
+| **Avoid when** | You need callers/callees — call `context` instead. |
+| **Inputs** | `name?`, `uid?`, `file_path?`, `kind?`, `repo?`, `repo_uri?` (one of `name` or `uid` is required) |
+| **Returns** | `{ target, language, member_count, members, stub, next_steps }` |
 
 ## Group / federation (6)
 
@@ -140,7 +141,7 @@ form so a follow-up `AMBIGUOUS_REPO` retry can use it as input.
 | **Inputs** | `group` |
 | **Returns** | `{ group, contracts_written, cross_links_written, next_steps }` |
 
-## Scan / findings / verdict (8)
+## Scan / findings / verdict (7)
 
 `scan` is the only tool that spawns processes (`openWorldHint=true`).
 `verdict` exits 0/1/2/3 by tier — the canonical source of CI signal.
@@ -176,14 +177,6 @@ form so a follow-up `AMBIGUOUS_REPO` retry can use it as input.
 | **Use when** | Find symbols with zero in-graph references and dead exports. |
 | **Inputs** | `repo?`, `repo_uri?` |
 | **Returns** | `{ candidates: [{ id, name, file_path, kind, reason }] }` |
-
-### `remove_dead_code`
-
-| | |
-|---|---|
-| **Use when** | Remove specific dead symbols from disk. Dry-run is the default. |
-| **Inputs** | `repo?`, `repo_uri?`, `targets: string[]`, `dry_run?` |
-| **Returns** | `{ removed, skipped, next_steps }` |
 
 ### `license_audit`
 

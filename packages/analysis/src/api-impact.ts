@@ -67,6 +67,11 @@ export async function listApiImpact(
     return am < bm ? -1 : am > bm ? 1 : 0;
   });
 
+  // Build the file → accessed-keys index once. The ACCESSES table and the
+  // endpoint hydration are global to the call; scanning them per
+  // (route × consumer file) re-fetched identical data R×C times.
+  const accessedKeysByFile = await buildAccessedKeysByFile(graph);
+
   const out: ApiImpactRow[] = [];
   for (const r of sorted) {
     const responseKeys = r.responseKeys ?? [];
@@ -80,7 +85,7 @@ export async function listApiImpact(
 
     const mismatches: string[] = [];
     for (const file of consumerFiles) {
-      const accessedKeys = await collectAccessedKeys(graph, file);
+      const accessedKeys = accessedKeysByFile.get(file) ?? [];
       const { status } = classifyShape(accessedKeys, responseKeys);
       if (status === "MISMATCH") mismatches.push(file);
     }
@@ -112,6 +117,13 @@ export function worseRisk(a: RiskLevel, b: RiskLevel): RiskLevel {
   return order[a] >= order[b] ? a : b;
 }
 
+/** @internal test-visible accessed-keys index builder. */
+export function buildAccessedKeysByFileForTest(
+  graph: IGraphStore,
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  return buildAccessedKeysByFile(graph);
+}
+
 async function fetchFromIds(
   graph: IGraphStore,
   targetId: string,
@@ -137,9 +149,18 @@ async function resolveFiles(
   return Array.from(set).sort();
 }
 
-async function collectAccessedKeys(graph: IGraphStore, file: string): Promise<readonly string[]> {
+/**
+ * Build a `filePath → sorted accessed keys` index in a single pass over the
+ * ACCESSES table. Hoisted out of the per-(route × consumer file) loop in
+ * {@link listApiImpact}: the ACCESSES edges and the endpoint hydration are
+ * global to the call, so scanning them once and bucketing by source file
+ * replaces R×C identical full scans with one fetch.
+ */
+async function buildAccessedKeysByFile(
+  graph: IGraphStore,
+): Promise<ReadonlyMap<string, readonly string[]>> {
   const edges = await graph.listEdgesByType("ACCESSES");
-  if (edges.length === 0) return [];
+  if (edges.length === 0) return new Map();
   const allIds = new Set<string>();
   for (const e of edges) {
     allIds.add(e.from);
@@ -148,15 +169,25 @@ async function collectAccessedKeys(graph: IGraphStore, file: string): Promise<re
   const allNodes = await graph.listNodes({ ids: [...allIds] });
   const byId = new Map<string, GraphNode>();
   for (const n of allNodes) byId.set(n.id, n);
-  const names = new Set<string>();
+  const namesByFile = new Map<string, Set<string>>();
   for (const e of edges) {
     const src = byId.get(e.from);
-    if (!src || src.filePath !== file) continue;
+    if (!src?.filePath || src.filePath.length === 0) continue;
     const target = byId.get(e.to);
     if (!target || target.kind !== "Property") continue;
-    if (target.name && target.name.length > 0) names.add(target.name);
+    if (!target.name || target.name.length === 0) continue;
+    let bucket = namesByFile.get(src.filePath);
+    if (bucket === undefined) {
+      bucket = new Set<string>();
+      namesByFile.set(src.filePath, bucket);
+    }
+    bucket.add(target.name);
   }
-  return Array.from(names).sort();
+  const out = new Map<string, readonly string[]>();
+  for (const [file, names] of namesByFile) {
+    out.set(file, Array.from(names).sort());
+  }
+  return out;
 }
 
 async function fetchAffectedProcesses(

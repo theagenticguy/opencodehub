@@ -205,6 +205,67 @@ test("bulkLoadSymbolSummaries: inserts rows and supports single-row lookup", asy
   }
 });
 
+test("bulkLoadSymbolSummaries: persists structuredJson and reconstructs it on both read paths", async () => {
+  const dbPath = await scratchDbPath();
+  const store = new DuckDbStore(dbPath);
+  await store.open();
+  try {
+    await store.createSchema();
+
+    // The validated structured payload (citations + side_effects +
+    // invariants + per-input descriptions + returns.details) the summarizer
+    // produces, carried as a canonical-JSON blob.
+    const structuredJson = JSON.stringify({
+      citations: [{ field_name: "purpose", line_start: 10, line_end: 14 }],
+      inputs: [{ name: "x", type: "int", description: "the alpha counter input" }],
+      returns: { details: "the running alpha count after the increment" },
+      side_effects: ["writes the alpha counter"],
+      invariants: ["x stays non-negative"],
+    });
+
+    await store.bulkLoadSymbolSummaries([
+      {
+        nodeId: "Function:src/a.ts:alpha",
+        contentHash: "hash-a",
+        promptVersion: "1",
+        modelId: "anthropic.claude-haiku-4-5",
+        summaryText: "Do the alpha thing.",
+        signatureSummary: "(x: int) -> int",
+        returnsTypeSummary: "the alpha count",
+        structuredJson,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        // No structured payload — structuredJson must read back as undefined.
+        nodeId: "Function:src/b.ts:beta",
+        contentHash: "hash-b",
+        promptVersion: "1",
+        modelId: "anthropic.claude-haiku-4-5",
+        summaryText: "Do the beta thing.",
+        createdAt: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+
+    const hit = await store.lookupSymbolSummary("Function:src/a.ts:alpha", "hash-a", "1");
+    assert.ok(hit);
+    assert.equal(hit?.structuredJson, structuredJson);
+    // The citation line range survives so a staleness detector can read it.
+    const parsed = JSON.parse(hit?.structuredJson ?? "{}");
+    assert.equal(parsed.citations[0].line_start, 10);
+    assert.equal(parsed.citations[0].line_end, 14);
+
+    const noStructured = await store.lookupSymbolSummary("Function:src/b.ts:beta", "hash-b", "1");
+    assert.equal(noStructured?.structuredJson, undefined);
+
+    // The by-node read path reconstructs the blob too.
+    const byNode = await store.lookupSymbolSummariesByNode(["Function:src/a.ts:alpha"]);
+    assert.equal(byNode.length, 1);
+    assert.equal(byNode[0]?.structuredJson, structuredJson);
+  } finally {
+    await store.close();
+  }
+});
+
 test("bulkLoadSymbolSummaries: re-insert on same composite key overwrites row", async () => {
   const dbPath = await scratchDbPath();
   const store = new DuckDbStore(dbPath);

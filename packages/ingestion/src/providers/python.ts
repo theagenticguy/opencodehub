@@ -340,11 +340,9 @@ export const pythonProvider: LanguageProvider = {
   inferImplicitReceiver: () => "self",
   preprocessImportPath: preprocessPyImportPath,
   isExportedIdentifier: (name) => !name.startsWith("_"),
-  // Opt into the clean-room stack-graphs evaluator for Python reference
-  // resolution. The strategy falls back to the three-tier walker whenever
-  // stack-graphs can't produce an answer (missing graph cache, degraded
-  // rule load, depth-budget exhaustion, etc.).
-  resolverStrategyName: "stack-graphs",
+  // Reference resolution runs through the three-tier walker
+  // (same-file -> import-scoped -> global). SCIP edges, when present,
+  // overlay as the precision oracle on top of the walker's output.
   complexityDefinitionKinds: ["function_definition", "lambda"],
   halsteadOperatorKinds: [
     "+",

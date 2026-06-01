@@ -36,7 +36,6 @@ import type {
   PipelineContext,
   PipelineOptions,
   PipelinePhase,
-  PreviousGraph,
   ProgressEvent,
 } from "./types.js";
 
@@ -260,48 +259,18 @@ function summarizePhase(r: PhaseResult): { readonly name: string; readonly durat
 }
 
 function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
-  // Copy only the fields PipelineOptions declares — phase overrides and
-  // progress callbacks are orchestrator-level concerns and must not leak
-  // into the normalized per-phase options.
-  const typed: {
-    force?: boolean;
-    offline?: boolean;
-    verbose?: boolean;
-    skipGit?: boolean;
-    byteCapPerFile?: number;
-    maxTotalFiles?: number;
-    embeddings?: boolean;
-    embeddingsVariant?: "fp32" | "int8";
-    embeddingsModelDir?: string;
-    embeddingsGranularity?: readonly ("symbol" | "file" | "community")[];
-    sbom?: boolean;
-    reproducibleSbom?: boolean;
-    incrementalFrom?: PreviousGraph;
-    summaries?: boolean;
-    maxSummariesPerRun?: number;
-    summaryModel?: string;
-  } = {};
-  if (options.force !== undefined) typed.force = options.force;
-  if (options.offline !== undefined) typed.offline = options.offline;
-  if (options.verbose !== undefined) typed.verbose = options.verbose;
-  if (options.skipGit !== undefined) typed.skipGit = options.skipGit;
-  if (options.byteCapPerFile !== undefined) typed.byteCapPerFile = options.byteCapPerFile;
-  if (options.maxTotalFiles !== undefined) typed.maxTotalFiles = options.maxTotalFiles;
-  if (options.embeddings !== undefined) typed.embeddings = options.embeddings;
-  if (options.embeddingsVariant !== undefined) typed.embeddingsVariant = options.embeddingsVariant;
-  if (options.sbom !== undefined) typed.sbom = options.sbom;
-  if (options.reproducibleSbom !== undefined) typed.reproducibleSbom = options.reproducibleSbom;
-  if (options.embeddingsModelDir !== undefined) {
-    typed.embeddingsModelDir = options.embeddingsModelDir;
-  }
-  if (options.embeddingsGranularity !== undefined) {
-    typed.embeddingsGranularity = options.embeddingsGranularity;
-  }
-  if (options.incrementalFrom !== undefined) typed.incrementalFrom = options.incrementalFrom;
-  if (options.summaries !== undefined) typed.summaries = options.summaries;
-  if (options.maxSummariesPerRun !== undefined) {
-    typed.maxSummariesPerRun = options.maxSummariesPerRun;
-  }
-  if (options.summaryModel !== undefined) typed.summaryModel = options.summaryModel;
-  return typed;
+  // Drop only the orchestrator-level keys — phase overrides, the progress
+  // callback, and the two cache adapters are not per-phase options — and
+  // spread the rest. Destructure-and-omit is the single source of truth:
+  // every current and future `PipelineOptions` field reaches `ctx.options`
+  // automatically, so the normalized bag can never silently drop a field
+  // the way a hand-maintained allowlist did.
+  const {
+    phases: _phases,
+    onProgress: _onProgress,
+    summaryCacheAdapter: _summaryCacheAdapter,
+    embeddingHashCacheAdapter: _embeddingHashCacheAdapter,
+    ...pipelineOptions
+  } = options;
+  return pipelineOptions;
 }

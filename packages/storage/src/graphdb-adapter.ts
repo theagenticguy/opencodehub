@@ -300,6 +300,22 @@ function buildNodeCopySubquery(): string {
 const NODE_SENTINEL_ID = "__OCH_SENTINEL__";
 const EDGE_SENTINEL_ID = "__OCH_EDGE_SENTINEL__";
 
+/**
+ * Marker element used to encode an explicit empty `STRING[]` value.
+ *
+ * lbug v0.16.1 collapses a 0-length array literal to SQL NULL on write, so
+ * an empty `keywords: []` is indistinguishable from an absent column on
+ * read-back — which would break `graphHash` byte-identity against the
+ * canonical-JSON projection (`{}` vs `{"keywords":[]}` are distinct). We
+ * write a single-element array carrying this marker instead; the read side
+ * ({@link setStringArrayFieldGd}) recognises it and reconstructs `[]`,
+ * while a truly absent field is written as `[]` (→ stored NULL → dropped).
+ *
+ * The marker is pure ASCII with no leading whitespace because lbug rewrites
+ * a leading space to a NUL byte; a plain token round-trips byte-for-byte.
+ */
+const EMPTY_STRING_ARRAY_MARKER = "__OCH_EMPTY_STRING_ARRAY__";
+
 /** Pre-built node copy statement (constant — column list never changes). */
 const NODE_COPY_SUBQUERY = buildNodeCopySubquery();
 
@@ -337,8 +353,16 @@ function encodeNodeCol(v: unknown, kind: ColKind): unknown {
   // fails with "Trying to create a vector with ANY type". Check before the
   // null short-circuit so absent arrays become [] rather than null.
   if (kind === "strarray") {
+    // Absent / non-array → []  (lbug stores [] as NULL; the reader drops the
+    // field, matching the "absent" canonical-JSON shape).
     if (!Array.isArray(v)) return [] as string[];
-    return (v as unknown[]).filter((x) => typeof x === "string") as string[];
+    const items = (v as unknown[]).filter((x) => typeof x === "string") as string[];
+    // Explicit empty array → single-element marker so the "[] vs absent"
+    // distinction survives lbug's empty-array → NULL collapse. The reader
+    // ({@link setStringArrayFieldGd}) maps the marker back to []. A
+    // non-empty array passes through verbatim.
+    if (items.length === 0) return [EMPTY_STRING_ARRAY_MARKER];
+    return items;
   }
   if (v === null || v === undefined) return null;
   switch (kind) {
@@ -2212,13 +2236,21 @@ function setBooleanFieldGd(out: Record<string, unknown>, key: string, v: unknown
 }
 
 function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
-  // lbug v0.16.1 returns `null` for both an absent STRING[] column and an
-  // empty `[]` one — the native binder collapses empty arrays to NULL on
-  // write so `{keywords: []}` cannot be round-tripped through graphdb.
-  // DuckDB TEXT[] preserves the distinction. When v is a non-empty array
-  // we reconstruct it; when v is null/non-array we omit the key (both
-  // absent and empty-array stored as NULL land here the same way).
+  // lbug v0.16.1 collapses an empty `STRING[]` to SQL NULL on write, so an
+  // absent column and an empty `[]` one both read back as `null`. The writer
+  // ({@link encodeNodeCol}) disambiguates them: a genuinely empty array is
+  // stored as a single-element marker, while an absent field is stored as
+  // `[]` (→ NULL). Here we invert that:
+  //   - null / non-array  → absent: omit the key entirely.
+  //   - [marker]          → explicit empty array: set `[]`.
+  //   - any other array   → reconstruct the string elements verbatim.
+  // This keeps `{keywords: []}` byte-identical under `graphHash` to the
+  // canonical-JSON projection it was built from, distinct from `{}`.
   if (!Array.isArray(v)) return;
+  if (v.length === 1 && v[0] === EMPTY_STRING_ARRAY_MARKER) {
+    out[key] = [];
+    return;
+  }
   const arr: string[] = [];
   for (const item of v) if (typeof item === "string") arr.push(item);
   out[key] = arr;

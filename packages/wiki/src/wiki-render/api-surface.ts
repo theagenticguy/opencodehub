@@ -1,10 +1,16 @@
 /**
- * API surface renderer — a per-framework page describing Routes + OpenAPI
+ * API surface renderer — a single repo-wide page describing Routes + OpenAPI
  * Operations plus cross-stack `FETCHES` traces.
  *
- * Output is sourced entirely from the graph: ProjectProfile for framework
- * discovery, `Route` / `Operation` nodes for the tables, and the `FETCHES`
- * relation for call traces.
+ * Output is sourced entirely from the graph: ProjectProfile for the detected
+ * framework / API-contract summary, `Route` / `Operation` nodes for the
+ * tables, and the `FETCHES` relation for call traces.
+ *
+ * The surface is repo-wide, not per-framework: `Route`, `Operation`, and
+ * `FETCHES` nodes carry no framework attribution in the graph, so there is
+ * no sound way to slice the tables by framework. Rendering one page per
+ * framework would emit byte-identical tables under different titles, which
+ * is misleading. Detected frameworks are summarised on this page instead.
  */
 
 import type { IGraphStore } from "@opencodehub/storage";
@@ -45,30 +51,13 @@ export async function renderApiSurfacePages(
     return pages;
   }
 
-  // A single "all" page is always emitted so there's a stable entry point.
+  // One repo-wide page. The graph has no framework attribution on Route /
+  // Operation / FETCHES nodes, so the tables cannot be sliced per framework;
+  // detected frameworks are summarised in the header instead.
   pages.push({
     filename: "api-surface/index.md",
     content: renderIndex({ frameworks, apiContracts, routes, operations, fetches }),
   });
-
-  // Per-framework pages use the framework name as the slug; if no frameworks
-  // are detected we emit a single "generic" page that covers all routes.
-  const frameworkSlugs = frameworks.length > 0 ? frameworks : ["generic"];
-  for (const fw of frameworkSlugs) {
-    const slug = fw
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    pages.push({
-      filename: `api-surface/${slug}.md`,
-      content: renderFrameworkPage({
-        framework: fw,
-        routes,
-        operations,
-        fetches,
-      }),
-    });
-  }
 
   return pages.sort((a, b) => a.filename.localeCompare(b.filename));
 }
@@ -83,6 +72,10 @@ function renderIndex(args: {
   const lines: string[] = [];
   lines.push("# API surface");
   lines.push("");
+  lines.push("Repo-wide HTTP/API surface. The tables below cover every detected route,");
+  lines.push("operation, and cross-stack fetch — they are not split by framework because");
+  lines.push("the graph carries no framework attribution on these nodes.");
+  lines.push("");
   lines.push(`- **Routes:** ${args.routes.length}`);
   lines.push(`- **Operations:** ${args.operations.length}`);
   lines.push(`- **Fetches:** ${args.fetches.length}`);
@@ -92,29 +85,6 @@ function renderIndex(args: {
   if (args.apiContracts.length > 0) {
     lines.push(`- **API contracts:** ${args.apiContracts.map((c) => `\`${c}\``).join(", ")}`);
   }
-  lines.push("");
-  lines.push("## Pages");
-  lines.push("");
-  const targets = args.frameworks.length > 0 ? args.frameworks : ["generic"];
-  for (const fw of targets) {
-    const slug = fw
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    lines.push(`- [${escapePipe(fw)}](./${slug}.md)`);
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
-function renderFrameworkPage(args: {
-  readonly framework: string;
-  readonly routes: readonly RouteRow[];
-  readonly operations: readonly OperationRow[];
-  readonly fetches: readonly FetchesRow[];
-}): string {
-  const lines: string[] = [];
-  lines.push(`# ${args.framework}`);
   lines.push("");
 
   lines.push("## Routes");

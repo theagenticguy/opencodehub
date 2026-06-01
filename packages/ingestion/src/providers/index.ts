@@ -38,8 +38,6 @@ export { firstWinsStrategy } from "./resolution/first-wins.js";
 export type { MroStrategy } from "./resolution/mro.js";
 export { getMroStrategy } from "./resolution/mro.js";
 export { noneStrategy } from "./resolution/none.js";
-export type { ResolverStrategy } from "./resolution/resolver-strategy.js";
-export { defaultResolver } from "./resolution/resolver-strategy.js";
 export { singleInheritanceStrategy } from "./resolution/single-inheritance.js";
 export { rubyProvider } from "./ruby.js";
 export { rustProvider } from "./rust.js";

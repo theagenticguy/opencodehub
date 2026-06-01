@@ -1,4 +1,5 @@
 import type { CodeRelation } from "./edges.js";
+import { canonicalJson } from "./hash.js";
 import { makeEdgeId, type NodeId } from "./id.js";
 import type { GraphNode } from "./nodes.js";
 import { sortEdges, sortNodes } from "./ordering.js";
@@ -10,6 +11,20 @@ function definedFieldCount(node: GraphNode): number {
     if (v !== undefined && v !== null) n += 1;
   }
   return n;
+}
+
+// Deterministic tiebreak for equal-primary merges: compare the canonical-JSON
+// projection of two records and keep the byte-smaller one. canonicalJson sorts
+// object keys, so this ordering is independent of field insertion order — which
+// is the property addNode/addEdge need so that full vs incremental re-indexes
+// (which can present the same id in different phase/scan orders) converge on the
+// same winner and therefore the same graphHash.
+function canonicalCompare(a: unknown, b: unknown): number {
+  const ca = canonicalJson(a);
+  const cb = canonicalJson(b);
+  if (ca < cb) return -1;
+  if (ca > cb) return 1;
+  return 0;
 }
 
 function edgeDedupKey(e: Pick<CodeRelation, "from" | "type" | "to" | "step">): string {
@@ -26,7 +41,15 @@ export class KnowledgeGraph {
       this.nodeById.set(node.id, node);
       return;
     }
-    if (definedFieldCount(node) > definedFieldCount(existing)) {
+    const candidateFields = definedFieldCount(node);
+    const existingFields = definedFieldCount(existing);
+    if (candidateFields > existingFields) {
+      this.nodeById.set(node.id, node);
+      return;
+    }
+    // Equal field count: break the tie deterministically by canonical-JSON
+    // order so the survivor never depends on which writer arrived first.
+    if (candidateFields === existingFields && canonicalCompare(node, existing) < 0) {
       this.nodeById.set(node.id, node);
     }
   }
@@ -41,6 +64,13 @@ export class KnowledgeGraph {
       return;
     }
     if (candidate.confidence > existing.confidence) {
+      this.edgeByKey.set(key, candidate);
+      return;
+    }
+    // Equal confidence: `reason` is part of the graphHash-serialized payload,
+    // so the survivor must not depend on insertion order. Break the tie by
+    // canonical-JSON order of the full edge record.
+    if (candidate.confidence === existing.confidence && canonicalCompare(candidate, existing) < 0) {
       this.edgeByKey.set(key, candidate);
     }
   }

@@ -82,6 +82,9 @@ export class ProtoReader {
         this.readVarint();
         return;
       case WIRE_FIXED64:
+        if (this.pos + 8 > this.end) {
+          throw new Error("scip-ingest: unexpected end of buffer in skip");
+        }
         this.pos += 8;
         return;
       case WIRE_LENGTH_DELIMITED: {
@@ -93,6 +96,9 @@ export class ProtoReader {
         return;
       }
       case WIRE_FIXED32:
+        if (this.pos + 4 > this.end) {
+          throw new Error("scip-ingest: unexpected end of buffer in skip");
+        }
         this.pos += 4;
         return;
       default:

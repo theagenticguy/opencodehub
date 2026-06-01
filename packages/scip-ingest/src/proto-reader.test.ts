@@ -54,6 +54,31 @@ test("ProtoReader.skip: throws on truncated length-delimited field", () => {
   }, /unexpected end of buffer/);
 });
 
+test("ProtoReader.skip: throws on truncated FIXED64 field", () => {
+  // Tag declares a 8-byte fixed64 value but only 3 bytes follow.
+  const buf = new Uint8Array([...tag(1, WireType.FIXED64), 0x00, 0x01, 0x02]);
+  const reader = new ProtoReader(buf);
+  assert.throws(() => {
+    reader.forEachField(() => false);
+  }, /unexpected end of buffer/);
+});
+
+test("ProtoReader.skip: throws on truncated FIXED32 field", () => {
+  // Tag declares a 4-byte fixed32 value but only 2 bytes follow.
+  const buf = new Uint8Array([...tag(1, WireType.FIXED32), 0x00, 0x01]);
+  const reader = new ProtoReader(buf);
+  assert.throws(() => {
+    reader.forEachField(() => false);
+  }, /unexpected end of buffer/);
+});
+
+test("ProtoReader.skip: advances past a healthy FIXED64 field", () => {
+  const buf = new Uint8Array([...tag(1, WireType.FIXED64), 0, 1, 2, 3, 4, 5, 6, 7]);
+  const reader = new ProtoReader(buf);
+  reader.forEachField(() => false);
+  assert.equal(reader.finished, true);
+});
+
 test("ProtoReader.readRepeatedInt32: throws when packed length runs past buffer end", () => {
   const buf = new Uint8Array([...encodeVarint(40), 0x01, 0x02, 0x03]);
   const reader = new ProtoReader(buf);

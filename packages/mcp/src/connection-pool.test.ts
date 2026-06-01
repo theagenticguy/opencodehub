@@ -114,3 +114,66 @@ test("acquire after shutdown throws", async () => {
   await pool.shutdown();
   await assert.rejects(() => pool.acquire("x", "/x.duckdb"), /shut down/);
 });
+
+test("eviction of an in-use entry defers close to the last release", async () => {
+  const probes = new Map<string, ReturnType<typeof makeFakeStore>>();
+  const pool = new ConnectionPool({ max: 2, ttlMs: 10_000 }, async (p) => {
+    const probe = makeFakeStore(p);
+    probes.set(p, probe);
+    return probe.store;
+  });
+  try {
+    // Hold three distinct repos in flight at once with max=2 so the LRU
+    // evicts the least-recently-used ("a") WHILE it is still referenced.
+    await pool.acquire("a", "/a.duckdb");
+    await pool.acquire("b", "/b.duckdb");
+    await pool.acquire("c", "/c.duckdb"); // evicts "a" (refCount 1)
+
+    await new Promise((resolve) => setImmediate(resolve));
+    // The evicted entry is still in use — it MUST NOT be closed yet, or the
+    // tool still holding the handle would see a closed store mid-call.
+    assert.equal(
+      probes.get("/a.duckdb")?.isClosed(),
+      false,
+      "evicted-but-in-use store must stay open until its last release",
+    );
+
+    // The last release of the evicted key runs the deferred close — this is
+    // the path that was previously unreachable (findEvicted returned
+    // undefined), leaking the handle.
+    await pool.release("a");
+    assert.equal(
+      probes.get("/a.duckdb")?.isClosed(),
+      true,
+      "last release of an evicted entry must close the store",
+    );
+    assert.equal(probes.get("/a.duckdb")?.closeCount(), 1, "store must close exactly once");
+
+    await pool.release("b");
+    await pool.release("c");
+  } finally {
+    await pool.shutdown();
+  }
+});
+
+test("shutdown closes entries evicted while still in use", async () => {
+  const probes = new Map<string, ReturnType<typeof makeFakeStore>>();
+  const pool = new ConnectionPool({ max: 2, ttlMs: 10_000 }, async (p) => {
+    const probe = makeFakeStore(p);
+    probes.set(p, probe);
+    return probe.store;
+  });
+  // Overflow so "a" is evicted while refCount > 0, then shut down before any
+  // release. The parked side-table entry must still be drained.
+  await pool.acquire("a", "/a.duckdb");
+  await pool.acquire("b", "/b.duckdb");
+  await pool.acquire("c", "/c.duckdb"); // evicts "a" (refCount 1, parked)
+
+  await pool.shutdown();
+  assert.equal(
+    probes.get("/a.duckdb")?.isClosed(),
+    true,
+    "shutdown must close a still-referenced evicted entry",
+  );
+  assert.equal(probes.get("/a.duckdb")?.closeCount(), 1, "store must close exactly once");
+});

@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { upsertRegistry } from "../registry.js";
 import {
+  buildStoreMeta,
   checkFastPath,
   detectCoverageReport,
   isWorkingTreeDirty,
@@ -392,4 +393,81 @@ test("resolveCoverageEnabled: undefined + report found → true (auto-on)", asyn
   const dir = await mkdtemp(join(tmpdir(), "och-analyze-cov-auto-on-"));
   await writeFile(join(dir, "lcov.info"), "TN:\n");
   assert.equal(await resolveCoverageEnabled(undefined, dir), true);
+});
+
+// ---------------------------------------------------------------------------
+// buildStoreMeta — the embedder fingerprint tag must be persisted so the
+// query-path mismatch guard (assertEmbedderCompatible) has a value to compare.
+// ---------------------------------------------------------------------------
+
+test("buildStoreMeta: stamps embedderModelId when the embedder ran with a model id", () => {
+  const meta = buildStoreMeta({
+    indexedAt: "2026-05-30T00:00:00Z",
+    nodeCount: 100,
+    edgeCount: 200,
+    stats: {},
+    cacheSizeBytes: 0,
+    embeddings: { ranEmbedder: true, embeddingsModelId: "gte-modernbert-base/fp32" },
+  });
+  assert.equal(
+    meta.embedderModelId,
+    "gte-modernbert-base/fp32",
+    "the embedder tag must round-trip into StoreMeta so the fingerprint guard can fire",
+  );
+});
+
+test("buildStoreMeta: omits embedderModelId when no embedder ran", () => {
+  // A bare `codehub analyze` (no --embeddings) must not claim an embedder
+  // produced vectors. The query-path guard then treats the store as untagged.
+  const meta = buildStoreMeta({
+    indexedAt: "2026-05-30T00:00:00Z",
+    nodeCount: 1,
+    edgeCount: 0,
+    stats: {},
+    cacheSizeBytes: 0,
+    embeddings: { ranEmbedder: false, embeddingsModelId: "" },
+  });
+  assert.equal(meta.embedderModelId, undefined);
+});
+
+test("buildStoreMeta: omits embedderModelId when the embeddings phase is absent", () => {
+  const meta = buildStoreMeta({
+    indexedAt: "2026-05-30T00:00:00Z",
+    nodeCount: 1,
+    edgeCount: 0,
+    stats: {},
+    cacheSizeBytes: 0,
+  });
+  assert.equal(meta.embedderModelId, undefined);
+});
+
+test("buildStoreMeta: omits embedderModelId when ranEmbedder is true but the model id is empty", () => {
+  // ranEmbedder true with an empty modelId is a no-op signal from the phase;
+  // tagging the store with "" would let the guard compare against an empty
+  // string and falsely flag every future query as a mismatch.
+  const meta = buildStoreMeta({
+    indexedAt: "2026-05-30T00:00:00Z",
+    nodeCount: 1,
+    edgeCount: 0,
+    stats: {},
+    cacheSizeBytes: 0,
+    embeddings: { ranEmbedder: true, embeddingsModelId: "" },
+  });
+  assert.equal(meta.embedderModelId, undefined);
+});
+
+test("buildStoreMeta: carries lastCommit and cacheHitRatio through verbatim", () => {
+  const meta = buildStoreMeta({
+    indexedAt: "2026-05-30T00:00:00Z",
+    nodeCount: 5,
+    edgeCount: 7,
+    currentCommit: "abc123",
+    stats: { Function: 3 },
+    cacheHitRatio: 0.5,
+    cacheSizeBytes: 1024,
+  });
+  assert.equal(meta.lastCommit, "abc123");
+  assert.equal(meta.cacheHitRatio, 0.5);
+  assert.equal(meta.cacheSizeBytes, 1024);
+  assert.deepEqual(meta.stats, { Function: 3 });
 });

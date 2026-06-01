@@ -24,16 +24,18 @@ codehub mcp   # spawn the stdio server
 
 ## Tools
 
-29 tools registered in `packages/mcp/src/server.ts:151-179`. Implementation
-files live under `packages/mcp/src/tools/<id>.ts`.
+28 tools registered in `packages/mcp/src/server.ts`. Implementation
+files live under `packages/mcp/src/tools/<id>.ts`. Every tool is
+**read-only with respect to user source** — no tool edits the working
+tree.
 
 | Group       | Tools                                                                                                      |
 | ----------- | ---------------------------------------------------------------------------------------------------------- |
-| Discovery   | `list_repos`, `query`, `context`, `route_map`, `tool_map`                                                  |
-| Impact      | `impact`, `api_impact`, `detect_changes`, `shape_check`, `rename`                                          |
+| Discovery   | `list_repos`, `query`, `context`, `signature`, `route_map`, `tool_map`                                     |
+| Impact      | `impact`, `api_impact`, `detect_changes`, `shape_check`                                                    |
 | Snapshot    | `pack_codebase`, `project_profile`, `dependencies`, `owners`, `risk_trends`                                |
 | Findings    | `scan`, `verdict`, `list_findings`, `list_findings_delta`, `license_audit`                                 |
-| Dead code   | `list_dead_code`, `remove_dead_code`                                                                       |
+| Dead code   | `list_dead_code`                                                                                            |
 | Group       | `group_list`, `group_query`, `group_status`, `group_contracts`, `group_cross_repo_links`, `group_sync`     |
 | Raw query   | `sql`                                                                                                      |
 

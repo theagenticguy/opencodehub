@@ -39,9 +39,14 @@ depends = ["install"]
 # ---------------------------------------------------------------------------
 
 [tasks.build]
-description = "Build all TypeScript packages"
+description = "Build all TypeScript packages (excludes @opencodehub/docs — see docs:build)"
 depends = ["install"]
-run = "pnpm -r build"
+# Mirror CI (.github/workflows/ci.yml): @opencodehub/docs runs astro +
+# rehype-mermaid + headless-Chromium (Playwright) and is built only by the
+# docs owner workflow (pages.yml) / the `docs:build` task here. Excluding it
+# keeps `mise run check` a faithful local mirror of the CI merge gate on a
+# machine without Playwright browsers installed.
+run = "pnpm --filter '!@opencodehub/docs' -r build"
 sources = ["packages/*/src/**/*.ts", "packages/*/package.json"]
 outputs = ["packages/*/dist/**"]
 
@@ -104,9 +109,10 @@ run = "pnpm remove -g @opencodehub/cli"
 # ---------------------------------------------------------------------------
 
 [tasks.test]
-description = "Run all package tests"
+description = "Run all package tests (excludes @opencodehub/docs — mirrors CI)"
 depends = ["build"]
-run = "pnpm -r test"
+# Mirror CI: docs has no unit tests and its astro build needs Playwright.
+run = "pnpm --filter '!@opencodehub/docs' -r test"
 
 [tasks.lint]
 description = "Biome check"
@@ -121,8 +127,19 @@ description = "Biome format (write)"
 run = "pnpm exec biome format --write ."
 
 [tasks.typecheck]
-description = "TypeScript typecheck (no emit) across workspace"
-run = "pnpm -r exec tsc --noEmit"
+description = "TypeScript typecheck (no emit) across workspace (excludes @opencodehub/docs — mirrors CI)"
+run = "pnpm --filter '!@opencodehub/docs' -r exec tsc --noEmit"
+
+[tasks."docs:build"]
+description = "Build the Astro docs site (installs headless Chromium for rehype-mermaid first)"
+depends = ["install"]
+# The docs build renders mermaid diagrams via rehype-mermaid → Playwright
+# headless Chromium. CI does this in pages.yml; locally we install the
+# browser on demand so the heavy dep never blocks `mise run check`.
+run = """
+pnpm --filter @opencodehub/docs exec playwright install chromium
+pnpm --filter @opencodehub/docs build
+"""
 
 [tasks."banned-strings"]
 description = "Verify no banned identifiers leaked in"
