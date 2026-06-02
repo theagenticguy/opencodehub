@@ -299,6 +299,72 @@ test("bulkLoad replace mode truncates prior rows on second call", async () => {
   }
 });
 
+// Regression: lbug 0.16.1 crashes the process with SIGBUS/SIGSEGV when
+// `MATCH (n:CodeNode) DELETE n` runs while the `och_fts` full-text index is
+// live on CodeNode (confirmed by a 6/6 controlled A/B repro against a real
+// ~11k-node on-disk graph: fix off → crash every run, fix on → clean every
+// run). `truncateAll` now drops the search indexes before deleting and the
+// post-insert `ensureFtsIndex` rebuilds them.
+//
+// The native crash only manifests at scale on an on-disk index whose pages
+// are mmap'd (a synthetic two-node store keeps the index small enough that
+// the fault doesn't fire), so this unit test asserts the *observable
+// contract* the fix must uphold rather than relying on a flaky native crash:
+// after a replace-truncate, the prior row is gone from the FTS index and the
+// index resolves the freshly-inserted row. If `truncateAll` deleted nodes
+// without dropping+rebuilding the index, the stale term would still resolve
+// (or `bulkLoad` would crash). Both assertions fail loudly under a
+// regression; neither depends on the host's memory pressure.
+test("bulkLoad replace mode drops and rebuilds the FTS index across a truncate", async () => {
+  if (!(await hasNativeBinding())) {
+    assert.ok(true, "native binding unavailable — skipping integration test");
+    return;
+  }
+  const store = new GraphDbStore(await scratchDbPath());
+  await store.open();
+  try {
+    await store.createSchema();
+
+    // First load + a search to force the `och_fts` index to be built.
+    const g1 = new KnowledgeGraph();
+    const first = makeNodeId("Function", "src/first.ts", "parseUserProfile");
+    g1.addNode({
+      id: first,
+      kind: "Function",
+      name: "parseUserProfile",
+      filePath: "src/first.ts",
+      signature: "function parseUserProfile()",
+    });
+    await store.bulkLoad(g1);
+    const before = await store.search({ text: "parseUserProfile", limit: 5 });
+    assert.ok(before.length >= 1, "FTS index should resolve the first load");
+
+    // Replace-truncate with the FTS index live. Pre-fix on a large on-disk
+    // graph this SIGBUSes; here it must drop the index, truncate, reinsert,
+    // and rebuild the index against the new row.
+    const g2 = new KnowledgeGraph();
+    const second = makeNodeId("Function", "src/second.ts", "renderMarkdownView");
+    g2.addNode({
+      id: second,
+      kind: "Function",
+      name: "renderMarkdownView",
+      filePath: "src/second.ts",
+      signature: "function renderMarkdownView()",
+    });
+    await store.bulkLoad(g2, { mode: "replace" });
+
+    // The old row is gone and the index was rebuilt against the new row:
+    // searching the stale term returns nothing, the fresh term resolves.
+    const stale = await store.search({ text: "parseUserProfile", limit: 5 });
+    assert.equal(stale.length, 0, "truncated row must not survive in the FTS index");
+    const fresh = await store.search({ text: "renderMarkdownView", limit: 5 });
+    assert.ok(fresh.length >= 1, "FTS index must be rebuilt after the replace-truncate");
+    assert.equal(fresh[0]?.nodeId, second);
+  } finally {
+    await store.close();
+  }
+});
+
 test("bulkLoad upsert mode preserves rows not present in the incoming graph", async () => {
   if (!(await hasNativeBinding())) {
     assert.ok(true, "native binding unavailable — skipping integration test");

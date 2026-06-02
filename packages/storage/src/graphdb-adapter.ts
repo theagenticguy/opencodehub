@@ -806,6 +806,18 @@ export class GraphDbStore implements IGraphStore {
 
   private async truncateAll(): Promise<void> {
     const pool = this.requirePool();
+    // Drop the search-side indexes BEFORE any node delete. lbug 0.16.1
+    // hard-crashes with SIGBUS (bus error — an un-catchable native signal,
+    // not a JS exception the retry wrapper could survive) when a
+    // `MATCH (n:CodeNode) DELETE n` runs while the `och_fts` full-text index
+    // is live on that table. The index is rebuilt by the trailing
+    // `ensureFtsIndex()` / `ensureVectorIndex()` in `#bulkLoadOnce` after the
+    // fresh rows are inserted, so dropping it here is lossless. `och_vec` on
+    // `Embedding` gets the same treatment for symmetry (the vector index is
+    // built on the write path too); the failure mode is structural — any live
+    // index over rows being deleted is unsafe — so we never delete indexed
+    // rows out from under an index again.
+    await this.dropSearchIndexes();
     // Delete edges first so node deletes stay side-effect free. The graph-db
     // engine rejects deletes of a node that still has dangling rels.
     for (const kind of getAllRelationTypes()) {
@@ -814,6 +826,52 @@ export class GraphDbStore implements IGraphStore {
     await pool.query("MATCH ()-[r:EMBEDS]->() DELETE r");
     await pool.query("MATCH (n:Embedding) DELETE n");
     await pool.query("MATCH (n:CodeNode) DELETE n");
+  }
+
+  /**
+   * Drop the FTS (`och_fts` on `CodeNode`) and VECTOR (`och_vec` on
+   * `Embedding`) indexes ahead of a truncate. A `DROP_*_INDEX` for an index
+   * that does not exist throws a catchable "doesn't have an index" Binder
+   * exception (NOT a SIGBUS) — we swallow exactly that so the drop is
+   * idempotent across fresh stores, embeddings-disabled runs, and repeated
+   * bulk-loads. Any other error (missing table, permission) surfaces.
+   *
+   * Resets `ftsIndexBuilt` / `vectorIndexBuilt` so the post-insert
+   * `ensureFtsIndex()` / `ensureVectorIndex()` calls actually rebuild the
+   * indexes against the freshly-loaded rows instead of short-circuiting on a
+   * now-stale "already built" flag.
+   */
+  private async dropSearchIndexes(): Promise<void> {
+    const pool = this.requirePool();
+    // The FTS extension must be loaded before DROP_FTS_INDEX is bindable;
+    // `#bulkLoadOnce` already loads it up front, but load defensively here so
+    // `truncateAll` is correct if ever called on its own. A load failure
+    // (extension unavailable on this host) means there is no index to drop.
+    const dropIfPresent = async (stmt: string): Promise<void> => {
+      try {
+        await pool.query(stmt);
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        // Both of these mean "there is no index to drop", which is the
+        // idempotent no-op case:
+        //   - Binder:  "Table X doesn't have an index with name Y" — the
+        //     index was never created (fresh store, embeddings disabled,
+        //     repeated truncate).
+        //   - Catalog: "function DROP_VECTOR_INDEX is not defined ... VECTOR
+        //     extension" — the extension isn't loaded on this connection, so
+        //     no vector index can exist to drop. (`#bulkLoadOnce` loads FTS
+        //     up front but not VECTOR; loading VECTOR solely to drop a
+        //     usually-absent index isn't worth the cost.)
+        const noIndexToDrop =
+          /does(?:n't| not) have an index|no index|not exist/i.test(msg) ||
+          (/is not defined/i.test(msg) && /extension/i.test(msg));
+        if (!noIndexToDrop) throw err;
+      }
+    };
+    await dropIfPresent("CALL DROP_FTS_INDEX('CodeNode', 'och_fts')");
+    await dropIfPresent("CALL DROP_VECTOR_INDEX('Embedding', 'och_vec')");
+    this.ftsIndexBuilt = false;
+    this.vectorIndexBuilt = false;
   }
 
   /**
