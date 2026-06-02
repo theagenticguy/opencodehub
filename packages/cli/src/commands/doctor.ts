@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
 import Table from "cli-table3";
 
 export type CheckStatus = "ok" | "warn" | "fail";
@@ -414,12 +415,24 @@ interface ScipIndexerSpec {
   readonly setupFlag?: string;
   /** True when the indexer is a JAR/asset under ~/.codehub, not a PATH binary. */
   readonly jar?: boolean;
+  /**
+   * The npm package this indexer ships from when it is a HARD dependency of
+   * `@opencodehub/scip-ingest` (the pure-JS Sourcegraph indexers). When set,
+   * the check resolves the bundled package via `createRequire` rather than
+   * requiring it on PATH or under `~/.codehub/bin` — these always ship with
+   * the CLI, so a clean install must report `ok` out-of-the-box.
+   */
+  readonly bundledPkg?: string;
 }
 
 const SCIP_INDEXERS: readonly ScipIndexerSpec[] = [
-  { language: "typescript", binName: "scip-typescript" },
-  { language: "python", binName: "scip-python" },
-  { language: "go", binName: "scip-go" },
+  {
+    language: "typescript",
+    binName: "scip-typescript",
+    bundledPkg: "@sourcegraph/scip-typescript",
+  },
+  { language: "python", binName: "scip-python", bundledPkg: "@sourcegraph/scip-python" },
+  { language: "go", binName: "scip-go", setupFlag: "go" },
   { language: "rust", binName: "rust-analyzer" },
   { language: "java", binName: "scip-java" },
   { language: "ruby", binName: "scip-ruby", setupFlag: "ruby" },
@@ -436,12 +449,41 @@ function scipIndexerCheck(
   run: RunCommandFn,
 ): Check {
   const missingStatus: CheckStatus = strict ? "fail" : "warn";
-  const installHint = spec.setupFlag
-    ? `install with \`codehub setup --scip=${spec.setupFlag}\``
-    : `${spec.binName} is a system toolchain — install it via your package manager / language SDK`;
+  const installHint = spec.bundledPkg
+    ? `bundled with @opencodehub/cli (${spec.bundledPkg}); reinstall the CLI to restore it`
+    : spec.setupFlag
+      ? `install with \`codehub setup --scip=${spec.setupFlag}\``
+      : `${spec.binName} is a system toolchain — install it via your package manager / language SDK`;
   return {
     name: `scip indexer: ${spec.language}`,
     async run() {
+      if (spec.bundledPkg !== undefined) {
+        // Hard dependency of @opencodehub/scip-ingest (ships with the CLI).
+        // Authoritative check: does the indexer's bin shim resolve into a
+        // directory that the analyze-time spawn PATH actually includes? That
+        // is exactly what `hostedScipBinDirs()` (the same resolver
+        // `withCodehubBinOnPath` uses) returns, so a match here guarantees the
+        // runner will find the indexer by bare name — even though the nested
+        // `node_modules/.bin` is NOT on the user's interactive PATH (so a bare
+        // `<bin> --version` probe would false-FAIL).
+        const onHostedPath = hostedScipBinDirs().some((d: string) =>
+          existsSyncSafe(join(d, spec.binName)),
+        );
+        if (onHostedPath) {
+          return { status: "ok", message: `${spec.binName} bundled (${spec.bundledPkg})` };
+        }
+        // Fall back to an explicit on-PATH install (e.g. a global
+        // `npm i -g @sourcegraph/scip-typescript`).
+        const res = await run(spec.binName, ["--version"]);
+        if (res.status === 0) {
+          return { status: "ok", message: `${spec.binName}: ${firstLine(res.stdout)}` };
+        }
+        return {
+          status: missingStatus,
+          message: `${spec.binName} not resolvable (bundled dep ${spec.bundledPkg} missing)`,
+          hint: installHint,
+        };
+      }
       if (spec.jar === true) {
         // JAR/asset indexers aren't `--version`-able binaries: check the
         // file exists under ~/.codehub (setup downloads them there).
@@ -808,7 +850,10 @@ function resolveFromRoot(repoRoot: string, pkg: string): string | null {
   //    and `@ladybugdb/core` both live in `packages/storage`. Probing that
   //    package.json context lets `codehub doctor` resolve the bindings
   //    even when neither the CLI nor the workspace root declare them as
-  //    direct deps.
+  //    direct deps. (The pure-JS `@sourcegraph/scip-*` indexers are NOT
+  //    resolved here — `scipIndexerCheck` checks them via
+  //    `hostedScipBinDirs()`, the same resolver the analyze-time spawn PATH
+  //    uses, which is the layout-correct authority for "will analyze find it".)
   const owners =
     pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/") ? ["packages/storage"] : [];
   for (const owner of owners) {

@@ -46,6 +46,7 @@
     "@opencodehub/policy": "workspace:*",
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/scanners": "workspace:*",
+    "@opencodehub/scip-ingest": "workspace:*",
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",

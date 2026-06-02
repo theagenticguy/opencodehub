@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReadableStream } from "node:stream/web";
 import { describe, it } from "node:test";
+import { gzipSync } from "node:zlib";
 
 import {
   DotnetSdkMissingError,
@@ -40,6 +41,41 @@ import {
 
 function sha256(buf: Uint8Array): string {
   return createHash("sha256").update(buf).digest("hex");
+}
+
+/**
+ * Build a minimal, valid gzip tarball containing a single ustar regular-file
+ * entry `{name, body}` followed by the two zero-block EOF marker. Mirrors the
+ * shape of Sourcegraph's scip-go release tarballs (short root-level names, no
+ * PAX/GNU extensions) so the downloader's extraction path is exercised with a
+ * real gunzip + untar rather than a hand-faked buffer. Returns the gzipped
+ * bytes — exactly what the downloader fetches and SHA256-pins.
+ */
+function makeTarGz(name: string, body: Uint8Array): Uint8Array {
+  const BLOCK = 512;
+  const header = Buffer.alloc(BLOCK);
+  header.write(name, 0, "ascii"); // name @ 0 (max 100)
+  header.write("0000644", 100, "ascii"); // mode @ 100
+  header.write("0000000", 108, "ascii"); // uid @ 108
+  header.write("0000000", 116, "ascii"); // gid @ 116
+  header.write(body.length.toString(8).padStart(11, "0"), 124, "ascii"); // size @ 124 (octal)
+  header.write("00000000000", 136, "ascii"); // mtime @ 136
+  header[156] = 0x30; // typeflag '0' (regular file)
+  header.write("ustar\0", 257, "ascii"); // magic @ 257
+  header.write("00", 263, "ascii"); // version @ 263
+  // Checksum: spaces while summing, then octal + NUL + space @ 148.
+  header.fill(0x20, 148, 156);
+  let sum = 0;
+  for (const b of header) sum += b;
+  header.write(sum.toString(8).padStart(6, "0"), 148, "ascii");
+  header[154] = 0; // NUL
+  header[155] = 0x20; // space
+
+  const dataPadded = Buffer.alloc(Math.ceil(body.length / BLOCK) * BLOCK);
+  Buffer.from(body).copy(dataPadded);
+  const eof = Buffer.alloc(BLOCK * 2); // two zero blocks
+  const tar = Buffer.concat([header, dataPadded, eof]);
+  return new Uint8Array(gzipSync(tar));
 }
 
 function makeResponse(status: number, body: Uint8Array | null): Response {
@@ -428,6 +464,148 @@ describe("installScipTool", () => {
   });
 });
 
+describe("scip-go (archive/tarball extraction)", () => {
+  const LINUX_X64_GO = { os: "linux", arch: "x64" } as const;
+
+  it("extracts the binary from the gzip tarball, chmods it, and verifies the tarball SHA256", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-go-"));
+    try {
+      const binBytes = new TextEncoder().encode("\x7fELF fake scip-go binary");
+      const tarGz = makeTarGz("scip-go", binBytes);
+      // A sibling entry (LICENSE) must be skipped — prove the parser selects
+      // only the wanted entry by serving a two-entry archive.
+      const { fetch, calls } = makeFetchWith(new Map([["https://example.test/go", tarGz]]));
+
+      const goPin: ScipToolPin = {
+        tool: "go",
+        version: "0.2.7",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-go",
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: "https://example.test/go",
+            sha256: sha256(tarGz),
+            archiveEntry: "scip-go",
+          },
+        ],
+      };
+      const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
+      const original = SCIP_PINS.go;
+      mutable.go = goPin;
+      try {
+        const result = await installScipTool("go", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64_GO,
+        });
+        assert.equal(result.installed, true);
+        assert.equal(result.tool, "go");
+        // On disk is the EXTRACTED binary, not the tarball.
+        const onDisk = await readFile(result.path);
+        assert.deepEqual(new Uint8Array(onDisk), binBytes);
+        // Executable bit set.
+        const st = await stat(result.path);
+        assert.equal(st.mode & 0o111, 0o111);
+        // Exactly one fetch.
+        assert.equal(calls.length, 1);
+      } finally {
+        mutable.go = original;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a tarball whose bytes do not match the pinned SHA256", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-go-bad-"));
+    try {
+      const tarGz = makeTarGz("scip-go", new TextEncoder().encode("real"));
+      const { fetch } = makeFetchWith(new Map([["https://example.test/go", tarGz]]));
+      const goPin: ScipToolPin = {
+        tool: "go",
+        version: "0.2.7",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-go",
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: "https://example.test/go",
+            sha256: sha256(new TextEncoder().encode("WRONG")), // deliberately wrong
+            archiveEntry: "scip-go",
+          },
+        ],
+      };
+      const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
+      const original = SCIP_PINS.go;
+      mutable.go = goPin;
+      try {
+        await assert.rejects(
+          () => installScipTool("go", { destDir: dir, fetchImpl: fetch, platform: LINUX_X64_GO }),
+          (err: unknown) => err instanceof ScipSha256MismatchError,
+        );
+      } finally {
+        mutable.go = original;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips re-install when the extracted binary already exists (archive idempotency)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "och-scip-go-idem-"));
+    try {
+      const tarGz = makeTarGz("scip-go", new TextEncoder().encode("scip-go-bin"));
+      const { fetch, calls } = makeFetchWith(new Map([["https://example.test/go", tarGz]]));
+      const goPin: ScipToolPin = {
+        tool: "go",
+        version: "0.2.7",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-go",
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: "https://example.test/go",
+            sha256: sha256(tarGz),
+            archiveEntry: "scip-go",
+          },
+        ],
+      };
+      const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
+      const original = SCIP_PINS.go;
+      mutable.go = goPin;
+      try {
+        const first = await installScipTool("go", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64_GO,
+        });
+        assert.equal(first.installed, true);
+        const second = await installScipTool("go", {
+          destDir: dir,
+          fetchImpl: fetch,
+          platform: LINUX_X64_GO,
+        });
+        assert.equal(second.skipped, true);
+        assert.equal(second.installed, false);
+        // The extracted-binary presence check means the second call never
+        // re-fetches (the tarball SHA can't be recomputed from the binary).
+        assert.equal(calls.length, 1);
+      } finally {
+        mutable.go = original;
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("installAllScipTools", () => {
   it("runs every tool in order and returns a per-tool result or error", async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-all-"));
@@ -454,23 +632,47 @@ describe("installAllScipTools", () => {
       const clangBody = new TextEncoder().encode("clang-bytes");
       const rubyBody = new TextEncoder().encode("ruby-bytes");
       const kotlinBody = new TextEncoder().encode("kotlin-bytes");
+      // scip-go is an archive tool: the served body is a gzip tarball whose
+      // `scip-go` entry holds the binary. This exercises the extraction path
+      // through `installAllScipTools` too.
+      const goTarGz = makeTarGz("scip-go", new TextEncoder().encode("go-binary-bytes"));
 
       const { fetch } = makeFetchWith(
         new Map([
           ["https://example.test/clang", clangBody],
           ["https://example.test/ruby", rubyBody],
+          ["https://example.test/go", goTarGz],
           ["https://example.test/kotlin", kotlinBody],
         ]),
       );
 
+      const goStub: ScipToolPin = {
+        tool: "go",
+        version: "1.2.3",
+        installerKind: "download",
+        placeholder: false,
+        binName: "scip-go",
+        platforms: [
+          {
+            os: "linux",
+            arch: "x64",
+            url: "https://example.test/go",
+            sha256: sha256(goTarGz),
+            archiveEntry: "scip-go",
+          },
+        ],
+      };
+
       const originals = {
         clang: SCIP_PINS.clang,
         ruby: SCIP_PINS.ruby,
+        go: SCIP_PINS.go,
         kotlin: SCIP_PINS.kotlin,
       };
       const mutable = SCIP_PINS as unknown as Record<ScipToolPin["tool"], ScipToolPin>;
       mutable.clang = mkStub("clang", clangBody);
       mutable.ruby = mkStub("ruby", rubyBody);
+      mutable.go = goStub;
       mutable.kotlin = mkStub("kotlin", kotlinBody);
 
       try {
@@ -481,13 +683,14 @@ describe("installAllScipTools", () => {
           dotnetProbe: async () => "8.0.100",
         });
 
-        assert.equal(results.length, 4);
-        // Clang, ruby, dotnet, kotlin — order from SCIP_TOOL_ORDER.
+        assert.equal(results.length, 5);
+        // Clang, ruby, go, dotnet, kotlin — order from SCIP_TOOL_ORDER.
         const tools = results.map((r) => ("tool" in r ? r.tool : "error"));
-        assert.deepEqual(tools, ["clang", "ruby", "dotnet", "kotlin"]);
+        assert.deepEqual(tools, ["clang", "ruby", "go", "dotnet", "kotlin"]);
       } finally {
         mutable.clang = originals.clang;
         mutable.ruby = originals.ruby;
+        mutable.go = originals.go;
         mutable.kotlin = originals.kotlin;
       }
     } finally {

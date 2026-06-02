@@ -35,8 +35,20 @@
 export type ScipOs = "linux" | "darwin";
 export type ScipArch = "x64" | "arm64";
 
-/** The four binary-backed SCIP tools plus the .NET tool-sourced adapter. */
-export type ScipTool = "clang" | "ruby" | "dotnet" | "kotlin";
+/**
+ * Tools the pinned downloader installs into `~/.codehub/bin/`:
+ *   - `clang` / `ruby` — raw GitHub release binaries.
+ *   - `go` — a GitHub release **tarball** (`.tar.gz`) we gunzip + untar to
+ *     extract the `scip-go` binary (see `archiveEntry`).
+ *   - `kotlin` — a Maven Central JAR.
+ *   - `dotnet` — sourced via `dotnet tool install`.
+ *
+ * NOTE: `scip-typescript` and `scip-python` are deliberately NOT downloader
+ * tools — they are pure-JS npm packages shipped as hard `dependencies` of
+ * `@opencodehub/cli` and resolved from the package's `node_modules/.bin` on
+ * the spawn PATH (see `withCodehubBinOnPath` in `@opencodehub/scip-ingest`).
+ */
+export type ScipTool = "clang" | "ruby" | "dotnet" | "kotlin" | "go";
 
 /** Per-platform download descriptor. */
 export interface ScipPlatformPin {
@@ -199,6 +211,72 @@ const SCIP_RUBY_PIN: ScipToolPin = {
 };
 
 /**
+ * scip-go v0.2.7 — Sourcegraph Go indexer, a static Go binary.
+ * Releases: `github.com/sourcegraph/scip-go/releases/tag/v0.2.7`.
+ *
+ * Unlike clang/ruby (which publish raw executables), scip-go publishes
+ * **gzip tarballs** named `scip-go-<os>-<arch>.tar.gz`, each containing two
+ * root entries — `scip-go` (the binary) and `LICENSE`. `archiveEntry:
+ * "scip-go"` tells the downloader to gunzip + untar and extract that one
+ * entry. The pinned SHA256 still covers the downloaded `.tar.gz` bytes (the
+ * downloader hashes the archive before extracting), so the integrity contract
+ * is unchanged.
+ *
+ * Upstream ships three platforms at v0.2.7 (verified live via the GitHub
+ * releases API + each asset's `.sha256` sidecar, 2026-06-01):
+ *   - linux-x64    → scip-go-linux-amd64.tar.gz
+ *   - linux-arm64  → scip-go-linux-arm64.tar.gz
+ *   - darwin-arm64 → scip-go-darwin-arm64.tar.gz
+ * There is NO darwin-x64 asset; that row is marked `platformUnavailable` so
+ * the gap is documented (Intel-Mac users build via `go install`).
+ *
+ * Module-path caveat (for maintainers): `go install` uses the renamed module
+ * path `github.com/scip-code/scip-go/cmd/scip-go@latest`, but the RELEASE
+ * ASSETS live under the original `github.com/sourcegraph/scip-go` repo — the
+ * download URLs below must stay on `sourcegraph/scip-go` (the `scip-code` org
+ * publishes no release assets). Do not "fix" these URLs to the scip-code org.
+ */
+const SCIP_GO_PIN: ScipToolPin = {
+  tool: "go",
+  version: "0.2.7",
+  installerKind: "download",
+  placeholder: false,
+  binName: "scip-go",
+  platforms: [
+    {
+      os: "linux",
+      arch: "x64",
+      url: "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz",
+      // SHA256 of the .tar.gz, from the upstream `.sha256` sidecar (2026-06-01).
+      sha256: "5bfe39016ca04f5b3b1cce41d1b63ea120a7d7e93b55407bfb17a6b02d18135a",
+      archiveEntry: "scip-go",
+    },
+    {
+      os: "linux",
+      arch: "arm64",
+      url: "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-arm64.tar.gz",
+      sha256: "6b93476c7578c5aeb5acacb41f8234c20130168271adea0db8d8ae63d1355acb",
+      archiveEntry: "scip-go",
+    },
+    {
+      os: "darwin",
+      arch: "x64",
+      url: "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-darwin-amd64.tar.gz",
+      // Upstream does NOT ship a darwin-x64 asset at v0.2.7 (URL 404s).
+      sha256: PLACEHOLDER_SHA256,
+      platformUnavailable: true,
+    },
+    {
+      os: "darwin",
+      arch: "arm64",
+      url: "https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-darwin-arm64.tar.gz",
+      sha256: "f21b505452a8dbb270c18ec66690e583801f9e96cff1d72e84c004b7374ec672",
+      archiveEntry: "scip-go",
+    },
+  ],
+};
+
+/**
  * scip-dotnet v0.2.12 — installed via `dotnet tool install --global scip-dotnet`.
  * Upstream does NOT ship a self-contained release binary; the installer needs
  * .NET SDK 8 or later on PATH.
@@ -255,14 +333,21 @@ const SCIP_KOTLIN_PIN: ScipToolPin = {
 export const SCIP_PINS: Readonly<Record<ScipTool, ScipToolPin>> = {
   clang: SCIP_CLANG_PIN,
   ruby: SCIP_RUBY_PIN,
+  go: SCIP_GO_PIN,
   dotnet: SCIP_DOTNET_PIN,
   kotlin: SCIP_KOTLIN_PIN,
 };
 
 /** Ordered list used by `--scip=all`. */
-export const SCIP_TOOL_ORDER: readonly ScipTool[] = ["clang", "ruby", "dotnet", "kotlin"];
+export const SCIP_TOOL_ORDER: readonly ScipTool[] = ["clang", "ruby", "go", "dotnet", "kotlin"];
 
 /** True when `value` is a known SCIP tool name. Used to validate CLI input. */
 export function isScipTool(value: string): value is ScipTool {
-  return value === "clang" || value === "ruby" || value === "dotnet" || value === "kotlin";
+  return (
+    value === "clang" ||
+    value === "ruby" ||
+    value === "go" ||
+    value === "dotnet" ||
+    value === "kotlin"
+  );
 }

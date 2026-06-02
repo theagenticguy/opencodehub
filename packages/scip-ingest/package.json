@@ -38,7 +38,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@opencodehub/core-types": "workspace:*"
+    "@opencodehub/core-types": "workspace:*",
+    "@sourcegraph/scip-python": "0.6.6",
+    "@sourcegraph/scip-typescript": "0.4.0"
   },
   "devDependencies": {
     "@types/node": "25.9.1",

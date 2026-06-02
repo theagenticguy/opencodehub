@@ -42,4 +42,10 @@ export type {
   IndexerResult,
   RunIndexerOptions,
 } from "./runners/index.js";
-export { buildCommand, detectLanguages, runIndexer } from "./runners/index.js";
+export {
+  buildCommand,
+  detectLanguages,
+  hostedScipBinDirs,
+  runIndexer,
+  withCodehubBinOnPath,
+} from "./runners/index.js";

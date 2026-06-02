@@ -34,13 +34,14 @@
 import { execFile as execFileCb } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { chmod, mkdir, rename, stat, unlink } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline as streamPipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { promisify } from "node:util";
+import { gunzipSync } from "node:zlib";
 
 import {
   SCIP_PINS,
@@ -286,6 +287,19 @@ async function hashFileIfExists(path: string): Promise<string | undefined> {
 }
 
 /**
+ * Stat a file, returning `undefined` if it does not exist. Used by the
+ * archive-tool idempotency check (an extracted binary's hash can't be compared
+ * to the tarball pin, so presence + non-empty size is the signal).
+ */
+async function statIfExists(path: string): Promise<{ size: number } | undefined> {
+  try {
+    return await stat(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Stream one binary to disk: hash-as-we-write, verify, chmod +x, atomic
  * rename. Does NOT retry — the embedder downloader's retry ladder is
  * overkill for a single-binary install; a failed download surfaces directly.
@@ -367,11 +381,111 @@ async function downloadBinary(
     throw new ScipSha256MismatchError(tool, platformPin.sha256, actual);
   }
 
+  // Archive path: the verified `tmpPath` holds a `.tar.gz` whose single
+  // wanted entry (`archiveEntry`) is the executable. The SHA256 above already
+  // covered the archive bytes, so integrity is intact; we now gunzip + untar
+  // in-memory (release tarballs are a few MB) and replace `tmpPath` with the
+  // extracted binary before the chmod + atomic rename.
+  if (platformPin.archiveEntry !== undefined) {
+    const extractedBytes = await extractFromTarGz(
+      tmpPath,
+      platformPin.archiveEntry,
+      platformPin.url,
+    );
+    bytesWritten = extractedBytes;
+  }
+
   // 0o755 — owner rwx, everyone rx. Matches what a release tarball extraction
   // would produce.
   await chmod(tmpPath, 0o755);
   await rename(tmpPath, targetPath);
   return bytesWritten;
+}
+
+/**
+ * Gunzip + untar `archivePath` in place, extract the single entry named
+ * `entryName`, and overwrite `archivePath` with the extracted bytes (so the
+ * caller's existing chmod + atomic-rename of `archivePath` lands the binary).
+ * Returns the extracted byte count.
+ *
+ * Scope: release tarballs from Sourcegraph (scip-go) are plain ustar with
+ * short root-level names and no PAX/GNU long-name extensions, so this is a
+ * deliberately minimal reader — not a general-purpose tar library. It does,
+ * however, honor the ustar `prefix` field, reject reads past the buffer, and
+ * skip non-matching entries (e.g. the sibling `LICENSE`).
+ */
+async function extractFromTarGz(
+  archivePath: string,
+  entryName: string,
+  sourceUrl: string,
+): Promise<number> {
+  const gz = await readFile(archivePath);
+  let tar: Buffer;
+  try {
+    tar = gunzipSync(gz);
+  } catch (err) {
+    throw new ScipDownloadError(
+      sourceUrl,
+      `gunzip failed: ${err instanceof Error ? err.message : String(err)}`,
+      err instanceof Error ? { cause: err } : undefined,
+    );
+  }
+
+  const BLOCK = 512;
+  let offset = 0;
+  while (offset + BLOCK <= tar.length) {
+    const header = tar.subarray(offset, offset + BLOCK);
+    // Two consecutive all-zero blocks mark end-of-archive; a single zero
+    // header (name byte 0) is the terminator in practice — stop scanning.
+    if (header[0] === 0) break;
+
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const fullName = prefix.length > 0 ? `${prefix}/${name}` : name;
+    const size = readTarOctal(header, 124, 12);
+    const typeFlag = header[156];
+
+    const dataStart = offset + BLOCK;
+    const dataEnd = dataStart + size;
+    if (dataEnd > tar.length) {
+      throw new ScipDownloadError(
+        sourceUrl,
+        `corrupt tar: entry "${fullName}" claims ${size} bytes past end of archive`,
+      );
+    }
+
+    // typeFlag '0' or NUL (0) is a regular file; anything else (dir '5',
+    // symlink '2', GNU long-name 'L', …) is not the binary we want.
+    const isRegularFile = typeFlag === 0x30 /* '0' */ || typeFlag === 0;
+    if (isRegularFile && fullName === entryName) {
+      await writeFile(archivePath, tar.subarray(dataStart, dataEnd));
+      return size;
+    }
+
+    // Advance past this entry's data, rounded up to the next 512 boundary.
+    offset = dataStart + Math.ceil(size / BLOCK) * BLOCK;
+  }
+
+  throw new ScipDownloadError(sourceUrl, `tar archive did not contain entry "${entryName}"`);
+}
+
+/** Read a NUL-terminated ASCII string from a fixed-width tar header field. */
+function readTarString(header: Buffer, start: number, len: number): string {
+  const slice = header.subarray(start, start + len);
+  const nul = slice.indexOf(0);
+  return slice.toString("ascii", 0, nul === -1 ? len : nul).trim();
+}
+
+/**
+ * Parse a tar numeric field: NUL/space-terminated OCTAL ASCII. Returns 0 for
+ * an empty/whitespace field (the size of dir/marker entries).
+ */
+function readTarOctal(header: Buffer, start: number, len: number): number {
+  const raw = header.subarray(start, start + len).toString("ascii");
+  const cleaned = raw.replace(/\0/g, "").trim();
+  if (cleaned === "") return 0;
+  const parsed = Number.parseInt(cleaned, 8);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 /**
@@ -451,18 +565,29 @@ async function installScipToolInner(
   await mkdir(dirname(targetPath), { recursive: true });
 
   if (opts.force !== true) {
-    const existingHash = await hashFileIfExists(targetPath);
-    if (existingHash !== undefined && existingHash === platformPin.sha256) {
-      log(
-        `codehub setup --scip=${tool}: already installed at ${targetPath} (version ${pin.version})`,
-      );
-      return {
-        tool,
-        installed: false,
-        skipped: true,
-        version: pin.version,
-        path: targetPath,
-      };
+    // Idempotency check. For raw-binary tools the on-disk file IS the hashed
+    // payload, so we compare its SHA256 to the pin. For archive tools the pin
+    // hashes the `.tar.gz` but the on-disk file is the EXTRACTED binary — the
+    // two hashes can never match, so we fall back to a presence check (a
+    // non-empty file at the target means a prior install already extracted it).
+    // Re-downloading is the only way to re-verify an archive tool's integrity,
+    // which `--force` still does.
+    if (platformPin.archiveEntry !== undefined) {
+      const existing = await statIfExists(targetPath);
+      if (existing !== undefined && existing.size > 0) {
+        log(
+          `codehub setup --scip=${tool}: already installed at ${targetPath} (version ${pin.version})`,
+        );
+        return { tool, installed: false, skipped: true, version: pin.version, path: targetPath };
+      }
+    } else {
+      const existingHash = await hashFileIfExists(targetPath);
+      if (existingHash !== undefined && existingHash === platformPin.sha256) {
+        log(
+          `codehub setup --scip=${tool}: already installed at ${targetPath} (version ${pin.version})`,
+        );
+        return { tool, installed: false, skipped: true, version: pin.version, path: targetPath };
+      }
     }
   }
 
