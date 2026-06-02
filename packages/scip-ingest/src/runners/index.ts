@@ -10,8 +10,10 @@
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export type IndexerKind =
   | "typescript"
@@ -969,29 +971,151 @@ type CommandOutcome =
   | { kind: "missing" };
 
 /**
- * Prepend `~/.codehub/bin` to the spawn environment's PATH so SCIP indexers
- * installed by `codehub setup --scip=<tool>` (clang, ruby, kotlin jar) win
- * over an ambient version-manager shim that resolves on PATH but can't pick a
- * version (the mise/asdf "No version is set for shim" failure — see
- * `detectVersionManagerShimFailure`). Without this, a setup-installed indexer
- * could be shadowed by a broken shim earlier on PATH and the language would
- * skip even though codehub installed a working binary.
+ * The pure-JS SCIP indexers we ship as hard `dependencies` of
+ * `@opencodehub/scip-ingest` (this package — closest to the spawn site).
+ * Their bin shims must be discoverable on the spawn PATH by bare name, but
+ * when `@opencodehub/cli` is installed globally the shims live in a *nested*
+ * `node_modules/.bin` that is on nobody's PATH. {@link hostedScipBinDirs}
+ * resolves those `.bin` directories at runtime so {@link withCodehubBinOnPath}
+ * can prepend them. The native/asset indexers (scip-go, scip-clang, scip-ruby,
+ * kotlin/cobol JARs, scip-dotnet) are NOT here — they install under
+ * `~/.codehub/bin` via `codehub setup --scip=<tool>`.
+ */
+const HOSTED_SCIP_PACKAGES: readonly string[] = [
+  "@sourcegraph/scip-python",
+  "@sourcegraph/scip-typescript",
+];
+
+/**
+ * Resolve the `node_modules/.bin` directories that hold the bin shims for our
+ * hard-dependency SCIP indexers ({@link HOSTED_SCIP_PACKAGES}), so a bare-name
+ * `spawn("scip-typescript", …, { shell: false })` finds them regardless of the
+ * surrounding install layout.
+ *
+ * Why a *set* of dirs and not one: the shim's location relative to the resolved
+ * package.json differs by package manager.
+ *   - npm-global: pkg at `<X>/node_modules/@sourcegraph/scip-typescript`, shim at
+ *     `<X>/node_modules/.bin/scip-typescript` — the FIRST `node_modules` up.
+ *   - pnpm strict-isolation: pkg at
+ *     `<X>/node_modules/.pnpm/@sourcegraph+scip-typescript@…/node_modules/@sourcegraph/scip-typescript`,
+ *     shim at `<X>/node_modules/.bin/scip-typescript` — a LATER `node_modules`
+ *     up the chain; the inner virtual-store `.bin` does NOT hold it.
+ * Both correct `.bin` dirs are ancestors of the resolved package.json on the
+ * walk-up path, so we collect EVERY `node_modules/.bin` we pass and let PATH
+ * lookup pick the one that actually has the shim. Verified empirically against
+ * real npm and pnpm installs of `@sourcegraph/scip-typescript@0.4.0`.
+ *
+ * Resolution is anchored at this module (`import.meta.url`) via `createRequire`,
+ * which is the authoritative chain Node itself uses for `import(pkg)` from
+ * inside `@opencodehub/scip-ingest` — and exactly why these deps are declared
+ * here rather than on `@opencodehub/cli`. Absent dep ⇒ `resolve` throws ⇒ we
+ * skip it: a safe no-op. Results are deduped and order-preserving.
+ */
+export function hostedScipBinDirs(): readonly string[] {
+  const thisModule = fileURLToPath(import.meta.url);
+  const req = createRequire(thisModule);
+  const dirs = new Set<string>();
+
+  for (const pkg of HOSTED_SCIP_PACKAGES) {
+    // The bin shim is named after the package's unscoped tail
+    // (`@sourcegraph/scip-typescript` → `scip-typescript`).
+    const shimName = pkg.includes("/") ? (pkg.split("/").pop() as string) : pkg;
+
+    // Two anchors, because the shim's `.bin` location relative to a resolvable
+    // path differs by package manager:
+    //   - npm-global hoists the dep next to its dependents, so the shim is in a
+    //     `node_modules/.bin` that is an ANCESTOR of the resolved package.json.
+    //   - pnpm symlinks the real package into a `.pnpm` virtual store whose
+    //     ancestors do NOT include the consumer's `.bin`; the shim instead
+    //     lives in THIS package's own `node_modules/.bin` (the consumer that
+    //     declared the dep). Walking up from this module finds it.
+    // We collect candidate `.bin` dirs from both walk-ups and keep only those
+    // that actually contain the shim, so PATH never carries a dead dir.
+    const anchors: string[] = [thisModule];
+    try {
+      anchors.push(req.resolve(`${pkg}/package.json`));
+    } catch {
+      // Dependency not resolvable from here — the this-module walk-up below is
+      // still attempted (it covers the common pnpm/workspace layout). If the
+      // shim is found there, great; otherwise this package is skipped.
+    }
+
+    for (const anchor of anchors) {
+      let cur = dirname(anchor);
+      for (let i = 0; i < 12; i++) {
+        // Probe two `.bin` shapes at each ancestor:
+        //   - `<cur>/.bin` when `cur` is itself a `node_modules` dir (the
+        //     hoisted/virtual-store case on the resolved-package walk-up).
+        //   - `<cur>/node_modules/.bin` when `cur` is a PACKAGE ROOT with a
+        //     `node_modules` child (the consumer-package case: under pnpm the
+        //     shim for a workspace package's dep lives in that package's own
+        //     `node_modules/.bin`, e.g. `packages/scip-ingest/node_modules/.bin`).
+        // Only add a `.bin` that actually holds THIS shim, so PATH never
+        // carries a dead dir (the root `node_modules/.bin` exists under pnpm
+        // but does not contain workspace-package deps' shims).
+        const candidates =
+          basename(cur) === "node_modules"
+            ? [join(cur, ".bin")]
+            : [join(cur, "node_modules", ".bin")];
+        for (const binDir of candidates) {
+          if (existsSync(join(binDir, shimName))) dirs.add(binDir);
+        }
+        const parent = dirname(cur);
+        if (parent === cur) break;
+        cur = parent;
+      }
+    }
+  }
+  return [...dirs];
+}
+
+/**
+ * Prepend the SCIP indexer bin directories to the spawn environment's PATH:
+ *
+ *   1. The hosted hard-dependency shims ({@link hostedScipBinDirs}) — the
+ *      pure-JS `scip-python` / `scip-typescript` we ship as `dependencies` of
+ *      `@opencodehub/scip-ingest`, whose nested `node_modules/.bin` is on no
+ *      one's PATH after a global install.
+ *   2. `~/.codehub/bin` — where `codehub setup --scip=<tool>` installs the
+ *      native/asset indexers (clang, ruby, kotlin jar, …). Placed FIRST so a
+ *      setup-installed binary wins over an ambient version-manager shim that
+ *      resolves on PATH but can't pick a version (the mise/asdf "No version is
+ *      set for shim" failure — see {@link detectVersionManagerShimFailure}).
+ *
+ * Final order: `~/.codehub/bin` : <hosted .bin dirs> : <existing PATH>.
  *
  * Honors a caller-supplied PATH in `envOverlay` (we read the resolved value
  * off `env`, not `process.env`). Cross-platform: matches the PATH key
  * case-insensitively (Windows uses `Path`) and uses the platform delimiter.
  * Idempotent — never double-prepends.
+ *
+ * `resolveHostedDirs` is injectable so tests can assert the `~/.codehub/bin`
+ * ordering deterministically (passing `() => []`) without depending on which
+ * hard-dep shims happen to be installed in the test environment. Production
+ * callers omit it and get the real {@link hostedScipBinDirs} resolution.
  */
-export function withCodehubBinOnPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function withCodehubBinOnPath(
+  env: NodeJS.ProcessEnv,
+  resolveHostedDirs: () => readonly string[] = hostedScipBinDirs,
+): NodeJS.ProcessEnv {
   const binDir = join(homedir(), ".codehub", "bin");
   // Find the PATH key honoring Windows' `Path` casing; default to "PATH".
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
   const current = env[pathKey] ?? "";
   const sep = process.platform === "win32" ? ";" : ":";
   const segments = current.split(sep);
-  // Idempotent: if binDir is already the first segment, leave env untouched.
-  if (segments[0] === binDir) return env;
-  const nextPath = current.length > 0 ? `${binDir}${sep}${current}` : binDir;
+  // Prepend in priority order: ~/.codehub/bin first, then the hosted shims,
+  // skipping any segment already present so we never duplicate or reorder a
+  // dir the caller (or a prior pass) already put on PATH. This also makes the
+  // function idempotent — re-applying it leaves PATH unchanged.
+  const present = new Set(segments);
+  const toPrepend: string[] = [];
+  for (const dir of [binDir, ...resolveHostedDirs()]) {
+    if (!present.has(dir) && !toPrepend.includes(dir)) toPrepend.push(dir);
+  }
+  if (toPrepend.length === 0) return env;
+  const nextPath =
+    current.length > 0 ? `${toPrepend.join(sep)}${sep}${current}` : toPrepend.join(sep);
   return { ...env, [pathKey]: nextPath };
 }
 

@@ -17,6 +17,7 @@
     { "path": "../policy" },
     { "path": "../sarif" },
     { "path": "../scanners" },
+    { "path": "../scip-ingest" },
     { "path": "../wiki" }
   ]
 }
