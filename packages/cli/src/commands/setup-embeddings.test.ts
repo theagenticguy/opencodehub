@@ -17,6 +17,15 @@ import { GTE_MODERNBERT_BASE_PINS } from "@opencodehub/embedder";
 
 import { runSetupEmbeddings } from "./setup.js";
 
+// Platform/fixture lane (audit P1): this suite drives the HTTP-download +
+// SHA256 + atomic-write mechanics of weight fetching — vendor/runtime surface,
+// not OCH decision logic. Gated so it runs only in the platform lane
+// (CODEHUB_PLATFORM=1); same idiom as sagemaker-embedder.integration.test.ts.
+const platformSkip =
+  process.env["CODEHUB_PLATFORM"] === "1"
+    ? undefined
+    : "platform lane only (set CODEHUB_PLATFORM=1)";
+
 function sha256(buf: Uint8Array): string {
   return createHash("sha256").update(buf).digest("hex");
 }
@@ -33,7 +42,7 @@ function makeResponse(body: Uint8Array): Response {
   });
 }
 
-describe("runSetupEmbeddings", () => {
+describe("runSetupEmbeddings", { skip: platformSkip }, () => {
   it("downloads every file for the fp32 variant and reports the summary", async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-cli-setup-emb-"));
     try {

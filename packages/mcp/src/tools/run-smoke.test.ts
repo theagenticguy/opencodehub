@@ -15,7 +15,7 @@ import { strict as assert } from "node:assert";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { test } from "node:test";
+import { test as nodeTest, type TestContext } from "node:test";
 import type { KnowledgeGraph } from "@opencodehub/core-types";
 import type {
   BulkLoadStats,
@@ -58,6 +58,19 @@ import { runSignature } from "./signature.js";
 import { runSql } from "./sql.js";
 import { runToolMap } from "./tool-map.js";
 import { runVerdict } from "./verdict.js";
+
+// Platform/fixture lane (audit P1): every case here is a ToolResult-shape
+// smoke against an in-memory fake store — harness mechanics, not OCH decision
+// logic. They self-skip in the default (logic) lane and run only when the
+// platform lane sets CODEHUB_PLATFORM=1, so a fixture-shape quirk can't mask a
+// logic regression on the release-gating `test` job. Same env-var `{ skip }`
+// idiom as packages/embedder/src/sagemaker-embedder.integration.test.ts.
+const platformSkip =
+  process.env["CODEHUB_PLATFORM"] === "1"
+    ? undefined
+    : "platform lane only (set CODEHUB_PLATFORM=1)";
+const test = (name: string, fn: (t: TestContext) => void | Promise<void>): Promise<void> =>
+  nodeTest(name, { skip: platformSkip }, fn);
 
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`

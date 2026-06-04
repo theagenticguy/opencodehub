@@ -39,6 +39,17 @@ import {
   UnsupportedPlatformError,
 } from "./scip-downloader.js";
 
+// Platform/fixture lane (audit P1): the download/extract MECHANIC cases below
+// (HTTP fetch + SHA256 + chmod + atomic-rename + gunzip/untar) are vendor/
+// runtime surface and carry the OS-dependent chmod/exec-bit checks that flaked
+// on Windows. Gated to the platform lane (CODEHUB_PLATFORM=1). The SECURITY/
+// ROUTING decision cases (pin-mismatch, UnsupportedPlatform, placeholder-hash,
+// SHA-mismatch, dotnet-SDK, install ordering) are OCH logic and stay ungated.
+const platformSkip =
+  process.env["CODEHUB_PLATFORM"] === "1"
+    ? undefined
+    : "platform lane only (set CODEHUB_PLATFORM=1)";
+
 function sha256(buf: Uint8Array): string {
   return createHash("sha256").update(buf).digest("hex");
 }
@@ -130,7 +141,9 @@ function withOverridePin<T>(
 const LINUX_X64 = { os: "linux", arch: "x64" } as const;
 
 describe("installScipTool", () => {
-  it("downloads a pinned binary, verifies SHA256, chmods +x, and atomically renames", async () => {
+  it("downloads a pinned binary, verifies SHA256, chmods +x, and atomically renames", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-happy-"));
     try {
       const body = new TextEncoder().encode("#!/usr/bin/env scip-clang\n");
@@ -174,7 +187,9 @@ describe("installScipTool", () => {
     }
   });
 
-  it("is idempotent — a second call with matching SHA256 skips and makes no fetch", async () => {
+  it("is idempotent — a second call with matching SHA256 skips and makes no fetch", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-idem-"));
     try {
       const body = new TextEncoder().encode("scip-clang-bytes");
@@ -209,7 +224,9 @@ describe("installScipTool", () => {
     }
   });
 
-  it("re-downloads when the on-disk file's SHA256 drifts from the pin", async () => {
+  it("re-downloads when the on-disk file's SHA256 drifts from the pin", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-drift-"));
     try {
       const body = new TextEncoder().encode("correct-bytes");
@@ -289,7 +306,9 @@ describe("installScipTool", () => {
     }
   });
 
-  it("serializes concurrent installs of the same tool into a single fetch", async () => {
+  it("serializes concurrent installs of the same tool into a single fetch", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-concurrent-"));
     try {
       const body = new TextEncoder().encode("concurrent-install-body");
@@ -472,7 +491,9 @@ describe("installScipTool", () => {
 describe("scip-go (archive/tarball extraction)", () => {
   const LINUX_X64_GO = { os: "linux", arch: "x64" } as const;
 
-  it("extracts the binary from the gzip tarball, chmods it, and verifies the tarball SHA256", async () => {
+  it("extracts the binary from the gzip tarball, chmods it, and verifies the tarball SHA256", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-go-"));
     try {
       const binBytes = new TextEncoder().encode("\x7fELF fake scip-go binary");
@@ -563,7 +584,9 @@ describe("scip-go (archive/tarball extraction)", () => {
     }
   });
 
-  it("skips re-install when the extracted binary already exists (archive idempotency)", async () => {
+  it("skips re-install when the extracted binary already exists (archive idempotency)", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-scip-go-idem-"));
     try {
       const tarGz = makeTarGz("scip-go", new TextEncoder().encode("scip-go-bin"));
