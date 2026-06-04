@@ -196,7 +196,17 @@ fi
 # The install graph lives under the global prefix. Walk every package.json
 # under the @opencodehub/* trees and assert none ships wget/curl/download/
 # node-gyp rebuild/prebuild-install in any lifecycle script.
-GLOBAL_PREFIX=$(npm root -g 2>/dev/null || true)
+# We installed into our own hermetic prefix ($ISOLATED_PREFIX) via
+# `npm_config_prefix`, so the resolved graph lives at
+# `$ISOLATED_PREFIX/lib/node_modules` — prefer that authoritative path. Some
+# node managers (notably Volta) intercept `npm root -g` and return a path that
+# ignores `npm_config_prefix` (or isn't materialized), which previously tripped
+# gate 5 on the volta cell even though the install + all functional smokes
+# passed. Fall back to `npm root -g` only if our known location is absent.
+GLOBAL_PREFIX="$ISOLATED_PREFIX/lib/node_modules"
+if [ ! -d "$GLOBAL_PREFIX" ]; then
+  GLOBAL_PREFIX=$(npm root -g 2>/dev/null || true)
+fi
 if [ -z "$GLOBAL_PREFIX" ] || [ ! -d "$GLOBAL_PREFIX" ]; then
   fail "gate 5: could not resolve npm global prefix (got '$GLOBAL_PREFIX')"
 else
