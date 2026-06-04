@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/storage",
   "version": "0.3.0",
+  "private": true,
   "description": "OpenCodeHub — DuckDB graph store (@duckdb/node-api + hnsw_acorn + fts)",
   "license": "Apache-2.0",
   "repository": {

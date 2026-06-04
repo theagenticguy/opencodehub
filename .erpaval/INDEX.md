@@ -9,6 +9,8 @@ development sessions. Solutions are reusable; specs are per-feature.
 
 ## Solutions (architecture patterns + conventions)
 
+- [Collapse a publish-many TS monorepo into one bundled CLI with tsup](solutions/architecture-patterns/tsup-collapse-monorepo-to-single-cli.md) — `noExternal:[/^@scope//]` + `external:[/^[^.]/]`; workers as named entries (esbuild won't follow `new URL(...,import.meta.url)`); copy import.meta.url assets in onSuccess; tsconfig.test.json → dist-test/ because tsup drops *.test.ts; convert hidden string-imports to static. Kills the pack-all-publishables bug class.
+- [Make a heavy native dep optional + lazy so a default install can prune it](solutions/architecture-patterns/optional-native-dep-lazy-import.md) — onnxruntime-node 254MB: deps→optionalDependencies, top-level value-import→`import type`, dynamic `import()` at use site threading the runtime constructor in; bundler must keep it `external`.
 - [SCIP replaces LSP for code-graph oracle edges](solutions/architecture-patterns/scip-replaces-lsp.md) — one-shot indexers beat stateful LSP clients for compiler-grade graph edges.
 - [Repomix --compress is output-side only](solutions/architecture-patterns/repomix-is-output-side.md) — don't substitute it for a tree-sitter chunker; use it for repo snapshots.
 - [Starlight in a pnpm monorepo — minimal scaffold + GH Pages](solutions/architecture-patterns/starlight-in-pnpm-monorepo.md) — 9 files + 1 workflow give you a buildable docs site; gotchas captured.

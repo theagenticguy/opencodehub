@@ -14,16 +14,37 @@
  */
 
 import assert from "node:assert/strict";
+import { statSync } from "node:fs";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runInit } from "./init.js";
 
-const HERE = resolve(fileURLToPath(import.meta.url), "..");
-// Tests run against dist/, so plugin-assets is a sibling dir.
-const BUNDLED_ASSETS = resolve(HERE, "..", "plugin-assets");
+// The shipped CLI bundles plugin assets into `dist/plugin-assets/` (tsup
+// onSuccess). The test runner, however, compiles to `dist-test/` (tsup does
+// not emit *.test.ts), where no assets are staged — so resolve the canonical
+// source tree `plugins/opencodehub/` by walking up from this module. That is
+// the source of truth the copy step itself reads from, so the wiring assertions
+// validate the real asset shape regardless of which build emitted the test.
+function resolvePluginSource(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = join(dir, "plugins", "opencodehub");
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // keep walking
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("init.test: could not locate plugins/opencodehub from " + import.meta.url);
+}
+
+const BUNDLED_ASSETS = resolvePluginSource();
 
 async function mkRepo(): Promise<string> {
   return mkdtemp(join(tmpdir(), "codehub-init-"));

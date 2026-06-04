@@ -13,6 +13,7 @@
     { "path": "../storage" },
     { "path": "../search" },
     { "path": "../ingestion" },
+    { "path": "../mcp" },
     { "path": "../pack" },
     { "path": "../policy" },
     { "path": "../sarif" },

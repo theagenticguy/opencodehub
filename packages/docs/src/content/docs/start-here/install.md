@@ -13,6 +13,31 @@ sidebar:
   at install time.
 - **Node.js:** Node 20, 22, or 24. The parse runtime is `web-tree-sitter`
   (WASM) on every supported version — there is no native opt-in (ADR 0015).
+
+## Supported platforms
+
+OpenCodeHub installs with **zero native compilation** — the parse runtime is
+WASM, and the two native bindings (`@ladybugdb/core` for the graph store,
+`@duckdb/node-api` for the temporal store) ship prebuilt per platform. The
+graph store is the narrowest matrix and is **mandatory** (there is no
+fallback), so its prebuilt coverage defines where OpenCodeHub runs:
+
+| Platform | Supported |
+|---|---|
+| macOS arm64 (Apple Silicon) | ✅ |
+| macOS x64 (Intel) | ✅ |
+| Linux x64 (glibc — Debian/Ubuntu/RHEL) | ✅ |
+| Linux arm64 (glibc) | ✅ |
+| Windows x64 | ✅ |
+| **Windows arm64** | ❌ no `@ladybugdb/core` prebuilt |
+| **Linux musl (Alpine)** | ❌ no `@ladybugdb/core` prebuilt |
+
+On an unsupported platform the CLI fails fast with a `GraphDbBindingError` that
+names the case. For containers, use a **glibc** base image (`node:22`,
+`node:22-slim`, `debian`, `ubuntu`) rather than an Alpine/musl image
+(`node:22-alpine`). Windows-on-ARM users should run under x64 emulation or WSL2
+with an x64/arm64-glibc Linux until upstream ships the missing prebuilts
+(tracked upstream in `@ladybugdb/core`).
 - **pnpm:** `>=10.0.0` (the workspace lockfile is generated with 10.33.2).
 - **Python 3.12:** optional, only used by auxiliary tooling (the
   harness packages do not ship as runtime dependencies). Not required

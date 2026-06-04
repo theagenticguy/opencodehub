@@ -8,6 +8,7 @@
  */
 
 import { resolve } from "node:path";
+import { computeStaleness } from "@opencodehub/analysis";
 import { embeddingsPopulated } from "@opencodehub/search";
 import { readStoreMeta } from "@opencodehub/storage";
 import { listGroups } from "../groups.js";
@@ -118,19 +119,12 @@ async function tryComputeStaleness(
   repoPath: string,
   lastCommit: string | undefined,
 ): Promise<{ isStale: boolean; hint?: string } | undefined> {
+  // `@opencodehub/analysis` is bundled into this CLI (workspace libs are
+  // inlined at build time), so a static import is correct. Staleness is still
+  // best-effort: a git failure inside computeStaleness should not fail status.
   try {
-    const specifier = "@opencodehub/analysis";
-    const mod = (await import(specifier)) as unknown as {
-      computeStaleness?: (
-        repoPath: string,
-        lastCommit: string | undefined,
-      ) => Promise<{ isStale: boolean; hint?: string } | undefined>;
-    };
-    if (typeof mod.computeStaleness === "function") {
-      return await mod.computeStaleness(repoPath, lastCommit);
-    }
+    return await computeStaleness(repoPath, lastCommit);
   } catch {
-    // Analysis package not built yet or export missing; fall through.
+    return undefined;
   }
-  return undefined;
 }

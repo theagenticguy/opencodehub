@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/embedder",
   "version": "0.1.3",
+  "private": true,
   "description": "OpenCodeHub — ONNX-based deterministic text embedder (gte-modernbert-base)",
   "license": "Apache-2.0",
   "repository": {
@@ -39,7 +40,9 @@
   "dependencies": {
     "@aws-sdk/client-sagemaker-runtime": "3.1054.0",
     "@huggingface/tokenizers": "0.1.3",
-    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/core-types": "workspace:*"
+  },
+  "optionalDependencies": {
     "onnxruntime-node": "1.26.0"
   },
   "devDependencies": {

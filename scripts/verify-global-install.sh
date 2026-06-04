@@ -90,7 +90,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 # Fresh slate before install — strip any residual global package.
-npm uninstall -g @opencodehub/cli @opencodehub/ingestion >/dev/null 2>&1 || true
+npm uninstall -g @opencodehub/cli >/dev/null 2>&1 || true
 
 # -------------------------------------------------------------------- pack (local mode)
 INSTALL_ARGS=()
@@ -100,31 +100,22 @@ if [ "$MODE" = "local" ]; then
     exit 1
   fi
   mkdir -p "$TARBALL_DIR"
-  log "packing all publishable @opencodehub/* workspace packages into $TARBALL_DIR"
-  # Pack every non-private workspace package so npm doesn't fall back to
-  # registry versions for transitive workspace deps. The CLI depends on
-  # @opencodehub/pack which depends on @opencodehub/ingestion etc — if
-  # only cli + ingestion ship locally, npm pulls older pack@<published>
-  # which pins an older ingestion@<published>, which still drags native
-  # tree-sitter and breaks the install. Local-mode must mirror what
-  # release-please publishes simultaneously.
+  # @opencodehub/cli is now the ONLY published package: the 14 internal
+  # workspace libraries are bundled into its tarball at build time (tsup
+  # noExternal — see packages/cli/tsup.config.ts), so there is no longer a
+  # published-graph-vs-local-graph divergence to guard against. We pack just
+  # the cli; every internal lib is already inside that single tarball, and the
+  # third-party runtime deps resolve from the registry as ordinary dependencies.
+  log "packing @opencodehub/cli (single published package; internal libs are bundled in)"
   WORKSPACE_TARBALLS=()
-  while IFS= read -r pj; do
-    is_private=$(node -e "process.stdout.write(String(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).private||false))" "$pj")
-    if [ "$is_private" = "true" ]; then continue; fi
-    pkg_dir=$(dirname "$pj")
-    pnpm pack -C "$pkg_dir" --pack-destination "$TARBALL_DIR" >/dev/null
-  done < <(find "$ROOT/packages" -maxdepth 2 -name package.json)
-
-  # Order matters: install ingestion + every package that depends on it
-  # before cli, so the cli's workspace deps resolve to the local tarballs.
-  while IFS= read -r tgz; do WORKSPACE_TARBALLS+=("$tgz"); done < <(find "$TARBALL_DIR" -maxdepth 1 -name 'opencodehub-*.tgz' -print | sort)
+  pnpm pack -C "$ROOT/packages/cli" --pack-destination "$TARBALL_DIR" >/dev/null
+  while IFS= read -r tgz; do WORKSPACE_TARBALLS+=("$tgz"); done < <(find "$TARBALL_DIR" -maxdepth 1 -name 'opencodehub-cli-*.tgz' -print | sort)
 
   if [ "${#WORKSPACE_TARBALLS[@]}" -eq 0 ]; then
-    fail "expected packed tarballs in $TARBALL_DIR"
+    fail "expected packed cli tarball in $TARBALL_DIR"
     exit 1
   fi
-  log "packed ${#WORKSPACE_TARBALLS[@]} workspace tarballs"
+  log "packed ${#WORKSPACE_TARBALLS[@]} tarball (cli)"
   INSTALL_ARGS=(--foreground-scripts "${WORKSPACE_TARBALLS[@]}")
 elif [ "$MODE" = "rc" ]; then
   INSTALL_ARGS=(--foreground-scripts "@opencodehub/cli@rc")
