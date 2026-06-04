@@ -120,9 +120,19 @@ test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
   // for the index invocation, so the spawn timer is the only thing that
   // can end it.
   const shim = join(bin, "scip-go");
+  // Hang for the index invocation using ONLY shell builtins, so the shim needs
+  // no external binary on PATH. A pure-`sh` busy `while`-loop blocks until the
+  // spawn timer SIGTERMs it (~50 ms), which is the behavior under test.
+  //
+  // Why not `sleep 30`: CI runners whose `/bin/sh` is dash, with an overlaid
+  // PATH that excludes coreutils, hit `sleep: not found` → the shim exited 127
+  // before the timer fired, so the timeout path was never exercised (it failed
+  // as a crash). Why not `read < /dev/stdin`: `runCommand` spawns with
+  // `stdio: ["ignore", …]`, so stdin is /dev/null and `read` returns instantly
+  // on EOF — racing the timer instead of blocking on it.
   writeFileSync(
     shim,
-    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nsleep 30\n',
+    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nwhile :; do :; done\n',
   );
   chmodSync(shim, 0o755);
 
