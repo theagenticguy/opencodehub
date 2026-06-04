@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.6.0...cli-v0.7.0) (2026-06-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** the 16 internal @opencodehub/* packages are no longer published to npm; consumers install @opencodehub/cli only.
+
+### Features
+
+* **cli:** collapse 17 published packages into a single bundled @opencodehub/cli ([#189](https://github.com/theagenticguy/opencodehub/issues/189)) ([dd1b9b6](https://github.com/theagenticguy/opencodehub/commit/dd1b9b69db79035a621e961c16df8d2c88aef811))
+
 ## [0.6.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.5.6...cli-v0.6.0) (2026-06-01)
 
 
