@@ -666,14 +666,23 @@ function summaryRowFromRecord(row: Record<string, unknown>): SymbolSummaryRow {
  * Conservative absolute-path validator used by `exportEmbeddingsParquet`
  * to inline a destination path into a `COPY ... TO '<path>' ...` SQL
  * statement. DuckDB's prepared-statement parser does not bind COPY
- * destinations, so the path is concatenated; allow only POSIX absolute
- * paths over a safe character class so single-quote injection is
- * structurally impossible.
+ * destinations, so the path is concatenated; allow only absolute paths over
+ * a safe character class so single-quote injection is structurally
+ * impossible.
+ *
+ * Accepts both POSIX absolute paths (`/repo/.codehub/…`) and Windows absolute
+ * paths (`C:\repo\.codehub\…`): a drive-letter prefix and backslash separator
+ * are permitted, but the character class still excludes quotes, spaces, and
+ * shell/SQL metacharacters, so the injection guarantee holds on every platform.
  */
 function isSafeAbsolutePath(p: string): boolean {
   if (typeof p !== "string" || p.length === 0) return false;
-  if (!p.startsWith("/")) return false;
-  return /^[A-Za-z0-9/_\-.]+$/.test(p);
+  const isPosixAbs = p.startsWith("/");
+  const isWindowsAbs = /^[A-Za-z]:[/\\]/.test(p);
+  if (!isPosixAbs && !isWindowsAbs) return false;
+  // Safe class: alphanumerics, both separators, drive colon, underscore, dash,
+  // dot. No quotes/spaces/metacharacters → single-quote injection impossible.
+  return /^[A-Za-z0-9/\\:_\-.]+$/.test(p);
 }
 
 /**

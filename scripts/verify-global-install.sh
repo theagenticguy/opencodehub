@@ -27,7 +27,13 @@
 #   FIXTURE_DIR   path passed to `codehub analyze` (default:
 #                 tests/fixtures/multi-lang).
 #   MAX_INSTALL_SECS   hard upper bound on install wall time
-#                      (default: 60).
+#                      (default: 120). The budget guards against a
+#                      regression that makes install HANG or refetch (the
+#                      old native tree-sitter-cli GHCR fetch); it is not a
+#                      perf benchmark. A cold-cache `npm install -g` of the
+#                      native prebuilts (ladybug + duckdb + onnxruntime) on a
+#                      loaded shared runner legitimately varies 30–90s, so a
+#                      tight 60s tripped on slow cells despite a clean install.
 #
 # Exit codes:
 #   0  every gate passed
@@ -44,7 +50,7 @@ MODE="${1:-local}"
 INSTALLER="${INSTALLER:-unknown}"
 TARBALL_DIR="${TARBALL_DIR:-/tmp/opencodehub-tarballs}"
 FIXTURE_DIR="${FIXTURE_DIR:-tests/fixtures/multi-lang}"
-MAX_INSTALL_SECS="${MAX_INSTALL_SECS:-60}"
+MAX_INSTALL_SECS="${MAX_INSTALL_SECS:-120}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
