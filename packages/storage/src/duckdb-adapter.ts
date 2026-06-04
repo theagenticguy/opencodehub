@@ -396,8 +396,9 @@ export class DuckDbStore implements ITemporalStore {
 
     if (!isSafeAbsolutePath(absOutPath)) {
       throw new Error(
-        "exportEmbeddingsToParquet: outPath must be an absolute path with safe characters " +
-          "(alphanumerics, slash, underscore, dash, dot)",
+        "exportEmbeddingsToParquet: outPath must be a POSIX or Windows absolute " +
+          "path over a safe character class (alphanumerics, slash, backslash, " +
+          "drive colon, underscore, dash, dot, tilde)",
       );
     }
 
@@ -681,8 +682,10 @@ function isSafeAbsolutePath(p: string): boolean {
   const isWindowsAbs = /^[A-Za-z]:[/\\]/.test(p);
   if (!isPosixAbs && !isWindowsAbs) return false;
   // Safe class: alphanumerics, both separators, drive colon, underscore, dash,
-  // dot. No quotes/spaces/metacharacters → single-quote injection impossible.
-  return /^[A-Za-z0-9/\\:_\-.]+$/.test(p);
+  // dot, and tilde. Tilde is required because Windows temp dirs use 8.3 short
+  // names (e.g. `RUNNER~1`). No quotes/spaces/metacharacters → single-quote
+  // injection into the DuckDB `COPY ... TO '<path>'` remains impossible.
+  return /^[A-Za-z0-9/\\:_\-.~]+$/.test(p);
 }
 
 /**
