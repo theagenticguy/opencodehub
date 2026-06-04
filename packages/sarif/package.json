@@ -35,7 +35,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test './dist/**/*.test.js'",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "validate-schema": "node --test ./dist/schema-validation.test.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },

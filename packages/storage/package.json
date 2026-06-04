@@ -38,7 +38,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test --test-concurrency=1 ./dist/**/*.test.js",
+    "test": "node --test --test-concurrency=1 \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
