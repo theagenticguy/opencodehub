@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   DEFAULT_PROCESS_API,
@@ -184,8 +185,10 @@ test("runSetupCobolProleap: idempotent when jar + wrapper class already exist", 
 });
 
 test("defaultVendorDir: resolves under ~/.codehub/vendor/proleap", () => {
-  const dir = defaultVendorDir("/Users/alice");
-  assert.equal(dir, "/Users/alice/.codehub/vendor/proleap");
+  const home = "/Users/alice";
+  const dir = defaultVendorDir(home);
+  // `join` so the expected separator matches the platform (the impl joins).
+  assert.equal(dir, join(home, ".codehub", "vendor", "proleap"));
 });
 
 test("DEFAULT_PROCESS_API is exported for the cli action", () => {

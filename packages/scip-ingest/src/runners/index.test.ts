@@ -150,9 +150,13 @@ test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
 });
 
 test("defaultCobolProleapPaths: resolves under ~/.codehub/vendor/proleap", () => {
-  const paths = defaultCobolProleapPaths("/Users/alice");
-  assert.equal(paths.jarPath, "/Users/alice/.codehub/vendor/proleap/proleap-cobol-parser.jar");
-  assert.equal(paths.wrapperDir, "/Users/alice/.codehub/vendor/proleap");
+  const home = "/Users/alice";
+  const paths = defaultCobolProleapPaths(home);
+  // Build expectations with `join` (the impl uses it), so the separator
+  // matches the platform — a hardcoded forward-slash literal fails on Windows.
+  const wrapperDir = join(home, ".codehub", "vendor", "proleap");
+  assert.equal(paths.jarPath, join(wrapperDir, "proleap-cobol-parser.jar"));
+  assert.equal(paths.wrapperDir, wrapperDir);
 });
 
 test("detectVersionManagerShimFailure: matches the mise no-version-set shim error", () => {

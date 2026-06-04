@@ -636,7 +636,12 @@ test("generateWiki: renders all 5 page families on a populated graph", async () 
     );
     assert.ok(result.totalBytes > 0, "totalBytes should be non-zero");
 
-    const rels = result.filesWritten.map((f) => path.relative(dir, f)).sort();
+    // Normalize to forward slashes: `path.relative` yields backslashes on
+    // Windows, but the `.includes("a/b")` assertions below use POSIX
+    // separators. Without this the membership checks never match on Windows.
+    const rels = result.filesWritten
+      .map((f) => path.relative(dir, f).split(path.sep).join("/"))
+      .sort();
     // Stable anchor files we rely on.
     assert.ok(rels.includes("index.md"), "root index.md missing");
     assert.ok(rels.includes("architecture/index.md"), "architecture/index.md missing");
@@ -674,7 +679,12 @@ test("generateWiki: api-surface is one repo-wide page, not a per-framework fan-o
   const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-apisurface-"));
   try {
     const result = await generateWiki(store, { outputDir: dir });
-    const rels = result.filesWritten.map((f) => path.relative(dir, f)).sort();
+    // Normalize to forward slashes: `path.relative` yields backslashes on
+    // Windows, but the `.includes("a/b")` assertions below use POSIX
+    // separators. Without this the membership checks never match on Windows.
+    const rels = result.filesWritten
+      .map((f) => path.relative(dir, f).split(path.sep).join("/"))
+      .sort();
 
     const apiPages = rels.filter((r) => r.startsWith("api-surface/"));
     assert.deepEqual(
@@ -723,7 +733,12 @@ test("generateWiki: empty graph still emits the 5 family index pages", async () 
   const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-empty-"));
   try {
     const result = await generateWiki(store, { outputDir: dir });
-    const rels = result.filesWritten.map((f) => path.relative(dir, f)).sort();
+    // Normalize to forward slashes: `path.relative` yields backslashes on
+    // Windows, but the `.includes("a/b")` assertions below use POSIX
+    // separators. Without this the membership checks never match on Windows.
+    const rels = result.filesWritten
+      .map((f) => path.relative(dir, f).split(path.sep).join("/"))
+      .sort();
     assert.ok(rels.includes("index.md"));
     assert.ok(rels.includes("architecture/index.md"));
     assert.ok(rels.includes("api-surface/index.md"));
@@ -775,7 +790,12 @@ test("generateWiki: --llm with maxCalls=0 writes dry-run overview page; no Bedro
       },
     });
     assert.equal(summarizeCalled, false);
-    const rels = result.filesWritten.map((f) => path.relative(dir, f)).sort();
+    // Normalize to forward slashes: `path.relative` yields backslashes on
+    // Windows, but the `.includes("a/b")` assertions below use POSIX
+    // separators. Without this the membership checks never match on Windows.
+    const rels = result.filesWritten
+      .map((f) => path.relative(dir, f).split(path.sep).join("/"))
+      .sort();
     assert.ok(
       rels.includes("architecture/llm-overview.md"),
       "dry-run should still emit the llm-overview page",
