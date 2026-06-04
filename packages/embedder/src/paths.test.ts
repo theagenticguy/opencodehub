@@ -4,7 +4,7 @@
 
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { getDefaultModelRoot, modelFileName, resolveModelDir, TOKENIZER_FILES } from "./paths.js";
@@ -31,7 +31,9 @@ describe("paths", () => {
   it("getDefaultModelRoot honours CODEHUB_HOME env", () => {
     process.env["CODEHUB_HOME"] = `${sep}tmp${sep}custom-codehub`;
     const root = getDefaultModelRoot();
-    equal(root, `${sep}tmp${sep}custom-codehub`);
+    // The impl returns `resolve(envHome)`, which on Windows prepends the
+    // current drive letter — mirror it rather than expecting the raw input.
+    equal(root, resolve(`${sep}tmp${sep}custom-codehub`));
   });
 
   it("resolveModelDir builds fp32 path by default", () => {
@@ -46,7 +48,10 @@ describe("paths", () => {
 
   it("resolveModelDir returns override unchanged when provided", () => {
     const dir = resolveModelDir(`${sep}tmp${sep}my-models${sep}xs`);
-    equal(dir, `${sep}tmp${sep}my-models${sep}xs`);
+    // `resolve` of an already-absolute POSIX-ish path is a no-op on POSIX but
+    // prepends the drive on Windows; mirror the impl so the assertion holds
+    // cross-platform.
+    equal(dir, resolve(`${sep}tmp${sep}my-models${sep}xs`));
   });
 
   it("modelFileName picks the right ONNX filename per variant", () => {

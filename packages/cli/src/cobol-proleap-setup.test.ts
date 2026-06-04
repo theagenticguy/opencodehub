@@ -158,7 +158,9 @@ test("runSetupCobolProleap: happy path — builds from source and atomic-renames
   assert.equal(result.installed, true);
   assert.equal(result.skipped, false);
   assert.equal(result.vendorDir, "/test/vendor");
-  assert.match(result.jarPath, /\/test\/vendor\/proleap-cobol-parser\.jar$/);
+  // jarPath is `join(vendorDir, …)` → backslashes on Windows; assert against
+  // the same join rather than a forward-slash regex.
+  assert.equal(result.jarPath, join("/test/vendor", "proleap-cobol-parser.jar"));
   // Confirm the script invoked every expected tool.
   const cmds = script.calls.map((c) => `${c.cmd} ${c.args[0] ?? ""}`);
   assert.ok(cmds.includes("git --version"));
