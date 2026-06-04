@@ -18,7 +18,7 @@ import { access, open as fsOpen, mkdtemp, readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
 import Table from "cli-table3";
@@ -235,7 +235,10 @@ function duckdbWorksCheck(repoRoot: string): Check {
         // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
         // (`disconnectSync`, `closeSync`). The async `.close()` accessors
         // were dropped in 1.0.0; depending on them produced a false FAIL.
-        const mod = (await import(duckPath)) as {
+        // `resolveFromRoot` returns an absolute fs path; ESM dynamic import
+        // requires a `file://` URL on Windows (a bare `D:\…` path throws
+        // "Only URLs with a scheme in: file, data, node are supported").
+        const mod = (await import(pathToFileURL(duckPath).href)) as {
           DuckDBInstance: {
             create: (path: string) => Promise<{
               connect: () => Promise<{
@@ -296,8 +299,9 @@ function lbugWorksCheck(
         // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
         // exercise the load-and-close cycle the same way the duckdb check
         // does — anything heavier would couple this probe to the adapter's
-        // evolving smoke-test surface.
-        const mod = (await import(lbugPath)) as Record<string, unknown>;
+        // evolving smoke-test surface. `lbugPath` is an absolute fs path;
+        // ESM import needs a `file://` URL on Windows (see duckdb check).
+        const mod = (await import(pathToFileURL(lbugPath).href)) as Record<string, unknown>;
         const ctorRaw =
           mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
         if (typeof ctorRaw !== "function") {

@@ -72,10 +72,14 @@ function makeProcessApi(script: Script): ProcessApi {
       // Best-effort in the test; cleanup is non-load-bearing.
     },
     async readdir(path) {
-      return script.fsReaddir.get(path) ?? [];
+      // The impl builds these paths with `path.join` (backslashes on Windows),
+      // but the fixtures are keyed with POSIX `/`; normalize so the lookup is
+      // platform-agnostic.
+      return script.fsReaddir.get(path.replace(/\\/g, "/")) ?? [];
     },
     async exists(path) {
-      return script.fsFiles.has(path) || script.fsDirs.has(path);
+      const key = path.replace(/\\/g, "/");
+      return script.fsFiles.has(key) || script.fsDirs.has(key);
     },
   };
 }

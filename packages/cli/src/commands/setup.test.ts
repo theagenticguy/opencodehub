@@ -428,7 +428,14 @@ test("runSetupScip routes --scip=dotnet to the dotnet-tool hint path", async () 
   }
 });
 
-test("runSetupScip installs a single tool via injected fetch + allowPlaceholder", async () => {
+test("runSetupScip installs a single tool via injected fetch + allowPlaceholder", {
+  // The SCIP downloader supports only linux-x64/arm64 + darwin-x64/arm64
+  // (scip-clang ships no win32 binary), and the test pins to the actual host
+  // platform — so on Windows the downloader throws UnsupportedPlatformError
+  // for win32-x64 before any fetch. Windows users obtain SCIP tools another
+  // way; skip the download path here.
+  skip: process.platform === "win32" ? "no win32 SCIP binary" : false,
+}, async () => {
   const dir = await mkdtemp(join(tmpdir(), "och-scip-setup-one-"));
   try {
     const body = new TextEncoder().encode("fake-scip-clang");
