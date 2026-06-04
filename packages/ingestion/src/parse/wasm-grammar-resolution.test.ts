@@ -20,6 +20,16 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { _resolveGrammarWasmPathForTests } from "./wasm-runtime.js";
 
+// Platform/fixture lane (audit P1): the per-language loop below statSync's the
+// vendored .wasm blobs on disk — a packaging/build-artifact guard, not OCH
+// logic. Gated to the platform lane (CODEHUB_PLATFORM=1). The sibling
+// "non-tree-sitter languages" describe (php->php_only routing, cobol->undefined)
+// is real resolver logic and stays in the default lane, ungated.
+const platformSkip =
+  process.env["CODEHUB_PLATFORM"] === "1"
+    ? undefined
+    : "platform lane only (set CODEHUB_PLATFORM=1)";
+
 const EXPECTED: Readonly<Record<string, string>> = {
   typescript: "tree-sitter-typescript.wasm",
   tsx: "tree-sitter-tsx.wasm",
@@ -38,7 +48,7 @@ const EXPECTED: Readonly<Record<string, string>> = {
   php: "tree-sitter-php_only.wasm",
 };
 
-describe("resolveGrammarWasmPath — vendored WASM resolver", () => {
+describe("resolveGrammarWasmPath — vendored WASM resolver", { skip: platformSkip }, () => {
   for (const [lang, fname] of Object.entries(EXPECTED)) {
     it(`resolves ${lang} to vendor/wasms/${fname} on disk`, () => {
       const wasmPath = _resolveGrammarWasmPathForTests(lang as never);

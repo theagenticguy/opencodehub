@@ -25,6 +25,16 @@ import {
   Sha256MismatchError,
 } from "./embedder-downloader.js";
 
+// Platform/fixture lane (audit P1): the download-MECHANIC cases (HTTP fetch +
+// SHA256 + atomic rename + byte accounting) are vendor/runtime surface, gated
+// to the platform lane (CODEHUB_PLATFORM=1). The error-taxonomy contract
+// (Sha256MismatchError shape) and the retry/backoff POLICY are OCH logic and
+// stay ungated in the default lane.
+const platformSkip =
+  process.env["CODEHUB_PLATFORM"] === "1"
+    ? undefined
+    : "platform lane only (set CODEHUB_PLATFORM=1)";
+
 function sha256(buf: Uint8Array): string {
   return createHash("sha256").update(buf).digest("hex");
 }
@@ -111,7 +121,9 @@ function withOverridePins<T>(
 }
 
 describe("downloadEmbedderWeights", () => {
-  it("downloads a pinned file, verifies SHA256, and atomically renames", async () => {
+  it("downloads a pinned file, verifies SHA256, and atomically renames", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-happy-"));
     try {
       const body = new TextEncoder().encode("hello-gte-mb");
@@ -142,7 +154,9 @@ describe("downloadEmbedderWeights", () => {
     }
   });
 
-  it("is idempotent — a second call with matching SHA256 skips every file", async () => {
+  it("is idempotent — a second call with matching SHA256 skips every file", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-idem-"));
     try {
       const body = new TextEncoder().encode("bytes-for-idempotency");
@@ -175,7 +189,9 @@ describe("downloadEmbedderWeights", () => {
     }
   });
 
-  it("force=true re-downloads even when the on-disk SHA256 already matches", async () => {
+  it("force=true re-downloads even when the on-disk SHA256 already matches", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-force-"));
     try {
       const body = new TextEncoder().encode("force-re-download");
@@ -275,7 +291,7 @@ describe("downloadEmbedderWeights", () => {
     }
   });
 
-  it("skips on-disk file that matches SHA256 (no fetch call)", async () => {
+  it("skips on-disk file that matches SHA256 (no fetch call)", { skip: platformSkip }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-preexist-"));
     try {
       const body = new TextEncoder().encode("pre-existing-bytes");
@@ -300,7 +316,9 @@ describe("downloadEmbedderWeights", () => {
     }
   });
 
-  it("returns totalBytes equal to the sum of newly downloaded sizes", async () => {
+  it("returns totalBytes equal to the sum of newly downloaded sizes", {
+    skip: platformSkip,
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "och-dl-total-"));
     try {
       const a = new TextEncoder().encode("a".repeat(10));
