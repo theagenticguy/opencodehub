@@ -161,9 +161,14 @@ describe("installScipTool", () => {
 
       const written = await readFile(result.path);
       assert.deepEqual(new Uint8Array(written), body);
-      // chmod +x → mode includes user-execute bit.
-      const st = await stat(result.path);
-      assert.equal((st.mode & 0o100) !== 0, true, "owner-execute bit should be set");
+      // chmod +x → mode includes user-execute bit. POSIX-only: Windows/NTFS
+      // has no Unix execute bit, so `chmod(…, 0o755)` does not set it and the
+      // mode check is meaningless there. The download + SHA256 + atomic-rename
+      // assertions above still run on every platform.
+      if (process.platform !== "win32") {
+        const st = await stat(result.path);
+        assert.equal((st.mode & 0o100) !== 0, true, "owner-execute bit should be set");
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -506,9 +511,11 @@ describe("scip-go (archive/tarball extraction)", () => {
         // On disk is the EXTRACTED binary, not the tarball.
         const onDisk = await readFile(result.path);
         assert.deepEqual(new Uint8Array(onDisk), binBytes);
-        // Executable bit set.
-        const st = await stat(result.path);
-        assert.equal(st.mode & 0o111, 0o111);
+        // Executable bits set. POSIX-only — Windows/NTFS has no Unix exec bit.
+        if (process.platform !== "win32") {
+          const st = await stat(result.path);
+          assert.equal(st.mode & 0o111, 0o111);
+        }
         // Exactly one fetch.
         assert.equal(calls.length, 1);
       } finally {

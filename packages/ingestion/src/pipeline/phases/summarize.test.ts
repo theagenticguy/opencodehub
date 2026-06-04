@@ -125,7 +125,11 @@ function makeFakeSummarizer(resultForInput: (input: SummarizeInput) => Summarize
 
 function makeFixedSourceReader(bySpan: ReadonlyMap<string, string>): (absPath: string) => string {
   return (absPath: string) => {
-    const hit = bySpan.get(absPath);
+    // The phase builds the lookup path with `path.join(repoPath, filePath)`,
+    // which emits backslashes on Windows, while the fixture map is keyed with
+    // POSIX `/`. Normalize the separator so the lookup is platform-agnostic.
+    const key = absPath.replace(/\\/g, "/");
+    const hit = bySpan.get(key);
     if (hit === undefined) {
       throw new Error(`no fixture source for ${absPath}`);
     }

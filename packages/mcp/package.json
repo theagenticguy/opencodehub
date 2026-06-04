@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/mcp",
   "version": "0.5.0",
+  "private": true,
   "description": "OpenCodeHub — stdio MCP server exposing code-graph + group tools",
   "license": "Apache-2.0",
   "repository": {
@@ -33,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test ./dist/**/*.test.js",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

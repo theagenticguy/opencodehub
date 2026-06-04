@@ -27,6 +27,19 @@ import { openStore, resolveGraphPath } from "@opencodehub/storage";
 import { upsertRegistry } from "../registry.js";
 import { augment, runAugment } from "./augment.js";
 
+// Tests that seed a real lbug store need the `@ladybugdb/core` native binding.
+// CI installs with `--ignore-scripts` (skipping the binding's prebuilt-copy
+// step), so it is unloadable there — skip cleanly, mirroring the
+// `hasNativeBinding()` idiom in `@opencodehub/storage`'s round-trip tests.
+async function hasNativeBinding(): Promise<boolean> {
+  try {
+    await import("@ladybugdb/core");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function scratch(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), `och-augment-${prefix}-`));
 }
@@ -132,7 +145,11 @@ test("augment: returns empty when the registered repo has no DuckDB file", async
   assert.equal(out, "");
 });
 
-test("augment: surfaces callers and processes for a known symbol", async () => {
+test("augment: surfaces callers and processes for a known symbol", async (t) => {
+  if (!(await hasNativeBinding())) {
+    t.skip("@ladybugdb/core native binding unavailable");
+    return;
+  }
   const home = await scratch("hit");
   const repoPath = await seedRepoWithStore(home, "demo", (g) => {
     const callerNode = funcNode("src/caller.ts", "doGreet");
@@ -168,7 +185,11 @@ test("augment: never throws on malformed registry", async () => {
   assert.equal(writes.length, 0);
 });
 
-test("augment: writer only fires when there is content", async () => {
+test("augment: writer only fires when there is content", async (t) => {
+  if (!(await hasNativeBinding())) {
+    t.skip("@ladybugdb/core native binding unavailable");
+    return;
+  }
   const home = await scratch("no-hits");
   await seedRepoWithStore(home, "demo", (g) => {
     g.addNode(funcNode("src/unrelated.ts", "unrelatedOnly"));
@@ -182,7 +203,11 @@ test("augment: writer only fires when there is content", async () => {
   assert.equal(writes.length, 0);
 });
 
-test("augment: cold-start under 750ms on a ~10k-node fixture", async () => {
+test("augment: cold-start under 750ms on a ~10k-node fixture", async (t) => {
+  if (!(await hasNativeBinding())) {
+    t.skip("@ladybugdb/core native binding unavailable");
+    return;
+  }
   const home = await scratch("cold-start");
   const repoPath = await seedRepoWithStore(home, "big", (g) => {
     // 10_000 Function nodes plus a linear CALLS chain across the first 500.

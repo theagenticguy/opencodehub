@@ -120,9 +120,19 @@ test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
   // for the index invocation, so the spawn timer is the only thing that
   // can end it.
   const shim = join(bin, "scip-go");
+  // Hang for the index invocation using ONLY shell builtins, so the shim needs
+  // no external binary on PATH. A pure-`sh` busy `while`-loop blocks until the
+  // spawn timer SIGTERMs it (~50 ms), which is the behavior under test.
+  //
+  // Why not `sleep 30`: CI runners whose `/bin/sh` is dash, with an overlaid
+  // PATH that excludes coreutils, hit `sleep: not found` → the shim exited 127
+  // before the timer fired, so the timeout path was never exercised (it failed
+  // as a crash). Why not `read < /dev/stdin`: `runCommand` spawns with
+  // `stdio: ["ignore", …]`, so stdin is /dev/null and `read` returns instantly
+  // on EOF — racing the timer instead of blocking on it.
   writeFileSync(
     shim,
-    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nsleep 30\n',
+    '#!/bin/sh\ncase "$1" in\n  --version) echo "scip-go 0.0.0-test"; exit 0 ;;\nesac\nwhile :; do :; done\n',
   );
   chmodSync(shim, 0o755);
 
@@ -140,9 +150,13 @@ test("runIndexer: a timed-out indexer becomes a graceful skip, not a crash", {
 });
 
 test("defaultCobolProleapPaths: resolves under ~/.codehub/vendor/proleap", () => {
-  const paths = defaultCobolProleapPaths("/Users/alice");
-  assert.equal(paths.jarPath, "/Users/alice/.codehub/vendor/proleap/proleap-cobol-parser.jar");
-  assert.equal(paths.wrapperDir, "/Users/alice/.codehub/vendor/proleap");
+  const home = "/Users/alice";
+  const paths = defaultCobolProleapPaths(home);
+  // Build expectations with `join` (the impl uses it), so the separator
+  // matches the platform — a hardcoded forward-slash literal fails on Windows.
+  const wrapperDir = join(home, ".codehub", "vendor", "proleap");
+  assert.equal(paths.jarPath, join(wrapperDir, "proleap-cobol-parser.jar"));
+  assert.equal(paths.wrapperDir, wrapperDir);
 });
 
 test("detectVersionManagerShimFailure: matches the mise no-version-set shim error", () => {

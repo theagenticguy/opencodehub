@@ -2,11 +2,13 @@
 #
 # planning/bulletproof-npm-install/plan.md §Verification Criteria.
 #
-# Per cell: pack `@opencodehub/cli` + `@opencodehub/ingestion` with
-# `pnpm pack`, install both globally with `npm install -g`, run the 5 hard
-# gates plus the 4 smoke commands. The matrix exercises Linux/macOS x
-# Node 20/22/24 x mise/nvm/Homebrew/Volta installers so a regression in
-# any one of those tool managers cannot land silently.
+# Per cell: pack `@opencodehub/cli` with `pnpm pack`, install it globally with
+# `npm install -g`, run the 5 hard gates plus the 4 smoke commands. The CLI is
+# the only published package — the 14 internal libraries are bundled into its
+# tarball at build time (tsup noExternal), so a single tarball is the entire
+# install graph. The matrix exercises Linux/macOS x Node 20/22/24 x
+# mise/nvm/Homebrew/Volta installers so a regression in any one of those tool
+# managers cannot land silently.
 #
 # This workflow does NOT publish anything. RC publishes remain
 # release-please's responsibility (release-please.yml). Each cell is fully
@@ -205,10 +207,10 @@ jobs:
         run: pnpm --filter '!@opencodehub/docs' -r build
 
       # ------------------------------------------------------------------
-      # The single-cell verifier. Packs cli + ingestion, installs them
-      # globally with npm, applies the 5 hard gates and runs the 4 smoke
-      # commands. Local mode is what runs in CI today; rc mode is
-      # available for future post-publish smokes.
+      # The single-cell verifier. Packs the cli (the only published package;
+      # internal libs are bundled in), installs it globally with npm, applies
+      # the 5 hard gates and runs the 4 smoke commands. Local mode is what runs
+      # in CI today; rc mode is available for future post-publish smokes.
       # ------------------------------------------------------------------
       - name: Verify global install (single cell)
         env:

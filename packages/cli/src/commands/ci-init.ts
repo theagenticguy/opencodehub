@@ -17,6 +17,7 @@
  * the error lists every conflict.
  */
 
+import { statSync } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +35,41 @@ interface TemplateSpec {
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = join(HERE, "ci-templates");
+
+/**
+ * Resolve the `ci-templates/` directory across every layout:
+ *   - shipped bundle: `dist/commands/ci-templates/` (copied by tsup onSuccess),
+ *     a sibling of this module → `<HERE>/ci-templates`.
+ *   - test/source build: tsc emits this module to `dist-test/commands/` (or the
+ *     source tree) but does NOT copy the `.yml` templates, which live only at
+ *     `src/commands/ci-templates/`. Walk up to the package root and read from
+ *     `src/commands/ci-templates`.
+ * First existing candidate wins.
+ */
+function resolveTemplatesDir(): string {
+  const sibling = join(HERE, "ci-templates");
+  try {
+    if (statSync(sibling).isDirectory()) return sibling;
+  } catch {
+    // fall through to the source-tree layout
+  }
+  let dir = HERE;
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = join(dir, "src", "commands", "ci-templates");
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // keep walking
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Last resort: the sibling path (the error surfaced downstream names it).
+  return sibling;
+}
+
+const TEMPLATES_DIR = resolveTemplatesDir();
 
 const GITHUB_TEMPLATES: readonly TemplateSpec[] = [
   {

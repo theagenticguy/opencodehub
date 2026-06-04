@@ -1,0 +1,13 @@
+{
+  "//": "Test-only compile. tsup builds the SHIPPED bundle (src/index.ts + workers, with the @opencodehub/* libs inlined); it does not emit the 38 *.test.ts files. This config tsc-compiles the full src tree — sources + tests — into dist-test/ (never published, gitignored) so `node --test` has runnable *.test.js. Not `composite` and `noEmit:false`: a leaf throwaway build, not part of the project-reference graph.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist-test",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": false
+  },
+  "include": ["src/**/*"]
+}

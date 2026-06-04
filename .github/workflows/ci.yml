@@ -41,6 +41,11 @@ jobs:
     # single install path across the matrix. The remaining native deps
     # (@duckdb/node-api, @ladybugdb/core, onnxruntime-node) ship prebuilds, so
     # storage/embedder tests pass without running postinstall.
+    #
+    # Build before test: every package's `test` runs `node --test` against its
+    # built `dist/` (and the cli compiles `src` → `dist-test/`), so the dist
+    # graph must exist first. Without this step a package's test glob silently
+    # matches zero files and reports a vacuous pass.
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +58,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter '!@opencodehub/docs' -r build
       - run: pnpm --filter '!@opencodehub/docs' -r test
 
   sarif-validate:

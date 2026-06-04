@@ -14,11 +14,12 @@
 
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
-import { access, open as fsOpen, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, open as fsOpen, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { mergeSarif } from "@opencodehub/sarif";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
 import Table from "cli-table3";
 
@@ -234,7 +235,10 @@ function duckdbWorksCheck(repoRoot: string): Check {
         // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
         // (`disconnectSync`, `closeSync`). The async `.close()` accessors
         // were dropped in 1.0.0; depending on them produced a false FAIL.
-        const mod = (await import(duckPath)) as {
+        // `resolveFromRoot` returns an absolute fs path; ESM dynamic import
+        // requires a `file://` URL on Windows (a bare `D:\…` path throws
+        // "Only URLs with a scheme in: file, data, node are supported").
+        const mod = (await import(pathToFileURL(duckPath).href)) as {
           DuckDBInstance: {
             create: (path: string) => Promise<{
               connect: () => Promise<{
@@ -295,8 +299,9 @@ function lbugWorksCheck(
         // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
         // exercise the load-and-close cycle the same way the duckdb check
         // does — anything heavier would couple this probe to the adapter's
-        // evolving smoke-test surface.
-        const mod = (await import(lbugPath)) as Record<string, unknown>;
+        // evolving smoke-test surface. `lbugPath` is an absolute fs path;
+        // ESM import needs a `file://` URL on Windows (see duckdb check).
+        const mod = (await import(pathToFileURL(lbugPath).href)) as Record<string, unknown>;
         const ctorRaw =
           mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
         if (typeof ctorRaw !== "function") {
@@ -659,48 +664,24 @@ function registryPathCheck(home: string): Check {
   };
 }
 
-function sarifSchemaCheck(repoRoot: string): Check {
+function sarifSchemaCheck(_repoRoot: string): Check {
   return {
     name: "@opencodehub/sarif build",
     async run() {
-      // 1. Installed deployment (the customer case): resolve the ESM entry
-      //    the CLI would actually `import`. `@opencodehub/sarif`'s `exports`
-      //    map declares only the `import` condition (no `require`), so
-      //    `createRequire().resolve()` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
-      //    `import.meta.resolve` honors `import` and is the path that works in
-      //    a real `npm i -g @opencodehub/cli`. A resolvable, on-disk entry
-      //    means the package shipped its prebuilt `dist/`; there is no
-      //    `packages/sarif/` tree to build, so `pnpm -r build` would be
-      //    nonsensical advice here.
-      try {
-        const entryPath = fileURLToPath(import.meta.resolve("@opencodehub/sarif"));
-        if (existsSyncSafe(entryPath)) {
-          return { status: "ok", message: "@opencodehub/sarif built" };
-        }
-      } catch {
-        // fall through to the monorepo source-checkout layout
+      // `@opencodehub/sarif` is bundled into this CLI (workspace libs are
+      // inlined at build time — see `packages/cli/tsup.config.ts`). The check
+      // is now a liveness probe on the bundled code: a statically-imported,
+      // callable export proves the SARIF surface shipped. There is no separate
+      // package to resolve or build, so the old `import.meta.resolve` /
+      // `pnpm -r build` paths no longer apply.
+      if (typeof mergeSarif === "function") {
+        return { status: "ok", message: "@opencodehub/sarif bundled" };
       }
-      // 2. Monorepo / source-checkout fallback: the CLI runs from
-      //    `packages/cli/dist` while a sibling `@opencodehub/sarif` may be
-      //    unbuilt. Only here is the `pnpm -r build` hint correct.
-      const pkgDir = join(repoRoot, "packages", "sarif", "dist");
-      try {
-        const s = await stat(pkgDir);
-        if (!s.isDirectory()) {
-          return {
-            status: "fail",
-            message: "@opencodehub/sarif dist is not a directory",
-            hint: "run `pnpm -r build`",
-          };
-        }
-        return { status: "ok", message: "@opencodehub/sarif built" };
-      } catch {
-        return {
-          status: "warn",
-          message: "@opencodehub/sarif not built yet",
-          hint: "run `pnpm -r build`",
-        };
-      }
+      return {
+        status: "fail",
+        message: "@opencodehub/sarif surface missing from the CLI bundle",
+        hint: "reinstall @opencodehub/cli; the SARIF code ships inside the CLI",
+      };
     },
   };
 }
@@ -795,15 +776,14 @@ function guessRepoRoot(): string {
  * where the CLI runs from `packages/cli/dist`. Returns null if neither hits.
  */
 function resolveVendorWasmsDir(repoRoot: string): string | null {
-  // 1. Resolve the installed package via `import.meta.resolve`, then walk up
-  //    to the directory that owns `vendor/wasms`. `@opencodehub/ingestion`'s
-  //    `exports` map declares only the ESM `import` condition (no `require`),
-  //    so `createRequire().resolve()` throws ERR_PACKAGE_PATH_NOT_EXPORTED —
-  //    `import.meta.resolve` honors the `import` condition and is the path
-  //    that works in a real global `npm i -g @opencodehub/cli` install.
-  try {
-    const entryUrl = import.meta.resolve("@opencodehub/ingestion");
-    let dir = dirname(fileURLToPath(entryUrl));
+  // 1. Bundled deployment (the published-CLI case): `@opencodehub/ingestion`
+  //    is inlined into this CLI's bundle and its `vendor/wasms/` tree is copied
+  //    into the CLI's own `dist/` (see `packages/cli/tsup.config.ts` onSuccess).
+  //    Walk up from this module's location looking for `vendor/wasms/manifest.json`.
+  //    This is the same directory the runtime parser loads from, so doctor
+  //    validates the real deployment.
+  {
+    let dir = dirname(fileURLToPath(import.meta.url));
     for (let i = 0; i < 6; i++) {
       const candidate = join(dir, "vendor", "wasms");
       if (existsSyncSafe(join(candidate, "manifest.json"))) return candidate;
@@ -811,10 +791,10 @@ function resolveVendorWasmsDir(repoRoot: string): string | null {
       if (parent === dir) break;
       dir = parent;
     }
-  } catch {
-    // fall through to monorepo layout
   }
-  // 2. Monorepo / source-checkout fallback.
+  // 2. Monorepo / source-checkout fallback: the CLI runs from
+  //    `packages/cli/dist` while `@opencodehub/ingestion` lives as a sibling
+  //    workspace package with its vendored grammars under its own tree.
   const monorepo = join(repoRoot, "packages", "ingestion", "vendor", "wasms");
   if (existsSyncSafe(join(monorepo, "manifest.json"))) return monorepo;
   return null;

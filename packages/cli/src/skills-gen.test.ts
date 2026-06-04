@@ -300,6 +300,10 @@ test("slug collisions are resolved with -2, -3 suffixes", async () => {
 });
 
 test("writing to a read-only dir logs and continues without aborting", async () => {
+  // Windows/NTFS does not honor POSIX `chmod 0o555` on a directory — `stat`
+  // may report the write bit clear while writes still succeed, so the
+  // read-only-parent scenario this test models cannot be set up there.
+  if (process.platform === "win32") return;
   // Skip on root-like environments where chmod 0o555 on a dir is still writable.
   if (process.getuid?.() === 0) return;
 

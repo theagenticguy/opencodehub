@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/scanners",
   "version": "0.2.4",
+  "private": true,
   "description": "OpenCodeHub — Priority-1 scanner wrappers (semgrep, betterleaks, osv-scanner, bandit, biome)",
   "license": "Apache-2.0",
   "repository": {
@@ -34,7 +35,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test './dist/**/*.test.js'",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

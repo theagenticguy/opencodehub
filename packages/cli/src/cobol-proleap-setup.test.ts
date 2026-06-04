@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   DEFAULT_PROCESS_API,
@@ -71,10 +72,14 @@ function makeProcessApi(script: Script): ProcessApi {
       // Best-effort in the test; cleanup is non-load-bearing.
     },
     async readdir(path) {
-      return script.fsReaddir.get(path) ?? [];
+      // The impl builds these paths with `path.join` (backslashes on Windows),
+      // but the fixtures are keyed with POSIX `/`; normalize so the lookup is
+      // platform-agnostic.
+      return script.fsReaddir.get(path.replace(/\\/g, "/")) ?? [];
     },
     async exists(path) {
-      return script.fsFiles.has(path) || script.fsDirs.has(path);
+      const key = path.replace(/\\/g, "/");
+      return script.fsFiles.has(key) || script.fsDirs.has(key);
     },
   };
 }
@@ -157,7 +162,9 @@ test("runSetupCobolProleap: happy path — builds from source and atomic-renames
   assert.equal(result.installed, true);
   assert.equal(result.skipped, false);
   assert.equal(result.vendorDir, "/test/vendor");
-  assert.match(result.jarPath, /\/test\/vendor\/proleap-cobol-parser\.jar$/);
+  // jarPath is `join(vendorDir, …)` → backslashes on Windows; assert against
+  // the same join rather than a forward-slash regex.
+  assert.equal(result.jarPath, join("/test/vendor", "proleap-cobol-parser.jar"));
   // Confirm the script invoked every expected tool.
   const cmds = script.calls.map((c) => `${c.cmd} ${c.args[0] ?? ""}`);
   assert.ok(cmds.includes("git --version"));
@@ -184,8 +191,10 @@ test("runSetupCobolProleap: idempotent when jar + wrapper class already exist", 
 });
 
 test("defaultVendorDir: resolves under ~/.codehub/vendor/proleap", () => {
-  const dir = defaultVendorDir("/Users/alice");
-  assert.equal(dir, "/Users/alice/.codehub/vendor/proleap");
+  const home = "/Users/alice";
+  const dir = defaultVendorDir(home);
+  // `join` so the expected separator matches the platform (the impl joins).
+  assert.equal(dir, join(home, ".codehub", "vendor", "proleap"));
 });
 
 test("DEFAULT_PROCESS_API is exported for the cli action", () => {

@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/pack",
   "version": "0.3.0",
+  "private": true,
   "description": "OpenCodeHub — deterministic 9-item code-pack BOM",
   "license": "Apache-2.0",
   "repository": {
@@ -33,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test './dist/**/*.test.js'",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

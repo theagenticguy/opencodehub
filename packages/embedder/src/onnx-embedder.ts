@@ -17,7 +17,12 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Tokenizer } from "@huggingface/tokenizers";
-import { InferenceSession, Tensor } from "onnxruntime-node";
+// `onnxruntime-node` is an `optionalDependency`: it ships a ~254 MB native
+// binary that a BM25-only install can prune. Import only its TYPES at the top
+// level (erased at compile time — no runtime resolution), and load the actual
+// module via a dynamic `import()` inside `openOnnxEmbedder`. That keeps the
+// native binding off the import graph until embeddings are actually opened.
+import type { InferenceSession, Tensor } from "onnxruntime-node";
 
 import { embedderModelId } from "./model-pins.js";
 import { modelFileName, resolveModelDir, TOKENIZER_FILES } from "./paths.js";
@@ -216,6 +221,10 @@ class OnnxEmbedder implements Embedder {
   readonly #tokenizer: Tokenizer;
   readonly #normalize: boolean;
   readonly #maxModelLength: number;
+  // Runtime `Tensor` constructor, threaded in from the dynamic
+  // `import("onnxruntime-node")` so this module never statically loads the
+  // native binding.
+  readonly #Tensor: typeof Tensor;
   #closed = false;
 
   constructor(params: {
@@ -224,12 +233,14 @@ class OnnxEmbedder implements Embedder {
     readonly variant: "fp32" | "int8";
     readonly normalize: boolean;
     readonly maxModelLength: number;
+    readonly Tensor: typeof Tensor;
   }) {
     this.#session = params.session;
     this.#tokenizer = params.tokenizer;
     this.modelId = embedderModelId(params.variant);
     this.#normalize = params.normalize;
     this.#maxModelLength = params.maxModelLength;
+    this.#Tensor = params.Tensor;
   }
 
   async embed(text: string): Promise<Float32Array> {
@@ -274,6 +285,7 @@ class OnnxEmbedder implements Embedder {
     }
 
     const dims: readonly number[] = [batchSize, batchMax];
+    const Tensor = this.#Tensor;
     const feeds: Record<string, Tensor> = {
       input_ids: new Tensor("int64", flatIds, dims),
       attention_mask: new Tensor("int64", flatMask, dims),
@@ -339,6 +351,25 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
 
   const { modelPath, tokenizerDir } = await assertModelFiles(modelDir, variant);
 
+  // Resolve the native runtime lazily. `onnxruntime-node` is an optional
+  // dependency; a BM25-only install may not have it on disk. assertModelFiles
+  // already passed (weights are present), so reaching here means the user ran
+  // `codehub setup --embeddings` and expects the binding — surface a clear
+  // error if it is somehow absent rather than a raw MODULE_NOT_FOUND.
+  let InferenceSession: typeof import("onnxruntime-node").InferenceSession;
+  let Tensor: typeof import("onnxruntime-node").Tensor;
+  try {
+    ({ InferenceSession, Tensor } = await import("onnxruntime-node"));
+  } catch (cause) {
+    throw new EmbedderNotSetupError(
+      "onnxruntime-node is not installed. It is an optional dependency that " +
+        "ships the local ONNX runtime; reinstall with onnxruntime-node " +
+        "available, or configure a remote embedder (CODEHUB_EMBEDDING_URL / " +
+        "CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to avoid the local runtime.",
+      { cause },
+    );
+  }
+
   const tokenizer = await loadTokenizer(tokenizerDir);
   const session = await InferenceSession.create(modelPath, buildSessionOptions());
 
@@ -348,5 +379,6 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
     variant,
     normalize,
     maxModelLength,
+    Tensor,
   });
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import {
   describeArtifacts,
@@ -29,9 +29,13 @@ test("resolveMetaFilePath: drops meta.json inside the meta dir", () => {
 });
 
 test("resolveRegistryPath: honours explicit homedir override", () => {
-  const fakeHome = "/fake/home";
+  const fakeHome = resolve("/fake/home");
   const actual = resolveRegistryPath(fakeHome);
-  assert.equal(actual, join(fakeHome, META_DIR_NAME, REGISTRY_FILE_NAME));
+  // Mirror the impl's `resolve(...)` rather than `join(...)`: on Windows
+  // `resolve` normalizes to backslashes + a drive letter while `join` would
+  // preserve the forward slashes in the literal, so a `join`-based expectation
+  // diverges from the real output cross-platform.
+  assert.equal(actual, resolve(fakeHome, META_DIR_NAME, REGISTRY_FILE_NAME));
 });
 
 test("resolveRegistryPath: defaults to os.homedir()", () => {

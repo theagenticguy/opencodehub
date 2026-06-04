@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/frameworks",
   "version": "0.2.0",
+  "private": true,
   "description": "OpenCodeHub — framework detection (manifest → lockfile version → folder/file marker) over a curated catalog",
   "license": "Apache-2.0",
   "repository": {
@@ -33,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test ./dist/*.test.js ./dist/**/*.test.js",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

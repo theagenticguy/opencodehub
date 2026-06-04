@@ -110,7 +110,15 @@ test("parseRecords: rejects an unknown kind as malformed", () => {
   assert.equal(out.malformed, 1);
 });
 
-test("superviseProcess: escalates to SIGKILL and settles when the child ignores SIGTERM", async () => {
+test("superviseProcess: escalates to SIGKILL and settles when the child ignores SIGTERM", {
+  // POSIX-signal-specific: on Windows a child cannot install a SIGTERM handler
+  // and "ignore" the signal — Node emulates SIGTERM as unconditional process
+  // termination and SIGKILL is not deliverable — so the SIGTERM→SIGKILL
+  // escalation path under test does not exist there. The child dies on the
+  // first kill and the outcome reason is the plain timeout, not the
+  // "(SIGKILL sent)" escalation message. Skip on win32.
+  skip: process.platform === "win32" ? "POSIX signal escalation only" : false,
+}, async () => {
   // A stand-in process that installs a SIGTERM handler and then spins
   // forever, modelling a JVM wedged in native code. Without the SIGKILL
   // escalation the supervising Promise would never resolve.

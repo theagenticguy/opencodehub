@@ -705,7 +705,10 @@ test("query: snippet extraction slices the source file between startLine and end
         ...ctx,
         fsFactory: () => ({
           readFile: async (absPath: string) => {
-            if (absPath.endsWith("src/foo.ts")) return src;
+            // Normalize separators: the query tool resolves filePath with
+            // `path.resolve`, which yields backslashes on Windows, so a
+            // forward-slash `endsWith` would never match there.
+            if (absPath.replace(/\\/g, "/").endsWith("src/foo.ts")) return src;
             throw new Error(`ENOENT: ${absPath}`);
           },
           writeFileAtomic: async () => {
@@ -790,7 +793,7 @@ test("query: long snippets are truncated to the 200-char cap", async () => {
         ...ctx,
         fsFactory: () => ({
           readFile: async (absPath: string) => {
-            if (absPath.endsWith("src/big.ts")) return src;
+            if (absPath.replace(/\\/g, "/").endsWith("src/big.ts")) return src;
             throw new Error(`ENOENT: ${absPath}`);
           },
           writeFileAtomic: async () => {
@@ -1194,7 +1197,10 @@ test("query: include_content=true attaches a capped source body to each hit", as
         ...ctx,
         fsFactory: () => ({
           readFile: async (absPath: string) => {
-            if (absPath.endsWith("src/foo.ts")) return src;
+            // Normalize separators: the query tool resolves filePath with
+            // `path.resolve`, which yields backslashes on Windows, so a
+            // forward-slash `endsWith` would never match there.
+            if (absPath.replace(/\\/g, "/").endsWith("src/foo.ts")) return src;
             throw new Error(`ENOENT: ${absPath}`);
           },
           writeFileAtomic: async () => {
@@ -1273,7 +1279,7 @@ test("query: include_content caps the attached source body at 2000 chars with an
         ...ctx,
         fsFactory: () => ({
           readFile: async (absPath: string) => {
-            if (absPath.endsWith("src/big.ts")) return src;
+            if (absPath.replace(/\\/g, "/").endsWith("src/big.ts")) return src;
             throw new Error(`ENOENT: ${absPath}`);
           },
           writeFileAtomic: async () => {

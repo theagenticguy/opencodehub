@@ -36,10 +36,16 @@ function makeFakeDeps(
   const missing = new Set(opts.missing ?? []);
   const existing = new Set(opts.existing ?? []);
   const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+  // The wrappers build paths with `path.join`, which emits backslashes on
+  // Windows, while the fixtures + assertions in this file use POSIX `/`. The
+  // tests only care about logical path identity, not the platform separator,
+  // so normalize `\` → `/` at the harness boundary (both the existence matcher
+  // and the recorded call args) to keep the suite OS-agnostic.
+  const toPosix = (p: string): string => p.replace(/\\/g, "/");
   const deps: WrapperDeps = {
     which: async (binary: string) => ({ found: !missing.has(binary) }),
     runBinary: async (cmd, args): Promise<RunBinaryResult> => {
-      calls.push({ cmd, args });
+      calls.push({ cmd, args: args.map(toPosix) });
       const out = handler(cmd, args);
       return {
         stdout: out.stdout,
@@ -47,7 +53,7 @@ function makeFakeDeps(
         exitCode: out.exitCode ?? 0,
       };
     },
-    fileExists: async (path: string) => existing.has(path),
+    fileExists: async (path: string) => existing.has(toPosix(path)),
   };
   return { deps, calls };
 }

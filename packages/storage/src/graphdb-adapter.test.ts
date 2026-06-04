@@ -187,12 +187,16 @@ test("open surfaces GraphDbBindingError when native binding absent", async () =>
 
 test("openStore composes GraphDbStore + DuckDbStore pair", async () => {
   // The graph file is canonicalized to `graph.lbug` and the temporal file
-  // is its sibling `temporal.duckdb` inside the same directory.
-  const store = await openStore({ path: "/tmp/och-test/.codehub/graph.lbug" });
+  // is its sibling `temporal.duckdb` inside the same directory. Build the
+  // input + expectations with `join` so the assertion uses the platform's
+  // own separator — a hardcoded forward-slash literal diverges from the
+  // impl's `join(dirname(path), …)` output on Windows (backslashes).
+  const metaDir = join(tmpdir(), "och-test", ".codehub");
+  const store = await openStore({ path: join(metaDir, "graph.lbug") });
   assert.equal(store.graph.constructor.name, "GraphDbStore");
   assert.equal(store.temporal.constructor.name, "DuckDbStore");
-  assert.equal(store.graphFile, "/tmp/och-test/.codehub/graph.lbug");
-  assert.equal(store.temporalFile, "/tmp/och-test/.codehub/temporal.duckdb");
+  assert.equal(store.graphFile, join(metaDir, "graph.lbug"));
+  assert.equal(store.temporalFile, join(metaDir, "temporal.duckdb"));
   assert.equal(typeof store.close, "function");
 });
 

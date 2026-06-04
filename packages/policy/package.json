@@ -1,6 +1,7 @@
 {
   "name": "@opencodehub/policy",
   "version": "0.2.0",
+  "private": true,
   "description": "OpenCodeHub — policy engine: load + validate + evaluate opencodehub.policy.yaml",
   "license": "Apache-2.0",
   "repository": {
@@ -33,7 +34,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test './dist/**/*.test.js'",
+    "test": "node --test \"./dist/**/*.test.js\"",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
