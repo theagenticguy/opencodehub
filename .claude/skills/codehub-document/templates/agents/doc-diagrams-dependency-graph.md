@@ -26,14 +26,14 @@ Produce `{{ docs_root }}/diagrams/structural/dependency-graph.md`: a single Merm
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top communities | `{{ context_path }} § Top communities` | cached |
-| Internal edges | `{{ prefetch_path }} § sql relations` or `mcp__opencodehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
-| External dependencies | `{{ context_path }} § Stack` or `mcp__opencodehub__dependencies({repo: "{{ repo }}"})` | cached if digest present; mid-run otherwise |
+| Internal edges | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
+| External dependencies | `{{ context_path }} § Stack` or `mcp__codehub__dependencies({repo: "{{ repo }}"})` | cached if digest present; mid-run otherwise |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm the internal community list and the external-dep list.
-2. Pull the internal edge set from `.prefetch.md § sql relations`. If not cached, call `mcp__opencodehub__sql` and cache the digest in this packet's Work log.
-3. Pull the external-dep list from `.context.md § Stack`. If absent, call `mcp__opencodehub__dependencies({repo: "{{ repo }}"})` and keep the top 15 by usage.
+2. Pull the internal edge set from `.prefetch.md § sql relations`. If not cached, call `mcp__codehub__sql` and cache the digest in this packet's Work log.
+3. Pull the external-dep list from `.context.md § Stack`. If absent, call `mcp__codehub__dependencies({repo: "{{ repo }}"})` and keep the top 15 by usage.
 4. Compose the node set: internal communities (as `name[Label]` plain rectangles) plus the external deps (as `name[(Label)]:::external` parenthesized nodes with a dashed stroke class). Reserve the full 20-node budget; drop lowest-usage externals first when pruning.
 5. Compose the edge set: internal→internal edges from the `sql` result collapsed to community level; internal→external edges from the dependency list, sourced at the internal community that imports the dep most often.
 6. If node count > 20 after composition: keep the top-20 by edge count, then add a `## Legend (overflow)` table with columns `Node | Edges | Reason for elision`.
@@ -58,7 +58,7 @@ Produce `{{ docs_root }}/diagrams/structural/dependency-graph.md`: a single Merm
 |---|---|---|
 | Internal node list | `{{ context_path }} § Top communities` | precomputed; do not re-call `sql` for it |
 | Internal edge set | `{{ prefetch_path }} § sql relations` | authoritative; filter to `CONTAINS`/`CALLS`/`IMPORTS` |
-| External leaf nodes | `{{ context_path }} § Stack` or `mcp__opencodehub__dependencies` | do not grep manifests |
+| External leaf nodes | `{{ context_path }} § Stack` or `mcp__codehub__dependencies` | do not grep manifests |
 | Diagram idioms | `references/mermaid-patterns.md § Dependency graph` | canonical `flowchart LR` shape + external-node styling |
 
 ## 7. Fallback paths

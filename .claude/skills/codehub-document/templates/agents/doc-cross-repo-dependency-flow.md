@@ -30,7 +30,7 @@ Produce `{{ group_docs_root }}/cross-repo/dependency-flow.md`: a single Mermaid 
 | Member list + freshness | `{{ group_context_path }} § Members` / `{{ group_prefetch_path }} § group_list,group_status` | cached |
 | Group contracts | `{{ group_prefetch_path }} § group_contracts` | cached |
 | Per-member route inventory | `{{ group_prefetch_path }} § route_map(<repo>)` per `{{ member_repos }}` | cached |
-| Async / event topics | `mcp__opencodehub__group_query({group: "{{ group }}", text: "message consumer"})` or `"publishes"` | mid-run, only if stream edges are suspected |
+| Async / event topics | `mcp__codehub__group_query({group: "{{ group }}", text: "message consumer"})` or `"publishes"` | mid-run, only if stream edges are suspected |
 
 ## 4. Process
 
@@ -62,7 +62,7 @@ Produce `{{ group_docs_root }}/cross-repo/dependency-flow.md`: a single Mermaid 
 | Member list + freshness | `{{ group_prefetch_path }} § group_list,group_status` | precondition gate; precomputed |
 | Contract inventory | `{{ group_prefetch_path }} § group_contracts` | authoritative spine; source for every edge |
 | Producer file resolution | `{{ group_prefetch_path }} § route_map(<repo>)` | maps contract `path` → handler `file:LOC` for citations |
-| Async/stream discovery | `mcp__opencodehub__group_query` with `"message consumer"` / `"publishes"` | only if stream edges are suspected and not cached |
+| Async/stream discovery | `mcp__codehub__group_query` with `"message consumer"` / `"publishes"` | only if stream edges are suspected and not cached |
 | Diagram idioms | `references/mermaid-patterns.md § Cross-repo dependency flow` | canonical `flowchart TB` shape + solid/dashed edge rules |
 
 ## 7. Fallback paths

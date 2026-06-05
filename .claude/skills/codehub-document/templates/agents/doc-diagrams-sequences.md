@@ -28,14 +28,14 @@ Produce `{{ docs_root }}/diagrams/behavioral/sequences.md`: up to three Mermaid 
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top processes (with step counts) | `{{ context_path }} § Top processes` | cached |
-| Process step order | `mcp__opencodehub__context({symbol: <process-name>})` per top 3 processes | mid-run |
-| Participant labels | `mcp__opencodehub__query({text: <actor-name>})` when a step's symbol is ambiguous | mid-run, on demand |
+| Process step order | `mcp__codehub__context({symbol: <process-name>})` per top 3 processes | mid-run |
+| Participant labels | `mcp__codehub__query({text: <actor-name>})` when a step's symbol is ambiguous | mid-run, on demand |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm which processes in `§ Top processes` have ≥ 3 steps — those are candidates.
 2. Pick the top 3 candidates by step count (ties broken by entry-point centrality from `.context.md`). If fewer than 3 qualify, emit only the qualifying count (1 or 2 diagrams).
-3. For each chosen process, call `mcp__opencodehub__context({symbol: <process-name>})` and extract the outbound call sequence in dispatch order. Cache the digest in this packet's Work log.
+3. For each chosen process, call `mcp__codehub__context({symbol: <process-name>})` and extract the outbound call sequence in dispatch order. Cache the digest in this packet's Work log.
 4. Derive 4-8 participant lifelines per process by grouping step targets into community / module bands. Lifelines are listed in dispatch order at the top of each `sequenceDiagram`.
 5. Draft each `sequenceDiagram`: solid arrows (`->>`) for synchronous calls, dashed (`-->>`) for returns. Short labels (≤ 15 chars on edges, ≤ 20 chars on participant names).
 6. If any single diagram exceeds 20 nodes (participants + step-labeled messages), keep the top-20 and move overflow into a `## Legend (overflow)` table below that block.
@@ -56,8 +56,8 @@ Produce `{{ docs_root }}/diagrams/behavioral/sequences.md`: up to three Mermaid 
 | Need | Tool | Why |
 |---|---|---|
 | Process list + step counts | `{{ context_path }} § Top processes` | precomputed; gates the conditional |
-| Outbound call order | `mcp__opencodehub__context` | dispatch sequence for lifelines |
-| Actor label disambiguation | `mcp__opencodehub__query` | when a step target has multiple matches |
+| Outbound call order | `mcp__codehub__context` | dispatch sequence for lifelines |
+| Actor label disambiguation | `mcp__codehub__query` | when a step target has multiple matches |
 | Diagram idioms | `references/mermaid-patterns.md § Top process` | canonical `sequenceDiagram` shape + rules |
 
 ## 7. Fallback paths

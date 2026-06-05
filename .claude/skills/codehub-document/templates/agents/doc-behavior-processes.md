@@ -28,14 +28,14 @@ Produce `{{ docs_root }}/behavior/processes.md`: one H2 per top process in `{{ r
 | Top processes | `{{ context_path }} § Top processes` | cached |
 | Route inventory | `{{ prefetch_path }} § route_map` | cached |
 | MCP tool inventory | `{{ prefetch_path }} § tool_map` | cached |
-| Step sequence per process | `mcp__opencodehub__context({symbol: <process-name>})` | mid-run |
-| Disambiguation lookup | `mcp__opencodehub__query({text: "<process name>"})` | mid-run, only on collision |
+| Step sequence per process | `mcp__codehub__context({symbol: <process-name>})` | mid-run |
+| Disambiguation lookup | `mcp__codehub__query({text: "<process name>"})` | mid-run, only on collision |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm the Top processes list is present; if empty, follow Fallback paths.
 2. Select the top 8 processes from `.context.md § Top processes` (ranked by `step_count`).
-3. For each of the 8: call `mcp__opencodehub__context({symbol: <process-name>})` to pull entry point, ordered outbound calls, and handler files. Cache the per-process digest in this packet's Work log.
+3. For each of the 8: call `mcp__codehub__context({symbol: <process-name>})` to pull entry point, ordered outbound calls, and handler files. Cache the per-process digest in this packet's Work log.
 4. Group each process by its initiator using the cached `route_map` / `tool_map` digest: HTTP route, MCP tool, CLI command, scheduled job, or internal.
 5. Draft `processes.md` with H1 = `{{ repo }} · Processes`. One H2 per process (max 8). Under each H2: a single-line `Entry point: <path:LOC>`, a numbered step list where every step cites `path:LOC`, then a `### Related` subsection listing the top 3-6 handler/helper files as backtick citations.
 6. Processes with fewer than 3 concrete steps collapse into a trailing `## Minor flows` H2 (one bullet per flow, not an H2 section of their own).
@@ -56,16 +56,16 @@ Produce `{{ docs_root }}/behavior/processes.md`: one H2 per top process in `{{ r
 | Need | Tool | Why |
 |---|---|---|
 | Process roster + step counts | `{{ context_path }} § Top processes` | precomputed; do not re-call `sql` |
-| Ordered steps per process | `mcp__opencodehub__context` | outbound edges + ordering hints |
+| Ordered steps per process | `mcp__codehub__context` | outbound edges + ordering hints |
 | Initiator attribution | `{{ prefetch_path }} § route_map` / `§ tool_map` | cached inventories |
-| Disambiguate colliding names | `mcp__opencodehub__query` | only when two symbols share a name |
+| Disambiguate colliding names | `mcp__codehub__query` | only when two symbols share a name |
 | Recover stale graph | `Grep` the repo | fallback when `context` returns nothing |
 
 ## 7. Fallback paths
 
 - If a process has fewer than 3 steps in `context`: collapse it into the trailing `## Minor flows` H2 rather than giving it its own section. Cite the collapse in the Work log.
-- If `.context.md § Top processes` is empty: fall back to `mcp__opencodehub__sql({query: "SELECT name, file_path, step_count FROM nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 8"})`. Cite the fallback in the Work log.
-- If `mcp__opencodehub__query` for a process name returns nothing (graph out of sync): `Grep` the repo for the name and cite the Grep hits with an inline `*graph stale for this process*` note.
+- If `.context.md § Top processes` is empty: fall back to `mcp__codehub__sql({query: "SELECT name, file_path, step_count FROM nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 8"})`. Cite the fallback in the Work log.
+- If `mcp__codehub__query` for a process name returns nothing (graph out of sync): `Grep` the repo for the name and cite the Grep hits with an inline `*graph stale for this process*` note.
 - If `context` errors on a named process: omit the process's step list, keep the H2 as a stub with `*context unavailable — see Grep fallback*`, and enumerate its handler files from `Grep` hits.
 
 ## 8. Success criteria

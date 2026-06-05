@@ -1,7 +1,7 @@
 ---
 name: codehub-document
-description: "Use when the user asks to generate, regenerate, or refresh long-form codebase documentation, an architecture book, a module map, or a per-repo reference — especially after `codehub analyze` finishes or after a large merge. Examples: \"document this repo\", \"regenerate the architecture docs\", \"write a module map for the monorepo\", \"produce a group-wide portfolio doc\". DO NOT use if the repo is not indexed — run `codehub analyze` first and confirm `mcp__opencodehub__list_repos` returns the repo. DO NOT use for PR descriptions (use `codehub-pr-description`), onboarding docs (use `codehub-onboarding`), or cross-repo contract maps alone (use `codehub-contract-map`)."
-allowed-tools: "Read, Write, Edit, Glob, Grep, Bash(codehub:*), mcp__opencodehub__list_repos, mcp__opencodehub__project_profile, mcp__opencodehub__query, mcp__opencodehub__context, mcp__opencodehub__impact, mcp__opencodehub__dependencies, mcp__opencodehub__owners, mcp__opencodehub__risk_trends, mcp__opencodehub__route_map, mcp__opencodehub__tool_map, mcp__opencodehub__list_dead_code, mcp__opencodehub__list_findings, mcp__opencodehub__verdict, mcp__opencodehub__group_list, mcp__opencodehub__group_query, mcp__opencodehub__group_status, mcp__opencodehub__group_contracts, mcp__opencodehub__group_cross_repo_links, mcp__opencodehub__sql, Task"
+description: "Use when the user asks to generate, regenerate, or refresh long-form codebase documentation, an architecture book, a module map, or a per-repo reference — especially after `codehub analyze` finishes or after a large merge. Examples: \"document this repo\", \"regenerate the architecture docs\", \"write a module map for the monorepo\", \"produce a group-wide portfolio doc\". DO NOT use if the repo is not indexed — run `codehub analyze` first and confirm `mcp__codehub__list_repos` returns the repo. DO NOT use for PR descriptions (use `codehub-pr-description`), onboarding docs (use `codehub-onboarding`), or cross-repo contract maps alone (use `codehub-contract-map`)."
+allowed-tools: "Read, Write, Edit, Glob, Grep, Bash(codehub:*), mcp__codehub__list_repos, mcp__codehub__project_profile, mcp__codehub__query, mcp__codehub__context, mcp__codehub__impact, mcp__codehub__dependencies, mcp__codehub__owners, mcp__codehub__risk_trends, mcp__codehub__route_map, mcp__codehub__tool_map, mcp__codehub__list_dead_code, mcp__codehub__list_findings, mcp__codehub__verdict, mcp__codehub__group_list, mcp__codehub__group_query, mcp__codehub__group_status, mcp__codehub__group_contracts, mcp__codehub__group_cross_repo_links, mcp__codehub__sql, Task"
 argument-hint: "[output-dir] [--group <name>] [--committed] [--refresh] [--section <name>]"
 color: indigo
 model: sonnet
@@ -18,9 +18,9 @@ Primary artifact generator. Produces a tree of cross-linked Markdown under `.cod
 
 ## Preconditions (check before Phase 0)
 
-1. `mcp__opencodehub__list_repos` returns the target. If not, emit `Run codehub analyze first — repo <name> is not indexed.` and stop.
+1. `mcp__codehub__list_repos` returns the target. If not, emit `Run codehub analyze first — repo <name> is not indexed.` and stop.
 2. `codehub status` reports fresh. If stale, emit `Run 'codehub analyze' first — index is stale` and stop.
-3. Group mode only: `mcp__opencodehub__group_status({group})` must return `fresh: true` for every member. If any member is stale, abort and name each stale repo.
+3. Group mode only: `mcp__codehub__group_status({group})` must return `fresh: true` for every member. If any member is stale, abort and name each stale repo.
 
 ## Arguments
 
@@ -38,24 +38,24 @@ Phase 0 writes `<docs-root>/.context.md` and `<docs-root>/.prefetch.md` so Phase
 
 **Wave 0a — independent precompute (one message, parallel)**. Issue all of these in a single tool-use batch:
 
-- `mcp__opencodehub__list_repos`
-- `mcp__opencodehub__project_profile`
-- `mcp__opencodehub__sql` — schema probe: `SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('nodes','relations') ORDER BY table_name, column_name`
-- `mcp__opencodehub__route_map`
-- `mcp__opencodehub__tool_map`
-- `mcp__opencodehub__dependencies`
-- `mcp__opencodehub__risk_trends`
-- `mcp__opencodehub__list_dead_code`
-- `mcp__opencodehub__list_findings`
-- Group mode only: `mcp__opencodehub__group_list`, `mcp__opencodehub__group_status`, `mcp__opencodehub__group_contracts`
+- `mcp__codehub__list_repos`
+- `mcp__codehub__project_profile`
+- `mcp__codehub__sql` — schema probe: `SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('nodes','relations') ORDER BY table_name, column_name`
+- `mcp__codehub__route_map`
+- `mcp__codehub__tool_map`
+- `mcp__codehub__dependencies`
+- `mcp__codehub__risk_trends`
+- `mcp__codehub__list_dead_code`
+- `mcp__codehub__list_findings`
+- Group mode only: `mcp__codehub__group_list`, `mcp__codehub__group_status`, `mcp__codehub__group_contracts`
 
 **Wave 0b — depends on 0a (one message, parallel)**. Needs schema column names + profile entry points from 0a, so it is a second batch. Issue in one message:
 
-- `mcp__opencodehub__sql` — top communities (`SELECT … FROM nodes WHERE kind='Community' ORDER BY cohesion DESC LIMIT 10`)
-- `mcp__opencodehub__sql` — top processes (`SELECT … FROM nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 10`)
-- `mcp__opencodehub__sql` — relations slice for diagrams (filtered per the schema probe)
-- `mcp__opencodehub__owners` × top-5 folders (derived from `project_profile` entry points + file-count heuristic)
-- Group mode only: `mcp__opencodehub__group_query` for any canonical cross-repo search terms
+- `mcp__codehub__sql` — top communities (`SELECT … FROM nodes WHERE kind='Community' ORDER BY cohesion DESC LIMIT 10`)
+- `mcp__codehub__sql` — top processes (`SELECT … FROM nodes WHERE kind='Process' ORDER BY step_count DESC LIMIT 10`)
+- `mcp__codehub__sql` — relations slice for diagrams (filtered per the schema probe)
+- `mcp__codehub__owners` × top-5 folders (derived from `project_profile` entry points + file-count heuristic)
+- Group mode only: `mcp__codehub__group_query` for any canonical cross-repo search terms
 
 **Wave 0c — inline Write (no tool batch)**. Deterministic post-processing; no MCP calls:
 
@@ -122,7 +122,7 @@ No LLM call. Pure regex + join. See `references/cross-reference-spec.md` for the
 1. Extract every backtick `<path>:<LOC>` (or `<repo>:<path>:<LOC>`) citation from every generated Markdown file.
 2. Build a co-occurrence index: `source_file → [docs_citing_it]`.
 3. For any two docs sharing ≥ 2 common sources, append `## See also` (3–5 links) to both.
-4. **Group mode — sourced cross-repo links (v2)**: call `mcp__opencodehub__group_cross_repo_links` with the current `--group` value. The tool returns a deterministic, alpha-sorted `links[]` array (each entry: `source_repo_uri`, `target_repo_uri`, `source_doc_path`, `target_doc_path`, `relation`, optional `evidence`). Embed that array **verbatim** into `.docmeta.json.cross_repo_links[]` (schema v2). Then render the `## See also (other repos in group)` footer by grouping links by `source_doc_path`, emitting one bullet per target, labelled by `relation` (e.g. `depends_on → orders-api/architecture.md`). Do NOT re-compute links heuristically; the tool is the single source of truth.
+4. **Group mode — sourced cross-repo links (v2)**: call `mcp__codehub__group_cross_repo_links` with the current `--group` value. The tool returns a deterministic, alpha-sorted `links[]` array (each entry: `source_repo_uri`, `target_repo_uri`, `source_doc_path`, `target_doc_path`, `relation`, optional `evidence`). Embed that array **verbatim** into `.docmeta.json.cross_repo_links[]` (schema v2). Then render the `## See also (other repos in group)` footer by grouping links by `source_doc_path`, emitting one bullet per target, labelled by `relation` (e.g. `depends_on → orders-api/architecture.md`). Do NOT re-compute links heuristically; the tool is the single source of truth.
 5. Write `<docs-root>/README.md` (landing page with the structure-is-deterministic disclaimer) and `<docs-root>/.docmeta.json` with `schema_version: 2`. `.docmeta.json.sections[i].agent` records the file-role (e.g. `doc-architecture-system-overview`) for `--refresh` traceability. Pre-v2 `.docmeta.json` files on disk remain readable; the orchestrator lazily upgrades them on the next regeneration by writing v2.
 
 ## `--refresh` algorithm

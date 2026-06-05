@@ -1,7 +1,7 @@
 ---
 name: codehub-pr-description
 description: "Use when the user asks for a PR description, a pull request summary, a merge write-up, or a release note for a branch or diff. Examples: \"write the PR description\", \"summarize this branch for review\", \"draft release notes for HEAD\". Calls `detect_changes` + `verdict` + `owners` + `list_findings_delta` and writes Markdown. DO NOT use for open-ended architecture docs (use `codehub-document`) or onboarding guides (use `codehub-onboarding`). DO NOT use when no diff exists — the skill refuses on a clean tree."
-allowed-tools: "Read, Write, Bash(git diff:*), Bash(git log:*), Bash(git rev-parse:*), mcp__opencodehub__detect_changes, mcp__opencodehub__verdict, mcp__opencodehub__owners, mcp__opencodehub__impact, mcp__opencodehub__signature, mcp__opencodehub__list_findings_delta, mcp__opencodehub__api_impact"
+allowed-tools: "Read, Write, Bash(git diff:*), Bash(git log:*), Bash(git rev-parse:*), mcp__codehub__detect_changes, mcp__codehub__verdict, mcp__codehub__owners, mcp__codehub__impact, mcp__codehub__signature, mcp__codehub__list_findings_delta, mcp__codehub__api_impact"
 argument-hint: "[--base <rev>] [--head <rev>] [--out <path>]"
 color: teal
 model: sonnet
@@ -25,12 +25,12 @@ Generates a Markdown PR body from graph primitives. Linear (no subagents). Sonne
 ## Process
 
 1. Run the preconditions. On clean tree, refuse and stop.
-2. `mcp__opencodehub__detect_changes({base, head})` — map the diff to affected symbols + processes.
-3. `mcp__opencodehub__verdict({base, head})` — 5-tier merge recommendation with reasons.
-4. `mcp__opencodehub__owners({paths: <changed-files>})` — required reviewers per path.
-5. `mcp__opencodehub__list_findings_delta({base, head})` — new/resolved scanner findings in the diff range.
-6. For any symbol flagged as tier ≥ 3 by verdict: `mcp__opencodehub__impact({symbol, direction: "downstream", depth: 2})` — spell out who breaks.
-7. For public API changes: `mcp__opencodehub__api_impact({route})` when the diff touches a handler.
+2. `mcp__codehub__detect_changes({base, head})` — map the diff to affected symbols + processes.
+3. `mcp__codehub__verdict({base, head})` — 5-tier merge recommendation with reasons.
+4. `mcp__codehub__owners({paths: <changed-files>})` — required reviewers per path.
+5. `mcp__codehub__list_findings_delta({base, head})` — new/resolved scanner findings in the diff range.
+6. For any symbol flagged as tier ≥ 3 by verdict: `mcp__codehub__impact({symbol, direction: "downstream", depth: 2})` — spell out who breaks.
+7. For public API changes: `mcp__codehub__api_impact({route})` when the diff touches a handler.
 8. Assemble the Markdown body using the template below.
 9. `Write` to `<out>`.
 
@@ -46,7 +46,7 @@ commit messages + the highest-impact change detected.
 
 ## Verdict
 
-**Tier <N> — <label>** per `mcp__opencodehub__verdict`.
+**Tier <N> — <label>** per `mcp__codehub__verdict`.
 
 Reasons:
 - ... (from verdict.reasons[])

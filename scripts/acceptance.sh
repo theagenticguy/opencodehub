@@ -108,8 +108,14 @@ echo
 # 5. License allowlist
 # ---------------------------------------------------------------------------
 echo "5/${TOTAL_GATES}: license allowlist"
+# Post-package-collapse, the root package is `private: true` with no runtime
+# dependencies, so scanning from $ROOT would traverse zero packages and pass
+# vacuously. The real third-party runtime deps live in packages/cli, so point
+# the checker there with `--start`. Keep this allowlist identical to the
+# mise/ci callers.
 if pnpm exec license-checker-rseidelsohn \
-    --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0' \
+    --start packages/cli \
+    --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' \
     --excludePrivatePackages --production \
     > "$tmpdir/license.log" 2>&1; then
   pass "licenses within allowlist"
