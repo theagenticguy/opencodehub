@@ -41,7 +41,7 @@ function resolvePluginSource(): string {
     if (parent === dir) break;
     dir = parent;
   }
-  throw new Error("init.test: could not locate plugins/opencodehub from " + import.meta.url);
+  throw new Error(`init.test: could not locate plugins/opencodehub from ${import.meta.url}`);
 }
 
 const BUNDLED_ASSETS = resolvePluginSource();
