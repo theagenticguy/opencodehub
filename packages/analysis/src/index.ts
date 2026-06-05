@@ -1,20 +1,3 @@
-/**
- * Compat shim — wiki rendering lives in `@opencodehub/wiki` in v1.0.
- * These re-exports stay one release for migration; import directly from
- * `@opencodehub/wiki` instead.
- *
- * @deprecated Use `@opencodehub/wiki`.
- */
-export type {
-  LlmModuleInput,
-  LlmOverview,
-  LlmOverviewOptions,
-  WikiLlmOptions,
-  WikiOptions,
-  WikiResult,
-} from "@opencodehub/wiki";
-/** @deprecated Use `@opencodehub/wiki`. */
-export { generateWiki } from "@opencodehub/wiki";
 export type { ApiImpactFilter, ApiImpactRow } from "./api-impact.js";
 export { listApiImpact, scoreRisk, worseRisk } from "./api-impact.js";
 export type {
