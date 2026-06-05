@@ -30,7 +30,16 @@ import { cliExitCodeForTier } from "./verdict-render.js";
 
 // --- fixtures --------------------------------------------------------------
 
-function fakeStore(): IGraphStore {
+interface FakeDependency {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly ecosystem: string;
+  readonly license?: string;
+  readonly lockfileSource: string;
+}
+
+function fakeStore(deps: readonly FakeDependency[] = []): IGraphStore {
   const unreachable = () => {
     throw new Error("fakeStore used for a real query — test is mis-wired");
   };
@@ -47,11 +56,14 @@ function fakeStore(): IGraphStore {
     getMeta: async () => undefined,
     setMeta: async () => undefined,
     healthCheck: async () => ({ ok: true }),
+    listDependencies: async () => deps,
   } as unknown as IGraphStore;
 }
 
-function stubStoreFactory(): () => Promise<{ store: IGraphStore; repoPath: string }> {
-  return async () => ({ store: fakeStore(), repoPath: "/tmp/fake-repo" });
+function stubStoreFactory(
+  deps: readonly FakeDependency[] = [],
+): () => Promise<{ store: IGraphStore; repoPath: string }> {
+  return async () => ({ store: fakeStore(deps), repoPath: "/tmp/fake-repo" });
 }
 
 function verdictFixture(
@@ -75,6 +87,11 @@ function verdictFixture(
     blastRadius: 42,
     communitiesTouched: ["c1", "c2", "c3"],
     changedFileCount: 7,
+    changedFiles: [
+      "packages/storage/src/duckdb-adapter.ts",
+      "packages/cli/src/index.ts",
+      "README.md",
+    ],
     affectedSymbolCount: 19,
   };
   return { ...base, ...overrides };
@@ -433,9 +450,10 @@ test("runVerdict: ownership_required rule passes when approvals are supplied", a
       },
     ],
   };
-  // touchedPaths comes from the verdict pipeline (not yet surfaced in v1),
-  // so this rule is a no-op until that lands. We still assert the pass
-  // to pin down the current behavior.
+  // touchedPaths now comes from the verdict pipeline (verdict.changedFiles).
+  // The auto_merge fixture touches `packages/storage/src/duckdb-adapter.ts`,
+  // which matches the rule glob — so the rule fires, but the supplied
+  // @storage-team approval satisfies require_approval_from → pass.
   const { exitCode } = await withExitCode(async () => {
     try {
       await runVerdict({
@@ -445,6 +463,188 @@ test("runVerdict: ownership_required rule passes when approvals are supplied", a
         computeVerdictFn: stubCompute("auto_merge"),
         loadPolicyFn: async () => pol,
         approvals: ["@storage-team"],
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const policy = parsed["policy"] as { status: string };
+  assert.equal(policy.status, "pass");
+  assert.equal(exitCode, 0);
+});
+
+test("runVerdict: license_allowlist rule blocks (exit 3) when a denied license is present", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [{ type: "license_allowlist", id: "no-copyleft", deny: ["GPL-3.0"] }],
+  };
+  // The store reports a GPL-3.0 dependency — classifyDependencies flags it
+  // copyleft, the CLI projects it into licenseViolations, and the deny list
+  // matches → block, escalating the auto_merge exit (0) to a policy block (3).
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "summary",
+        exitCode: true,
+        storeFactory: stubStoreFactory([
+          {
+            id: "Dependency:npm:left-pad",
+            name: "left-pad",
+            version: "1.3.0",
+            ecosystem: "npm",
+            license: "GPL-3.0",
+            lockfileSource: "pnpm-lock.yaml",
+          },
+        ]),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  assert.match(output, /Policy: block/);
+  assert.match(output, /no-copyleft: license "GPL-3.0" from package "left-pad" is denied/);
+  assert.equal(exitCode, 3);
+});
+
+test("runVerdict: license_allowlist passes when no dependency license is denied", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [{ type: "license_allowlist", id: "no-copyleft", deny: ["GPL-3.0"] }],
+  };
+  // A permissive dep is never flagged by classifyDependencies, so it never
+  // reaches licenseViolations — the deny list has nothing to match.
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "json",
+        exitCode: true,
+        storeFactory: stubStoreFactory([
+          {
+            id: "Dependency:npm:lodash",
+            name: "lodash",
+            version: "4.17.21",
+            ecosystem: "npm",
+            license: "MIT",
+            lockfileSource: "pnpm-lock.yaml",
+          },
+        ]),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const policy = parsed["policy"] as { status: string; violations: unknown[] };
+  assert.equal(policy.status, "pass");
+  assert.deepEqual(policy.violations, []);
+  assert.equal(exitCode, 0);
+});
+
+test("runVerdict: license_allowlist can deny UNKNOWN for deps with no declared license", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [{ type: "license_allowlist", id: "no-unknown", deny: ["UNKNOWN"] }],
+  };
+  // A dep with a missing license is normalised to "UNKNOWN" by the CLI, so
+  // a policy can deny it explicitly.
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "summary",
+        exitCode: true,
+        storeFactory: stubStoreFactory([
+          {
+            id: "Dependency:npm:mystery",
+            name: "mystery",
+            version: "0.1.0",
+            ecosystem: "npm",
+            lockfileSource: "pnpm-lock.yaml",
+          },
+        ]),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  assert.match(output, /Policy: block/);
+  assert.match(output, /no-unknown: license "UNKNOWN" from package "mystery" is denied/);
+  assert.equal(exitCode, 3);
+});
+
+test("runVerdict: ownership_required blocks (exit 3) when a changed path lacks approval", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "storage-owner",
+        paths: ["packages/storage/**"],
+        require_approval_from: ["@storage-team"],
+      },
+    ],
+  };
+  // The auto_merge fixture touches packages/storage/src/duckdb-adapter.ts,
+  // which matches the rule glob. No approval supplied → block, proving the
+  // rule sees the real changedFiles threaded through touchedPaths.
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "summary",
+        exitCode: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
+      });
+    } finally {
+      cap.restore();
+    }
+  });
+  const output = cap.chunks.join("");
+  assert.match(output, /Policy: block/);
+  assert.match(
+    output,
+    /storage-owner: path "packages\/storage\/src\/duckdb-adapter.ts" requires approval from one of: @storage-team/,
+  );
+  assert.equal(exitCode, 3);
+});
+
+test("runVerdict: ownership_required passes when no changed path matches the glob", async () => {
+  const cap = captureStdout();
+  const pol: Policy = {
+    version: 1,
+    rules: [
+      {
+        type: "ownership_required",
+        id: "infra-owner",
+        paths: ["infra/**"],
+        require_approval_from: ["@infra-team"],
+      },
+    ],
+  };
+  // None of the fixture's changedFiles live under infra/ → rule is a no-op.
+  const { exitCode } = await withExitCode(async () => {
+    try {
+      await runVerdict({
+        outputFormat: "json",
+        exitCode: true,
+        storeFactory: stubStoreFactory(),
+        computeVerdictFn: stubCompute("auto_merge"),
+        loadPolicyFn: async () => pol,
       });
     } finally {
       cap.restore();
