@@ -496,3 +496,124 @@ test("doctor surfaces no CODEHUB_STORE selector or optional-backend framing", as
     await rm(home, { recursive: true, force: true });
   }
 });
+
+// The lbug failure hint must carry the platform-support matrix (the shared
+// `@opencodehub/storage` source of truth), not a bare "pnpm install" — on
+// win32-arm64 / musl there is NO prebuilt, so a reinstall is futile and the
+// hint must say so. Every lbug failure path threads through `lbugFailureHint`.
+test("graph-db binding failure hint names the platform-support matrix, not a bare reinstall", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-lbug-hint-"));
+  try {
+    const checks = buildChecks({
+      home,
+      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
+    });
+    const lbug = checks.find((c) => c.name === "graph-db native binding");
+    assert.ok(lbug);
+    const result = await lbug.run();
+    assert.equal(result.status, "fail");
+    // The shared matrix string from @opencodehub/storage must be present so
+    // the user sees which platforms ship a prebuilt.
+    assert.match(result.hint ?? "", /Supported platforms:/);
+    assert.match(result.hint ?? "", /Windows x64/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Embedder native binding (onnxruntime-node) — OPTIONAL, so absence is a
+// NON-FATAL warn that degrades retrieval to BM25, never a hard fail.
+// ---------------------------------------------------------------------------
+
+// onnxruntime-node ships prebuilds for only ~5 targets (no Intel-mac, no musl).
+// The real failure mode is a silent degrade to BM25 — the embedder open path
+// catches the native-load error — so doctor must surface a `warn`, not a fail.
+// Inject a loader that throws to exercise the absent-binding branch.
+test("embedder binding check warns (not fails) when onnxruntime-node fails to load", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-miss-"));
+  try {
+    const checks = buildChecks({
+      home,
+      loadOnnxBinding: async () => {
+        throw new Error("Cannot find module 'onnxruntime-node'");
+      },
+    });
+    const emb = checks.find((c) => c.name === "embedder native binding");
+    assert.ok(emb, "embedder binding check must be registered when skipNative is false");
+    const result = await emb.run();
+    assert.equal(
+      result.status,
+      "warn",
+      `an absent OPTIONAL embedder binding is a soft warn; got ${result.status}: ${result.message}`,
+    );
+    assert.match(result.message, /BM25/);
+    // The hint must point at the remote-embedder escape hatch.
+    assert.match(result.hint ?? "", /CODEHUB_EMBEDDING_URL|CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// A successful binding load (exports an InferenceSession constructor) is `ok`.
+test("embedder binding check reports ok when onnxruntime-node loads with InferenceSession", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-ok-"));
+  try {
+    const checks = buildChecks({
+      home,
+      loadOnnxBinding: async () => ({ InferenceSession: function fake() {} }),
+    });
+    const emb = checks.find((c) => c.name === "embedder native binding");
+    assert.ok(emb);
+    const result = await emb.run();
+    assert.equal(result.status, "ok", `expected ok; got ${result.status}: ${result.message}`);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// A module that loads but exports no InferenceSession is a `warn` (degrade),
+// never a crash — the embedder is optional.
+test("embedder binding check warns when the module loads but exports no InferenceSession", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-noctor-"));
+  try {
+    const checks = buildChecks({
+      home,
+      loadOnnxBinding: async () => ({}),
+    });
+    const emb = checks.find((c) => c.name === "embedder native binding");
+    assert.ok(emb);
+    const result = await emb.run();
+    assert.equal(result.status, "warn", `expected warn; got ${result.status}: ${result.message}`);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// The optional embedder binding must NOT escalate the doctor exit code: with
+// a valid registry, a clean scanner runner, and the graph binding present
+// (real dev install), a failed embedder load yields at most a warn (exit ≤ 1),
+// never a blocking fail. This is the load-bearing "optional capability" guard.
+test("embedder binding failure does not block the doctor exit (exit <= 1)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-nonblock-"));
+  try {
+    await mkdir(join(home, ".codehub"), { recursive: true });
+    await writeFile(join(home, ".codehub", "registry.json"), JSON.stringify({}));
+    const prev = process.exitCode;
+    const report = await runDoctor({
+      home,
+      skipNative: true,
+      runCommand: okRunCommand,
+    });
+    // skipNative drops the real native probes; assert the embedder check is
+    // gated by skipNative too (no row, no exit-code contribution).
+    process.exitCode = prev;
+    const names = report.rows.map((r) => r.name);
+    assert.ok(
+      !names.includes("embedder native binding"),
+      "embedder binding probe is a native check — skipNative must drop it",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

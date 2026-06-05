@@ -12,7 +12,8 @@
  *   3. `mvn install -DskipTests` to build the JAR. Target artifact is
  *      `<tmp>/target/proleap-cobol-parser-<ver>.jar`.
  *   4. `javac -cp <jar> cobol_to_scip.java` — compile the wrapper class
- *      (the `.java` source ships under `packages/cobol-proleap/java/`).
+ *      (the `.java` source ships inside `@opencodehub/cli` at `dist/java/`,
+ *      copied there at build time from `packages/cobol-proleap/java/`).
  *   5. Atomic rename the JAR + compiled wrapper into
  *      `~/.codehub/vendor/proleap/{proleap-cobol-parser-<ver>.jar,
  *      cobol_to_scip.class}`.
@@ -22,6 +23,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
 import {
   copyFile as fsCopyFile,
   mkdir as fsMkdir,
@@ -221,7 +223,7 @@ export async function runSetupCobolProleap(
     await cleanup(proc, workDir);
     throw new Error(
       `codehub setup --cobol-proleap: wrapper Java source not found at ${javaSource}. ` +
-        "Re-install @opencodehub/cobol-proleap or pass --java-source.",
+        "It ships inside @opencodehub/cli at dist/java/cobol_to_scip.java — reinstall the CLI to restore it.",
     );
   }
   // Compile into the workDir so a failure doesn't pollute vendor/.
@@ -358,21 +360,76 @@ async function cleanup(proc: ProcessApi, dir: string): Promise<void> {
   }
 }
 
+/** Cheap synchronous file-existence probe used only during path resolution. */
+function fileExistsSync(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Resolve the wrapper Java source shipped in @opencodehub/cobol-proleap.
- * Walks up from the installed CLI until it finds
- * `packages/cobol-proleap/java/cobol_to_scip.java` (repo checkout) or
- * `node_modules/@opencodehub/cobol-proleap/java/cobol_to_scip.java` (installed).
+ * Resolve the wrapper Java source (`cobol_to_scip.java`).
+ *
+ * Three install shapes are covered, tried in order:
+ *
+ *   1. **Bundled CLI (the published-npm case).** Since PR #189 collapsed the
+ *      monorepo into a single tarball, the wrapper source is copied into the
+ *      CLI's own `dist/java/` (see `packages/cli/tsup.config.ts` onSuccess).
+ *      The bundle runs from `dist/`, so we walk up from `import.meta.url`
+ *      looking for `java/cobol_to_scip.java` — exactly the
+ *      {@link resolveVendorWasmsDir}-style walk-up the WASM grammars use. This
+ *      is the only shape an npm-installed user ever hits; without it every
+ *      `codehub setup --cobol-proleap` fails with "wrapper Java source not
+ *      found".
+ *   2. **Monorepo / source checkout.** The CLI runs from
+ *      `packages/cli/dist` while `cobol_to_scip.java` lives in the sibling
+ *      `packages/cobol-proleap/java/` workspace tree.
+ *   3. **Legacy per-package install.** `node_modules/@opencodehub/cobol-proleap/
+ *      java/cobol_to_scip.java`, retained for pre-collapse layouts.
+ *
+ * Returns the first hit. If nothing exists on disk, falls back to the
+ * bundled-CLI path so the caller reports a clean "wrapper Java source not
+ * found" error rather than a bare ENOENT.
  */
-function resolveWrapperJavaSource(): string {
-  const thisFile = fileURLToPath(import.meta.url);
-  const dir = dirname(thisFile);
+export function resolveWrapperJavaSource(): string {
+  const startDir = dirname(fileURLToPath(import.meta.url));
+  return findWrapperJavaSourceFrom(startDir, fileExistsSync);
+}
+
+/**
+ * Pure walk-up resolver, separated from {@link resolveWrapperJavaSource} so it
+ * is unit-testable without depending on the test module's own
+ * `import.meta.url`. `startDir` is the directory the CLI module runs from;
+ * `exists` is an injectable file-existence probe (defaults to a real
+ * `statSync`). See {@link resolveWrapperJavaSource} for the install-shape
+ * rationale.
+ */
+export function findWrapperJavaSourceFrom(
+  startDir: string,
+  exists: (path: string) => boolean = fileExistsSync,
+): string {
+  // 1. Bundled deployment: walk up from the module looking for
+  //    `java/cobol_to_scip.java` (lands at `dist/java/...`).
+  {
+    let dir = startDir;
+    for (let i = 0; i < 6; i += 1) {
+      const candidate = join(dir, "java", "cobol_to_scip.java");
+      if (exists(candidate)) return candidate;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  // 2 & 3. Source-checkout / legacy per-package fallbacks.
   const candidates = [
-    () => join(dir, "..", "..", "cobol-proleap", "java", "cobol_to_scip.java"),
-    () => join(dir, "..", "..", "..", "cobol-proleap", "java", "cobol_to_scip.java"),
+    () => join(startDir, "..", "..", "cobol-proleap", "java", "cobol_to_scip.java"),
+    () => join(startDir, "..", "..", "..", "cobol-proleap", "java", "cobol_to_scip.java"),
     () =>
       join(
-        dir,
+        startDir,
         "..",
         "..",
         "..",
@@ -385,11 +442,10 @@ function resolveWrapperJavaSource(): string {
   ];
   for (const fn of candidates) {
     const p = resolve(fn());
-    // Sync existsSync is fine in this pre-flight path.
-    const { existsSync } = require("node:fs") as typeof import("node:fs");
-    if (existsSync(p)) return p;
+    if (exists(p)) return p;
   }
-  // Fall back to the conventional repo layout; caller reports a clean
+
+  // Fall back to the bundled-CLI path; the caller reports a clean
   // "wrapper Java source not found" error if it's missing on disk.
-  return resolve(dir, "..", "..", "cobol-proleap", "java", "cobol_to_scip.java");
+  return resolve(startDir, "java", "cobol_to_scip.java");
 }

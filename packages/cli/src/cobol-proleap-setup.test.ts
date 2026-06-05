@@ -8,16 +8,20 @@
  *     the result reports the final JAR + wrapper class paths.
  *   - Idempotency: a second call with the JAR + wrapper class already in
  *     place skips without re-running the build.
+ *   - Wrapper Java source resolution across install shapes (bundled CLI
+ *     `dist/java/`, source checkout, legacy per-package).
  */
 
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   DEFAULT_PROCESS_API,
   defaultVendorDir,
+  findWrapperJavaSourceFrom,
   type ProcessApi,
   type ProcessResult,
+  resolveWrapperJavaSource,
   runSetupCobolProleap,
 } from "./cobol-proleap-setup.js";
 
@@ -199,4 +203,100 @@ test("defaultVendorDir: resolves under ~/.codehub/vendor/proleap", () => {
 
 test("DEFAULT_PROCESS_API is exported for the cli action", () => {
   assert.equal(typeof DEFAULT_PROCESS_API.run, "function");
+});
+
+// ---------------------------------------------------------------------------
+// Wrapper Java source resolution — must find `dist/java/cobol_to_scip.java`
+// in the bundled-CLI layout (PR #189), not only the pre-collapse monorepo
+// shapes. Use an injectable `exists` + path.join so the assertions are
+// platform-agnostic (backslashes on Windows).
+// ---------------------------------------------------------------------------
+
+// The bundled CLI runs from `dist/` and ships the wrapper at `dist/java/`.
+// The walk-up must find it on the FIRST hop (the module's own dir + `java/`).
+test("findWrapperJavaSourceFrom: resolves dist/java relative to the bundled module", () => {
+  const distDir = join("/opt", "node_modules", "@opencodehub", "cli", "dist");
+  const expected = join(distDir, "java", "cobol_to_scip.java");
+  const seen = new Set([expected]);
+  const resolved = findWrapperJavaSourceFrom(distDir, (p) => seen.has(p));
+  assert.equal(resolved, expected);
+});
+
+// A chunked bundle can run from a nested dir (e.g. `dist/commands`); the
+// walk-up must climb to `dist/java/cobol_to_scip.java`.
+test("findWrapperJavaSourceFrom: walks up to dist/java from a nested bundle dir", () => {
+  const distDir = join("/opt", "cli", "dist");
+  const nested = join(distDir, "commands");
+  const expected = join(distDir, "java", "cobol_to_scip.java");
+  const seen = new Set([expected]);
+  const resolved = findWrapperJavaSourceFrom(nested, (p) => seen.has(p));
+  assert.equal(resolved, expected);
+});
+
+// Source-checkout fallback: the CLI runs from `packages/cli/dist`, the wrapper
+// lives in the sibling `packages/cobol-proleap/java/` workspace tree.
+test("findWrapperJavaSourceFrom: falls back to the monorepo sibling layout", () => {
+  const distDir = join("/repo", "packages", "cli", "dist");
+  const expected = join("/repo", "packages", "cobol-proleap", "java", "cobol_to_scip.java");
+  const seen = new Set([expected]);
+  const resolved = findWrapperJavaSourceFrom(distDir, (p) => seen.has(p));
+  assert.equal(resolved, expected);
+});
+
+// When nothing exists, the resolver returns the bundled-CLI path so the caller
+// emits a clean "wrapper Java source not found" error (not a bare ENOENT).
+test("findWrapperJavaSourceFrom: returns the dist/java path when nothing exists", () => {
+  const distDir = join("/opt", "cli", "dist");
+  const resolved = findWrapperJavaSourceFrom(distDir, () => false);
+  assert.equal(resolved, join(distDir, "java", "cobol_to_scip.java"));
+});
+
+// Smoke test the production entry point: in the source/test build it resolves
+// to an existing `cobol_to_scip.java` via the monorepo fallback. Confirms the
+// real `import.meta.url` wiring resolves a file that is actually on disk.
+test("resolveWrapperJavaSource: resolves to an existing cobol_to_scip.java in the dev tree", () => {
+  const resolved = resolveWrapperJavaSource();
+  assert.equal(dirname(resolved).endsWith("java"), true, `unexpected dir: ${resolved}`);
+  assert.match(resolved, /cobol_to_scip\.java$/);
+});
+
+// The "wrapper Java source not found" error must NOT point at a --java-source
+// flag (never wired on the `codehub setup` command). It should name the
+// bundled location + a reinstall remedy. Drive the build far enough to hit the
+// wrapper pre-flight, with a javaSourcePath that does not exist.
+test("runSetupCobolProleap: missing wrapper source error names the bundled path, not --java-source", async () => {
+  const script = makeScript({
+    toolResponses: new Map([
+      ["git --version", { code: 0, stdout: "git version 2.40.0", stderr: "" }],
+      ["mvn --version", { code: 0, stdout: "Apache Maven 3.8.6", stderr: "" }],
+      ["javac --version", { code: 0, stdout: "javac 21.0.1", stderr: "" }],
+      ["git clone", { code: 0, stdout: "", stderr: "" }],
+      ["mvn install", { code: 0, stdout: "BUILD SUCCESS", stderr: "" }],
+    ]),
+    fsReaddir: new Map([
+      ["/tmp/codehub-proleap-abcdef/cobol-parser/target", ["proleap-cobol-parser-4.0.0.jar"]],
+    ]),
+    // The built jar exists, but the wrapper source path does NOT — so the
+    // pre-flight `exists(javaSource)` check fails.
+    fsFiles: new Set([
+      "/tmp/codehub-proleap-abcdef/cobol-parser/target/proleap-cobol-parser-4.0.0.jar",
+    ]),
+  });
+  const proc = makeProcessApi(script);
+  await assert.rejects(
+    runSetupCobolProleap({
+      processApi: proc,
+      vendorDir: "/test/vendor",
+      javaSourcePath: "/nope/cobol_to_scip.java",
+      log: () => undefined,
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.match(err.message, /wrapper Java source not found/);
+      assert.match(err.message, /dist\/java\/cobol_to_scip\.java/);
+      // Must NOT advertise an unreachable CLI flag.
+      assert.doesNotMatch(err.message, /--java-source/);
+      return true;
+    },
+  );
 });

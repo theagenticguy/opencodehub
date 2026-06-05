@@ -1,9 +1,11 @@
 export { assertReadOnlyCypher, CypherGuardError } from "./cypher-guard.js";
 export { classifyLicenseTier, DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
 export {
+  GRAPH_BINDING_SUPPORTED_PLATFORMS,
   GraphDbBindingError,
   GraphDbStore,
   type GraphDbStoreOptions,
+  graphBindingPlatformNote,
   NotImplementedError,
 } from "./graphdb-adapter.js";
 export {
