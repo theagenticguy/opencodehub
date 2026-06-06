@@ -41,10 +41,10 @@ import {
   must always produce the same digest, regardless of insertion order. It is
   built on `canonicalJson` / `writeCanonicalJson` (sorted keys, streaming) and
   the `sha256Hex` / `hash6` helpers.
-- **Provenance** — `PROVENANCE_PREFIXES`, `SCIP_PROVENANCE_PREFIXES`, and
-  `LSP_PROVENANCE_PREFIXES` classify where a relation came from. Confidence
-  tiers (heuristic vs. SCIP-confirmed vs. SCIP-unconfirmed) are assigned by the
-  ingestion pipeline's confidence-demote phase, not by this package.
+- **Provenance** — `PROVENANCE_PREFIXES` and `SCIP_PROVENANCE_PREFIXES`
+  classify where a relation came from. Confidence tiers (heuristic vs.
+  SCIP-confirmed vs. SCIP-unconfirmed) are assigned by the ingestion pipeline's
+  confidence-demote phase, not by this package.
 - **Schema version** — `SCHEMA_VERSION` plus `compareSchemaVersion`, which
   classifies an indexed graph's version against the running binary
   (`major-drift` / `minor-drift` / `forward-incompat` / `ok`).
