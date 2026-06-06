@@ -26,15 +26,15 @@ Produce `{{ docs_root }}/analysis/ownership.md`: a ranked table of folders in `{
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Owners summary | `{{ context_path }} § Owners summary` | cached |
-| Owners per folder | `{{ prefetch_path }} § owners` or `mcp__opencodehub__owners({path: <folder>})` | cached when present |
-| Folder roster | `mcp__opencodehub__sql({query: "SELECT DISTINCT file_path FROM nodes WHERE kind='File'"})` + folder-prefix grouping | mid-run, only if `.context.md` roster is truncated |
+| Owners per folder | `{{ prefetch_path }} § owners` or `mcp__codehub__owners({path: <folder>})` | cached when present |
+| Folder roster | `mcp__codehub__sql({query: "SELECT DISTINCT file_path FROM nodes WHERE kind='File'"})` + folder-prefix grouping | mid-run, only if `.context.md` roster is truncated |
 | Top-contributor share | `owners` response field `share` | cached or mid-run |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm Owners summary and cached owners digest.
 2. Build the folder roster: use `.context.md § Owners summary` when it enumerates folders; otherwise group `File` nodes by top-level folder prefix (`packages/<x>/src`, `src/<module>`, etc.).
-3. For each folder (top 15 by file count): resolve top owner and share from `{{ prefetch_path }} § owners` when present, else call `mcp__opencodehub__owners({path: <folder>})`. Capture top owner, share %, total contributors.
+3. For each folder (top 15 by file count): resolve top owner and share from `{{ prefetch_path }} § owners` when present, else call `mcp__codehub__owners({path: <folder>})`. Capture top owner, share %, total contributors.
 4. Rank folders by top-owner share, descending. Draft the ranking table with columns `Folder | Top owner | Share | Total contributors`. Every Folder cell is a backtick path.
 5. Identify Single Points of Failure: folders or files where the top owner's share is > 70%. For each SPOF: draft a bullet under the `## Single points of failure` H2 stating the path, the owner's share percentage, and a one-sentence mitigation (pair reviewer, knowledge-transfer session, cross-training target, etc.).
 6. Draft the intro (1-2 paragraphs): what "share" means (commit share, not line share), the window, and what a > 70% share signals for bus factor.
@@ -54,14 +54,14 @@ Produce `{{ docs_root }}/analysis/ownership.md`: a ranked table of folders in `{
 
 | Need | Tool | Why |
 |---|---|---|
-| Contributor share per folder | `mcp__opencodehub__owners` | authoritative over git-blame |
+| Contributor share per folder | `mcp__codehub__owners` | authoritative over git-blame |
 | Cached owners digest | `{{ prefetch_path }} § owners` | precomputed; do not re-call for cached paths |
 | Folder roster | `{{ context_path }} § Owners summary` | precomputed |
-| Folder roster (fallback) | `mcp__opencodehub__sql` over `File` nodes | only when `.context.md` slice is truncated |
+| Folder roster (fallback) | `mcp__codehub__sql` over `File` nodes | only when `.context.md` slice is truncated |
 
 ## 7. Fallback paths
 
-- If `mcp__opencodehub__owners` fails for a path: cite the top-3 authors from a manual git-log walk and mark the row `*git-log fallback*` in the Top owner cell.
+- If `mcp__codehub__owners` fails for a path: cite the top-3 authors from a manual git-log walk and mark the row `*git-log fallback*` in the Top owner cell.
 - If `.context.md § Owners summary` is absent: use the `sql` folder roster and call `owners` per folder. Cite the fallback in the Work log.
 - If no folder crosses the > 70% threshold: still emit the `## Single points of failure` H2 with a single line `No folders exceed the 70% bus-factor threshold.` — the H2 must exist for Phase E cross-references.
 - If owners data is completely missing (new repo, shallow clone): write the gap to the Work log, skip the Write step, and do not emit an empty file with a single-row table.

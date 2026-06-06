@@ -1,7 +1,7 @@
 ---
 name: codehub-contract-map
-description: "Use when the user asks for a cross-repo contract map, an API-consumer matrix, or a service-interaction diagram across a repo group. Examples: \"map the HTTP contracts between services\", \"which services call the billing API\", \"show the contract matrix for the platform group\". GROUP MODE ONLY — requires a named group. DO NOT use on a single repo (use `codehub-document` with `reference/public-api.md`). DO NOT use if `mcp__opencodehub__group_list` does not include the group."
-allowed-tools: "Read, Write, mcp__opencodehub__group_list, mcp__opencodehub__group_status, mcp__opencodehub__group_contracts, mcp__opencodehub__group_query, mcp__opencodehub__route_map, mcp__opencodehub__list_repos"
+description: "Use when the user asks for a cross-repo contract map, an API-consumer matrix, or a service-interaction diagram across a repo group. Examples: \"map the HTTP contracts between services\", \"which services call the billing API\", \"show the contract matrix for the platform group\". GROUP MODE ONLY — requires a named group. DO NOT use on a single repo (use `codehub-document` with `reference/public-api.md`). DO NOT use if `mcp__codehub__group_list` does not include the group."
+allowed-tools: "Read, Write, mcp__codehub__group_list, mcp__codehub__group_status, mcp__codehub__group_contracts, mcp__codehub__group_query, mcp__codehub__route_map, mcp__codehub__list_repos"
 argument-hint: "<group-name> [--output <path>] [--committed]"
 color: magenta
 model: sonnet
@@ -13,9 +13,9 @@ Standalone group-only skill. Renders `group_contracts` into a Markdown + Mermaid
 
 ## Preconditions
 
-1. A `<group-name>` positional argument is required. If missing or if `mcp__opencodehub__group_list` does not return the name, refuse with:
+1. A `<group-name>` positional argument is required. If missing or if `mcp__codehub__group_list` does not return the name, refuse with:
    `Contract map requires a named group — run 'codehub group list' to see registered groups.` (Spec 001 AC-3-4.)
-2. `mcp__opencodehub__group_status({group})` must return `fresh: true` for every member. If any member is stale, abort and name each stale repo.
+2. `mcp__codehub__group_status({group})` must return `fresh: true` for every member. If any member is stale, abort and name each stale repo.
 
 ## Arguments
 
@@ -30,12 +30,12 @@ Default output path:
 ## Process
 
 1. Run the preconditions. Refuse on missing/unknown group.
-2. `mcp__opencodehub__group_list` — confirm `<group-name>` exists; read member list.
-3. `mcp__opencodehub__group_status({group})` — confirm freshness per member. Abort with named stale repos otherwise.
-4. `mcp__opencodehub__group_contracts({group})` — the spine. Returns `{producer_repo, consumer_repo, path, method, shape}`.
+2. `mcp__codehub__group_list` — confirm `<group-name>` exists; read member list.
+3. `mcp__codehub__group_status({group})` — confirm freshness per member. Abort with named stale repos otherwise.
+4. `mcp__codehub__group_contracts({group})` — the spine. Returns `{producer_repo, consumer_repo, path, method, shape}`.
 5. If `group_contracts` returns `[]` (zero inter-repo contracts): still write the artifact with a `No inter-repo contracts detected` banner and an empty matrix. Do not error. (Spec 001 AC-5-5.)
-6. `mcp__opencodehub__group_query({group, text: "api handlers"})` — disambiguate producer-side locations.
-7. For each member repo: `mcp__opencodehub__route_map({repo})` for handler-path citations.
+6. `mcp__codehub__group_query({group, text: "api handlers"})` — disambiguate producer-side locations.
+7. For each member repo: `mcp__codehub__route_map({repo})` for handler-path citations.
 8. Build the consumer/producer matrix: rows = producers, columns = consumers, cell = contract count.
 9. Build the Mermaid `flowchart LR` showing inter-repo edges, labeled with contract counts.
 10. Assemble the output using the template below.

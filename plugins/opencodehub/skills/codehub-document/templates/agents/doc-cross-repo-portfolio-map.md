@@ -67,7 +67,7 @@ Produce `{{ group_docs_root }}/cross-repo/portfolio-map.md`: a 2-paragraph narra
 
 - If `group_contracts` returned zero contracts: keep the diagram with isolated (edge-less) nodes; narrative paragraph 2 becomes a 1-sentence note that the group graph does not currently encode cross-repo edges. Record the fallback in the Work log.
 - If any member is stale despite Phase 0 checks: abort — do not write `portfolio-map.md`. Instead, write `{{ group_docs_root }}/cross-repo/_stale.md` explaining which repo blocked generation, and stop.
-- If `{{ group_context_path }} § Member profiles` lacks a one-liner for a member: call `mcp__opencodehub__project_profile({repo: <member>})` once, extract the summary, cache the digest in Work log, and use it. Do not invent a description.
+- If `{{ group_context_path }} § Member profiles` lacks a one-liner for a member: call `mcp__codehub__project_profile({repo: <member>})` once, extract the summary, cache the digest in Work log, and use it. Do not invent a description.
 
 ## 8. Success criteria
 

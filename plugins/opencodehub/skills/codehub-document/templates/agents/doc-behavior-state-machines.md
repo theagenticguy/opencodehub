@@ -27,14 +27,14 @@ Produce `{{ docs_root }}/behavior/state-machines.md`: one H2 per state machine i
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | State-machine inventory | `{{ context_path }} § State machines` (count + names + paths) | cached |
-| State-machine nodes (detail) | `mcp__opencodehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='StateMachine'"})` | mid-run, only if `.context.md` slice is truncated |
-| States + transitions per machine | `mcp__opencodehub__context({symbol: <machine-name>})` | mid-run |
+| State-machine nodes (detail) | `mcp__codehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='StateMachine'"})` | mid-run, only if `.context.md` slice is truncated |
+| States + transitions per machine | `mcp__codehub__context({symbol: <machine-name>})` | mid-run |
 | Verbatim state/transition text | `Read <file_path>:<start_line>` | mid-run |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm `.context.md § State machines` lists ≥ 2 machines. If the slice is truncated, call the `sql` fallback in Section 3.
-2. For each state machine: call `mcp__opencodehub__context({symbol: <machine-name>})` to pull states, entry state, transitions, and terminal states.
+2. For each state machine: call `mcp__codehub__context({symbol: <machine-name>})` to pull states, entry state, transitions, and terminal states.
 3. For each machine: `Read` the definition file at `start_line..start_line+60` to verify state names and transition labels before drawing. Do not invent transitions.
 4. Draft `state-machines.md` with H1 = `{{ repo }} · State machines`. One H2 per machine, in alphabetical order by machine name. Under each H2: exactly one fenced Mermaid `stateDiagram-v2` block, then a single-line `Defined at: <backtick path:LOC>` citation.
 5. Transitions use the source-level event name as the Mermaid edge label (e.g., `start()`, `complete()`). Do not paraphrase event names.
@@ -55,13 +55,13 @@ Produce `{{ docs_root }}/behavior/state-machines.md`: one H2 per state machine i
 | Need | Tool | Why |
 |---|---|---|
 | State-machine roster | `{{ context_path }} § State machines` | precomputed; do not re-call `sql` |
-| States + transitions | `mcp__opencodehub__context` | outbound edges encode transitions |
+| States + transitions | `mcp__codehub__context` | outbound edges encode transitions |
 | Verbatim state / event names | `Read` at `file_path:start_line` | graph stores the structure, not the literal text |
-| Disambiguate machine names | `mcp__opencodehub__query` | only when two machines share a name |
+| Disambiguate machine names | `mcp__codehub__query` | only when two machines share a name |
 
 ## 7. Fallback paths
 
-- If `.context.md § State machines` is truncated or absent: call `mcp__opencodehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='StateMachine'"})`. Cite the fallback in the Work log.
+- If `.context.md § State machines` is truncated or absent: call `mcp__codehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='StateMachine'"})`. Cite the fallback in the Work log.
 - If the sql roster returns < 2 machines (the conditional precondition was wrong): write the gap to the Work log, stop, and do not emit an empty or 1-machine file — the orchestrator will prune this packet from the README.
 - If `context` returns no transitions for a machine: `Read` the definition file at `start_line..start_line+60` and parse the states/transitions manually; mark the machine H2 with `*transitions derived by direct read*` in the Work log.
 - If a machine has no terminal state in source: draw the diagram without a `--> [*]` edge and note the absence in the Work log (do not invent a terminal state).

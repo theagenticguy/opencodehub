@@ -28,13 +28,13 @@ Produce `{{ docs_root }}/architecture/system-overview.md`: a 400–600-word narr
 | Project profile | `{{ context_path }} § Repo profile` | cached |
 | Top communities | `{{ context_path }} § Top communities` | cached |
 | Top processes | `{{ context_path }} § Top processes` | cached |
-| External deps | `{{ context_path }} § Stack` or `mcp__opencodehub__dependencies({repo: "{{ repo }}"})` | cached if digest present |
-| Module relations | `mcp__opencodehub__context({symbol: <community-name>})` per top 6 modules | mid-run |
+| External deps | `{{ context_path }} § Stack` or `mcp__codehub__dependencies({repo: "{{ repo }}"})` | cached if digest present |
+| Module relations | `mcp__codehub__context({symbol: <community-name>})` per top 6 modules | mid-run |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm `{{ repo }}` profile, top-6 community names, top processes.
-2. For each of the top 6 communities (from `.context.md § Top communities`): call `mcp__opencodehub__context({symbol: <community-name>})` to pull inbound/outbound relation counts. Cache the summary in this packet's Work log.
+2. For each of the top 6 communities (from `.context.md § Top communities`): call `mcp__codehub__context({symbol: <community-name>})` to pull inbound/outbound relation counts. Cache the summary in this packet's Work log.
 3. Pull the external dependencies list from `.context.md § Stack` (or call `dependencies` if not cached). Keep the top 15 by usage.
 4. Resolve the stack layers by inspecting `project_profile.entry_points` and cross-referencing the top communities with their `file_path` prefixes.
 5. Draft the narrative (400–600 words). Structure: paragraph 1 = what the repo does, paragraph 2 = how the pieces fit.
@@ -56,7 +56,7 @@ Produce `{{ docs_root }}/architecture/system-overview.md`: a 400–600-word narr
 | Need | Tool | Why |
 |---|---|---|
 | Module list + cohesion | `{{ context_path }} § Top communities` | precomputed; do not re-call `sql` |
-| Symbol neighborhood | `mcp__opencodehub__context` | inbound/outbound + cochange counts |
+| Symbol neighborhood | `mcp__codehub__context` | inbound/outbound + cochange counts |
 | External dependency list | `{{ context_path }} § Stack` or `dependencies` | authoritative over grepping manifests |
 | File line count for `(N LOC)` | `Read` then line count | graph does not store LOC |
 
