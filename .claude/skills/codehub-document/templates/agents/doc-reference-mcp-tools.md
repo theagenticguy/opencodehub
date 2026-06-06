@@ -27,9 +27,9 @@ Produce `{{ docs_root }}/reference/mcp-tools.md`: the authoritative reference fo
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | MCP tool inventory | `{{ prefetch_path }} § tool_map` | cached |
-| Tool handler nodes | `mcp__opencodehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='Function' AND file_path LIKE '%mcp%'"})` | mid-run, only if `tool_map` slice is truncated |
+| Tool handler nodes | `mcp__codehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='Function' AND file_path LIKE '%mcp%'"})` | mid-run, only if `tool_map` slice is truncated |
 | Verbatim signatures | `Read <file_path>:<start_line>` (signatures are not stored in the graph) | mid-run |
-| Usage count per tool | `mcp__opencodehub__context({symbol: <tool-handler>})` | mid-run |
+| Usage count per tool | `mcp__codehub__context({symbol: <tool-handler>})` | mid-run |
 
 ## 4. Process
 
@@ -55,12 +55,12 @@ Produce `{{ docs_root }}/reference/mcp-tools.md`: the authoritative reference fo
 |---|---|---|
 | Full tool inventory | `{{ prefetch_path }} § tool_map` | precomputed; do not re-call `tool_map` |
 | Verbatim signature text | `Read` at `file_path:start_line` | graph stores names/locs, not signature text |
-| Handler usage count | `mcp__opencodehub__context` | inbound count; signals which tools are load-bearing |
-| Tools not in `tool_map` | `mcp__opencodehub__sql` filtered to MCP files | fallback only when `tool_map` is stale |
+| Handler usage count | `mcp__codehub__context` | inbound count; signals which tools are load-bearing |
+| Tools not in `tool_map` | `mcp__codehub__sql` filtered to MCP files | fallback only when `tool_map` is stale |
 
 ## 7. Fallback paths
 
-- If `{{ prefetch_path }} § tool_map` is empty but `project_profile.stacks` includes `"MCP"`: call `mcp__opencodehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='Function' AND (file_path LIKE '%mcp%' OR file_path LIKE '%tools%') ORDER BY file_path"})`, filter to registered handlers by grepping for tool-registration decorators, and cite the fallback in the Work log.
+- If `{{ prefetch_path }} § tool_map` is empty but `project_profile.stacks` includes `"MCP"`: call `mcp__codehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='Function' AND (file_path LIKE '%mcp%' OR file_path LIKE '%tools%') ORDER BY file_path"})`, filter to registered handlers by grepping for tool-registration decorators, and cite the fallback in the Work log.
 - If `tool_map` returns `[]` and `project_profile.stacks` does not contain `"MCP"`: do not emit an empty file. Write the gap to the Work log, mark `status: COMPLETE` with a note, and skip the Write step — the orchestrator will prune this packet from the README.
 - If a handler `Read` fails (file moved since the last `codehub analyze`): flag the row with `*graph stale — verify with codehub analyze*` and cite the graph-recorded path.
 - If a tool registration has no description string: infer from the handler's top-level docstring; mark the H2 body `*description inferred from docstring*` in-line.

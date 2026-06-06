@@ -17,24 +17,24 @@ description: "Use when the user wants to know what will break if they change som
 
 ```
 Is the target a symbol (function, class, method, property)?
-  └─ yes → mcp__opencodehub__impact
+  └─ yes → mcp__codehub__impact
 Is the target an HTTP route or API endpoint?
-  └─ yes → mcp__opencodehub__api_impact + mcp__opencodehub__route_map
+  └─ yes → mcp__codehub__api_impact + mcp__codehub__route_map
 Is the change a response-shape edit on a route?
-  └─ yes → mcp__opencodehub__shape_check (find consumer key-access mismatches)
+  └─ yes → mcp__codehub__shape_check (find consumer key-access mismatches)
 Is the target a dependency version bump?
-  └─ yes → mcp__opencodehub__dependencies + mcp__opencodehub__license_audit
+  └─ yes → mcp__codehub__dependencies + mcp__codehub__license_audit
 Want to see what the working tree currently touches?
-  └─ yes → mcp__opencodehub__detect_changes
+  └─ yes → mcp__codehub__detect_changes
 ```
 
 ## Workflow
 
 ```
-1. mcp__opencodehub__impact({ name, direction: "upstream", repo })  → Dependents of the target
+1. mcp__codehub__impact({ name, direction: "upstream", repo })  → Dependents of the target
 2. Read confidenceBreakdown                                          → Trust the confirmed count
-3. If HTTP-adjacent: mcp__opencodehub__api_impact + shape_check      → Route + shape mismatches
-4. mcp__opencodehub__detect_changes                                  → Map the current diff to flows
+3. If HTTP-adjacent: mcp__codehub__api_impact + shape_check      → Route + shape mismatches
+4. mcp__codehub__detect_changes                                  → Map the current diff to flows
 5. Assess risk tier and write the summary
 ```
 
@@ -43,12 +43,12 @@ Want to see what the working tree currently touches?
 ## Checklist
 
 ```
-- [ ] mcp__opencodehub__impact({ name, direction: "upstream", repo })
+- [ ] mcp__codehub__impact({ name, direction: "upstream", repo })
 - [ ] Review byDepth.d1 first — these WILL BREAK
 - [ ] Read confidenceBreakdown; demand confirmed >= heuristic for destructive calls
 - [ ] Filter to confidence >= 0.9 if the target is load-bearing (auth, payments, data integrity)
-- [ ] If target is a Route: mcp__opencodehub__api_impact + mcp__opencodehub__shape_check
-- [ ] mcp__opencodehub__detect_changes to map the current diff to affected processes
+- [ ] If target is a Route: mcp__codehub__api_impact + mcp__codehub__shape_check
+- [ ] mcp__codehub__detect_changes to map the current diff to affected processes
 - [ ] Produce a risk tier and a one-paragraph summary
 ```
 
@@ -79,10 +79,10 @@ Risk levels map to blast-radius tiers:
 
 ## Tools
 
-### `mcp__opencodehub__impact` — symbol blast radius
+### `mcp__codehub__impact` — symbol blast radius
 
 ```
-mcp__opencodehub__impact({
+mcp__codehub__impact({
   name: "validateUser",
   direction: "upstream",
   depth: 3,
@@ -98,10 +98,10 @@ mcp__opencodehub__impact({
 
 Disambiguation: if the name is ambiguous, `impact` returns a ranked candidate list; pass `uid` (preferred) or `{name, file_path, kind}` to pick one.
 
-### `mcp__opencodehub__api_impact` — route blast radius
+### `mcp__codehub__api_impact` — route blast radius
 
 ```
-mcp__opencodehub__api_impact({ method: "POST", path: "/api/payments", repo })
+mcp__codehub__api_impact({ method: "POST", path: "/api/payments", repo })
 
 → consumers: FETCHES callers across this repo (and across repos when a group is defined)
 → middleware: applied handlers
@@ -109,20 +109,20 @@ mcp__opencodehub__api_impact({ method: "POST", path: "/api/payments", repo })
 → affected_processes: flows that pass through this route
 ```
 
-### `mcp__opencodehub__shape_check` — response-shape sanity
+### `mcp__codehub__shape_check` — response-shape sanity
 
 ```
-mcp__opencodehub__shape_check({ repo })
+mcp__codehub__shape_check({ repo })
 
 → mismatches: [{route, producer_keys, consumer_access, consumer_file}]
 ```
 
 Run it when a PR changes a response payload. Any new entry in `mismatches` is a bug surface.
 
-### `mcp__opencodehub__detect_changes` — map the current diff to flows
+### `mcp__codehub__detect_changes` — map the current diff to flows
 
 ```
-mcp__opencodehub__detect_changes({ scope: "staged", repo })
+mcp__codehub__detect_changes({ scope: "staged", repo })
 
 → changed_symbols: [{uid, name, kind, filePath, change}]
 → affected_processes: [...]
@@ -134,7 +134,7 @@ Scopes: `unstaged`, `staged`, `all`, `compare` (requires `base_ref`).
 ## Example: "What breaks if I change `validateUser`?"
 
 ```
-1. mcp__opencodehub__impact({ name: "validateUser", direction: "upstream", depth: 3, repo: "my-app" })
+1. mcp__codehub__impact({ name: "validateUser", direction: "upstream", depth: 3, repo: "my-app" })
    → byDepth.d1: loginHandler, apiMiddleware (WILL BREAK)
    → byDepth.d2: authRouter, sessionManager (LIKELY AFFECTED)
    → affected_processes: [LoginFlow, TokenRefresh]
@@ -143,7 +143,7 @@ Scopes: `unstaged`, `staged`, `all`, `compare` (requires `base_ref`).
 
 2. Every d=1 edge is LSP-confirmed — high trust. Two processes touch the target.
 
-3. mcp__opencodehub__detect_changes({ scope: "unstaged", repo: "my-app" })
+3. mcp__codehub__detect_changes({ scope: "unstaged", repo: "my-app" })
    → changed_symbols: [validateUser]
    → affected_processes: [LoginFlow, TokenRefresh]
 

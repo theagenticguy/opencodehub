@@ -26,8 +26,8 @@ Produce `{{ docs_root }}/architecture/module-map.md`: one H2 per top module, eac
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top communities | `{{ context_path }} § Top communities` | cached |
-| Community member files | `{{ prefetch_path }} § community members` or `mcp__opencodehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='File' AND community_id = <id> ORDER BY file_path"})` | cached if digest present |
-| Community relations | `mcp__opencodehub__context({symbol: <community-name>})` per module | mid-run (only if cache miss) |
+| Community member files | `{{ prefetch_path }} § community members` or `mcp__codehub__sql({query: "SELECT name, file_path, start_line FROM nodes WHERE kind='File' AND community_id = <id> ORDER BY file_path"})` | cached if digest present |
+| Community relations | `mcp__codehub__context({symbol: <community-name>})` per module | mid-run (only if cache miss) |
 | File LOC | `Read <file>` then count lines | mid-run |
 
 ## 4. Process
@@ -56,7 +56,7 @@ Produce `{{ docs_root }}/architecture/module-map.md`: one H2 per top module, eac
 |---|---|---|
 | Module list | `{{ context_path }} § Top communities` | precomputed; do not re-call `sql` |
 | Community member files | `{{ prefetch_path }}` or `sql` over `nodes WHERE kind='File' AND community_id=...` | authoritative member set |
-| Module relation counts | `mcp__opencodehub__context` | already cached for top-6 by system-overview packet; reuse digest |
+| Module relation counts | `mcp__codehub__context` | already cached for top-6 by system-overview packet; reuse digest |
 | File LOC | `Read` then line count | graph does not store LOC |
 
 ## 7. Fallback paths

@@ -16,11 +16,11 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 ## Workflow
 
 ```
-1. mcp__opencodehub__detect_changes                              → Is this a recent regression?
-2. mcp__opencodehub__query({ query: "<error or symptom>" })      → Find code related to the symptom
-3. mcp__opencodehub__context({ name: "<suspect>" })              → Callers, callees, processes, cochanges
-4. mcp__opencodehub__sql for a process trace                     → Ordered PROCESS_STEP chain
-5. mcp__opencodehub__list_findings                               → SARIF findings that already flagged the area
+1. mcp__codehub__detect_changes                              → Is this a recent regression?
+2. mcp__codehub__query({ query: "<error or symptom>" })      → Find code related to the symptom
+3. mcp__codehub__context({ name: "<suspect>" })              → Callers, callees, processes, cochanges
+4. mcp__codehub__sql for a process trace                     → Ordered PROCESS_STEP chain
+5. mcp__codehub__list_findings                               → SARIF findings that already flagged the area
 6. Read source files only after the graph has narrowed the suspect set
 ```
 
@@ -30,16 +30,16 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 
 ```
 - [ ] Capture the symptom (error text, stack frame, failing assertion, wrong output)
-- [ ] mcp__opencodehub__detect_changes({ scope: "unstaged" | "staged" })
+- [ ] mcp__codehub__detect_changes({ scope: "unstaged" | "staged" })
       — if non-empty, recent edits are the primary suspect
-- [ ] mcp__opencodehub__query for the error text or related concept
-- [ ] mcp__opencodehub__context on the suspect symbol
+- [ ] mcp__codehub__query for the error text or related concept
+- [ ] mcp__codehub__context on the suspect symbol
 - [ ] Read confidenceBreakdown — if unknown > 0, an LSP contradicted a heuristic edge;
       the suspect may be a stale or dead reference
 - [ ] Review cochanges (git-history signal, NOT call deps) — files historically edited
       together often point at the hidden collaborator
-- [ ] Trace the execution via mcp__opencodehub__sql on PROCESS_STEP edges
-- [ ] mcp__opencodehub__list_findings to see if a scanner already flagged the area
+- [ ] Trace the execution via mcp__codehub__sql on PROCESS_STEP edges
+- [ ] mcp__codehub__list_findings to see if a scanner already flagged the area
 - [ ] Read source to confirm root cause
 ```
 
@@ -56,19 +56,19 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 
 ## Tools
 
-### `mcp__opencodehub__query` — find code related to the error
+### `mcp__codehub__query` — find code related to the error
 
 ```
-mcp__opencodehub__query({ query: "payment validation error", repo })
+mcp__codehub__query({ query: "payment validation error", repo })
 
 → results: validatePayment, handlePaymentError, PaymentException
 → processes: CheckoutFlow (populated when PROCESS_STEP edges exist)
 ```
 
-### `mcp__opencodehub__context` — full context for a suspect
+### `mcp__codehub__context` — full context for a suspect
 
 ```
-mcp__opencodehub__context({ name: "validatePayment", repo })
+mcp__codehub__context({ name: "validatePayment", repo })
 
 → incoming.CALLS: [processCheckout, webhookHandler]
 → outgoing.CALLS: [verifyCard, fetchRates]          ← fetchRates is external I/O — likely culprit
@@ -80,7 +80,7 @@ mcp__opencodehub__context({ name: "validatePayment", repo })
 
 The `cochanges` section frequently surfaces the hidden collaborator a heuristic call graph misses. Always label it as git-history signal so the user does not treat it as a dependency.
 
-### `mcp__opencodehub__sql` — custom call-chain trace
+### `mcp__codehub__sql` — custom call-chain trace
 
 Two-hop upstream trace for every caller of `validatePayment`:
 
@@ -103,10 +103,10 @@ JOIN nodes caller ON caller.id = u.from_id
 ORDER BY u.depth ASC, caller.name;
 ```
 
-### `mcp__opencodehub__list_findings` — scanner hits in the suspect area
+### `mcp__codehub__list_findings` — scanner hits in the suspect area
 
 ```
-mcp__opencodehub__list_findings({
+mcp__codehub__list_findings({
   repo,
   severity: "error",
   path_prefix: "src/payments"
@@ -120,20 +120,20 @@ Use it early — a scanner often has the bug pre-labelled.
 ## Example: "Payment endpoint returns 500 intermittently"
 
 ```
-1. mcp__opencodehub__detect_changes({ scope: "staged", repo: "my-app" })
+1. mcp__codehub__detect_changes({ scope: "staged", repo: "my-app" })
    → empty. Not a recent regression.
 
-2. mcp__opencodehub__query({ query: "payment error handling", repo: "my-app" })
+2. mcp__codehub__query({ query: "payment error handling", repo: "my-app" })
    → results: validatePayment, handlePaymentError, PaymentException
    → processes: [CheckoutFlow (7 steps), ErrorHandling (4 steps)]
 
-3. mcp__opencodehub__context({ name: "validatePayment", repo: "my-app" })
+3. mcp__codehub__context({ name: "validatePayment", repo: "my-app" })
    → outgoing.CALLS: [verifyCard, fetchRates]
    → outgoing.FETCHES: [GET https://rates.example.com/v1/latest]   ← external I/O
    → confidenceBreakdown: {confirmed: 3, heuristic: 0, unknown: 0}
    → cochanges: [src/utils/http-client.ts (lift 5.1)]              ← investigate this file
 
-4. mcp__opencodehub__list_findings({
+4. mcp__codehub__list_findings({
      repo: "my-app",
      path_prefix: "src/utils/http-client"
    })
