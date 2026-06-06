@@ -304,6 +304,7 @@ export async function computeVerdict(
     blastRadius: state.blastRadius,
     communitiesTouched,
     changedFileCount: changes.changedFiles.length,
+    changedFiles: changes.changedFiles,
     affectedSymbolCount: changes.affectedSymbols.length,
   };
   const reviewCommentMarkdown = renderVerdictMarkdown(response);
@@ -343,6 +344,7 @@ function finaliseEmpty(
     blastRadius: 0,
     communitiesTouched: [],
     changedFileCount: changes.changedFiles.length,
+    changedFiles: changes.changedFiles,
     affectedSymbolCount: 0,
   };
   return { ...response, reviewCommentMarkdown: renderVerdictMarkdown(response) };
