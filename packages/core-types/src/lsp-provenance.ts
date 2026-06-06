@@ -22,7 +22,3 @@ export const SCIP_PROVENANCE_PREFIXES: readonly string[] = [
 ];
 
 export const PROVENANCE_PREFIXES: readonly string[] = SCIP_PROVENANCE_PREFIXES;
-
-/** @deprecated — use `SCIP_PROVENANCE_PREFIXES`. Retained transiently for
- *  any ecosystem consumer still importing the legacy name. */
-export const LSP_PROVENANCE_PREFIXES: readonly string[] = SCIP_PROVENANCE_PREFIXES;

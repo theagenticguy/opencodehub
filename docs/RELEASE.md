@@ -32,7 +32,7 @@ Three workflows split the work:
 | Workflow                              | Trigger                         | Purpose                                                               |
 | ------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
 | `.github/workflows/release-please.yml`| `push: main`                    | Open / update the release PR; on merge, cut the tag and call release.yml. |
-| `.github/workflows/pre-release-gate.yml` | `pull_request: main`         | Add release-time-only checks (npm audit, lockfile integrity, detect-secrets, license re-assert). Aggregator job is the required check on release branches. |
+| `.github/workflows/pre-release-gate.yml` | `pull_request: main`         | Add release-time-only checks (npm audit, lockfile integrity, betterleaks secret sweep, license re-assert). Aggregator job is the required check on release branches. |
 | `.github/workflows/release.yml`       | `release: published` + `workflow_call` + `workflow_dispatch` | Build, SBOM, code-pack, cosign sign, SLSA L3 provenance, attach to release. |
 
 The existing CI surface (`ci.yml`, `codeql.yml`, `semgrep.yml`, `osv.yml`,
@@ -175,14 +175,19 @@ If the gate is broken and you must cut a release out-of-band:
 The pipeline runs without any long-lived secrets except `GITHUB_TOKEN`
 (which GitHub injects automatically). Specifically:
 
-- **No npm token** — `npm-publish` is gated by the
-  `OCH_NPM_PUBLISH_ENABLED` repo variable (default unset = disabled)
-  until the packages flip to public. When that change lands, set
-  `OCH_NPM_PUBLISH_ENABLED=true` in
-  `Settings -> Secrets and variables -> Actions -> Variables`, then
-  configure the npmjs.org OIDC trust relationship at
-  `https://www.npmjs.com/settings/<scope>/access` so `npm publish
-  --provenance` works without a static `NPM_TOKEN`.
+- **No npm token** — npm publishing is **live** via OIDC trusted
+  publishing (run #176 published `0.6.0` with provenance). Only
+  `@opencodehub/cli` is published; every other workspace package is
+  `private: true` and bundled into the CLI at build time (PR #189), so
+  `pnpm -r publish` skips them. The CLI's trusted-publisher relationship
+  is configured at `https://www.npmjs.com/settings/opencodehub/access`
+  against this repo + `release.yml`, so the `id-token: write` permission
+  drives both OIDC auth to npm and the Sigstore provenance attestation —
+  no static `NPM_TOKEN`. The publish job is gated `if:
+  vars.OCH_NPM_PUBLISH_ENABLED == 'true'`, so that repo variable is the
+  on/off switch in `Settings -> Secrets and variables -> Actions ->
+  Variables` — it is set to `true` today; unset it (or any non-`true`
+  value) to skip the publish step.
 - **No cosign keys** — keyless signing uses the workflow's OIDC token
   against Fulcio. The certificate's SAN binds the signature to the
   workflow file path + ref, which is what `cosign verify-blob` checks.
@@ -235,7 +240,7 @@ branch, it adds:
 | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `npm-audit`            | `pnpm audit --audit-level=high --prod` finds no high-or-critical vulns in production deps.       |
 | `lockfile-integrity`   | `pnpm install --frozen-lockfile --ignore-scripts` succeeds — no lockfile drift, no postinstalls. |
-| `detect-secrets`       | Full sweep against `.secrets.baseline`; any new finding fails the gate.                          |
+| `betterleaks`          | `betterleaks dir` full sweep with the vendored `packages/scanners/config/betterleaks.default.toml`; any finding fails the gate (ADR 0017 replaced detect-secrets). |
 | `licenses-reassert`    | `license-checker-rseidelsohn` allowlist (Apache-2.0, MIT, BSD-2/3-Clause, ISC, CC0-1.0, BlueOak-1.0.0, 0BSD). |
 | `pre-release-gate`     | Aggregator. Fails if any of the above failed; passes (no-op) on non-release PRs.                 |
 
