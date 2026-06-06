@@ -16,11 +16,11 @@ description: "Use when the user asks how code works, wants to understand archite
 ## Workflow
 
 ```
-1. mcp__opencodehub__list_repos                              → Pick the repo name
+1. mcp__codehub__list_repos                              → Pick the repo name
 2. READ codehub://repo/{name}/context                        → Stats + staleness envelope
-3. mcp__opencodehub__query({query: "<concept>", repo})       → Hybrid BM25 + vector hits, grouped by process
-4. mcp__opencodehub__context({name: "<symbol>", repo})       → 360-degree view, categorised edges, cochange side-section
-5. mcp__opencodehub__sql for process traces                  → Step ordering from the relations table
+3. mcp__codehub__query({query: "<concept>", repo})       → Hybrid BM25 + vector hits, grouped by process
+4. mcp__codehub__context({name: "<symbol>", repo})       → 360-degree view, categorised edges, cochange side-section
+5. mcp__codehub__sql for process traces                  → Step ordering from the relations table
 6. Read source files only after the graph has pointed you at the hot spots
 ```
 
@@ -29,23 +29,23 @@ description: "Use when the user asks how code works, wants to understand archite
 ## Checklist
 
 ```
-- [ ] mcp__opencodehub__list_repos — confirm the repo
+- [ ] mcp__codehub__list_repos — confirm the repo
 - [ ] READ codehub://repo/{name}/context — check freshness
-- [ ] mcp__opencodehub__query for the concept
+- [ ] mcp__codehub__query for the concept
 - [ ] Scan returned processes (execution flows) before scanning files
-- [ ] mcp__opencodehub__context on the strongest hit
+- [ ] mcp__codehub__context on the strongest hit
 - [ ] Inspect confidenceBreakdown — prefer confirmed edges for architectural claims
 - [ ] Review cochanges as a secondary signal (git history, NOT call deps)
-- [ ] Follow PROCESS_STEP edges via mcp__opencodehub__sql to trace the flow end-to-end
+- [ ] Follow PROCESS_STEP edges via mcp__codehub__sql to trace the flow end-to-end
 - [ ] Read source files for implementation detail only
 ```
 
 ## Tools
 
-### `mcp__opencodehub__query` — hybrid BM25 + vector search, grouped by process
+### `mcp__codehub__query` — hybrid BM25 + vector search, grouped by process
 
 ```
-mcp__opencodehub__query({ query: "payment processing", repo: "my-app", limit: 20 })
+mcp__codehub__query({ query: "payment processing", repo: "my-app", limit: 20 })
 
 → results: ranked symbols with file path, kind, score
 → processes: execution flows that contain the top hits (populated when PROCESS_STEP edges exist)
@@ -54,10 +54,10 @@ mcp__opencodehub__query({ query: "payment processing", repo: "my-app", limit: 20
 
 Use it as the first broad read after the context resource. Prefer it over Grep for concept-level questions.
 
-### `mcp__opencodehub__context` — 360-degree view of a symbol
+### `mcp__codehub__context` — 360-degree view of a symbol
 
 ```
-mcp__opencodehub__context({ name: "validateUser", repo: "my-app" })
+mcp__codehub__context({ name: "validateUser", repo: "my-app" })
 
 → target: {uid, kind, filePath, startLine}
 → incoming: categorised by edge type (CALLS, REFERENCES, IMPORTS, METHOD_OVERRIDES, ...)
@@ -71,7 +71,7 @@ Always read `confidenceBreakdown` before making an architectural claim. If `conf
 
 When a name is ambiguous, `context` returns a ranked candidate list instead of silently picking one. Disambiguate by passing `uid` (preferred) or `{name, file_path, kind}`.
 
-### `mcp__opencodehub__sql` — trace a named process end-to-end
+### `mcp__codehub__sql` — trace a named process end-to-end
 
 ```sql
 SELECT r.step, callee.name, callee.file_path, callee.start_line
@@ -88,25 +88,25 @@ ORDER BY r.step ASC;
 
 When the concept crosses repo boundaries (e.g. a microservice calls another), use the group tools:
 
-- `mcp__opencodehub__group_list` — discover named groups.
-- `mcp__opencodehub__group_query({ group, query, limit })` — BM25 fan-out across every repo in the group, results tagged with `_repo`.
-- `mcp__opencodehub__group_contracts({ group })` — HTTP contract cross-links (consumer `FETCHES` edge → producer `Route`).
+- `mcp__codehub__group_list` — discover named groups.
+- `mcp__codehub__group_query({ group, query, limit })` — BM25 fan-out across every repo in the group, results tagged with `_repo`.
+- `mcp__codehub__group_contracts({ group })` — HTTP contract cross-links (consumer `FETCHES` edge → producer `Route`).
 
 ## Example: "How does payment processing work?"
 
 ```
-1. mcp__opencodehub__list_repos
+1. mcp__codehub__list_repos
    → [{name: "my-app", root: "/Users/.../my-app", nodes: 918}]
 
 2. READ codehub://repo/my-app/context
    → 918 symbols, 45 processes, index fresh.
 
-3. mcp__opencodehub__query({ query: "payment processing", repo: "my-app" })
+3. mcp__codehub__query({ query: "payment processing", repo: "my-app" })
    → results: processPayment (Function, src/payments/processor.ts),
               chargeStripe, validateCard, handleRefund
    → processes: CheckoutFlow (step_count=7), RefundFlow (step_count=5)
 
-4. mcp__opencodehub__context({ name: "processPayment", repo: "my-app" })
+4. mcp__codehub__context({ name: "processPayment", repo: "my-app" })
    → incoming.CALLS: [checkoutHandler, webhookHandler]
    → outgoing.CALLS: [validateCard, chargeStripe, saveTransaction]
    → processes: [{process: "CheckoutFlow", step: 3}]
@@ -114,7 +114,7 @@ When the concept crosses repo boundaries (e.g. a microservice calls another), us
    → cochanges: [src/payments/refund.ts (lift 4.2), src/webhooks/stripe.ts (lift 3.1)]
                 (git history signal — files often edited together, NOT call deps.)
 
-5. mcp__opencodehub__sql to dump the ordered CheckoutFlow.
+5. mcp__codehub__sql to dump the ordered CheckoutFlow.
 
 6. Read src/payments/processor.ts for the actual implementation.
 ```

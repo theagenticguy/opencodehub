@@ -1,7 +1,7 @@
 ---
 name: codehub-onboarding
 description: "Use when the user asks for an ONBOARDING, getting-started, or new-engineer guide for the current repo or group. Examples: \"write ONBOARDING.md\", \"generate an onboarding doc for new hires\", \"what should a new engineer read first\". Produces a ranked reading order from `project_profile` + top processes + entry points + owners + centrality. DO NOT use for full architecture books (use `codehub-document`) or PR summaries (use `codehub-pr-description`)."
-allowed-tools: "Read, Write, Glob, mcp__opencodehub__project_profile, mcp__opencodehub__query, mcp__opencodehub__context, mcp__opencodehub__route_map, mcp__opencodehub__tool_map, mcp__opencodehub__owners, mcp__opencodehub__sql, mcp__opencodehub__list_repos, Task"
+allowed-tools: "Read, Write, Glob, mcp__codehub__project_profile, mcp__codehub__query, mcp__codehub__context, mcp__codehub__route_map, mcp__codehub__tool_map, mcp__codehub__owners, mcp__codehub__sql, mcp__codehub__list_repos, Task"
 argument-hint: "[output-path] [--committed]"
 color: green
 model: sonnet
@@ -13,7 +13,7 @@ Produces a single ONBOARDING.md with a ranked reading order drawn from graph cen
 
 ## Preconditions
 
-1. `mcp__opencodehub__list_repos` returns the target. If not, emit `Run codehub analyze first — repo <name> is not indexed.` and stop.
+1. `mcp__codehub__list_repos` returns the target. If not, emit `Run codehub analyze first — repo <name> is not indexed.` and stop.
 2. `codehub status` is fresh. If stale, emit `Run 'codehub analyze' first — index is stale` and stop. (Spec 001 AC-3-1.)
 
 ## Arguments
@@ -26,12 +26,12 @@ Produces a single ONBOARDING.md with a ranked reading order drawn from graph cen
 ## Process
 
 1. Run the preconditions.
-2. `mcp__opencodehub__project_profile({repo})` — languages, stacks, entry points, 2-sentence summary.
-3. `mcp__opencodehub__route_map({repo})` — HTTP surface (if present).
-4. `mcp__opencodehub__tool_map({repo})` — MCP/CLI surface (if present).
-5. `mcp__opencodehub__sql({query: "SELECT name, file_path, in_degree + out_degree AS centrality FROM nodes WHERE kind IN ('File','Module','Class') ORDER BY centrality DESC LIMIT 15"})` — top-centrality nodes, the "read these first" candidates.
-6. For the top 8 of those: `mcp__opencodehub__context({symbol: <id>})` to pull a one-line summary + owners.
-7. `mcp__opencodehub__owners({path})` on the top-3 folders by file count — gives the "ask these humans" list.
+2. `mcp__codehub__project_profile({repo})` — languages, stacks, entry points, 2-sentence summary.
+3. `mcp__codehub__route_map({repo})` — HTTP surface (if present).
+4. `mcp__codehub__tool_map({repo})` — MCP/CLI surface (if present).
+5. `mcp__codehub__sql({query: "SELECT name, file_path, in_degree + out_degree AS centrality FROM nodes WHERE kind IN ('File','Module','Class') ORDER BY centrality DESC LIMIT 15"})` — top-centrality nodes, the "read these first" candidates.
+6. For the top 8 of those: `mcp__codehub__context({symbol: <id>})` to pull a one-line summary + owners.
+7. `mcp__codehub__owners({path})` on the top-3 folders by file count — gives the "ask these humans" list.
 8. Dispatch a single `Task` with the `doc-onboarding` specialty role (inline in this skill — see `references/onboarding-template.md`).
 9. Assemble the output using the template below.
 10. `Write` to the resolved output path.

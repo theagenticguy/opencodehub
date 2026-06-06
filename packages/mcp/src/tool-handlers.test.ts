@@ -675,6 +675,157 @@ test("impact surfaces cochanges for the target's file as a side section", async 
   );
 });
 
+test("impact: untestedBlastRadius classifies direct dependents by coverage", async () => {
+  await withTestHarness(
+    {
+      nodes: [
+        { id: "Function:src/foo.ts:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
+        // Two direct dependents (depth-1, upstream): one well-covered, one thin.
+        {
+          id: "Function:src/well.ts:well",
+          name: "well",
+          kind: "Function",
+          file_path: "src/well.ts",
+          coveragePercent: 0.9,
+        },
+        {
+          id: "Function:src/thin.ts:thin",
+          name: "thin",
+          kind: "Function",
+          file_path: "src/thin.ts",
+          coveragePercent: 0.1,
+        },
+      ],
+      relations: [
+        {
+          id: "E:1",
+          from_id: "Function:src/well.ts:well",
+          to_id: "Function:src/foo.ts:foo",
+          type: "CALLS",
+          confidence: 0.9,
+        },
+        {
+          id: "E:2",
+          from_id: "Function:src/thin.ts:thin",
+          to_id: "Function:src/foo.ts:foo",
+          type: "CALLS",
+          confidence: 0.9,
+        },
+      ],
+    },
+    async (ctx, server) => {
+      registerImpactTool(server, ctx);
+      const handler = getHandler(server, "impact");
+      const result = await handler(
+        { target: "Function:src/foo.ts:foo", direction: "upstream", repo: "fakerepo" },
+        {},
+      );
+      const sc = result.structuredContent as {
+        untestedBlastRadius?: {
+          threshold: number;
+          directCount: number;
+          testedCount: number;
+          untestedCount: number;
+          unknownCount: number;
+          untested: Array<{ id: string; coveragePercent: number | null }>;
+          unknownCoverage: Array<{ id: string }>;
+        };
+      };
+      assert.ok(
+        sc.untestedBlastRadius,
+        "untestedBlastRadius present when there are direct dependents",
+      );
+      const ubr = sc.untestedBlastRadius;
+      assert.equal(ubr?.directCount, 2);
+      assert.equal(ubr?.testedCount, 1, "well-covered dependent counted as tested");
+      assert.equal(ubr?.untestedCount, 1, "thin dependent counted as untested");
+      assert.equal(ubr?.unknownCount, 0);
+      assert.equal(ubr?.untested[0]?.id, "Function:src/thin.ts:thin");
+      assert.equal(ubr?.untested[0]?.coveragePercent, 0.1);
+      const first = result.content[0];
+      assert.ok(first && first.type === "text");
+      assert.match(first.text, /Untested blast radius/);
+    },
+  );
+});
+
+test("impact: dependents with no ingested coverage land in unknownCoverage, never untested", async () => {
+  await withTestHarness(
+    {
+      nodes: [
+        { id: "Function:src/foo.ts:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
+        // Direct dependent with NO coveragePercent and NO covered File node →
+        // must be UNKNOWN, not a false 0% / untested.
+        {
+          id: "Function:src/dep.ts:dep",
+          name: "dep",
+          kind: "Function",
+          file_path: "src/dep.ts",
+        },
+      ],
+      relations: [
+        {
+          id: "E:1",
+          from_id: "Function:src/dep.ts:dep",
+          to_id: "Function:src/foo.ts:foo",
+          type: "CALLS",
+          confidence: 0.9,
+        },
+      ],
+    },
+    async (ctx, server) => {
+      registerImpactTool(server, ctx);
+      const handler = getHandler(server, "impact");
+      const result = await handler(
+        { target: "Function:src/foo.ts:foo", direction: "upstream", repo: "fakerepo" },
+        {},
+      );
+      const sc = result.structuredContent as {
+        untestedBlastRadius?: {
+          untestedCount: number;
+          unknownCount: number;
+          untested: Array<{ id: string }>;
+          unknownCoverage: Array<{ id: string; coveragePercent: number | null }>;
+        };
+      };
+      assert.ok(sc.untestedBlastRadius);
+      assert.equal(sc.untestedBlastRadius?.untestedCount, 0, "no coverage ≠ untested");
+      assert.equal(sc.untestedBlastRadius?.unknownCount, 1);
+      assert.equal(sc.untestedBlastRadius?.unknownCoverage[0]?.id, "Function:src/dep.ts:dep");
+      assert.equal(
+        sc.untestedBlastRadius?.unknownCoverage[0]?.coveragePercent,
+        null,
+        "unknown coverage carries null, not 0",
+      );
+    },
+  );
+});
+
+test("impact: untestedBlastRadius omitted when there are no direct dependents", async () => {
+  await withTestHarness(
+    {
+      nodes: [
+        { id: "Function:src/foo.ts:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
+      ],
+      relations: [],
+    },
+    async (ctx, server) => {
+      registerImpactTool(server, ctx);
+      const handler = getHandler(server, "impact");
+      const result = await handler(
+        { target: "Function:src/foo.ts:foo", direction: "upstream", repo: "fakerepo" },
+        {},
+      );
+      const sc = result.structuredContent as { untestedBlastRadius?: unknown };
+      assert.equal(
+        sc.untestedBlastRadius,
+        undefined,
+        "no direct dependents → no untestedBlastRadius noise",
+      );
+    },
+  );
+});
+
 test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted edges", async () => {
   await withTestHarness(
     {

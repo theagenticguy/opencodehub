@@ -79,7 +79,7 @@ Group mode populates `cross_repo_refs[]`:
 ## `--refresh` algorithm
 
 1. Load `.docmeta.json` from the existing output tree.
-2. Fetch the current `codehub_graph_hash` from `mcp__opencodehub__list_repos`. If it matches the manifest's hash exactly, skip to step 5.
+2. Fetch the current `codehub_graph_hash` from `mcp__codehub__list_repos`. If it matches the manifest's hash exactly, skip to step 5.
 3. For each `section` in the manifest:
    - Compute `max(mtime(source))` across `sections[i].sources[]` via `stat`.
    - If `max(source_mtime) > sections[i].mtime`: mark the section stale.

@@ -26,10 +26,10 @@ Produce `{{ docs_root }}/reference/public-api.md`: one H3 per exported symbol fo
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Project profile | `{{ context_path }} § Repo profile` | cached |
-| Exported symbols (public surface) | `{{ prefetch_path }} § exports` or `mcp__opencodehub__sql({query: "SELECT name, kind, file_path, start_line FROM nodes WHERE kind IN ('Function','Class','Method') AND name NOT LIKE '\\_%' ORDER BY file_path LIMIT 500"})` | cached if digest present |
-| Per-symbol signatures | `mcp__opencodehub__signature({symbol: <id>})` | mid-run (only if cache miss) |
-| Per-symbol usage count | `mcp__opencodehub__context({symbol: <id>})` | mid-run (only if cache miss) |
-| HTTP route inventory | `{{ prefetch_path }} § route_map` or `mcp__opencodehub__route_map({repo: "{{ repo }}"})` | cached if digest present |
+| Exported symbols (public surface) | `{{ prefetch_path }} § exports` or `mcp__codehub__sql({query: "SELECT name, kind, file_path, start_line FROM nodes WHERE kind IN ('Function','Class','Method') AND name NOT LIKE '\\_%' ORDER BY file_path LIMIT 500"})` | cached if digest present |
+| Per-symbol signatures | `mcp__codehub__signature({symbol: <id>})` | mid-run (only if cache miss) |
+| Per-symbol usage count | `mcp__codehub__context({symbol: <id>})` | mid-run (only if cache miss) |
+| HTTP route inventory | `{{ prefetch_path }} § route_map` or `mcp__codehub__route_map({repo: "{{ repo }}"})` | cached if digest present |
 | Source fallback for missing signatures | `Read <file>` at `start_line..start_line+20` | mid-run |
 
 ## 4. Process
@@ -60,9 +60,9 @@ Produce `{{ docs_root }}/reference/public-api.md`: one H3 per exported symbol fo
 | Need | Tool | Why |
 |---|---|---|
 | Public-ish symbol surface | `sql` (cached in `.prefetch.md`) | Filter to non-underscore names grouped by barrel |
-| Verbatim signatures | `mcp__opencodehub__signature` | authoritative signature text; never paraphrase |
-| Usage count / publicness signal | `mcp__opencodehub__context` | inbound count orders the top-30 shortlist |
-| HTTP route inventory | `mcp__opencodehub__route_map` | pre-parsed routes; avoids handler-file grepping |
+| Verbatim signatures | `mcp__codehub__signature` | authoritative signature text; never paraphrase |
+| Usage count / publicness signal | `mcp__codehub__context` | inbound count orders the top-30 shortlist |
+| HTTP route inventory | `mcp__codehub__route_map` | pre-parsed routes; avoids handler-file grepping |
 | Signature fallback | `Read` at `path:start_line-start_line+20` | paste declaration verbatim when `signature` is empty |
 
 ## 7. Fallback paths

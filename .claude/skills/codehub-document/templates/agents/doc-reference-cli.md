@@ -28,8 +28,8 @@ Produce `{{ docs_root }}/reference/cli.md`: one H2 per CLI subcommand (derived f
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Project profile (entry points) | `{{ context_path }} § Repo profile` | cached |
-| CLI subcommand inventory | `{{ prefetch_path }} § route_map` or `mcp__opencodehub__route_map({repo: "{{ repo }}"})` | cached if digest present |
-| Per-command signatures / flags | `mcp__opencodehub__signature({symbol: <id>})` per handler | mid-run (only if cache miss) |
+| CLI subcommand inventory | `{{ prefetch_path }} § route_map` or `mcp__codehub__route_map({repo: "{{ repo }}"})` | cached if digest present |
+| Per-command signatures / flags | `mcp__codehub__signature({symbol: <id>})` per handler | mid-run (only if cache miss) |
 | Handler source for flag extraction | `Read <file>` at `start_line..start_line+40` | mid-run |
 
 ## 4. Process
@@ -60,8 +60,8 @@ Produce `{{ docs_root }}/reference/cli.md`: one H2 per CLI subcommand (derived f
 | Need | Tool | Why |
 |---|---|---|
 | CLI presence signal | `{{ context_path }} § Repo profile` (`project_profile.entry_points`) | precondition for this packet |
-| Subcommand inventory | `mcp__opencodehub__route_map` (cached in `.prefetch.md`) | pre-parsed CLI tree; authoritative over handler grepping |
-| Handler signature / flag parser | `mcp__opencodehub__signature` | captures the parameter shape without paraphrase |
+| Subcommand inventory | `mcp__codehub__route_map` (cached in `.prefetch.md`) | pre-parsed CLI tree; authoritative over handler grepping |
+| Handler signature / flag parser | `mcp__codehub__signature` | captures the parameter shape without paraphrase |
 | Flag source lines | `Read` at `path:start_line-start_line+40` | graph does not record per-flag line numbers |
 
 ## 7. Fallback paths

@@ -88,6 +88,31 @@ describe("javascriptProvider (behavior)", () => {
     assert.ok(sources.includes("node:fs/promises"));
   });
 
+  it("extracts re-export barrels and dynamic imports through the shared .js path", () => {
+    const source = [
+      "export { handler } from './handler.js';",
+      "export * from './public.js';",
+      "async function lazy() {",
+      "  return import('./lazy.js');",
+      "}",
+    ].join("\n");
+    const imports = javascriptProvider.extractImports({
+      filePath: "barrel.js",
+      sourceText: source,
+    });
+    const named = imports.find((i) => i.source === "./handler.js");
+    assert.ok(named, `expected named re-export; got ${JSON.stringify(imports)}`);
+    assert.deepEqual([...(named?.importedNames ?? [])], ["handler"]);
+    assert.ok(
+      imports.some((i) => i.source === "./public.js" && i.isWildcard === true),
+      "expected `export *` wildcard re-export",
+    );
+    assert.ok(
+      imports.some((i) => i.source === "./lazy.js"),
+      "expected dynamic import edge",
+    );
+  });
+
   it("extracts call sites with enclosing caller names", () => {
     const defs = javascriptProvider.extractDefinitions({
       filePath: esm.filePath,
