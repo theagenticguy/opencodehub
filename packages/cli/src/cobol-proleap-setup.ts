@@ -34,7 +34,7 @@ import {
   stat as fsStat,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const COBOL_PROLEAP_REPO_URL = "https://github.com/uwol/cobol-parser";
@@ -441,11 +441,17 @@ export function findWrapperJavaSourceFrom(
       ),
   ];
   for (const fn of candidates) {
-    const p = resolve(fn());
+    // `join` (not `resolve`): the candidate is already an absolute,
+    // module-relative path with the `..` segments collapsed lexically.
+    // `resolve` would re-anchor a drive-less path to `process.cwd()`'s drive
+    // on Windows (injecting `C:`/`D:`), making a module-relative resolver
+    // depend on the cwd — a latent portability bug.
+    const p = fn();
     if (exists(p)) return p;
   }
 
   // Fall back to the bundled-CLI path; the caller reports a clean
-  // "wrapper Java source not found" error if it's missing on disk.
-  return resolve(startDir, "java", "cobol_to_scip.java");
+  // "wrapper Java source not found" error if it's missing on disk. `join`
+  // (not `resolve`) for the same cwd-independence reason as above.
+  return join(startDir, "java", "cobol_to_scip.java");
 }
