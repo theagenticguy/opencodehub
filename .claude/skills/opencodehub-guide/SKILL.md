@@ -11,7 +11,7 @@ Quick reference for every OpenCodeHub MCP tool, MCP resource, and the graph + te
 
 For any task that touches code understanding, debugging, impact analysis, refactoring, or PR review:
 
-1. Call `mcp__opencodehub__list_repos` — confirm the repo is indexed and pick a `repo` name.
+1. Call `mcp__codehub__list_repos` — confirm the repo is indexed and pick a `repo` name.
 2. Read `codehub://repo/{name}/context` — codebase stats and a staleness envelope.
 3. Match the task to a skill below and follow that skill's checklist.
 
@@ -54,49 +54,49 @@ standalone artifact producer with its own preconditions and output path.
 
 | Tool                          | What it gives you                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------- |
-| `mcp__opencodehub__list_repos`        | Enumerate indexed repos on this machine                                   |
-| `mcp__opencodehub__query`             | Hybrid BM25 + vector search over symbols, grouped by process              |
-| `mcp__opencodehub__context`           | 360-degree symbol view + `confidenceBreakdown` + `cochanges` side-section |
-| `mcp__opencodehub__impact`            | Blast radius with risk tier + `confidenceBreakdown`                       |
-| `mcp__opencodehub__detect_changes`    | Map an uncommitted or committed diff to affected symbols and flows        |
-| `mcp__opencodehub__sql`               | Read-only query: `sql` arg → temporal DuckDB (cochanges/summaries); `cypher` arg → lbug graph (5 s timeout) |
-| `mcp__opencodehub__signature`         | Symbol declaration + stubbed members (class/interface header + method/property signatures, bodies elided) |
+| `mcp__codehub__list_repos`        | Enumerate indexed repos on this machine                                   |
+| `mcp__codehub__query`             | Hybrid BM25 + vector search over symbols, grouped by process              |
+| `mcp__codehub__context`           | 360-degree symbol view + `confidenceBreakdown` + `cochanges` side-section |
+| `mcp__codehub__impact`            | Blast radius with risk tier + `confidenceBreakdown`                       |
+| `mcp__codehub__detect_changes`    | Map an uncommitted or committed diff to affected symbols and flows        |
+| `mcp__codehub__sql`               | Read-only query: `sql` arg → temporal DuckDB (cochanges/summaries); `cypher` arg → lbug graph (5 s timeout) |
+| `mcp__codehub__signature`         | Symbol declaration + stubbed members (class/interface header + method/property signatures, bodies elided) |
 
 ### HTTP / RPC surface
 
 | Tool                          | What it gives you                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------- |
-| `mcp__opencodehub__route_map`         | HTTP route inventory (method, path, handler, middleware)                  |
-| `mcp__opencodehub__tool_map`          | MCP tool inventory exported by this repo                                  |
-| `mcp__opencodehub__shape_check`       | Producer/consumer response-shape mismatches                               |
-| `mcp__opencodehub__api_impact`        | HTTP consumer chain + middleware + affected processes for one route       |
+| `mcp__codehub__route_map`         | HTTP route inventory (method, path, handler, middleware)                  |
+| `mcp__codehub__tool_map`          | MCP tool inventory exported by this repo                                  |
+| `mcp__codehub__shape_check`       | Producer/consumer response-shape mismatches                               |
+| `mcp__codehub__api_impact`        | HTTP consumer chain + middleware + affected processes for one route       |
 
 ### Cross-repo (groups)
 
 | Tool                          | What it gives you                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------- |
-| `mcp__opencodehub__group_list`        | Discover named repo groups                                                |
-| `mcp__opencodehub__group_query`       | BM25 fan-out across a group with reciprocal-rank fusion                   |
-| `mcp__opencodehub__group_status`      | Per-repo staleness + contract freshness for a group                       |
-| `mcp__opencodehub__group_contracts`   | HTTP contract cross-links (consumer FETCHES edge → producer Route)        |
-| `mcp__opencodehub__group_cross_repo_links` | Audit trail of every typed cross-repo edge, both endpoints `repo_uri`-qualified |
-| `mcp__opencodehub__group_sync`        | Rebuild the cross-repo contract registry + link table after a re-index    |
+| `mcp__codehub__group_list`        | Discover named repo groups                                                |
+| `mcp__codehub__group_query`       | BM25 fan-out across a group with reciprocal-rank fusion                   |
+| `mcp__codehub__group_status`      | Per-repo staleness + contract freshness for a group                       |
+| `mcp__codehub__group_contracts`   | HTTP contract cross-links (consumer FETCHES edge → producer Route)        |
+| `mcp__codehub__group_cross_repo_links` | Audit trail of every typed cross-repo edge, both endpoints `repo_uri`-qualified |
+| `mcp__codehub__group_sync`        | Rebuild the cross-repo contract registry + link table after a re-index    |
 
 ### Supply-chain / PR review (OpenCodeHub differentiators)
 
 | Tool                             | What it gives you                                                              |
 | -------------------------------- | ------------------------------------------------------------------------------ |
-| `mcp__opencodehub__verdict`              | 5-tier PR decision (`auto_merge` → `block`) with top drivers           |
-| `mcp__opencodehub__scan`                 | Run Priority-1 scanners (openWorld — spawns child processes)           |
-| `mcp__opencodehub__list_findings`        | Browse SARIF findings produced by `scan` or `ingest-sarif`             |
-| `mcp__opencodehub__list_findings_delta`  | Diff latest scan vs. frozen baseline (new / fixed / unchanged / updated) |
-| `mcp__opencodehub__list_dead_code`       | Unreferenced exported symbols (read-only listing — you delete them)    |
-| `mcp__opencodehub__license_audit`        | Copyleft / unknown / proprietary tier check over dependencies          |
-| `mcp__opencodehub__dependencies`         | External package list (ecosystem + version + manifest path)            |
-| `mcp__opencodehub__owners`               | File/symbol ownership from CODEOWNERS + git blame signal               |
-| `mcp__opencodehub__risk_trends`          | Per-community trend lines and 30-day projections                       |
-| `mcp__opencodehub__project_profile`      | High-level repo summary (languages, stacks, entry points)              |
-| `mcp__opencodehub__pack_codebase`        | Deterministic LLM-ready code-pack snapshot of the repo                 |
+| `mcp__codehub__verdict`              | 5-tier PR decision (`auto_merge` → `block`) with top drivers           |
+| `mcp__codehub__scan`                 | Run Priority-1 scanners (openWorld — spawns child processes)           |
+| `mcp__codehub__list_findings`        | Browse SARIF findings produced by `scan` or `ingest-sarif`             |
+| `mcp__codehub__list_findings_delta`  | Diff latest scan vs. frozen baseline (new / fixed / unchanged / updated) |
+| `mcp__codehub__list_dead_code`       | Unreferenced exported symbols (read-only listing — you delete them)    |
+| `mcp__codehub__license_audit`        | Copyleft / unknown / proprietary tier check over dependencies          |
+| `mcp__codehub__dependencies`         | External package list (ecosystem + version + manifest path)            |
+| `mcp__codehub__owners`               | File/symbol ownership from CODEOWNERS + git blame signal               |
+| `mcp__codehub__risk_trends`          | Per-community trend lines and 30-day projections                       |
+| `mcp__codehub__project_profile`      | High-level repo summary (languages, stacks, entry points)              |
+| `mcp__codehub__pack_codebase`        | Deterministic LLM-ready code-pack snapshot of the repo                 |
 
 ## Differentiators to surface in responses
 

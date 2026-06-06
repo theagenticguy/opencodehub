@@ -26,15 +26,15 @@ Produce `{{ docs_root }}/diagrams/architecture/components.md`: a single Mermaid 
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top communities | `{{ context_path }} § Top communities` | cached |
-| Community relations | `{{ prefetch_path }} § sql relations` or `mcp__opencodehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
-| Component method list | `mcp__opencodehub__context({symbol: <community-name>})` per top 8 | mid-run |
+| Community relations | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
+| Component method list | `mcp__codehub__context({symbol: <community-name>})` per top 8 | mid-run |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm top-8 community names and their file-path roots.
-2. Pull the raw edge set from `.prefetch.md § sql relations` (kinds `CONTAINS`, `CALLS`, `IMPORTS`). If not cached, call `mcp__opencodehub__sql` with the query above and cache the digest in this packet's Work log.
+2. Pull the raw edge set from `.prefetch.md § sql relations` (kinds `CONTAINS`, `CALLS`, `IMPORTS`). If not cached, call `mcp__codehub__sql` with the query above and cache the digest in this packet's Work log.
 3. Project file-level edges down to the community level: collapse every `(source_community, target_community, kind)` triple into a single edge, labeled with a one-word verb (`contains`, `invokes`, `imports`, `depends`).
-4. For each of the top 8 communities, call `mcp__opencodehub__context({symbol: <community-name>})` and select the top 3-5 outbound method names by call count. These populate the `classDiagram` method list for that class.
+4. For each of the top 8 communities, call `mcp__codehub__context({symbol: <community-name>})` and select the top 3-5 outbound method names by call count. These populate the `classDiagram` method list for that class.
 5. If the projected graph has > 20 nodes, keep the top-20 by edge count and move the overflow into a `## Legend (overflow)` table with columns `Node | Edges | Reason for elision`.
 6. Draft the Mermaid `classDiagram`. Max 8 classes; each class has 3-5 methods; relationships labeled with one-word verbs.
 7. `Write {{ docs_root }}/diagrams/architecture/components.md` with H1 = `{{ repo }} · Component view`.
@@ -55,7 +55,7 @@ Produce `{{ docs_root }}/diagrams/architecture/components.md`: a single Mermaid 
 |---|---|---|
 | Community list | `{{ context_path }} § Top communities` | precomputed; do not re-call `sql` |
 | Edge set | `{{ prefetch_path }} § sql relations` | authoritative; filter to `CONTAINS`/`CALLS`/`IMPORTS` |
-| Class method list | `mcp__opencodehub__context` | picks methods by call count |
+| Class method list | `mcp__codehub__context` | picks methods by call count |
 | Diagram idioms | `references/mermaid-patterns.md § Component view` | canonical `classDiagram` shape + rules |
 
 ## 7. Fallback paths

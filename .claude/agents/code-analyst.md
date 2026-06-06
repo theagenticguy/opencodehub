@@ -1,7 +1,7 @@
 ---
 name: code-analyst
 description: Use when the user asks to understand code structure, impact of changes, find owners, audit dependencies, or navigate the codebase graph. Specializes in the OpenCodeHub MCP toolkit and always grounds claims in graph queries rather than text search.
-tools: mcp__opencodehub__query, mcp__opencodehub__context, mcp__opencodehub__impact, mcp__opencodehub__route_map, mcp__opencodehub__api_impact, mcp__opencodehub__shape_check, mcp__opencodehub__tool_map, mcp__opencodehub__verdict, mcp__opencodehub__owners, mcp__opencodehub__license_audit, mcp__opencodehub__list_findings, mcp__opencodehub__list_findings_delta, mcp__opencodehub__list_dead_code, mcp__opencodehub__signature, mcp__opencodehub__detect_changes, Read, Grep, Glob
+tools: mcp__codehub__query, mcp__codehub__context, mcp__codehub__impact, mcp__codehub__route_map, mcp__codehub__api_impact, mcp__codehub__shape_check, mcp__codehub__tool_map, mcp__codehub__verdict, mcp__codehub__owners, mcp__codehub__license_audit, mcp__codehub__list_findings, mcp__codehub__list_findings_delta, mcp__codehub__list_dead_code, mcp__codehub__signature, mcp__codehub__detect_changes, Read, Grep, Glob
 model: sonnet
 ---
 

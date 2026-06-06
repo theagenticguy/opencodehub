@@ -25,14 +25,14 @@ Produce `{{ docs_root }}/analysis/dead-code.md`: three tables enumerating unrefe
 |---|---|---|
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
-| Dead-code inventory | `mcp__opencodehub__list_dead_code({repo: "{{ repo }}"})` | mid-run (rarely cached; the tool is cheap) |
+| Dead-code inventory | `mcp__codehub__list_dead_code({repo: "{{ repo }}"})` | mid-run (rarely cached; the tool is cheap) |
 | Last-modified per path | from `list_dead_code` response fields when present, else `git log -1 --format=%cs -- <path>` via shell | mid-run |
 | Graph hash | `{{ graph_hash }}` for the empty-state banner timestamp anchor | cached |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm graph hash and any cached dead-code digest.
-2. Call `mcp__opencodehub__list_dead_code({repo: "{{ repo }}"})`. Partition the response into three buckets: `Unreferenced exports`, `Unreferenced files`, `Dead imports`.
+2. Call `mcp__codehub__list_dead_code({repo: "{{ repo }}"})`. Partition the response into three buckets: `Unreferenced exports`, `Unreferenced files`, `Dead imports`.
 3. If all three buckets are empty: skip to step 7 (empty-state banner).
 4. For `Unreferenced exports`: draft a table with columns `Symbol | Path | Last modified`. Path is a backtick `path:LOC`. Last modified is an ISO date.
 5. For `Unreferenced files`: draft a table with columns `File | Lines | Last modified`. File is a backtick `path`. Lines is an integer LOC count.
@@ -57,7 +57,7 @@ Produce `{{ docs_root }}/analysis/dead-code.md`: three tables enumerating unrefe
 
 | Need | Tool | Why |
 |---|---|---|
-| Unreferenced symbols + files | `mcp__opencodehub__list_dead_code` | graph-aware; deletes are safe |
+| Unreferenced symbols + files | `mcp__codehub__list_dead_code` | graph-aware; deletes are safe |
 | Last-modified per path | `list_dead_code` fields, else `git log -1` shell | graph does not always carry mtime |
 | LOC per unreferenced file | `Read` then line count | graph stores node spans, not file LOC |
 | Cross-check at import site | `Read` at `path:LOC` | verify import survives before listing as dead |

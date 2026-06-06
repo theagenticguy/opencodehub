@@ -187,8 +187,89 @@ function qualifiedForCapture(
 
 const IMPORT_NAMED_OR_NS = /^\s*import\s+(.+?)\s+from\s+(['"])([^'"]+)\2\s*;?\s*$/;
 const IMPORT_BARE = /^\s*import\s+(['"])([^'"]+)\1\s*;?\s*$/;
+// `export { a, b } from "m"` / `export { default as X } from "m"`. The clause
+// sits between the braces; the source is the `from` specifier.
+const REEXPORT_NAMED = /^\s*export\s+\{([\s\S]*?)\}\s+from\s+(['"])([^'"]+)\2\s*;?\s*$/;
+// `export * from "m"` and `export * as ns from "m"` (barrel re-exports).
+const REEXPORT_STAR =
+  /^\s*export\s+\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s+)?from\s+(['"])([^'"]+)\2\s*;?\s*$/;
 const DYNAMIC_IMPORT = /import\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
+// Template-literal dynamic imports: `import(`./x`)` (pure static) and
+// `import(`./locales/${l}.json`)` (static-prefixed). We capture the literal
+// text up to the first interpolation so a determinable specifier still yields
+// an edge instead of being silently dropped.
+const DYNAMIC_IMPORT_TEMPLATE = /import\s*\(\s*`([^`]*?)`\s*\)/g;
 const REQUIRE_CALL = /require\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
+// A physical line that opens a multi-line named import / re-export clause:
+// `import {`, `import Default, {`, or `export {` with no closing `}` yet.
+const CLAUSE_OPEN = /^\s*(?:import|export)\b[^}]*\{[^}]*$/;
+
+/**
+ * Join physical lines into logical statements so a multi-line `import`/`export`
+ * clause is matched as one unit. Mirrors the Python extractor's
+ * `joinLogicalLines`: prettier/biome wrap long named-import and re-export
+ * lists across lines, e.g.
+ *   import {
+ *     a,
+ *     b,
+ *   } from "x";
+ * Without joining, the per-line regex sees `import {` → no `from` clause → the
+ * whole import is silently dropped.
+ *
+ * Joining is scoped to brace groups that OPEN on an `import`/`export` statement
+ * line: only then do we accumulate continuation lines until the matching `}`
+ * closes. Arbitrary code braces (function/class bodies) are left untouched, so
+ * imports that follow other top-level code are not swallowed. Comments are
+ * already stripped upstream, so a `{`/`}` here is structural, not a literal
+ * inside a string.
+ */
+function joinLogicalLines(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let buf = "";
+  let depth = 0;
+  for (const raw of lines) {
+    if (depth === 0) {
+      // Only begin accumulating when an import/re-export named clause OPENS a
+      // brace group that does not close on the same physical line (e.g.
+      // `import {` / `export {`). This is the only multi-line shape the
+      // per-line regexes need joined; function/class bodies and object
+      // literals are deliberately left untouched so trailing imports are not
+      // swallowed.
+      if (!CLAUSE_OPEN.test(raw)) {
+        out.push(raw);
+        continue;
+      }
+      depth = braceDelta(raw);
+      if (depth <= 0) {
+        depth = 0;
+        out.push(raw);
+        continue;
+      }
+      buf = raw;
+      continue;
+    }
+
+    buf = `${buf} ${raw.trim()}`;
+    depth += braceDelta(raw);
+    if (depth <= 0) {
+      depth = 0;
+      out.push(buf);
+      buf = "";
+    }
+  }
+  if (buf !== "") out.push(buf);
+  return out;
+}
+
+/** Net change in brace nesting contributed by a single physical line. */
+function braceDelta(line: string): number {
+  let delta = 0;
+  for (const ch of line) {
+    if (ch === "{") delta += 1;
+    else if (ch === "}") delta -= 1;
+  }
+  return delta;
+}
 
 /**
  * Parse TS/JS import statements. Covers:
@@ -197,8 +278,16 @@ const REQUIRE_CALL = /require\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
  *   - `import * as ns from "m"`
  *   - `import X, { a } from "m"`
  *   - `import "side-effect"`
- *   - `import("dyn")` anywhere in source
+ *   - multi-line named imports (clause wrapped across physical lines)
+ *   - `export { a, b } from "m"` / `export { default as X } from "m"` re-exports
+ *   - `export * from "m"` / `export * as ns from "m"` barrel re-exports
+ *   - `import("dyn")` and `import(`tpl`)` anywhere in source
  *   - `require("x")` for CommonJS
+ *
+ * Re-exports and dynamic imports both create a dependency edge on the source
+ * module, so they are emitted as `ExtractedImport` records (re-exports as
+ * `named` / `package-wildcard`, dynamic imports as `namespace`) — the parse
+ * phase materializes every record as an `IMPORTS` edge keyed on `source`.
  *
  * `.js` / `.ts` / `.mjs` / `.cjs` suffixes are preserved verbatim in `source`;
  * consumers can strip via `provider.preprocessImportPath`.
@@ -206,29 +295,56 @@ const REQUIRE_CALL = /require\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
 export function extractTsImports(input: ExtractImportsInput): readonly ExtractedImport[] {
   const { filePath, sourceText } = input;
   const stripped = stripComments(sourceText);
-  const lines = stripped.split("\n");
+  const lines = joinLogicalLines(stripped.split("\n"));
   const out: ExtractedImport[] = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (line === "" || !line.startsWith("import")) {
-      // still handle dynamic imports / requires below via file-level scan
+    if (line === "") continue;
+
+    if (line.startsWith("import")) {
+      const bare = IMPORT_BARE.exec(line);
+      if (bare !== null) {
+        out.push({ filePath, source: bare[2] as string, kind: "named" });
+        continue;
+      }
+
+      const named = IMPORT_NAMED_OR_NS.exec(line);
+      if (named === null) continue;
+      const clause = (named[1] as string).trim();
+      const source = named[3] as string;
+
+      for (const entry of parseTsImportClause(clause)) {
+        out.push({ filePath, source, ...entry });
+      }
       continue;
     }
 
-    const bare = IMPORT_BARE.exec(line);
-    if (bare !== null) {
-      out.push({ filePath, source: bare[2] as string, kind: "named" });
-      continue;
-    }
+    // Re-export barrels (`export ... from "m"`) introduce the same module
+    // dependency as an import and were previously dropped.
+    if (line.startsWith("export")) {
+      const star = REEXPORT_STAR.exec(line);
+      if (star !== null) {
+        const localAlias = star[1] as string | undefined;
+        out.push({
+          filePath,
+          source: star[3] as string,
+          kind: "package-wildcard",
+          isWildcard: true,
+          ...(localAlias !== undefined ? { localAlias } : {}),
+        });
+        continue;
+      }
 
-    const named = IMPORT_NAMED_OR_NS.exec(line);
-    if (named === null) continue;
-    const clause = (named[1] as string).trim();
-    const source = named[3] as string;
-
-    for (const entry of parseTsImportClause(clause)) {
-      out.push({ filePath, source, ...entry });
+      const reNamed = REEXPORT_NAMED.exec(line);
+      if (reNamed !== null) {
+        const source = reNamed[3] as string;
+        const entries = splitNamedImports(reNamed[1] as string);
+        const names = entries.map((e) => e.alias ?? e.name);
+        if (names.length > 0) {
+          out.push({ filePath, source, kind: "named", importedNames: names });
+        }
+      }
     }
   }
 
@@ -236,11 +352,31 @@ export function extractTsImports(input: ExtractImportsInput): readonly Extracted
   for (const m of stripped.matchAll(DYNAMIC_IMPORT)) {
     out.push({ filePath, source: m[2] as string, kind: "namespace" });
   }
+  for (const m of stripped.matchAll(DYNAMIC_IMPORT_TEMPLATE)) {
+    const source = staticTemplatePrefix(m[1] as string);
+    if (source !== undefined) {
+      out.push({ filePath, source, kind: "namespace" });
+    }
+  }
   for (const m of stripped.matchAll(REQUIRE_CALL)) {
     out.push({ filePath, source: m[2] as string, kind: "namespace" });
   }
 
   return out;
+}
+
+/**
+ * Resolve the determinable specifier from a template-literal dynamic import.
+ * A pure-static template (`import(`./x`)`) yields its full text; a
+ * static-prefixed template (`import(`./locales/${l}.json`)`) yields the prefix
+ * up to the first interpolation. A template that begins with an interpolation
+ * has no resolvable specifier, so we drop it rather than emit a bogus edge.
+ */
+function staticTemplatePrefix(raw: string): string | undefined {
+  const interp = raw.indexOf("${");
+  if (interp === -1) return raw.length > 0 ? raw : undefined;
+  if (interp === 0) return undefined;
+  return raw.slice(0, interp);
 }
 
 interface ImportClausePart {
