@@ -80,7 +80,29 @@ flowchart LR
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
 | **Embedded storage, two-tier** | `@ladybugdb/core` holds the structural store: symbols, edges, embeddings, BM25 + HNSW. A dedicated DuckDB sibling holds the temporal views: cochanges and summaries. Embedded files. No daemon. No database to operate. Both tiers are always present, with no backend knob (ADR 0016). |
 | **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
-| **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime, on Node 20, 22, and 24. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`. There is no native opt-in — `npm install -g @opencodehub/cli@latest` does zero native builds and zero GitHub fetches. |
+| **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`, so parsing does **zero grammar/native builds and zero GitHub fetches** at install time — there is no native parser opt-in. Storage and embeddings still load prebuilt native bindings (see Platform support). |
+
+## Platform support
+
+Parsing is WASM and runs anywhere Node does. The storage and embedding
+tiers, however, depend on **prebuilt native bindings** — `@ladybugdb/core`
+(graph store), `@duckdb/node-api` (temporal store), and `onnxruntime-node`
+(local embeddings) — so OpenCodeHub runs on the platforms those bindings
+ship a prebuild for:
+
+| Platform | Supported |
+|---|---|
+| `darwin-arm64`, `darwin-x64` | ✅ prebuilt |
+| `linux-x64`, `linux-arm64` (glibc) | ✅ prebuilt |
+| `win32-x64` | ✅ prebuilt |
+| `win32-arm64` | ❌ no prebuild — `codehub analyze` fails at store open |
+| Alpine / musl, 32-bit Linux ARM | ❌ no prebuild — needs a source build of `@ladybugdb/core` |
+
+On an unsupported platform the lbug binding fails to load and `open()`
+throws `GraphDbBindingError` (there is no DuckDB-graph fallback — see
+[ADR 0016](./docs/adr/0016-duckdb-graph-rip.md)). The five-target prebuilt
+matrix mirrors `@ladybugdb/core`'s release artifacts; track its upstream
+for musl / `win32-arm64` coverage.
 
 ## Quick start
 
@@ -229,10 +251,11 @@ supersedes ADR 0013 and the DuckDB-as-graph passages of ADR 0011.
 ## Parse runtime — WASM-only, vendored grammars
 
 `@opencodehub/ingestion` runs `web-tree-sitter` (WASM) as the only parse
-runtime on Node 20, 22, and 24. There is no native opt-in: the native
-`tree-sitter` N-API addon and all 14 `tree-sitter-<lang>` npm packages
-are gone from the install graph. `npm install -g @opencodehub/cli@latest`
-does zero native builds and zero GitHub fetches.
+runtime on the supported Node range (22 and 24). There is no native opt-in:
+the native `tree-sitter` N-API addon and all 14 `tree-sitter-<lang>` npm
+packages are gone from the install graph, so parsing pulls **zero native
+builds and zero GitHub fetches** at install time. (Storage and embeddings
+load prebuilt native bindings — see Platform support.)
 
 All 15 grammar `.wasm` blobs are vendored at
 `packages/ingestion/vendor/wasms/`, built from the grammar sources
@@ -253,13 +276,39 @@ superseded.
 `IGraphStore` / `ITemporalStore` interface segregation), B (19-scanner
 fleet incl. betterleaks), C (debt sweep — embedder fingerprint, SCIP
 REFERENCES + TYPE_OF), and D (dogfood polish) have all merged. The
-current shipped tag remains `0.1.1`; `1.0.0` is cut once schema +
-tool-surface stability is signed off.
+published package is `@opencodehub/cli` (currently `0.7.0`; the monorepo
+root tracks `0.8.0`); `1.0.0` is cut once schema + tool-surface stability
+is signed off.
 
 While on `0.x`, **any release may contain breaking changes** to the
 graph schema, MCP tool shapes, CLI flags, or storage layout. Breaking
 changes are called out with `!` or a `BREAKING CHANGE:` footer in the
 commit log and summarised in each release's generated CHANGELOG.
+
+## Troubleshooting
+
+### `codehub analyze` runs out of memory on a large repo
+
+The in-memory graph (`KnowledgeGraph`) holds the full node and edge set in
+two JavaScript `Map`s for the duration of `analyze`, and `bulkLoad`
+materializes transient copies before persistence — there is no spill to
+disk during the build. A real index is already in the 96k-node /
+291k-edge range; a monorepo roughly 10x that size can exhaust Node's
+default heap and exit with an out-of-memory error (`FATAL ERROR:
+Reached heap limit` / `JavaScript heap out of memory`), sometimes without
+a clear message.
+
+Raise Node's old-space ceiling for the run via `NODE_OPTIONS` (nothing
+is set by default):
+
+```bash
+# 8 GB heap — bump higher for very large monorepos
+NODE_OPTIONS=--max-old-space-size=8192 codehub analyze
+```
+
+Pick a value comfortably below your machine's free RAM. If you still hit
+the ceiling, analyze a subtree at a time rather than the whole monorepo
+in one pass.
 
 ## Supply-chain posture
 
@@ -274,8 +323,10 @@ Architecture decision records live in [`docs/adr/`](./docs/adr/) — the
 durable record of design tradeoffs (storage backend, SCIP adoption,
 hierarchical embeddings, CI toolchain pins, etc.).
 
-A standalone user-guide + MCP reference site is being bootstrapped in a
-dedicated repo; this README will link it once published.
+The user guide + MCP reference is published at
+**<https://theagenticguy.github.io/opencodehub>** — an Astro Starlight
+site whose source lives in-repo at [`packages/docs/`](./packages/docs/)
+and deploys to GitHub Pages on every push to `main`.
 
 ## Contributing
 

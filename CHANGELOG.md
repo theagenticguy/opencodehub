@@ -289,25 +289,6 @@
 
 * **release:** keep 0.x semver — breaking changes bump minor, feats bump patch ([a6ee4bf](https://github.com/theagenticguy/opencodehub/commit/a6ee4bf1081dd9a0623694aadae1e6f72cf60254))
 
-## [Unreleased]
-
-### Fixed
-
-- **cli:** `scan` ingests SARIF into the scanned repo, not CWD.
-- **cli:** `doctor` resolves native bindings from owner workspaces.
-- **smoke-mcp:** asserts 29 tools, matching the v1.0 server surface.
-
-### Docs
-
-- **repo:** README v1.0 status, 29-tool surface, parse-runtime section,
-  and accurate 17-package list (drops `eval` / `gym`, adds
-  `cobol-proleap`, `frameworks`, `pack`, `policy`, `wiki`).
-- **adr:** cross-link the two concurrently-numbered ADR 0013 files,
-  flip 0011 + 0013-m7 status to Accepted, and scrub session-local
-  spec coordinates from ADR text.
-- **repo:** sync `CHANGELOG`, `USECASE`, `AGENTS`, and `OBJECTIVES`
-  with v1 reality (tool count, language count, package set).
-
 ## [0.1.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.1.0...root-v0.1.1) (2026-04-22)
 
 

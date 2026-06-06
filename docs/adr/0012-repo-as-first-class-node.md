@@ -107,11 +107,12 @@ The phased plan, sequenced by milestone:
   AMBIGUOUS_REPO `_meta.choices[]` payload, the `group_*` tools'
   additive `repo_uri` fields, and the cross-repo link records all
   source `repo_uri` from the new node.
-- **M7**: drop the legacy `repo` registry-name argument across all
-  per-repo and group MCP tools (T-M7-6); the `repo_uri` form becomes
-  the only accepted input. New edge kinds (`Repo HAS_FILE File`,
-  `Repo HAS_DEPENDENCY Dependency`) get added then — see §Edge kinds
-  deferred below.
+- **M7** (planned at authoring time; **not pursued** — see §Edge kinds
+  deferred below): drop the legacy `repo` registry-name argument across
+  all per-repo and group MCP tools (T-M7-6) and add `Repo`-rooted edge
+  kinds (T-M7-7). Neither task shipped. The clean-slate v1 release keeps
+  the legacy `repo` argument as an accepted alias alongside `repo_uri`,
+  and `Repo` remains an edge-less singleton node.
 
 ## Schema choice — append-only `NodeKind` union
 
@@ -226,27 +227,35 @@ without a `RepoNode`. Three rules govern the migration:
    `CLAUDE.md`) works regardless of whether the graph has the node
    yet.
 
-## Edge kinds deferred
+## Edge kinds deferred → not pursued (won't-do for v1)
 
-`Repo` ships in M6 **without new edge kinds**. The full graph schema
-would have `Repo HAS_FILE File`, `Repo HAS_DEPENDENCY Dependency`,
-`Repo OWNED_BY Contributor`, `Repo IN_GROUP Community` (or similar),
-but those edges add complexity that does not pay off until M7's
-default-flip work for the LadybugDB backend. The M6 scope is the node
-itself plus the wire-format updates to AMBIGUOUS_REPO, the
-`group_*` tools, and the cross-repo link records. M7 (T-M7-6 and
-T-M7-7) extends the schema with the four edge kinds above, gated by
-its own parity gate and ADR.
+`Repo` ships **without new edge kinds**, and that stayed true for v1.
+At authoring time this section sketched four `Repo`-rooted edges —
+`Repo HAS_FILE File`, `Repo HAS_DEPENDENCY Dependency`,
+`Repo OWNED_BY Contributor`, `Repo IN_GROUP Community` (or similar) —
+to land in M7 under tasks T-M7-6 / T-M7-7. **None of them shipped.**
 
-The reason for the deferral is the v1.0 invariant at the heart of ADR
-0011: every new edge kind is a new physical rel table on the
-LadybugDB backend (rel-table-per-kind shape, ADR 0011 §Schema
-choice), so each new kind costs one DDL update plus one parity-test
-fixture. Bundling those four kinds into M7 — alongside the
-default-backend flip — keeps the parity surface small and the merge
-risk low. Adding them in M6 would split the rel-table-per-kind
-churn across two milestones and risk a graphHash drift if the
-W-M6-1 fixture coverage missed an interaction.
+> **Resolution (v1 clean-slate, 2026-06): won't-do.** The four
+> `Repo`-rooted edge kinds were never added. The v1 release does not
+> carry the M7 edge-schema extension; `RelationType` /
+> `RELATION_TYPES` in `packages/core-types/src/edges.ts` has **25**
+> members (`CONTAINS` … `TYPE_OF`), none of them `Repo`-rooted, and
+> `Repo` remains an edge-less singleton. `OWNED_BY` does exist in that
+> enum, but it is a **blame-level** edge from a symbol/file to a
+> `Contributor` (its `confidence` carries the normalized blame-line
+> share, per `CodeRelation`'s doc comment) — it is **not** the
+> `Repo OWNED_BY Contributor` repo-level edge sketched above. The
+> federation surface (AMBIGUOUS_REPO, the `group_*` tools, cross-repo
+> links) reads `repo_uri` straight off the `RepoNode` and from the
+> persisted ContractRegistry, so no `Repo`-rooted edge was needed to
+> ship it.
+
+The original deferral rationale (left for the record): every new edge
+kind is a new physical rel table on the LadybugDB backend
+(rel-table-per-kind shape, ADR 0011 §Schema choice), so each new kind
+costs one DDL update plus one parity-test fixture. The cost never paid
+off — the v1 surface ships without these edges, and any future
+`Repo`-rooted edge work would land under its own ADR.
 
 ## Risks
 
@@ -300,9 +309,10 @@ W-M6-1 fixture coverage missed an interaction.
   flips to **Accepted** in the same commit that ships AC-M6-5 (this
   ADR plus the AGENTS.md / CLAUDE.md cross-references plus the
   synthetic 2-repo quickcheck) — see §References below.
-- **Superseded**: not before M7. M7 adds a follow-up ADR (scope: drop
-  legacy `repo` argument, add `Repo`-rooted edge kinds, final
-  parity audit across the testbed corpus).
+- **Superseded**: no. The planned M7 follow-up (drop the legacy `repo`
+  argument, add `Repo`-rooted edge kinds) was **not pursued** — see
+  §Edge kinds deferred → not pursued. The `RepoNode` shape this ADR
+  introduced stands as-is in v1.
 
 ## References
 

@@ -324,15 +324,19 @@ jobs:
   # ---------------------------------------------------------------------------
   # 5. npm publish — OIDC trusted publishing with provenance.
   #
-  #    Gated by the `OCH_NPM_PUBLISH_ENABLED` repo variable. Each
-  #    @opencodehub/* package on npmjs.com has the trusted publisher
-  #    relationship configured against this repo + workflow filename,
-  #    so no NPM_TOKEN is required — the `id-token: write` permission
-  #    drives both OIDC auth to npm AND the Sigstore provenance
-  #    attestation that ties each published tarball back to this
-  #    workflow run + commit SHA. pnpm 10.21+ / 11.x supports OIDC on
-  #    direct `pnpm publish` (the changeset-publish regression in
-  #    pnpm/pnpm#11566 does not apply here).
+  #    Only `@opencodehub/cli` is published; every other workspace
+  #    package is `private: true` and its source is bundled into the CLI
+  #    at build time (PR #189), so `pnpm -r publish` skips them. The CLI
+  #    has an npm trusted-publisher relationship configured against this
+  #    repo + workflow filename, so no NPM_TOKEN is required — the
+  #    `id-token: write` permission drives both OIDC auth to npm AND the
+  #    Sigstore provenance attestation that ties the published tarball
+  #    back to this workflow run + commit SHA. This path is live: run
+  #    #176 published 0.6.0 with provenance. pnpm 10.21+ / 11.x supports
+  #    OIDC on direct `pnpm publish` (the changeset-publish regression in
+  #    pnpm/pnpm#11566 does not apply here). The publish job is gated
+  #    `if: vars.OCH_NPM_PUBLISH_ENABLED == 'true'` — that repo variable
+  #    is the on/off switch (set to `true` today).
   # ---------------------------------------------------------------------------
   npm-publish:
     name: npm publish (OIDC + provenance)

@@ -32,12 +32,16 @@ later, four facts forced the M7 architectural shift.
    limit identified in ADR 0011 §Context (one polymorphic `relations`
    table, `WHERE type = ?` evaluated after the join, no per-kind
    columnar pushdown) holds across every workload we measured in M4 –
-   M6. The 24-edge-kind cardinality is now 28 with M5/M6 additions
-   (`HAS_FILE`, `HAS_DEPENDENCY`, `IN_GROUP`, `OWNED_BY` repo-level
-   edges). DuckDB is the right engine for time-series / cochange
-   queries — its column-store strengths land squarely in the temporal
-   domain — but the graph workload is a different shape and benefits
-   from a graph-native engine.
+   M6. The edge-kind cardinality is **25** (`RelationType` /
+   `RELATION_TYPES` in `packages/core-types/src/edges.ts`, `CONTAINS`
+   … `TYPE_OF`) — the M5/M6 addition over the earlier 24 was `OWNED_BY`
+   (a blame-level symbol→`Contributor` edge), not the four `Repo`-rooted
+   edges (`HAS_FILE`, `HAS_DEPENDENCY`, `IN_GROUP`,
+   `Repo OWNED_BY Contributor`) that ADR 0012 §Edge kinds deferred
+   sketched: those never shipped. DuckDB is the right engine for
+   time-series / cochange queries — its column-store strengths land
+   squarely in the temporal domain — but the graph workload is a
+   different shape and benefits from a graph-native engine.
 2. **The `IGraphStore` interface had grown two non-graph
    responsibilities.** By the end of M6 it carried `cochanges` and
    `symbol-summaries` queries — both temporal, neither graph. Every
