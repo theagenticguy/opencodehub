@@ -18,7 +18,8 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AffectedModule, AffectedProcess, ImpactDepthBucket } from "@opencodehub/analysis";
-import type { ITemporalStore } from "@opencodehub/storage";
+import type { GraphNode } from "@opencodehub/core-types";
+import type { IGraphStore, ITemporalStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { callRunImpact } from "../analysis-bridge.js";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
@@ -39,6 +40,40 @@ interface ImpactCochangePartner {
   readonly cocommitCount: number;
   readonly lift: number;
   readonly lastCocommitAt: string;
+}
+
+/**
+ * Coverage ratio below which a dependent is flagged untested. Matches the
+ * `verdict` tool's `complex_and_untested` escalation threshold and the
+ * `context` tool's coverage verdict so all three surfaces agree.
+ */
+const COVERAGE_THIN_THRESHOLD = 0.5;
+
+/** A direct dependent annotated with its (optional) coverage ratio. */
+interface CoveredDependent {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: string;
+  readonly filePath: string;
+  /** Line-level coverage ratio in [0, 1], or null when none was ingested. */
+  readonly coveragePercent: number | null;
+}
+
+/**
+ * Untested-blast-radius summary over the depth-1 dependents. `untested`
+ * lists dependents whose KNOWN coverage is below the threshold; `unknown`
+ * lists dependents with no ingested coverage at all. The split is the whole
+ * point: a depth-1 node with no coverage report is UNKNOWN, never counted as
+ * untested, so a repo that simply never ran coverage is not maligned.
+ */
+interface UntestedBlastRadius {
+  readonly threshold: number;
+  readonly directCount: number;
+  readonly testedCount: number;
+  readonly untestedCount: number;
+  readonly unknownCount: number;
+  readonly untested: readonly CoveredDependent[];
+  readonly unknownCoverage: readonly CoveredDependent[];
 }
 
 const ImpactInput = {
@@ -161,6 +196,9 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
       const affectedProcesses = mapProcesses(result.affectedProcesses);
       const affectedModules = mapModules(result.affectedModules);
       const impactedCount = result.totalAffected;
+      // Untested blast radius: classify the depth-1 dependents by coverage so
+      // the caller sees which directly-impacted symbols ship without tests.
+      const untestedBlastRadius = await fetchUntestedBlastRadius(store.graph, byDepthMap[1] ?? []);
 
       const lines: string[] = [];
       lines.push(`Impact for ${chosenLabel} (${direction}, depth≤${q.maxDepth ?? 3})`);
@@ -196,6 +234,21 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
           lines.push(`  ⊡ ${m.name} [${m.impact}] — ${m.hits} hit(s)`);
         }
       }
+      if (untestedBlastRadius !== undefined && untestedBlastRadius.directCount > 0) {
+        lines.push(
+          `Untested blast radius (direct dependents, coverage<${(COVERAGE_THIN_THRESHOLD * 100).toFixed(0)}%): ` +
+            `${untestedBlastRadius.untestedCount} untested, ` +
+            `${untestedBlastRadius.testedCount} tested, ` +
+            `${untestedBlastRadius.unknownCount} unknown coverage`,
+        );
+        for (const n of untestedBlastRadius.untested.slice(0, 20)) {
+          const pct = n.coveragePercent === null ? "?" : `${(n.coveragePercent * 100).toFixed(1)}%`;
+          lines.push(`  ⚠ ${n.name} [${n.kind}] — ${n.filePath || "(no file)"} (coverage=${pct})`);
+        }
+        if (untestedBlastRadius.untested.length > 20) {
+          lines.push(`  … ${untestedBlastRadius.untested.length - 20} more`);
+        }
+      }
       if (cochanges.length > 0) {
         lines.push(
           `Files often edited together with this one (by lift) — git history, NOT call dependencies (${cochanges.length}):`,
@@ -224,6 +277,11 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
           "blast radius rests mostly on unconfirmed edges — treat the risk band as a lower bound and probe heuristic callers manually",
         );
       }
+      if (untestedBlastRadius !== undefined && untestedBlastRadius.untestedCount > 0) {
+        next.push(
+          `${untestedBlastRadius.untestedCount} direct dependent(s) are thinly tested (coverage<${(COVERAGE_THIN_THRESHOLD * 100).toFixed(0)}%) — add tests there before changing the target's contract`,
+        );
+      }
 
       return withNextSteps(
         lines.join("\n"),
@@ -240,6 +298,12 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
           confidenceBreakdown,
           traversedEdges: result.traversedEdges,
           cochanges,
+          // OPTIONAL: only attached when there are direct dependents AND the
+          // coverage overlay phase ingested a report somewhere on the path.
+          // Absent coverage lands a dependent in `unknownCoverage`, never in
+          // `untested` — a caller must not read a missing/empty field as
+          // "everything is untested".
+          ...(untestedBlastRadius !== undefined ? { untestedBlastRadius } : {}),
           ambiguous: false,
         },
         next,
@@ -258,7 +322,7 @@ export function registerImpactTool(server: McpServer, ctx: ToolContext): void {
     {
       title: "Change-impact blast radius",
       description:
-        "Walk the graph from a target symbol and group dependents by traversal depth. Depth-1 nodes will definitely break if the target's contract changes; depth-2 very likely; depth-3+ transitive. Returns a risk band (LOW/MEDIUM/HIGH/CRITICAL) derived from impactedCount + process count, plus `byDepth` groups, `affected_processes`, `affected_modules`, and a `confidenceBreakdown` (confirmed / heuristic / unknown) tallying the provenance tier of every edge traversed — low-risk verdicts are only trustworthy when `heuristic` and `unknown` are small relative to `confirmed`. Ambiguous names return an INVALID_INPUT error with a candidate list so the caller can re-invoke with `target_uid`, `file_path`, or `kind`. A side-section `cochanges` field lists files historically co-edited with the target's enclosing file, ranked by lift. These come from git history, not the call graph, and MUST NOT be mixed into the impactedNodes list.",
+        "Walk the graph from a target symbol and group dependents by traversal depth. Depth-1 nodes will definitely break if the target's contract changes; depth-2 very likely; depth-3+ transitive. Returns a risk band (LOW/MEDIUM/HIGH/CRITICAL) derived from impactedCount + process count, plus `byDepth` groups, `affected_processes`, `affected_modules`, and a `confidenceBreakdown` (confirmed / heuristic / unknown) tallying the provenance tier of every edge traversed — low-risk verdicts are only trustworthy when `heuristic` and `unknown` are small relative to `confirmed`. When the `coverage` overlay phase ingested a report and the target has direct dependents, an optional `untestedBlastRadius` field classifies the depth-1 dependents into `untested` (known coverage below the threshold), `tested`, and `unknownCoverage` (no coverage ingested) — so you can see which directly-impacted symbols will break silently. Dependents with no ingested coverage land in `unknownCoverage`, NEVER in `untested`: absent coverage is UNKNOWN, not 0%, so do not read a missing field or an empty `untested` list as fully untested. Ambiguous names return an INVALID_INPUT error with a candidate list so the caller can re-invoke with `target_uid`, `file_path`, or `kind`. A side-section `cochanges` field lists files historically co-edited with the target's enclosing file, ranked by lift. These come from git history, not the call graph, and MUST NOT be mixed into the impactedNodes list.",
       inputSchema: ImpactInput,
       annotations: {
         readOnlyHint: true,
@@ -322,4 +386,103 @@ async function fetchCochangesForFile(
     });
   }
   return out;
+}
+
+/** Read `coveragePercent` off a node as a finite [0, 1] ratio, else null. */
+function coverageOf(node: GraphNode): number | null {
+  const raw = (node as unknown as Record<string, unknown>)["coveragePercent"];
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  if (raw < 0 || raw > 1) return null;
+  return raw;
+}
+
+/**
+ * Classify the depth-1 dependents by test coverage so the caller can see the
+ * "untested blast radius" — which directly-impacted symbols are NOT backed by
+ * tests and so will break silently.
+ *
+ * Coverage is read per-symbol first (callables carry a `coveragePercent` from
+ * the coverage phase); dependents that lack a per-symbol ratio inherit their
+ * enclosing File node's ratio. A dependent with NO ingested coverage anywhere
+ * is reported under `unknownCoverage` — never under `untested` — so a repo
+ * that never ran coverage is not misreported as fully untested.
+ *
+ * Returns `undefined` when there are no direct dependents at all; the caller
+ * omits the field so a zero-blast-radius change carries no coverage noise.
+ */
+async function fetchUntestedBlastRadius(
+  graph: IGraphStore,
+  direct: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly kind: string;
+    readonly filePath: string;
+  }[],
+): Promise<UntestedBlastRadius | undefined> {
+  if (direct.length === 0) return undefined;
+
+  // Per-symbol coverage: one bulk lookup over the direct dependent ids.
+  const ids = Array.from(new Set(direct.map((d) => d.id))).filter((id) => id.length > 0);
+  const symbolCov = new Map<string, number | null>();
+  if (ids.length > 0) {
+    const nodes = await graph.listNodes({ ids });
+    for (const n of nodes) symbolCov.set(n.id, coverageOf(n));
+  }
+
+  // File-level fallback: gather the file paths of dependents whose own node
+  // carried no coverage, then look up the File node for each in one sweep.
+  const filesToProbe = new Set<string>();
+  for (const d of direct) {
+    const own = symbolCov.get(d.id) ?? null;
+    if (own === null && d.kind !== "File" && d.filePath.length > 0) {
+      filesToProbe.add(d.filePath);
+    }
+  }
+  const fileCov = new Map<string, number | null>();
+  await Promise.all(
+    [...filesToProbe].map(async (filePath) => {
+      const fileNodes = await graph.listNodesByKind("File", { filePath });
+      let ratio: number | null = null;
+      for (const node of fileNodes) {
+        const c = coverageOf(node);
+        if (c !== null) {
+          ratio = c;
+          break;
+        }
+      }
+      fileCov.set(filePath, ratio);
+    }),
+  );
+
+  const untested: CoveredDependent[] = [];
+  const unknownCoverage: CoveredDependent[] = [];
+  let testedCount = 0;
+  for (const d of direct) {
+    const own = symbolCov.get(d.id) ?? null;
+    const percent = own ?? (d.kind !== "File" ? (fileCov.get(d.filePath) ?? null) : null);
+    const entry: CoveredDependent = {
+      id: d.id,
+      name: d.name,
+      kind: d.kind,
+      filePath: d.filePath,
+      coveragePercent: percent,
+    };
+    if (percent === null) {
+      unknownCoverage.push(entry);
+    } else if (percent < COVERAGE_THIN_THRESHOLD) {
+      untested.push(entry);
+    } else {
+      testedCount += 1;
+    }
+  }
+
+  return {
+    threshold: COVERAGE_THIN_THRESHOLD,
+    directCount: direct.length,
+    testedCount,
+    untestedCount: untested.length,
+    unknownCount: unknownCoverage.length,
+    untested,
+    unknownCoverage,
+  };
 }

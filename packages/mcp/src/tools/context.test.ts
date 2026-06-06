@@ -247,6 +247,121 @@ test("context: include_content attaches source (capped at 2000 chars)", async ()
   );
 });
 
+test("context: surfaces per-symbol coverage when the overlay ingested a ratio", async () => {
+  await withHarness(
+    {
+      nodes: [
+        // Callable carries a per-symbol coveragePercent from the coverage phase.
+        {
+          id: "F:tested",
+          name: "tested",
+          kind: "Function",
+          file_path: "src/tested.ts",
+          coveragePercent: 0.92,
+        },
+      ],
+      relations: [],
+    },
+    async (ctx, server) => {
+      registerContextTool(server, ctx);
+      const handler = getToolHandler(server, "context");
+      const result = await handler({ uid: "F:tested", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as {
+        coverage?: { percent: number; covered: boolean; source: string };
+      };
+      assert.ok(sc.coverage, "coverage block present when a ratio was ingested");
+      assert.equal(sc.coverage?.percent, 0.92);
+      assert.equal(sc.coverage?.covered, true, "0.92 ≥ 0.5 threshold → covered");
+      assert.equal(sc.coverage?.source, "symbol");
+      const first = result.content[0];
+      assert.ok(first && first.type === "text");
+      assert.match(first.text, /Coverage: 92\.0% \(covered, from symbol\)/);
+    },
+  );
+});
+
+test("context: thin per-symbol coverage is reported as not covered", async () => {
+  await withHarness(
+    {
+      nodes: [
+        {
+          id: "F:thin",
+          name: "thin",
+          kind: "Function",
+          file_path: "src/thin.ts",
+          coveragePercent: 0.1,
+        },
+      ],
+      relations: [],
+    },
+    async (ctx, server) => {
+      registerContextTool(server, ctx);
+      const handler = getToolHandler(server, "context");
+      const result = await handler({ uid: "F:thin", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as {
+        coverage?: { percent: number; covered: boolean };
+      };
+      assert.ok(sc.coverage);
+      assert.equal(sc.coverage?.percent, 0.1);
+      assert.equal(sc.coverage?.covered, false, "0.1 < 0.5 threshold → not covered");
+    },
+  );
+});
+
+test("context: a symbol with no coverage inherits its enclosing File ratio", async () => {
+  await withHarness(
+    {
+      nodes: [
+        // The symbol carries NO coveragePercent; its enclosing File node does.
+        { id: "F:nocov", name: "nocov", kind: "Function", file_path: "src/mixed.ts" },
+        {
+          id: "File:mixed",
+          name: "mixed.ts",
+          kind: "File",
+          file_path: "src/mixed.ts",
+          coveragePercent: 0.7,
+        },
+      ],
+      relations: [],
+    },
+    async (ctx, server) => {
+      registerContextTool(server, ctx);
+      const handler = getToolHandler(server, "context");
+      const result = await handler({ uid: "F:nocov", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as {
+        coverage?: { percent: number; covered: boolean; source: string };
+      };
+      assert.ok(sc.coverage, "coverage inherited from the enclosing File node");
+      assert.equal(sc.coverage?.percent, 0.7);
+      assert.equal(sc.coverage?.source, "file");
+    },
+  );
+});
+
+test("context: coverage field is OMITTED when no report was ingested (never a false 0%)", async () => {
+  await withHarness(
+    {
+      nodes: [
+        // No coveragePercent anywhere on the symbol or its file.
+        { id: "F:uncov", name: "uncov", kind: "Function", file_path: "src/uncov.ts" },
+      ],
+      relations: [],
+    },
+    async (ctx, server) => {
+      registerContextTool(server, ctx);
+      const handler = getToolHandler(server, "context");
+      const result = await handler({ uid: "F:uncov", repo: "fakerepo" }, {});
+      const sc = result.structuredContent as { coverage?: unknown };
+      assert.equal(sc.coverage, undefined, "absent coverage → field omitted, not 0%");
+      const first = result.content[0];
+      assert.ok(first && first.type === "text");
+      assert.match(first.text, /Coverage: unknown/);
+      // Critically, the text must NOT imply 0% when coverage was never ingested.
+      assert.doesNotMatch(first.text, /Coverage: 0\.0%/);
+    },
+  );
+});
+
 test("context: categorises incoming + outgoing edges by edge type", async () => {
   await withHarness(
     {
