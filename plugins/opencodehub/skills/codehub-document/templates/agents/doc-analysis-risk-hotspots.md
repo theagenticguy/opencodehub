@@ -26,18 +26,18 @@ Produce `{{ docs_root }}/analysis/risk-hotspots.md`: a ranked table of the top 1
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Owners summary | `{{ context_path }} § Owners summary` | cached |
-| Risk trends | `mcp__opencodehub__risk_trends({repo: "{{ repo }}", window_days: 30})` | mid-run |
-| Current findings | `mcp__opencodehub__list_findings({repo: "{{ repo }}", severity: ">=warn"})` | mid-run |
-| Owners per hotspot | `mcp__opencodehub__owners({path: <file>})` or `{{ prefetch_path }} § owners` | cached when present |
-| Verdict context (optional) | `mcp__opencodehub__verdict({repo: "{{ repo }}"})` | mid-run, optional |
+| Risk trends | `mcp__codehub__risk_trends({repo: "{{ repo }}", window_days: 30})` | mid-run |
+| Current findings | `mcp__codehub__list_findings({repo: "{{ repo }}", severity: ">=warn"})` | mid-run |
+| Owners per hotspot | `mcp__codehub__owners({path: <file>})` or `{{ prefetch_path }} § owners` | cached when present |
+| Verdict context (optional) | `mcp__codehub__verdict({repo: "{{ repo }}"})` | mid-run, optional |
 
 ## 4. Process
 
 1. `Read {{ context_path }}` and `Read {{ prefetch_path }}`. Confirm the Owners summary and any cached findings/trend digests.
-2. Call `mcp__opencodehub__risk_trends({repo: "{{ repo }}", window_days: 30})`. Record the per-community / per-file trend slope (`↑ rising`, `→ flat`, `↓ falling`).
-3. Call `mcp__opencodehub__list_findings({repo: "{{ repo }}", severity: ">=warn"})`. Group findings by `file_path`; compute `N warn, M error` counts per file.
+2. Call `mcp__codehub__risk_trends({repo: "{{ repo }}", window_days: 30})`. Record the per-community / per-file trend slope (`↑ rising`, `→ flat`, `↓ falling`).
+3. Call `mcp__codehub__list_findings({repo: "{{ repo }}", severity: ">=warn"})`. Group findings by `file_path`; compute `N warn, M error` counts per file.
 4. Combine trend slope + severity into a risk score and rank files. Pick the top 12 for the ranking table; the top 5 feed the drill-down.
-5. For each top-12 file: resolve the top owner from `{{ prefetch_path }} § owners` when present, else `mcp__opencodehub__owners({path: <file>})`. Capture percentage share.
+5. For each top-12 file: resolve the top owner from `{{ prefetch_path }} § owners` when present, else `mcp__codehub__owners({path: <file>})`. Capture percentage share.
 6. Draft the ranked table with columns `File | Trend | Open findings | Top owner | Citation`. Every row cites the file as a backtick `path` with an optional `(N LOC)` suffix; every `Open findings` cell derives from `list_findings` output only.
 7. Draft the intro (2 paragraphs): what "risk" means here, how the scoring is composed, the window. If `risk_trends` returned `status: "insufficient_history"`, note the limitation in the intro and drop the Trend column.
 8. Draft the `## Per-file drill-down` section. One H3 per top-5 hotspot. Each H3 covers: What's there (2-sentence summary from `context`/`Read`), Recent activity (from `risk_trends`), Owners (top 1-2 with percentage share), Findings (counts by severity, each cited to `list_findings`).
@@ -58,11 +58,11 @@ Produce `{{ docs_root }}/analysis/risk-hotspots.md`: a ranked table of the top 1
 
 | Need | Tool | Why |
 |---|---|---|
-| Risk over time | `mcp__opencodehub__risk_trends` | slope + severity, pre-computed |
-| Open findings per file | `mcp__opencodehub__list_findings` | grouped by path; merges scanners |
-| Contributor share per path | `mcp__opencodehub__owners` | authoritative over git-blame |
-| Hotspot context / summary | `mcp__opencodehub__context` | inbound/outbound for the 2-sentence summary |
-| Severity framing (optional) | `mcp__opencodehub__verdict` | optional — frames the intro severity |
+| Risk over time | `mcp__codehub__risk_trends` | slope + severity, pre-computed |
+| Open findings per file | `mcp__codehub__list_findings` | grouped by path; merges scanners |
+| Contributor share per path | `mcp__codehub__owners` | authoritative over git-blame |
+| Hotspot context / summary | `mcp__codehub__context` | inbound/outbound for the 2-sentence summary |
+| Severity framing (optional) | `mcp__codehub__verdict` | optional — frames the intro severity |
 
 ## 7. Fallback paths
 

@@ -19,6 +19,11 @@
  *   - `operations` — OpenAPI `Operation` nodes linked to a Route target via
  *     `HANDLES_ROUTE` (cross-stack trace from the OpenAPI phase).
  *   - `confidenceBreakdown` — provenance tally over every edge surfaced.
+ *   - `coverage` (optional) — line-level test coverage for the target,
+ *     read from the `coverage` overlay phase. Present only when a coverage
+ *     report was ingested for the target (or its enclosing file); ABSENT
+ *     coverage is treated as UNKNOWN and the field is omitted entirely so a
+ *     caller never mistakes "not ingested" for "0% covered".
  *   - `content` (optional) — the target's indexed source, capped at
  *     {@link CONTENT_CHAR_CAP} characters. Only returned when
  *     `include_content` is true.
@@ -49,6 +54,13 @@ import {
 
 /** Upper bound on the `content` field size when `include_content` is true. */
 const CONTENT_CHAR_CAP = 2000;
+
+/**
+ * Coverage ratio below which a symbol is flagged as thinly tested. Matches the
+ * `verdict` tool's `complex_and_untested` escalation threshold so the two
+ * surfaces agree on what "untested" means.
+ */
+const COVERAGE_THIN_THRESHOLD = 0.5;
 
 /**
  * Relation types surfaced in the categorised `incoming` / `outgoing`
@@ -142,6 +154,21 @@ interface TargetLocation {
   readonly filePath: string;
   readonly startLine: number | null;
   readonly endLine: number | null;
+}
+
+/**
+ * Coverage block attached to a resolved target when the `coverage` overlay
+ * phase ingested a report for it. `percent` is the line-level ratio in
+ * [0, 1]; `covered` is the human-friendly verdict against
+ * {@link COVERAGE_THIN_THRESHOLD}; `source` records whether the ratio came
+ * from the target symbol itself or was inherited from its enclosing file.
+ * When coverage was never ingested the whole block is omitted — absent
+ * coverage is UNKNOWN, never 0%.
+ */
+interface TargetCoverage {
+  readonly percent: number;
+  readonly covered: boolean;
+  readonly source: "symbol" | "file";
 }
 
 /** The seven canonical category buckets plus the two override-kind buckets. */
@@ -248,6 +275,7 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
         operations,
         breakdownEdges,
         owner,
+        coverage,
       ] = await Promise.all([
         fetchCategorizedEdges(store.graph, target.id, "incoming"),
         fetchCategorizedEdges(store.graph, target.id, "outgoing"),
@@ -256,6 +284,7 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
         fetchLinkedOperations(store.graph, target),
         fetchConfidenceBreakdownEdges(store.graph, target.id),
         fetchOwner(store.graph, target.id),
+        fetchTargetCoverage(store.graph, target, resolution.coveragePercent),
       ]);
       const confidenceBreakdown = computeConfidenceBreakdown(breakdownEdges);
 
@@ -276,6 +305,13 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
           `${confidenceBreakdown.heuristic} heuristic, ` +
           `${confidenceBreakdown.unknown} unknown`,
       );
+      if (coverage !== undefined) {
+        const pct = (coverage.percent * 100).toFixed(1);
+        const verdict = coverage.covered ? "covered" : "thinly tested";
+        lines.push(`Coverage: ${pct}% (${verdict}, from ${coverage.source})`);
+      } else {
+        lines.push("Coverage: unknown (no coverage report ingested for this target)");
+      }
       appendCategorySection(lines, "Incoming", incoming);
       appendCategorySection(lines, "Outgoing", outgoing);
       if (owner.length > 0) {
@@ -346,6 +382,10 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
         operations,
         confidenceBreakdown,
       };
+      // Coverage is OPTIONAL: only attached when a report was ingested for the
+      // target (or its enclosing file). Omitting the field when unknown is the
+      // contract — a caller must never read absence as "0% covered".
+      if (coverage !== undefined) structured["coverage"] = coverage;
       if (content !== undefined) structured["content"] = content;
 
       return withNextSteps(lines.join("\n"), structured, next, stalenessFromMeta(resolved.meta));
@@ -362,7 +402,7 @@ export function registerContextTool(server: McpServer, ctx: ToolContext): void {
     {
       title: "360-degree symbol view",
       description:
-        "Resolve a symbol to its graph node and return categorised incoming/outgoing edges (calls, imports, accesses, has_method, has_property, extends, implements, method_overrides, method_implements), process participation, OpenAPI operation links for Route targets, and file location. Use `uid` for zero-ambiguity lookup, or narrow a common name with `file_path` and/or `kind`; when a name still matches more than one node the response is a candidate list for you to pick from. Set `include_content: true` to attach the indexed source (capped at 2000 characters). The response also carries a `confidenceBreakdown` (confirmed / heuristic / unknown) tallying the provenance tier of every edge surfaced — so callers can tell whether the neighbourhood is backed by an LSP oracle or by heuristics. Finally, a top-level `cochanges` field lists files often edited together with the target's enclosing file, ranked by lift. These come from the dedicated `cochanges` table (git history), are strictly a statistical signal, and MUST NOT be treated as static code dependencies.",
+        "Resolve a symbol to its graph node and return categorised incoming/outgoing edges (calls, imports, accesses, has_method, has_property, extends, implements, method_overrides, method_implements), process participation, OpenAPI operation links for Route targets, and file location. Use `uid` for zero-ambiguity lookup, or narrow a common name with `file_path` and/or `kind`; when a name still matches more than one node the response is a candidate list for you to pick from. Set `include_content: true` to attach the indexed source (capped at 2000 characters). The response also carries a `confidenceBreakdown` (confirmed / heuristic / unknown) tallying the provenance tier of every edge surfaced — so callers can tell whether the neighbourhood is backed by an LSP oracle or by heuristics. When the `coverage` overlay phase ingested a report, an optional `coverage` field reports `{ percent (0–1), covered, source }` for the target (per-symbol when available, else inherited from its enclosing file). The field is OMITTED when no coverage was ingested — absent coverage is UNKNOWN, never 0%, so do not treat a missing `coverage` field as untested. Finally, a top-level `cochanges` field lists files often edited together with the target's enclosing file, ranked by lift. These come from the dedicated `cochanges` table (git history), are strictly a statistical signal, and MUST NOT be treated as static code dependencies.",
       inputSchema: ContextInput,
       annotations: {
         readOnlyHint: true,
@@ -384,6 +424,12 @@ type ResolveOutcome =
       startLine: number | null;
       endLine: number | null;
       content: string | null;
+      /**
+       * Line-level coverage ratio carried on the resolved node itself
+       * (callables get one from the coverage phase). `null` when the node
+       * has no ingested coverage — distinct from a real 0.
+       */
+      coveragePercent: number | null;
     };
 
 /**
@@ -407,6 +453,7 @@ async function resolveTarget(
       startLine: toLineOrNull(getProp(node, "startLine")),
       endLine: toLineOrNull(getProp(node, "endLine")),
       content: stringOrNull(getProp(node, "content")),
+      coveragePercent: coverageOrNull(getProp(node, "coveragePercent")),
     };
   }
 
@@ -443,6 +490,7 @@ async function resolveTarget(
     startLine: toLineOrNull(getProp(node, "startLine")),
     endLine: toLineOrNull(getProp(node, "endLine")),
     content: stringOrNull(getProp(node, "content")),
+    coveragePercent: coverageOrNull(getProp(node, "coveragePercent")),
   };
 }
 
@@ -469,6 +517,56 @@ function toLineOrNull(raw: unknown): number | null {
 function stringOrNull(raw: unknown): string | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
   return raw;
+}
+
+/**
+ * Coerce a raw `coveragePercent` value to a finite ratio in [0, 1], or
+ * `null` when the field is absent/non-numeric. Returning `null` (not 0) is
+ * load-bearing: a missing coverage column means "never ingested" (UNKNOWN),
+ * which must not be rendered as "0% covered".
+ */
+function coverageOrNull(raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  if (raw < 0 || raw > 1) return null;
+  return raw;
+}
+
+/**
+ * Resolve the coverage block for a target. Prefers the ratio carried on the
+ * resolved node itself (callables get a per-symbol ratio from the coverage
+ * phase); for File targets that ratio already IS the file ratio. Otherwise
+ * falls back to the enclosing File node's `coveragePercent` so a symbol
+ * inside a covered file still reports coverage. Returns `undefined` when no
+ * coverage was ingested anywhere on the path — the caller omits the field.
+ */
+async function fetchTargetCoverage(
+  graph: IGraphStore,
+  target: NodeRow,
+  ownCoverage: number | null,
+): Promise<TargetCoverage | undefined> {
+  if (ownCoverage !== null) {
+    return {
+      percent: ownCoverage,
+      covered: ownCoverage >= COVERAGE_THIN_THRESHOLD,
+      source: target.kind === "File" ? "file" : "symbol",
+    };
+  }
+  // Symbol carried no coverage — inherit from its enclosing File node when one
+  // exists with an ingested ratio. File targets with no own ratio fall through
+  // to UNKNOWN (we don't re-query the same node).
+  if (target.kind === "File" || target.filePath.length === 0) return undefined;
+  const fileNodes = await graph.listNodesByKind("File", { filePath: target.filePath });
+  for (const node of fileNodes) {
+    const fileCov = coverageOrNull(getProp(node, "coveragePercent"));
+    if (fileCov !== null) {
+      return {
+        percent: fileCov,
+        covered: fileCov >= COVERAGE_THIN_THRESHOLD,
+        source: "file",
+      };
+    }
+  }
+  return undefined;
 }
 
 function capContent(raw: string | null): string | undefined {

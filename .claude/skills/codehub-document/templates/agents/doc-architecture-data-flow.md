@@ -26,9 +26,9 @@ Produce `{{ docs_root }}/architecture/data-flow.md`: a walk of the top 3 process
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top processes | `{{ context_path }} § Top processes` | cached |
-| Process entry points | `{{ prefetch_path }} § entry points` or `mcp__opencodehub__sql({query: "SELECT p.name, n.name AS entry_name, n.file_path, n.start_line FROM nodes p JOIN nodes n ON p.entry_point_id = n.id WHERE p.kind='Process'"})` | cached if digest present |
-| Symbol neighborhoods along each flow | `mcp__opencodehub__context({symbol: <id>})` | mid-run (only if cache miss) |
-| Query grounding for ambiguous steps | `mcp__opencodehub__query({text: "<concept>", limit: 10})` | mid-run (only if cache miss) |
+| Process entry points | `{{ prefetch_path }} § entry points` or `mcp__codehub__sql({query: "SELECT p.name, n.name AS entry_name, n.file_path, n.start_line FROM nodes p JOIN nodes n ON p.entry_point_id = n.id WHERE p.kind='Process'"})` | cached if digest present |
+| Symbol neighborhoods along each flow | `mcp__codehub__context({symbol: <id>})` | mid-run (only if cache miss) |
+| Query grounding for ambiguous steps | `mcp__codehub__query({text: "<concept>", limit: 10})` | mid-run (only if cache miss) |
 | Source spans for step citations | `Read <file>` over `start_line..start_line+20` | mid-run |
 
 ## 4. Process
@@ -56,8 +56,8 @@ Produce `{{ docs_root }}/architecture/data-flow.md`: a walk of the top 3 process
 | Need | Tool | Why |
 |---|---|---|
 | Process list + entry points | `{{ context_path }} § Top processes` + `{{ prefetch_path }}` | precomputed; do not re-call `sql` |
-| Symbol neighborhood for call chain | `mcp__opencodehub__context` | inbound/outbound relations grounded in the graph |
-| Concept grounding when a step is ambiguous | `mcp__opencodehub__query` | hybrid BM25+vector, process-grouped |
+| Symbol neighborhood for call chain | `mcp__codehub__context` | inbound/outbound relations grounded in the graph |
+| Concept grounding when a step is ambiguous | `mcp__codehub__query` | hybrid BM25+vector, process-grouped |
 | Verifying step text | `Read` at `path:start_line-start_line+20` | avoid paraphrase drift |
 
 ## 7. Fallback paths

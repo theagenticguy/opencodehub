@@ -25,16 +25,16 @@ tells you exactly what to change and then checks your work.
 
 ```
 PLAN
-1. mcp__opencodehub__impact({ name: target, direction: "upstream" })   → All dependents (the edit list)
-2. mcp__opencodehub__context({ name: target })                         → Incoming / outgoing refs + processes
-3. mcp__opencodehub__shape_check (if the symbol is a route/payload)    → Producer/consumer drift to watch
+1. mcp__codehub__impact({ name: target, direction: "upstream" })   → All dependents (the edit list)
+2. mcp__codehub__context({ name: target })                         → Incoming / outgoing refs + processes
+3. mcp__codehub__shape_check (if the symbol is a route/payload)    → Producer/consumer drift to watch
 4. Build the edit plan from impact's d=1 set + context's refs
 
 APPLY (you / your editor — OpenCodeHub does not do this)
 5. Make the edits in your editor or with the language server's rename
 
 VERIFY
-6. mcp__opencodehub__detect_changes({ scope: "unstaged" })             → What the diff actually touched
+6. mcp__codehub__detect_changes({ scope: "unstaged" })             → What the diff actually touched
 7. Cross-check changed_symbols against the plan — any surprise is a miss
 8. Run tests for the affected processes
 ```
@@ -47,8 +47,8 @@ VERIFY
 
 ```
 PLAN
-- [ ] mcp__opencodehub__impact({ name, direction: "upstream" }) — enumerate every dependent; this is your edit list
-- [ ] mcp__opencodehub__context({ name }) — see inbound + outbound refs, including ACCESSES edges
+- [ ] mcp__codehub__impact({ name, direction: "upstream" }) — enumerate every dependent; this is your edit list
+- [ ] mcp__codehub__context({ name }) — see inbound + outbound refs, including ACCESSES edges
       (pass `file_path` and/or `kind` to disambiguate when the name is ambiguous)
 - [ ] Note the confidenceBreakdown: `unknown > 0` means a heuristic edge the SCIP
       oracle contradicted — inspect those by reading source before trusting them
@@ -59,7 +59,7 @@ APPLY (your editor / LSP rename — not an OpenCodeHub tool)
 - [ ] Apply the rename across the files impact + context named
 
 VERIFY
-- [ ] mcp__opencodehub__detect_changes({ scope: "unstaged" }) — confirm the diff scope
+- [ ] mcp__codehub__detect_changes({ scope: "unstaged" }) — confirm the diff scope
 - [ ] Cross-check detect_changes against impact's d=1 count — a gap means a missed reference
 - [ ] Run tests for every affected process
 ```
@@ -67,11 +67,11 @@ VERIFY
 ### Extract a module
 
 ```
-- [ ] mcp__opencodehub__context({ name: target }) — see every external ref
-- [ ] mcp__opencodehub__impact({ name: target, direction: "upstream" }) — callers outside the new module
+- [ ] mcp__codehub__context({ name: target }) — see every external ref
+- [ ] mcp__codehub__impact({ name: target, direction: "upstream" }) — callers outside the new module
 - [ ] Define the new public surface (export only what external callers use)
 - [ ] Move code; update imports (in your editor)
-- [ ] mcp__opencodehub__detect_changes — verify scope
+- [ ] mcp__codehub__detect_changes — verify scope
 - [ ] Run tests for the affected processes
 - [ ] Re-run codehub analyze so the next agent sees the new module boundary
 ```
@@ -79,20 +79,20 @@ VERIFY
 ### Split a function or service
 
 ```
-- [ ] mcp__opencodehub__context({ name: target }) — understand outgoing calls
+- [ ] mcp__codehub__context({ name: target }) — understand outgoing calls
 - [ ] Group outgoing calls by responsibility (the seams for the split)
-- [ ] mcp__opencodehub__impact({ name: target, direction: "upstream" }) — map callers to update
+- [ ] mcp__codehub__impact({ name: target, direction: "upstream" }) — map callers to update
 - [ ] Create the new functions / services and update callers (in your editor)
-- [ ] mcp__opencodehub__detect_changes — verify scope
+- [ ] mcp__codehub__detect_changes — verify scope
 - [ ] Run tests
 ```
 
 ## Tools
 
-### `mcp__opencodehub__impact` — enumerate dependents before you edit
+### `mcp__codehub__impact` — enumerate dependents before you edit
 
 ```
-mcp__opencodehub__impact({
+mcp__codehub__impact({
   name: "validateUser",
   direction: "upstream",
   depth: 2,
@@ -109,10 +109,10 @@ The d=1 set IS your rename edit list. If `unknown > 0`, the demote phase
 contradicted a heuristic edge — that edge may not be a real call, so inspect it
 before counting it.
 
-### `mcp__opencodehub__context` — every inbound and outbound reference
+### `mcp__codehub__context` — every inbound and outbound reference
 
 ```
-mcp__opencodehub__context({ name: "validateUser", repo: "my-app" })
+mcp__codehub__context({ name: "validateUser", repo: "my-app" })
 
 → callers:   inbound CALLS / REFERENCES edges
 → callees:   outbound edges
@@ -124,10 +124,10 @@ Use `context` to catch references `impact` does not surface as direct callers �
 re-exports, shadowed locals, and ACCESSES edges. The combination of `impact`
 (d=1) and `context` (all refs) is the complete edit list the graph can see.
 
-### `mcp__opencodehub__detect_changes` — verify the post-refactor diff
+### `mcp__codehub__detect_changes` — verify the post-refactor diff
 
 ```
-mcp__opencodehub__detect_changes({ scope: "unstaged", repo: "my-app" })
+mcp__codehub__detect_changes({ scope: "unstaged", repo: "my-app" })
 
 → changed_symbols: [...]
 → affected_processes: [...]
@@ -137,19 +137,19 @@ mcp__opencodehub__detect_changes({ scope: "unstaged", repo: "my-app" })
 Always run this **after** you apply the edits. Any symbol you did not expect to
 change is a miss; any planned symbol that does not appear was not edited.
 
-### `mcp__opencodehub__shape_check` — catch contract drift on routes/payloads
+### `mcp__codehub__shape_check` — catch contract drift on routes/payloads
 
 When the refactor touches an HTTP route or a response payload, `shape_check`
 flags producer/consumer mismatches so a response-shape change does not silently
 break a downstream consumer.
 
 ```
-mcp__opencodehub__shape_check({ route: "GET /users/:id", repo: "my-app" })
+mcp__codehub__shape_check({ route: "GET /users/:id", repo: "my-app" })
 
 → mismatches: [{ consumer, expected, actual }]
 ```
 
-### `mcp__opencodehub__sql` — custom reference query (temporal store)
+### `mcp__codehub__sql` — custom reference query (temporal store)
 
 The `sql` arg is read-only DuckDB over the temporal store (cochanges +
 symbol_summaries). To enumerate every file referencing a symbol from the graph,
@@ -180,12 +180,12 @@ list before and after you edit.
 
 ```
 PLAN
-1. mcp__opencodehub__impact({ name: "validateUser", direction: "upstream", repo: "my-app" })
+1. mcp__codehub__impact({ name: "validateUser", direction: "upstream", repo: "my-app" })
    → d=1: loginHandler, apiMiddleware, tests/auth.test.ts
    → affected_processes: [LoginFlow, TokenRefresh]
    → confidenceBreakdown: {confirmed: 3, heuristic: 0, unknown: 0}
 
-2. mcp__opencodehub__context({ name: "validateUser", repo: "my-app" })
+2. mcp__codehub__context({ name: "validateUser", repo: "my-app" })
    → callers confirm the same three sites
    → also surfaces a string reference in config/routes.json and a mention in docs/auth.md
      (dynamic refs the graph flags but cannot edit) — add both to the manual-check list
@@ -195,7 +195,7 @@ APPLY (in your editor — OpenCodeHub does not write files)
    test, then hand-edit config/routes.json and docs/auth.md.
 
 VERIFY
-4. mcp__opencodehub__detect_changes({ scope: "unstaged", repo: "my-app" })
+4. mcp__codehub__detect_changes({ scope: "unstaged", repo: "my-app" })
    → changed_symbols: [authenticateUser, loginHandler, apiMiddleware, ...]
    → affected_processes: [LoginFlow, TokenRefresh]
    → risk_level: MEDIUM

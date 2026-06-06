@@ -236,6 +236,7 @@ test("renderVerdictMarkdown: header + tier + labels rendered", () => {
     blastRadius: 55,
     communitiesTouched: ["c1"],
     changedFileCount: 3,
+    changedFiles: ["a.ts", "b.ts", "c.ts"],
     affectedSymbolCount: 5,
   });
   assert.match(md, /OpenCodeHub Verdict: `block`/);

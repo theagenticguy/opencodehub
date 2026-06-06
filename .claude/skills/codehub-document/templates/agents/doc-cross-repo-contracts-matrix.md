@@ -30,7 +30,7 @@ Produce `{{ group_docs_root }}/cross-repo/contracts-matrix.md`: the N×N produce
 | Member list + freshness | `{{ group_context_path }} § Members` / `{{ group_prefetch_path }} § group_list,group_status` | cached |
 | Group contracts (the spine) | `{{ group_prefetch_path }} § group_contracts` | cached |
 | Per-member route inventory | `{{ group_prefetch_path }} § route_map(<repo>)` per `{{ member_repos }}` | cached |
-| Concept → symbol disambiguation | `mcp__opencodehub__group_query({group: "{{ group }}", text: <concept>})` | mid-run, on demand |
+| Concept → symbol disambiguation | `mcp__codehub__group_query({group: "{{ group }}", text: <concept>})` | mid-run, on demand |
 
 ## 4. Process
 
@@ -58,7 +58,7 @@ Produce `{{ group_docs_root }}/cross-repo/contracts-matrix.md`: the N×N produce
 | Member list + freshness | `{{ group_prefetch_path }} § group_list,group_status` | precondition gate; precomputed |
 | Contract inventory | `{{ group_prefetch_path }} § group_contracts` | authoritative spine; do not re-call |
 | Producer file resolution | `{{ group_prefetch_path }} § route_map(<repo>)` | maps contract `path` → handler `file:LOC` |
-| Concept disambiguation | `mcp__opencodehub__group_query` | when a contract's target symbol has multiple matches across the group |
+| Concept disambiguation | `mcp__codehub__group_query` | when a contract's target symbol has multiple matches across the group |
 
 ## 7. Fallback paths
 

@@ -70,6 +70,13 @@ export interface VerdictResponse {
   readonly communitiesTouched: readonly string[];
   /** Number of changed files. */
   readonly changedFileCount: number;
+  /**
+   * Repo-relative paths of the changed files (forward-slash separated), as
+   * computed by `detect_changes`. Surfaced so policy evaluation can run
+   * path-scoped rules (`ownership_required`, `changed_paths`) against the
+   * real diff rather than a re-derived file list.
+   */
+  readonly changedFiles: readonly string[];
   /** Number of affected symbols. */
   readonly affectedSymbolCount: number;
 }

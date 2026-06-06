@@ -113,8 +113,11 @@ jobs:
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
+        # Root is `private: true` with no runtime deps post-collapse; scan
+        # packages/cli (the real third-party runtime deps) via `--start`.
         run: >
           pnpm exec license-checker-rseidelsohn
+          --start packages/cli
           --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD'
           --excludePrivatePackages
           --production

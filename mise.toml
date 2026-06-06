@@ -146,8 +146,10 @@ description = "Verify no banned identifiers leaked in"
 run = "bash scripts/check-banned-strings.sh"
 
 [tasks.licenses]
-description = "License allowlist check (prod deps)"
-run = "pnpm exec license-checker-rseidelsohn --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' --excludePrivatePackages --production"
+description = "License allowlist check (packages/cli prod deps)"
+# Root is `private: true` with no runtime deps post-collapse, so scan from
+# packages/cli (where the real third-party runtime deps live) via `--start`.
+run = "pnpm exec license-checker-rseidelsohn --start packages/cli --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' --excludePrivatePackages --production"
 
 [tasks.osv]
 description = "OSV vulnerability scan against pnpm-lock.yaml"

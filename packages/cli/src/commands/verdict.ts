@@ -4,7 +4,9 @@
 
 import { join } from "node:path";
 import {
+  classifyDependencies,
   computeVerdict,
+  type DependencyRef,
   type VerdictConfig,
   type VerdictQuery,
   type VerdictResponse,
@@ -12,6 +14,7 @@ import {
 } from "@opencodehub/analysis";
 import {
   evaluatePolicy,
+  type LicenseViolationInput,
   loadPolicy,
   type Policy,
   type PolicyContext,
@@ -119,9 +122,15 @@ export async function runVerdict(opts: VerdictCliOptions = {}): Promise<void> {
     const load = opts.loadPolicyFn ?? loadPolicy;
     const policyPath = join(repoPath, "opencodehub.policy.yaml");
     const policy = await load(policyPath);
+    // Only pay the dependency scan when a policy is actually loaded — the
+    // starter (no-file) repo skips it entirely.
+    const licenseViolations = policy !== undefined ? await collectLicenseViolations(store) : [];
     const policyDecision =
       policy !== undefined
-        ? evaluatePolicy(policy, buildPolicyContext(verdict, opts.approvals ?? []))
+        ? evaluatePolicy(
+            policy,
+            buildPolicyContext(verdict, opts.approvals ?? [], licenseViolations),
+          )
         : undefined;
 
     const baseOutput =
@@ -149,22 +158,69 @@ export async function runVerdict(opts: VerdictCliOptions = {}): Promise<void> {
   }
 }
 
-function buildPolicyContext(verdict: VerdictResponse, approvals: readonly string[]): PolicyContext {
+function buildPolicyContext(
+  verdict: VerdictResponse,
+  approvals: readonly string[],
+  licenseViolations: readonly LicenseViolationInput[],
+): PolicyContext {
   return {
-    // v1 wiring: verdict does not yet compute a license audit, so we
-    // surface an empty set. license_allowlist rules therefore pass until a
-    // follow-up task wires SBOM license data in.
-    licenseViolations: [],
+    // License findings come from `classifyDependencies` over the indexed
+    // Dependency nodes (see collectLicenseViolations). `license_allowlist`
+    // rules fire when a flagged dep's declared license is in the rule's
+    // `deny` list.
+    licenseViolations,
     blastRadiusTier: POLICY_TIER_FOR_VERDICT[verdict.verdict],
-    // v1 wiring: ownership_required rules inspect touched paths. We don't
-    // have the raw changed-file list on VerdictResponse yet — the closest
-    // structured data is communitiesTouched. Leave touchedPaths empty for
-    // now; this means ownership_required is a no-op until the verdict
-    // pipeline surfaces changed paths explicitly.
-    touchedPaths: [],
+    // `ownership_required` / changed-path rules evaluate against the real
+    // diff: the changed-file list `computeVerdict` already derived from
+    // `detect_changes`, surfaced on the response.
+    touchedPaths: verdict.changedFiles,
+    // ownersByPath stays empty: mapping each path to an approving owner
+    // needs a contributor-email -> team/handle reconciliation source that
+    // does not exist yet (separate design item). `require_approval_from`
+    // still works because the evaluator unions it with any path owners.
     ownersByPath: new Map(),
     approvals,
   };
+}
+
+/**
+ * Classify the indexed Dependency nodes and project the flagged ones into
+ * `LicenseViolationInput[]` so `license_allowlist` rules have something to
+ * match against. The declared license string is surfaced verbatim (so a
+ * policy can `deny: ["GPL-3.0"]`); deps with a missing or `"UNKNOWN"`
+ * license report as `"UNKNOWN"` so a strict policy can deny those too.
+ *
+ * Defensive: legacy test fakes inject a bare `IGraphStore` without
+ * `listDependencies`. When the finder is absent or throws (pre-dependency
+ * index), we return no violations rather than crashing the verdict.
+ */
+async function collectLicenseViolations(
+  store: IGraphStore | Store,
+): Promise<readonly LicenseViolationInput[]> {
+  const graph: IGraphStore = "graph" in store ? store.graph : store;
+  if (typeof graph.listDependencies !== "function") return [];
+  let deps: DependencyRef[];
+  try {
+    const all = await graph.listDependencies();
+    deps = all.map((d) => ({
+      id: d.id,
+      name: d.name,
+      version: typeof d.version === "string" ? d.version : "UNKNOWN",
+      ecosystem: typeof d.ecosystem === "string" ? d.ecosystem : "unknown",
+      license: typeof d.license === "string" && d.license.length > 0 ? d.license : "UNKNOWN",
+      lockfileSource: typeof d.lockfileSource === "string" ? d.lockfileSource : "",
+    }));
+  } catch {
+    return [];
+  }
+  const result = classifyDependencies(deps);
+  const out: LicenseViolationInput[] = [];
+  // Copyleft + proprietary carry their declared license; unknown deps were
+  // normalised to "UNKNOWN" above.
+  for (const d of result.flagged.copyleft) out.push({ license: d.license, package: d.name });
+  for (const d of result.flagged.proprietary) out.push({ license: d.license, package: d.name });
+  for (const d of result.flagged.unknown) out.push({ license: d.license, package: d.name });
+  return out;
 }
 
 /**
