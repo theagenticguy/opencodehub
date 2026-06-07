@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.1](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.0...cli-v0.7.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* **cli:** make verdict policy rules fire (license + changed-paths wiring) ([#195](https://github.com/theagenticguy/opencodehub/issues/195)) ([ed70a1b](https://github.com/theagenticguy/opencodehub/commit/ed70a1b3ce117857c02ba00f8ab850448afcf6b3))
+* **cli:** platform-aware doctor diagnostics and cobol wrapper resolution for the bundled CLI ([#199](https://github.com/theagenticguy/opencodehub/issues/199)) ([743aa98](https://github.com/theagenticguy/opencodehub/commit/743aa984748e8b4bec229a71a0b3b7d5d7c876e5))
+
+
+### Documentation
+
+* de-stale README/CHANGELOG/release docs, add cleanroom + heap notes, drop expired shims ([#197](https://github.com/theagenticguy/opencodehub/issues/197)) ([aa872d6](https://github.com/theagenticguy/opencodehub/commit/aa872d63491d3363b644375931cfe434961bb9a8))
+
 ## [0.7.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.6.0...cli-v0.7.0) (2026-06-04)
 
 

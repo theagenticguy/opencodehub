@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.0...root-v0.8.1) (2026-06-07)
+
+
+### Features
+
+* **mcp:** surface ingested test-coverage on context and impact ([#196](https://github.com/theagenticguy/opencodehub/issues/196)) ([9e489b5](https://github.com/theagenticguy/opencodehub/commit/9e489b53e50e83d55c7d21c4e160922f8c98df7b))
+
+
+### Bug Fixes
+
+* **ci:** point license gate at packages/cli and align plugin tool namespace to codehub ([#193](https://github.com/theagenticguy/opencodehub/issues/193)) ([7c67d23](https://github.com/theagenticguy/opencodehub/commit/7c67d2343ccb9d55de844ac3642bd42c29ba7ec3))
+* **cli:** make verdict policy rules fire (license + changed-paths wiring) ([#195](https://github.com/theagenticguy/opencodehub/issues/195)) ([ed70a1b](https://github.com/theagenticguy/opencodehub/commit/ed70a1b3ce117857c02ba00f8ab850448afcf6b3))
+* **cli:** platform-aware doctor diagnostics and cobol wrapper resolution for the bundled CLI ([#199](https://github.com/theagenticguy/opencodehub/issues/199)) ([743aa98](https://github.com/theagenticguy/opencodehub/commit/743aa984748e8b4bec229a71a0b3b7d5d7c876e5))
+* **ingestion:** extract TS/JS re-exports, multi-line imports, and computed dynamic imports ([#194](https://github.com/theagenticguy/opencodehub/issues/194)) ([f1f2844](https://github.com/theagenticguy/opencodehub/commit/f1f2844c2f1c87ccfe5e798eab49446aa963510f))
+
+
+### Documentation
+
+* de-stale README/CHANGELOG/release docs, add cleanroom + heap notes, drop expired shims ([#197](https://github.com/theagenticguy/opencodehub/issues/197)) ([aa872d6](https://github.com/theagenticguy/opencodehub/commit/aa872d63491d3363b644375931cfe434961bb9a8))
+
 ## [0.8.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.7.0...root-v0.8.0) (2026-06-04)
 
 
