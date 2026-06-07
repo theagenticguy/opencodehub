@@ -82,7 +82,7 @@
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "@types/write-file-atomic": "4.0.3",
     "tsup": "^8.5.1",
     "typescript": "6.0.3"
