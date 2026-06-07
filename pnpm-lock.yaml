@@ -133,8 +133,8 @@ importers:
         specifier: 0.6.5
         version: 0.6.5
       commander:
-        specifier: 14.0.3
-        version: 14.0.3
+        specifier: 15.0.0
+        version: 15.0.0
       fast-xml-parser:
         specifier: 5.8.0
         version: 5.8.0
@@ -2752,9 +2752,9 @@ packages:
     resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
     engines: {node: '>=18'}
 
-  commander@14.0.3:
-    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
-    engines: {node: '>=20'}
+  commander@15.0.0:
+    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
 
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
@@ -8126,7 +8126,7 @@ snapshots:
 
   commander@12.1.0: {}
 
-  commander@14.0.3: {}
+  commander@15.0.0: {}
 
   commander@2.20.3: {}
 
@@ -11766,7 +11766,7 @@ time:
   ajv@8.20.0: '2026-04-24T15:22:16.529Z'
   astro@6.4.4: '2026-06-03T17:37:01.753Z'
   cli-table3@0.6.5: '2024-05-12T16:36:50.079Z'
-  commander@14.0.3: '2026-01-31T01:47:17.592Z'
+  commander@15.0.0: '2026-05-29T09:16:23.076Z'
   commitizen@4.3.1: '2024-09-27T04:18:48.788Z'
   cz-conventional-changelog@3.3.0: '2020-08-26T18:43:16.534Z'
   fast-xml-parser@5.8.0: '2026-05-12T03:39:29.203Z'
