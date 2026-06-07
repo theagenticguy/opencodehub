@@ -174,7 +174,7 @@ async function buildAccessedKeysByFile(
     const src = byId.get(e.from);
     if (!src?.filePath || src.filePath.length === 0) continue;
     const target = byId.get(e.to);
-    if (!target || target.kind !== "Property") continue;
+    if (target?.kind !== "Property") continue;
     if (!target.name || target.name.length === 0) continue;
     let bucket = namesByFile.get(src.filePath);
     if (bucket === undefined) {

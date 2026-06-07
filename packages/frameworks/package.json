@@ -43,7 +43,7 @@
     "yaml": "2.9.0"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "typescript": "6.0.3"
   },
   "publishConfig": {
@@ -61,6 +61,6 @@
     "language-detection"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   }
 }

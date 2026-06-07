@@ -82,7 +82,7 @@ async function fetchProcessParticipation(
   for (const e of [...outEdges, ...inEdges]) {
     const partnerId = e.from === targetId ? e.to : e.from;
     const partner = partnerById.get(partnerId);
-    if (!partner || partner.kind !== "Process") continue;
+    if (partner?.kind !== "Process") continue;
     if (dedup.has(partner.id)) continue;
     const inferredLabelRaw = (partner as unknown as { inferredLabel?: unknown }).inferredLabel;
     const label =

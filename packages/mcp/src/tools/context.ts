@@ -683,7 +683,7 @@ async function fetchProcessParticipation(
   for (const e of [...outEdges, ...inEdges]) {
     const partnerId = e.from === targetId ? e.to : e.from;
     const partner = partnerById.get(partnerId);
-    if (!partner || partner.kind !== "Process") continue;
+    if (partner?.kind !== "Process") continue;
     if (dedup.has(partner.id)) continue;
     const inferredLabel = (partner as unknown as { inferredLabel?: string }).inferredLabel;
     const label =
@@ -782,7 +782,7 @@ async function fetchLinkedOperations(
   const out: LinkedOperation[] = [];
   for (const e of edges) {
     const partner = byId.get(e.from);
-    if (!partner || partner.kind !== "Operation") continue;
+    if (partner?.kind !== "Operation") continue;
     const opAny = partner as unknown as Record<string, unknown>;
     const httpMethod =
       typeof opAny["httpMethod"] === "string" ? (opAny["httpMethod"] as string) : "";

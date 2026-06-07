@@ -47,11 +47,11 @@
     "@opencodehub/scanners": "workspace:*",
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
-    "lru-cache": "11.5.0",
+    "lru-cache": "11.5.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "typescript": "6.0.3"
   },
   "publishConfig": {
@@ -72,6 +72,6 @@
     "coding-agent"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   }
 }
