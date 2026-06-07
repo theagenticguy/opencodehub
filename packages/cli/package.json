@@ -57,7 +57,7 @@
     "commander": "14.0.3",
     "fast-xml-parser": "5.8.0",
     "listr2": "10.2.1",
-    "lru-cache": "11.5.0",
+    "lru-cache": "11.5.1",
     "piscina": "5.1.4",
     "snyk-nodejs-lockfile-parser": "2.7.1",
     "web-tree-sitter": "0.26.9",
