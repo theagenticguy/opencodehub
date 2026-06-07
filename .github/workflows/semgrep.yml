@@ -26,7 +26,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - name: semgrep scan (p/auto + p/owasp-top-ten)
         # `|| true` so the SARIF upload step still runs on findings;
         # gating happens through GitHub code scanning, not the scan's
@@ -39,7 +39,7 @@ jobs:
             --config p/owasp-top-ten \
             --sarif --output=semgrep.sarif \
             --metrics=off || true
-      - uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4
+      - uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4
         if: always()
         with:
           sarif_file: semgrep.sarif
