@@ -17,16 +17,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec biome ci .
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build workspace .d.ts so cross-package types resolve
         # Skip @opencodehub/docs — its build runs astro + rehype-mermaid +
@@ -55,8 +55,8 @@ jobs:
     env:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter '!@opencodehub/docs' -r build
       - run: pnpm --filter '!@opencodehub/docs' -r test
@@ -85,8 +85,8 @@ jobs:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
       CODEHUB_PLATFORM: "1" # set via env: (not an inline prefix) so it works on Windows cmd too
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter '!@opencodehub/docs' -r build
       - run: pnpm --filter '!@opencodehub/docs' -r test
@@ -94,8 +94,8 @@ jobs:
   sarif-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -F @opencodehub/sarif build
       - run: pnpm -F @opencodehub/sarif run validate-schema
@@ -103,14 +103,14 @@ jobs:
   banned-strings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - run: bash scripts/check-banned-strings.sh
 
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151  # v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         # Root is `private: true` with no runtime deps post-collapse; scan
@@ -133,7 +133,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - name: Install osv-scanner
         run: |
           curl -sL -o /tmp/osv-scanner \
@@ -145,7 +145,7 @@ jobs:
             --lockfile=pnpm-lock.yaml \
             --format=sarif \
             --output=osv.sarif || true
-      - uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba  # v4
+      - uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4
         if: always()
         with:
           sarif_file: osv.sarif
