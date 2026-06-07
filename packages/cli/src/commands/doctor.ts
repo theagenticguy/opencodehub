@@ -21,6 +21,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
+import { GRAPH_BINDING_SUPPORTED_PLATFORMS, graphBindingPlatformNote } from "@opencodehub/storage";
 import Table from "cli-table3";
 
 export type CheckStatus = "ok" | "warn" | "fail";
@@ -66,6 +67,15 @@ export interface DoctorOptions {
    * hard-fail path is to stub resolution). Defaults to {@link resolveFromRoot}.
    */
   readonly resolveBinding?: (root: string, pkg: string) => string | null;
+  /**
+   * Injectable loader for the `onnxruntime-node` binding probe. The real
+   * loader is a dynamic `import("onnxruntime-node")` — an OPTIONAL dependency
+   * that ships prebuilds for only a handful of targets, so the binding may be
+   * absent on this platform. Tests inject a double to exercise both the
+   * load-OK and load-failure branches without depending on the host's prebuild
+   * coverage. Defaults to {@link loadOnnxBinding}.
+   */
+  readonly loadOnnxBinding?: () => Promise<unknown>;
 }
 
 /** Signature of the injectable command runner (see {@link runCommand}). */
@@ -175,6 +185,13 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
     binaryOnPathCheck("ty", "P2 scanner (beta) — install with `uv tool install ty` (Astral)", run),
   );
   list.push(embedderWeightsCheck(home));
+  if (opts.skipNative !== true) {
+    list.push(
+      opts.loadOnnxBinding !== undefined
+        ? embedderBindingCheck(opts.loadOnnxBinding)
+        : embedderBindingCheck(),
+    );
+  }
   list.push(registryPathCheck(home));
   list.push(sarifSchemaCheck(repoRoot));
   return list;
@@ -293,7 +310,7 @@ function lbugWorksCheck(
           return {
             status: "fail",
             message: "@ladybugdb/core not installed (required graph backend)",
-            hint: "run `pnpm install` — the lbug graph binding ships with the CLI and is mandatory",
+            hint: lbugFailureHint(),
           };
         }
         // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
@@ -308,7 +325,7 @@ function lbugWorksCheck(
           return {
             status: "fail",
             message: "@ladybugdb/core is installed but exports no Database constructor",
-            hint: "re-run `pnpm install` to refresh the graph backend binding",
+            hint: lbugFailureHint(),
           };
         }
         return { status: "ok", message: "@ladybugdb/core load OK" };
@@ -316,11 +333,30 @@ function lbugWorksCheck(
         return {
           status: "fail",
           message: `@ladybugdb/core failed to load: ${err instanceof Error ? err.message : String(err)}`,
-          hint: "reinstall the graph backend binding with `pnpm install`",
+          hint: lbugFailureHint(),
         };
       }
     },
   };
+}
+
+/**
+ * Hint for every `@ladybugdb/core` failure path. On a SUPPORTED platform a
+ * reinstall can plausibly fix it (a pruned `--production` install, a partial
+ * download), so we lead with that. On an UNSUPPORTED platform — win32-arm64
+ * or musl/Alpine, where there is no prebuilt at all — `graphBindingPlatformNote`
+ * names the gap so the user does not chase a futile reinstall. We reuse the
+ * adapter's shared message (single source of truth) so doctor and the runtime
+ * `GraphDbBindingError` never drift.
+ */
+function lbugFailureHint(): string {
+  const platformNote = graphBindingPlatformNote();
+  if (platformNote !== "") {
+    // Unsupported platform: a reinstall cannot produce a binding that does
+    // not ship. Name the gap + the realistic remedy.
+    return `${GRAPH_BINDING_SUPPORTED_PLATFORMS}${platformNote}`;
+  }
+  return `reinstall the graph backend binding (\`pnpm install\`, or \`npm i -g @opencodehub/cli\`). ${GRAPH_BINDING_SUPPORTED_PLATFORMS}`;
 }
 
 /**
@@ -610,6 +646,89 @@ function embedderWeightsCheck(home: string): Check {
       }
       const variant = fp32Ok ? "fp32" : "int8";
       return { status: "ok", message: `embedder weights present (${variant})` };
+    },
+  };
+}
+
+/**
+ * Default loader for the `onnxruntime-node` binding. The CLI lazy-imports the
+ * runtime only when embeddings are enabled (see
+ * `embedder/src/onnx-embedder.ts`), so this probe mirrors that exact dynamic
+ * import. `onnxruntime-node` is an OPTIONAL dependency — production resolves it
+ * from the CLI's own `node_modules`.
+ */
+function loadOnnxBinding(): Promise<unknown> {
+  // A template-string specifier keeps tsup/esbuild from statically resolving
+  // (and force-bundling) the optional native module at build time — it must
+  // resolve from `node_modules` at runtime, exactly like the embedder's own
+  // lazy `import("onnxruntime-node")`.
+  const specifier = "onnxruntime-node";
+  return import(specifier);
+}
+
+/**
+ * Platform-specific guidance for a missing `onnxruntime-node` prebuilt.
+ * onnxruntime-node 1.x ships prebuilt binaries for darwin-arm64, linux-x64,
+ * linux-arm64 (glibc), win32-x64, and win32-arm64 — but NOT darwin-x64
+ * (Intel Mac) and NOT musl/Alpine Linux. On those targets the optional binding
+ * cannot load and retrieval silently degrades to BM25-only. Naming the gap
+ * here stops the user chasing a futile reinstall.
+ *
+ * Returns an empty string when the platform is one onnxruntime ships a prebuilt
+ * for (no extra note to add).
+ */
+function onnxBindingPlatformNote(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  if (platform === "darwin" && arch === "x64") {
+    return " Intel macOS (darwin-x64) has no onnxruntime-node prebuilt; use an Apple-silicon mac or a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT).";
+  }
+  if (platform === "linux") {
+    return " Alpine / musl-libc Linux has no onnxruntime-node prebuilt; use a glibc-based image (node:* not node:*-alpine) or a remote embedder.";
+  }
+  return "";
+}
+
+/**
+ * Probe the OPTIONAL `onnxruntime-node` binding the same way the embedder
+ * does — a lazy dynamic import. Unlike the duckdb/lbug probes, this is
+ * deliberately NON-FATAL: the embedder is an optional capability, and the real
+ * failure mode is a SILENT degrade to BM25-only retrieval (the embedder open
+ * path catches the native-load error and falls back). So an absent/broken
+ * binding is a `warn`, never a `fail`. The warn message names the platform gap
+ * (Intel mac / musl) so the user is not left wondering why search quality
+ * dropped.
+ *
+ * `load` is injectable so tests can drive both branches without depending on
+ * whatever prebuild coverage the host happens to have.
+ */
+function embedderBindingCheck(load: () => Promise<unknown> = loadOnnxBinding): Check {
+  return {
+    name: "embedder native binding",
+    async run() {
+      try {
+        const mod = (await load()) as Record<string, unknown> | undefined;
+        const ctor =
+          mod?.["InferenceSession"] ??
+          (mod?.["default"] as Record<string, unknown> | undefined)?.["InferenceSession"];
+        if (typeof ctor !== "function") {
+          return {
+            status: "warn",
+            message:
+              "onnxruntime-node loaded but exports no InferenceSession — retrieval will use BM25 only",
+            hint: `the local embedder is unavailable; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) or reinstall onnxruntime-node.${onnxBindingPlatformNote()}`,
+          };
+        }
+        return { status: "ok", message: "onnxruntime-node load OK" };
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return {
+          status: "warn",
+          message: `embedder unavailable on this platform → retrieval will use BM25 only (${detail})`,
+          hint: `the local ONNX embedder is optional; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to embed off-box.${onnxBindingPlatformNote()}`,
+        };
+      }
     },
   };
 }
