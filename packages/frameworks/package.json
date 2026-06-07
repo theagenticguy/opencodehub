@@ -61,6 +61,6 @@
     "language-detection"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   }
 }
