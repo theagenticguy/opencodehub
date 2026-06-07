@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { type GraphNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
 import { assertReadOnlyCypher } from "./cypher-guard.js";
-import { GraphDbBindingError, GraphDbStore, NotImplementedError } from "./graphdb-adapter.js";
+import {
+  GRAPH_BINDING_SUPPORTED_PLATFORMS,
+  GraphDbBindingError,
+  GraphDbStore,
+  graphBindingPlatformNote,
+  NotImplementedError,
+} from "./graphdb-adapter.js";
 import { openStore } from "./index.js";
 import { assertIGraphStoreConformance } from "./test-utils/conformance.js";
 
@@ -179,6 +185,38 @@ test("open surfaces GraphDbBindingError when native binding absent", async () =>
       `expected GraphDbBindingError, got ${(err as Error).name}: ${(err as Error).message}`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Shared platform-support helper (consumed by `codehub doctor` too, so the
+// runtime error message and the diagnostic hint never drift).
+// ---------------------------------------------------------------------------
+
+test("graphBindingPlatformNote names the win32-arm64 gap", () => {
+  const note = graphBindingPlatformNote("win32", "arm64");
+  assert.match(note, /win32-arm64/);
+  assert.match(note, /not currently supported/);
+});
+
+test("graphBindingPlatformNote names the musl/Alpine gap on linux", () => {
+  const note = graphBindingPlatformNote("linux", "x64");
+  assert.match(note, /musl/);
+  assert.match(note, /glibc/);
+});
+
+test("graphBindingPlatformNote returns empty on supported platforms", () => {
+  assert.equal(graphBindingPlatformNote("darwin", "arm64"), "");
+  assert.equal(graphBindingPlatformNote("darwin", "x64"), "");
+  assert.equal(graphBindingPlatformNote("win32", "x64"), "");
+});
+
+test("GraphDbBindingError message embeds the shared support matrix", () => {
+  const err = new GraphDbBindingError(new Error("dlopen failed"));
+  assert.match(
+    err.message,
+    new RegExp(GRAPH_BINDING_SUPPORTED_PLATFORMS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
+  assert.match(err.message, /dlopen failed/);
 });
 
 // ---------------------------------------------------------------------------

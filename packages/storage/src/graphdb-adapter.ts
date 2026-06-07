@@ -97,6 +97,41 @@ export class NotImplementedError extends Error {
 }
 
 /**
+ * Single source of truth for the user-facing summary of the `@ladybugdb/core`
+ * platform-support matrix. Shared by {@link GraphDbBindingError} (the runtime
+ * abort message) and `codehub doctor`'s graph-binding check (the diagnostic
+ * hint) so the two never drift. `@ladybugdb/core` ships prebuilt binaries only
+ * for darwin-x64, darwin-arm64, linux-x64 (glibc), linux-arm64 (glibc), and
+ * win32-x64.
+ */
+export const GRAPH_BINDING_SUPPORTED_PLATFORMS =
+  "Supported platforms: macOS x64/arm64, Linux x64/arm64 (glibc), Windows x64.";
+
+/**
+ * Platform-specific guidance for a missing `@ladybugdb/core` prebuilt. The
+ * graph tier is mandatory (no fallback), so on an UNSUPPORTED platform —
+ * notably win32-arm64 and any musl-libc Linux (Alpine) — there is no prebuilt
+ * to load and OpenCodeHub cannot run. Naming those cases explicitly makes the
+ * failure diagnosable rather than a bare module-load error.
+ *
+ * Returns an empty string on a supported platform (no extra note to add).
+ * `platform`/`arch` default to the running process so callers can pass
+ * `process.platform` / `process.arch` implicitly; tests inject fixtures.
+ */
+export function graphBindingPlatformNote(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  if (platform === "win32" && arch === "arm64") {
+    return " Windows on ARM64 (win32-arm64) has no @ladybugdb/core prebuilt and is not currently supported.";
+  }
+  if (platform === "linux") {
+    return " On Alpine / musl-libc Linux there is no @ladybugdb/core prebuilt; use a glibc-based image (e.g. debian/ubuntu, node:* not node:*-alpine).";
+  }
+  return "";
+}
+
+/**
  * Missing peer-binding error. Surfaced when the native `@ladybugdb/core`
  * module is not available on the current platform (no prebuilt binary, or
  * the package was pruned by a `--production` install).
@@ -104,23 +139,11 @@ export class NotImplementedError extends Error {
 export class GraphDbBindingError extends Error {
   constructor(cause: unknown) {
     const detail = cause instanceof Error ? cause.message : String(cause);
-    // `@ladybugdb/core` ships prebuilt binaries only for: darwin-x64,
-    // darwin-arm64, linux-x64 (glibc), linux-arm64 (glibc), win32-x64. The
-    // graph tier is mandatory (no fallback), so on an UNSUPPORTED platform —
-    // notably win32-arm64 and any musl-libc Linux (Alpine) — there is no
-    // prebuilt to load and OpenCodeHub cannot run. Name those cases explicitly
-    // so the failure is diagnosable rather than a bare module-load error.
-    const platformNote =
-      process.platform === "win32" && process.arch === "arm64"
-        ? " Windows on ARM64 (win32-arm64) has no @ladybugdb/core prebuilt and is not currently supported."
-        : process.platform === "linux"
-          ? " On Alpine / musl-libc Linux there is no @ladybugdb/core prebuilt; use a glibc-based image (e.g. debian/ubuntu, node:* not node:*-alpine)."
-          : "";
     super(
       "@ladybugdb/core native binding unavailable on this platform. " +
         "OpenCodeHub requires the lbug graph backend (it has no fallback). " +
-        "Supported platforms: macOS x64/arm64, Linux x64/arm64 (glibc), Windows x64." +
-        platformNote +
+        GRAPH_BINDING_SUPPORTED_PLATFORMS +
+        graphBindingPlatformNote() +
         ` Underlying cause: ${detail}`,
     );
     this.name = "GraphDbBindingError";
