@@ -1315,7 +1315,7 @@ export class GraphDbStore implements IGraphStore {
     const out: DependencyNode[] = [];
     for (const row of rows) {
       const node = recordToGraphNode(row as Record<string, unknown>);
-      if (!node || node.kind !== "Dependency") continue;
+      if (node?.kind !== "Dependency") continue;
       if (tierSet) {
         const tier = classifyLicenseTier((node as DependencyNode).license);
         if (!tierSet.has(tier)) continue;
@@ -1372,7 +1372,7 @@ export class GraphDbStore implements IGraphStore {
     const first = rows[0];
     if (!first) return undefined;
     const node = recordToGraphNode(first as Record<string, unknown>);
-    if (!node || node.kind !== "Repo") return undefined;
+    if (node?.kind !== "Repo") return undefined;
     return node as RepoNode;
   }
 

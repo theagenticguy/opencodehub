@@ -195,7 +195,7 @@ async function collectConsumerShapes(
       const src = accByID.get(e.from);
       if (!src || src.filePath !== file) continue;
       const target = accByID.get(e.to);
-      if (!target || target.kind !== "Property") continue;
+      if (target?.kind !== "Property") continue;
       if (target.name && target.name.length > 0) accessedSet.add(target.name);
     }
     const accessedKeys = Array.from(accessedSet).sort();
