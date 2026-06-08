@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.1...cli-v0.7.2) (2026-06-08)
+
+
+### Bug Fixes
+
+* **cli:** resolve runtime assets via walk-up probe across the flat tsup bundle ([#201](https://github.com/theagenticguy/opencodehub/issues/201)) ([ca20347](https://github.com/theagenticguy/opencodehub/commit/ca203479128868cfe3ab0b88f30db729c7cf9f1b))
+
 ## [0.7.1](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.0...cli-v0.7.1) (2026-06-07)
 
 
