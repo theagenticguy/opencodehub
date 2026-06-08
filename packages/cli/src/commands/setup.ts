@@ -14,7 +14,6 @@
  * in-memory implementation.
  */
 
-import { statSync } from "node:fs";
 import {
   copyFile as fsCopyFile,
   mkdir as fsMkdir,
@@ -27,6 +26,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAsset } from "../asset-resolver.js";
 import {
   runSetupCobolProleap,
   type SetupCobolProleapOptions,
@@ -490,41 +490,29 @@ export async function runSetupPlugin(opts: SetupPluginOptions = {}): Promise<Set
 }
 
 /**
- * Resolve the default plugin source dir.
+ * Resolve the default plugin source dir for the user-scope `setup --plugin`
+ * install. `runSetupPlugin` mirrors this directory's contents into
+ * `~/.claude/plugins/opencodehub/`, so it must point at the COMPLETE plugin
+ * tree (`.claude-plugin/plugin.json` + `README.md` + skills/agents/hooks),
+ * not just the three init subdirs.
  *
- * When running from source (`packages/cli/src/commands/setup.ts`) or from
- * `dist/commands/setup.js` inside a pnpm workspace, the repo root is three
- * directories above this file. We walk up from `import.meta.url` until we
- * find a `plugins/opencodehub` dir.
+ * Walk-up probe over both layouts (see `../asset-resolver.ts` for why a fixed
+ * `..` depth silently breaks across the source / pre-collapse / post-collapse
+ * bundle layouts):
+ *   - Published / npx bundle: `dist/plugin-assets/` (tsup onSuccess copies the
+ *     whole plugin tree here).
+ *   - Source checkout: `plugins/opencodehub/` at the repo root.
+ *
+ * Bundle-first so the shipped tree wins over a coincidental source match.
  */
 function defaultPluginSourceDir(): string {
-  const thisFile = fileURLToPath(import.meta.url);
-  let dir = dirname(thisFile);
-  for (let i = 0; i < 8; i += 1) {
-    const candidate = join(dir, "plugins", "opencodehub");
-    try {
-      // Sync check is fine here — this runs once per setup invocation.
-      const st = statSyncSafe(candidate);
-      if (st?.isDirectory()) return candidate;
-    } catch {
-      // keep walking
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  // Fall back to the conventional location relative to the compiled
-  // `dist/commands/setup.js`. If this doesn't exist, the caller will get a
-  // clean "source not found" error.
-  return resolve(dirname(thisFile), "..", "..", "..", "..", "plugins", "opencodehub");
-}
-
-function statSyncSafe(path: string): { isDirectory(): boolean } | undefined {
-  try {
-    return statSync(path);
-  } catch {
-    return undefined;
-  }
+  const resolved = resolveAsset([["plugin-assets"], ["plugins", "opencodehub"]], {
+    fromFileUrl: import.meta.url,
+  });
+  if (resolved) return resolved;
+  // Neither layout present — return the conventional bundle path so the
+  // caller's existence check produces an actionable "source not found" error.
+  return resolve(dirname(fileURLToPath(import.meta.url)), "plugin-assets");
 }
 
 /** Recursively copy every regular file under `src` into `dest`. Returns count. */

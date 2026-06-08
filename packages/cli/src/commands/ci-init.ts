@@ -17,10 +17,10 @@
  * the error lists every conflict.
  */
 
-import { statSync } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAsset } from "../asset-resolver.js";
 
 export interface CiInitCliOptions {
   readonly repo?: string;
@@ -37,36 +37,25 @@ interface TemplateSpec {
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Resolve the `ci-templates/` directory across every layout:
- *   - shipped bundle: `dist/commands/ci-templates/` (copied by tsup onSuccess),
- *     a sibling of this module → `<HERE>/ci-templates`.
- *   - test/source build: tsc emits this module to `dist-test/commands/` (or the
- *     source tree) but does NOT copy the `.yml` templates, which live only at
- *     `src/commands/ci-templates/`. Walk up to the package root and read from
- *     `src/commands/ci-templates`.
- * First existing candidate wins.
+ * Resolve the `ci-templates/` directory across every layout via the shared
+ * walk-up probe (see `../asset-resolver.ts`). The emitted-module location is
+ * not stable — pre-collapse the module sat at `dist/commands/ci-init.js` so
+ * `ci-templates/` was a sibling; the PR #189 bundle flattens it to
+ * `dist/ci-init-<hash>.js`, where the templates live one level down at
+ * `dist/commands/ci-templates/`. A walk-up over both bundle candidates plus
+ * the source-tree path resolves correctly in all three layouts:
+ *   - flat bundle:        `dist/commands/ci-templates/` (one level down)
+ *   - nested bundle:      `<HERE>/ci-templates/`        (sibling)
+ *   - test / source tree: `src/commands/ci-templates/`  (templates not copied)
  */
 function resolveTemplatesDir(): string {
-  const sibling = join(HERE, "ci-templates");
-  try {
-    if (statSync(sibling).isDirectory()) return sibling;
-  } catch {
-    // fall through to the source-tree layout
-  }
-  let dir = HERE;
-  for (let i = 0; i < 8; i += 1) {
-    const candidate = join(dir, "src", "commands", "ci-templates");
-    try {
-      if (statSync(candidate).isDirectory()) return candidate;
-    } catch {
-      // keep walking
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  // Last resort: the sibling path (the error surfaced downstream names it).
-  return sibling;
+  const resolved = resolveAsset(
+    [["commands", "ci-templates"], ["ci-templates"], ["src", "commands", "ci-templates"]],
+    { fromFileUrl: import.meta.url },
+  );
+  // Last resort: the conventional bundle path so a downstream read error names
+  // the directory we expected (only reachable in a corrupt install).
+  return resolved ?? join(HERE, "commands", "ci-templates");
 }
 
 const TEMPLATES_DIR = resolveTemplatesDir();

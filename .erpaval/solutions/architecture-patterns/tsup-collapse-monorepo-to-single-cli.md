@@ -69,6 +69,14 @@ export default defineConfig({
    are walk-up-resolved at runtime, so copy them in `onSuccess` and make the
    resolvers **walk up looking for a sentinel** (e.g. `vendor/wasms/manifest.json`)
    rather than a fixed `../../` offset — the offset shifts when code is inlined.
+   **This applies to EVERY such resolver, not just `doctor.ts`.** This collapse
+   PR fixed only doctor's probe and left six resolvers (init/ci-init/setup
+   plugin+template sources, betterleaks config, the two ingestion WASM
+   resolvers) on fixed offsets — they shipped broken for ~5 days, two of them
+   SILENTLY (`analyze` emitted a zero-symbol graph and exited 0). After the
+   collapse, `grep -rn "import.meta.url" packages/*/src` and convert every
+   fixed-offset resolver. Full post-mortem:
+   [[fixed-offset-asset-resolvers-break-on-bundle-collapse]].
 
 4. **Tests don't ship in the bundle.** tsup emits only the entrypoints, so the
    38 `*.test.ts` files vanish from `dist/` and `node --test` silently finds

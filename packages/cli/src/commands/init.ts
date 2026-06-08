@@ -28,7 +28,6 @@
  * `commands/setup.ts` so tests run against an in-memory implementation.
  */
 
-import { statSync } from "node:fs";
 import {
   access,
   copyFile as fsCopyFile,
@@ -41,6 +40,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAsset } from "../asset-resolver.js";
 import { writeFileAtomic as defaultWriteFileAtomic } from "../fs-atomic.js";
 import { type FsApi, runSetup, type SetupOptions, type SetupResult } from "./setup.js";
 
@@ -376,44 +376,28 @@ async function seedPolicyFile(
 /**
  * Resolve the bundled plugin source dir.
  *
- * When running from source inside the monorepo (e.g. `pnpm -F cli dev`),
- * walk up to the repo root and read `plugins/opencodehub/`. When running
- * from the published `dist/`, use the `dist/plugin-assets/` tree produced
- * by `scripts/copy-plugin-assets.mjs`.
+ * Two layouts must both work, and the emitted-bundle layout is not stable
+ * across build configs, so this walks up probing candidates rather than
+ * hardcoding a depth (see `../asset-resolver.ts` for why the fixed-offset
+ * version shipped a broken `codehub init`):
+ *
+ *   - Published / npx bundle: `dist/plugin-assets/` (tsup onSuccess copies the
+ *     plugin tree here; the emitted module sits at `dist/init-<hash>.js`, so
+ *     `plugin-assets/` is a sibling at level 0).
+ *   - Source checkout: `plugins/opencodehub/` at the repo root (several levels
+ *     up from `src/commands/init.ts` or `dist-test/commands/init.js`).
+ *
+ * Bundle-first ordering so the shipped assets win over a coincidental
+ * source-tree match. Returns a clean "not found" path for the caller's error
+ * message when neither exists (only possible in a corrupt install).
  */
 function defaultPluginSourceDir(): string {
-  const thisFile = fileURLToPath(import.meta.url);
-  let dir = dirname(thisFile);
-
-  // First check: bundled dist assets (standard install case).
-  const bundled = join(dir, "..", "plugin-assets");
-  try {
-    const st = statSyncSafe(bundled);
-    if (st?.isDirectory()) return resolve(bundled);
-  } catch {
-    // keep looking
-  }
-
-  // Fallback: walk up looking for `plugins/opencodehub/` (monorepo-source case).
-  for (let i = 0; i < 8; i += 1) {
-    const candidate = join(dir, "plugins", "opencodehub");
-    try {
-      const st = statSyncSafe(candidate);
-      if (st?.isDirectory()) return candidate;
-    } catch {
-      // keep walking
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return resolve(dirname(thisFile), "..", "..", "..", "..", "plugins", "opencodehub");
-}
-
-function statSyncSafe(path: string): { isDirectory(): boolean } | undefined {
-  try {
-    return statSync(path);
-  } catch {
-    return undefined;
-  }
+  const resolved = resolveAsset([["plugin-assets"], ["plugins", "opencodehub"]], {
+    fromFileUrl: import.meta.url,
+  });
+  if (resolved) return resolved;
+  // Neither layout present — return the conventional bundle path so the
+  // caller's existence check produces an actionable "plugin source not found"
+  // error naming the directory we expected.
+  return resolve(dirname(fileURLToPath(import.meta.url)), "plugin-assets");
 }

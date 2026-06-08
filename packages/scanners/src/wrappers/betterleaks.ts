@@ -55,13 +55,34 @@ const USER_CONFIG_NAMES = [
 ] as const;
 
 /**
- * Resolve the path to the vendored default config inside this package.
- * `import.meta.url` points at the compiled `dist/wrappers/betterleaks.js`,
- * so `../../config/betterleaks.default.toml` lands at the package root.
+ * Resolve the path to the vendored default config (`betterleaks.default.toml`).
+ *
+ * This wrapper runs in two very different emitted layouts, and a fixed `..`
+ * depth only works for one of them:
+ *   - Standalone scanners build: the module sits at
+ *     `<scanners>/dist/wrappers/betterleaks.js`; the config lives at
+ *     `<scanners>/config/betterleaks.default.toml` (two levels up).
+ *   - Bundled into `@opencodehub/cli`: the wrapper is inlined into a flat
+ *     `<cli>/dist/chunk-<hash>.js`, and tsup copies the scanner config to
+ *     `<cli>/dist/config/betterleaks.default.toml` (one level down). The old
+ *     `resolve(here, "..", "..", "config", …)` pointed at `<cli>/config` —
+ *     outside the package — so the default allowlist silently never applied.
+ *
+ * Walk UP from this module probing `config/betterleaks.default.toml` at each
+ * level; the first hit wins. Layout-agnostic, so it resolves correctly in both
+ * builds (and a raw source checkout). Returns the conventional bundled path as
+ * a last resort so a downstream read error names the file we expected.
  */
 function defaultConfigPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, "..", "..", "config", "betterleaks.default.toml");
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let level = 0; level <= 10; level += 1) {
+    const candidate = join(dir, "config", "betterleaks.default.toml");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(dirname(fileURLToPath(import.meta.url)), "config", "betterleaks.default.toml");
 }
 
 function userConfigInProject(projectPath: string): string | undefined {

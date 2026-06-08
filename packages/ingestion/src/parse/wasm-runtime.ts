@@ -16,20 +16,17 @@
 
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { LanguageId } from "./types.js";
+import { resolveVendorWasmsDir } from "./vendor-wasms.js";
 
 const requireFn = createRequire(import.meta.url);
 
-// Resolve packages/ingestion/vendor/wasms/ relative to this module regardless
-// of whether we're running from src/ (ts-node-style) or dist/ (compiled).
-// `vendor/` lives at the package root, so we walk up from the file's dirname
-// until we find it. Computed once at module load.
-const VENDOR_WASMS_DIR = (() => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // src → <pkg>/src/parse; dist → <pkg>/dist/parse — both 2 levels up
-  return path.resolve(here, "..", "..", "vendor", "wasms");
-})();
+// Resolve `vendor/wasms/` regardless of the emitted layout — the standalone
+// ingestion build (`dist/parse/`), the flat `@opencodehub/cli` bundle
+// (`dist/` root, no `parse/` subdir), the test build, or a source checkout.
+// A fixed two-levels-up offset broke in the flat CLI bundle (see
+// `./vendor-wasms.ts`), so this delegates to a walk-up probe. Computed once.
+const VENDOR_WASMS_DIR = resolveVendorWasmsDir(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // WASM runtime

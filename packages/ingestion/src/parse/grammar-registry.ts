@@ -37,15 +37,18 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { sha256Hex } from "@opencodehub/core-types";
 import type { LanguageId } from "./types.js";
 import { getUnifiedQuery } from "./unified-queries.js";
+import { resolveVendorWasmsDir } from "./vendor-wasms.js";
 
 // `vendor/wasms/manifest.json` is the canonical version pin for every grammar
-// after native tree-sitter left the workspace. Path resolves at runtime from
-// the built `dist/parse/grammar-registry.js` location.
-const MANIFEST_PATH = fileURLToPath(new URL("../../vendor/wasms/manifest.json", import.meta.url));
+// after native tree-sitter left the workspace. Resolved via the shared
+// walk-up probe so it works from both the standalone ingestion build
+// (`dist/parse/`) and the flat `@opencodehub/cli` bundle (`dist/` root) — a
+// fixed two-up offset broke the latter (see `./vendor-wasms.ts`).
+const MANIFEST_PATH = join(resolveVendorWasmsDir(import.meta.url), "manifest.json");
 
 let manifestCache: Promise<Record<string, string> | null> | null = null;
 

@@ -14,9 +14,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 
-// Read the CLI's own version from its package.json. Resolved at runtime
-// from the compiled dist/ — package.json sits at <pkg-root>/package.json,
-// two levels up from <pkg-root>/dist/index.js.
+// Read the CLI's own version from its package.json. The bin entry is always
+// emitted at <pkg-root>/dist/index.js in every layout (the tsup collapse keeps
+// `index` at the dist root), so package.json is exactly one level up. This
+// single `..` is layout-stable precisely because index.js never moves; the
+// asset resolvers that DID move use the walk-up probe in ./asset-resolver.ts.
 const pkgJsonPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
 const pkgVersion = JSON.parse(readFileSync(pkgJsonPath, "utf8")).version as string;
 
