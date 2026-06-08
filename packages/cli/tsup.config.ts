@@ -89,22 +89,16 @@ export default defineConfig({
       join(repoRoot, "packages", "ingestion", "vendor", "wasms"),
       join(distDir, "vendor", "wasms"),
     );
-    // Claude Code plugin assets — consumed by `codehub init`.
+    // Claude Code plugin assets — consumed by `codehub init` (project scope,
+    // reads the skills/agents/hooks subtrees + hooks.json) AND by
+    // `codehub setup --plugin` (user scope, mirrors the WHOLE tree to
+    // ~/.claude/plugins/opencodehub/). The user-scope path needs
+    // `.claude-plugin/plugin.json` + `README.md` too, so copy the entire
+    // `plugins/opencodehub/` tree — not just the three init subdirs. Both
+    // resolvers walk up to `dist/plugin-assets/` via asset-resolver.ts.
     await copyTree(
-      join(repoRoot, "plugins", "opencodehub", "skills"),
-      join(distDir, "plugin-assets", "skills"),
-    );
-    await copyTree(
-      join(repoRoot, "plugins", "opencodehub", "agents"),
-      join(distDir, "plugin-assets", "agents"),
-    );
-    await copyTree(
-      join(repoRoot, "plugins", "opencodehub", "hooks"),
-      join(distDir, "plugin-assets", "hooks"),
-    );
-    await copyTree(
-      join(repoRoot, "plugins", "opencodehub", "hooks.json"),
-      join(distDir, "plugin-assets", "hooks.json"),
+      join(repoRoot, "plugins", "opencodehub"),
+      join(distDir, "plugin-assets"),
     );
     // CI-init templates — read at runtime by `codehub ci-init`.
     await copyTree(
