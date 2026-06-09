@@ -22,12 +22,8 @@
   "packages": {
     ".": {
       "package-name": "opencodehub",
-      "component": "root",
-      "release-as": "0.8.3"
+      "component": "root"
     },
-    "packages/cli": {
-      "package-name": "@opencodehub/cli",
-      "release-as": "0.7.3"
-    }
+    "packages/cli": { "package-name": "@opencodehub/cli" }
   }
 }
