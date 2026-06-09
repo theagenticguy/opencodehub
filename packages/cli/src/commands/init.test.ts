@@ -85,7 +85,7 @@ test("runInit: fresh repo wires up .claude/, .mcp.json, .gitignore, policy", asy
     "codehub-pr-description",
     "codehub-onboarding",
     "codehub-contract-map",
-    "opencodehub-guide",
+    "codehub-guide",
   ]) {
     const skillFile = join(repo, ".claude", "skills", skill, "SKILL.md");
     assert.ok(await pathExists(skillFile), `missing: ${skillFile}`);

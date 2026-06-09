@@ -1,5 +1,5 @@
 ---
-name: opencodehub-exploring
+name: codehub-exploring
 description: "Use when the user asks how code works, wants to understand architecture, trace execution flows, or explore unfamiliar parts of a codebase. Examples: \"How does X work?\", \"What calls this function?\", \"Show me the auth flow\", \"Where does the request enter the system?\"."
 ---
 

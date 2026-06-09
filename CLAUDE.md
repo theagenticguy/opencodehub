@@ -19,7 +19,7 @@ with the working tree. `codehub status` reports staleness.
 
 The full MCP surface is **28 tools** (see `packages/mcp/src/server.ts`);
 the 6 listed above are the high-frequency exploration tools. For the
-full inventory, use the `/opencodehub-guide` skill.
+full inventory, use the `/codehub-guide` skill.
 
 ## AMBIGUOUS_REPO
 
