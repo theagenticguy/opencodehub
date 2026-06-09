@@ -1,11 +1,15 @@
 /**
  * Shared column-encoder helpers for the polymorphic CodeNode table.
  *
- * Both `DuckDbStore` (`./duckdb-adapter.ts`) and `GraphDbStore`
- * (`./graphdb-adapter.ts`) write a 73-column row per node where every column
- * matches the canonical {@link NODE_COLUMNS} order. The two adapters used to
- * carry duplicate `nodeToRow` / `nodeToParams` / `*OrNull` / `dedupeLastById`
- * helpers; both now consume one canonical implementation here.
+ * `GraphDbStore` (`./graphdb-adapter.ts`, lbug) is the in-tree
+ * {@link IGraphStore} writer: it emits a 73-column row per node where every
+ * column matches the canonical {@link NODE_COLUMNS} order. These are the
+ * canonical encode helpers for that contract, kept here (rather than inline
+ * in the adapter) so a community `IGraphStore` adapter (AGE / Memgraph /
+ * Neo4j / Neptune) can consume the identical implementation and stay
+ * byte-identical under `graphHash`. (`DuckDbStore` is
+ * {@link ITemporalStore}-only post-ADR-0016 and does NOT write CodeNode
+ * rows; before the rip-out both adapters shared these helpers.)
  *
  * The module is `internal-only` — it is NOT re-exported from
  * `packages/storage/src/index.ts`. Adapters import directly from
@@ -31,21 +35,23 @@
  *     (the write side is exported here; the read side stays in each adapter
  *     because it's symmetric with the per-adapter row decoder).
  *
- * **`stringArrayOrNull` round-trip note** — `[]` and
- * `undefined` are kept distinct on the wire. {@link stringArrayOrNull}
+ * **`stringArrayOrNull` round-trip note** — an explicit empty `[]` and an
+ * absent field are kept distinct on the wire. {@link stringArrayOrNull}
  * returns a typed 0-length array for an empty-array input and `null` for a
- * non-array input. The two backends preserve that distinction differently:
- *   - DuckDB `TEXT[]` stores a 0-length array literal natively, so the
- *     symmetric reader re-attaches `[]` as the field value.
- *   - lbug `STRING[]` collapses a 0-length array to SQL NULL on write
- *     (v0.16.1), so the graph-db adapter encodes an explicit empty array as
- *     a single-element marker on write and decodes it back to `[]` on read
- *     (`encodeNodeCol` + `setStringArrayFieldGd` in graphdb-adapter.ts); a
- *     non-array input is written as `[]` → stored NULL → dropped (= absent).
- * The CLI read path (`stringArrayField` in analyze.ts) mirrors the DuckDB
- * reader. Net effect: `{keywords: []}` round-trips byte-identically to
- * itself instead of collapsing to `{}` (canonical-JSON / graphHash
- * distinction preserved on every backend). Enforced end-to-end by
+ * non-array input. The lbug graph adapter preserves the distinction with a
+ * version-agnostic marker scheme (`encodeNodeCol` + `setStringArrayFieldGd`
+ * in graphdb-adapter.ts):
+ *   - an explicit empty array is written as a single-element marker and
+ *     decoded back to `[]` on read;
+ *   - an absent field is written as a bare `[]`, which decodes as absent —
+ *     whether lbug stored it as SQL NULL (≤ v0.16.1, where a 0-length
+ *     `STRING[]` collapsed to NULL on write) or as a typed empty `STRING[]`
+ *     (≥ v0.17.0, PR #471, where empty lists round-trip).
+ * A SQL-backed community adapter with a native array column (e.g. DuckDB
+ * `TEXT[]`) can instead store the 0-length literal directly; either scheme
+ * satisfies the contract. Net effect: `{keywords: []}` round-trips
+ * byte-identically to itself instead of collapsing to `{}` (canonical-JSON /
+ * graphHash distinction preserved on every backend). Enforced end-to-end by
  * `graph-hash-parity.test.ts`.
  *
  * **`frameworks_json` unification** — before the hoist, the DuckDB

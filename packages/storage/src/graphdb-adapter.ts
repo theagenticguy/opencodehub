@@ -340,13 +340,18 @@ const EDGE_SENTINEL_ID = "__OCH_EDGE_SENTINEL__";
 /**
  * Marker element used to encode an explicit empty `STRING[]` value.
  *
- * lbug v0.16.1 collapses a 0-length array literal to SQL NULL on write, so
- * an empty `keywords: []` is indistinguishable from an absent column on
- * read-back — which would break `graphHash` byte-identity against the
- * canonical-JSON projection (`{}` vs `{"keywords":[]}` are distinct). We
- * write a single-element array carrying this marker instead; the read side
- * ({@link setStringArrayFieldGd}) recognises it and reconstructs `[]`,
- * while a truly absent field is written as `[]` (→ stored NULL → dropped).
+ * An empty `keywords: []` must stay distinct from an absent column on
+ * read-back — otherwise `graphHash` byte-identity against the canonical-JSON
+ * projection breaks (`{}` vs `{"keywords":[]}` are distinct). The marker
+ * carries that distinction independent of how lbug stores a 0-length array:
+ *   - lbug v0.16.1 collapsed `[]` to SQL NULL on write, so an absent field
+ *     read back as `null`.
+ *   - lbug v0.17.0+ (PR #471) round-trips `[]` as a typed empty `STRING[]`,
+ *     so an absent field reads back as a bare `[]`.
+ * In both cases we write a single-element array carrying this marker for a
+ * genuinely-empty field; the read side ({@link setStringArrayFieldGd})
+ * recognises it and reconstructs `[]`, while a truly absent field is written
+ * as `[]` and decoded as absent (bare `[]` or `null` → key omitted).
  *
  * The marker is pure ASCII with no leading whitespace because lbug rewrites
  * a leading space to a NUL byte; a plain token round-trips byte-for-byte.
@@ -390,8 +395,9 @@ function encodeNodeCol(v: unknown, kind: ColKind): unknown {
   // fails with "Trying to create a vector with ANY type". Check before the
   // null short-circuit so absent arrays become [] rather than null.
   if (kind === "strarray") {
-    // Absent / non-array → []  (lbug stores [] as NULL; the reader drops the
-    // field, matching the "absent" canonical-JSON shape).
+    // Absent / non-array → []  (the reader treats a bare [] — whether stored
+    // as NULL by lbug 0.16 or as a typed empty STRING[] by lbug 0.17+ — as
+    // the "absent" canonical-JSON shape and drops the field).
     if (!Array.isArray(v)) return [] as string[];
     const items = (v as unknown[]).filter((x) => typeof x === "string") as string[];
     // Explicit empty array → single-element marker so the "[] vs absent"
@@ -2331,16 +2337,23 @@ function setBooleanFieldGd(out: Record<string, unknown>, key: string, v: unknown
 }
 
 function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unknown): void {
-  // lbug v0.16.1 collapses an empty `STRING[]` to SQL NULL on write, so an
-  // absent column and an empty `[]` one both read back as `null`. The writer
-  // ({@link encodeNodeCol}) disambiguates them: a genuinely empty array is
-  // stored as a single-element marker, while an absent field is stored as
-  // `[]` (→ NULL). Here we invert that:
+  // The writer ({@link encodeNodeCol}) encodes the "absent vs explicit-empty"
+  // distinction the same way regardless of lbug version: an absent field is
+  // stored as a bare `[]`, while a genuinely empty `keywords: []` is stored as
+  // a single-element marker. This reader is the symmetric decode:
   //   - null / non-array  → absent: omit the key entirely.
+  //   - [] (bare empty)   → absent: omit the key entirely.
   //   - [marker]          → explicit empty array: set `[]`.
   //   - any other array   → reconstruct the string elements verbatim.
-  // This keeps `{keywords: []}` byte-identical under `graphHash` to the
-  // canonical-JSON projection it was built from, distinct from `{}`.
+  //
+  // The bare-`[]` → absent rule is load-bearing across the lbug 0.16→0.17
+  // serialization change: lbug v0.16.1 collapsed a 0-length `STRING[]` to SQL
+  // NULL on write, so an absent field read back as `null` (caught by the
+  // non-array branch). lbug v0.17.0 (PR #471) made empty lists round-trip as a
+  // typed empty `STRING[]`, so an absent field now reads back as `[]` instead.
+  // Either way "no real elements and no marker" means absent — never emit a
+  // spurious `{keywords: []}` that would diverge from the canonical-JSON
+  // projection (`{}`) and break `graphHash` byte-identity.
   if (!Array.isArray(v)) return;
   if (v.length === 1 && v[0] === EMPTY_STRING_ARRAY_MARKER) {
     out[key] = [];
@@ -2348,6 +2361,7 @@ function setStringArrayFieldGd(out: Record<string, unknown>, key: string, v: unk
   }
   const arr: string[] = [];
   for (const item of v) if (typeof item === "string") arr.push(item);
+  if (arr.length === 0) return;
   out[key] = arr;
 }
 

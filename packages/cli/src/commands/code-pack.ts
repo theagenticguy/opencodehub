@@ -14,8 +14,8 @@
  *     the indexed graph to produce the 8 mandatory BOM items + manifest +
  *     optional Parquet embeddings sidecar. The sidecar emitter lives in
  *     `@opencodehub/pack`; cli/ passes the composed `Store` and pack
- *     dispatches on `store.backend` (DuckDB COPY for `duck`, degraded
- *     stamp for `lbug` v1).
+ *     streams lbug embeddings through the DuckDB temporal store's
+ *     deterministic COPY-to-Parquet path.
  *   - `repomix` — legacy single-file snapshot via `npx repomix`. Retained
  *     under an opt-in flag for one milestone before removal. Internally
  *     delegates to `runPack` so the repomix shell-out is implemented
@@ -251,12 +251,14 @@ export function statSizeOrZero(path: string): number {
  * Discriminate between the composed {@link Store} and a bare
  * {@link IGraphStore} stub. Tests historically passed a flat IGraphStore
  * via `_store`; production passes the full Store envelope from
- * {@link openStore}. We detect the envelope shape by the presence of
- * `graph` + `temporal` + `backend` so both paths flow through the
- * sidecar dispatch correctly.
+ * {@link openStore}. The composed envelope is the only shape carrying both
+ * a `graph` and a `temporal` view, so the presence of both uniquely
+ * identifies it. (The pre-ADR-0016 envelope also carried a `backend`
+ * discriminator; that field was removed when the DuckDB-as-graph backend was
+ * ripped out, so this no longer keys off it.)
  */
 function isStoreShape(s: Store | IGraphStore | undefined): s is Store {
   if (s === undefined) return false;
-  const obj = s as { backend?: unknown; graph?: unknown; temporal?: unknown };
-  return typeof obj.backend === "string" && obj.graph !== undefined && obj.temporal !== undefined;
+  const obj = s as { graph?: unknown; temporal?: unknown };
+  return obj.graph !== undefined && obj.temporal !== undefined;
 }
