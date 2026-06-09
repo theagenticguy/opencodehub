@@ -33,6 +33,12 @@ pre-commit:
       priority: 3
       fail_text: "pnpm-lock is stale — run 'pnpm install' then re-stage."
 
+    - name: no-dist-cache
+      run: bash scripts/check-no-dist-cache.sh
+      glob: ".github/workflows/*.{yml,yaml}"
+      priority: 4
+      fail_text: "a workflow caches build output — see scripts/check-no-dist-cache.sh (never cache dist/)."
+
 commit-msg:
   jobs:
     - name: commitlint
