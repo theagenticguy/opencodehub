@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.3-r.3",
-    "@ladybugdb/core": "^0.16.1",
+    "@ladybugdb/core": "^0.17.1",
     "@opencodehub/core-types": "workspace:*"
   },
   "devDependencies": {

@@ -24,7 +24,7 @@ import {
   buildAstChunks,
 } from "./ast-chunker.js";
 import { buildDeps } from "./deps.js";
-import { writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
+import { type SidecarDeterminismClass, writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 import { buildFileTree } from "./file-tree.js";
 import { buildFindings } from "./findings.js";
 import { buildLicenses } from "./licenses.js";
@@ -174,13 +174,13 @@ export async function generatePack(
     bomItem("licenses", "licenses.md", licensesBytes),
   ];
 
-  // --- Optional Parquet embeddings sidecar (BOM item #7). The sidecar
-  //     dispatches on `store.backend`: `duck` runs DuckDB COPY directly,
-  //     `lbug` stamps a degraded determinism class for v1 (no temporal
-  //     embeddings table to COPY from). When written, the sidecar's
-  //     runtime `SELECT version()` overrides `pins.duckdbVersion` so the
-  //     manifest binds determinism to the engine version that produced
-  //     the file — the parquet `created_by` metadata embeds it. ---
+  // --- Optional Parquet embeddings sidecar (BOM item #7). Embeddings live
+  //     in the lbug graph; the sidecar streams them through the DuckDB
+  //     temporal store's deterministic COPY-to-Parquet path. When written,
+  //     the sidecar's runtime `SELECT version()` overrides
+  //     `pins.duckdbVersion` so the manifest binds determinism to the engine
+  //     version that produced the file — the parquet `created_by` metadata
+  //     embeds it. ---
   await mkdir(opts.outDir, { recursive: true });
   const sidecarPath = path.join(opts.outDir, "embeddings.parquet");
   const sidecar = await writeEmbeddingsSidecar({ store, outPath: sidecarPath });
@@ -192,11 +192,10 @@ export async function generatePack(
     });
   }
 
-  // --- Resolve the determinism class + pins object. The sidecar's
-  //     `degraded` stamp (lbug-only path with non-empty embeddings)
-  //     dominates over the chunker's class via the same precedence rule:
-  //     `degraded` always wins over `best_effort`, which wins over
-  //     `strict`. ---
+  // --- Resolve the determinism class + pins object. A `degraded` chunker
+  //     (AST chunker fell back to line-split) dominates the class via the
+  //     precedence rule: `degraded` wins over `best_effort`, which wins over
+  //     `strict`. The sidecar is always `strict`, so it never downgrades. ---
   const determinismClass = resolveDeterminism(
     opts.tokenizerId,
     astResult.determinismClass,
@@ -291,16 +290,19 @@ async function writeBytes(p: string, bytes: Uint8Array): Promise<void> {
 }
 
 /**
- * Resolve the determinism class. `degraded` (from either the chunker
- * fallback or the sidecar's lbug-path stamp) dominates everything;
- * Anthropic tokenizers downgrade to `best_effort`; otherwise `strict`.
+ * Resolve the determinism class. A `degraded` chunker (AST chunker fell back
+ * to line-split) dominates everything; Anthropic tokenizers downgrade to
+ * `best_effort`; otherwise `strict`. The sidecar's own class is always
+ * `"strict"` ({@link SidecarDeterminismClass}) post-ADR-0016 — the
+ * DuckDB-temporal writer is the only sidecar path — so it never downgrades
+ * the result and is accepted only to keep the precedence rule explicit.
  */
 function resolveDeterminism(
   tokenizerId: string,
   chunkerClass: AstChunkerResult["determinismClass"],
-  sidecarClass: "strict" | "degraded",
+  _sidecarClass: SidecarDeterminismClass,
 ): DeterminismClass {
-  if (chunkerClass === "degraded" || sidecarClass === "degraded") return "degraded";
+  if (chunkerClass === "degraded") return "degraded";
   if (tokenizerId.startsWith("anthropic:")) return "best_effort";
   return "strict";
 }

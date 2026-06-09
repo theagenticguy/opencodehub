@@ -58,6 +58,19 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Remove any stale build output before the incremental `tsc -b` build.
+      # A `.test.ts` deleted in source leaves its compiled `dist/**/*.test.js`
+      # behind, which `tsc -b` won't prune — `node --test` then runs the
+      # orphan against an interface that no longer exports what it imports and
+      # the suite fails on a test that does not exist in `src/`. Cheap on a
+      # fresh checkout (no-op), load-bearing the moment `dist/` is cached.
+      # `shell: bash` so `find` works on the windows-latest matrix leg too.
+      - name: Remove stale build artifacts
+        shell: bash
+        run: |
+          find packages -maxdepth 2 -name dist -type d -exec rm -rf {} +
+          find packages -maxdepth 2 -name 'dist-test' -type d -exec rm -rf {} +
+          find packages -maxdepth 2 -name '*.tsbuildinfo' -delete
       - run: pnpm --filter '!@opencodehub/docs' -r build
       - run: pnpm --filter '!@opencodehub/docs' -r test
 
@@ -88,6 +101,14 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Mirror the `test` lane: prune stale build output so a deleted-in-source
+      # `dist/**/*.test.js` can't run against an interface it no longer matches.
+      - name: Remove stale build artifacts
+        shell: bash
+        run: |
+          find packages -maxdepth 2 -name dist -type d -exec rm -rf {} +
+          find packages -maxdepth 2 -name 'dist-test' -type d -exec rm -rf {} +
+          find packages -maxdepth 2 -name '*.tsbuildinfo' -delete
       - run: pnpm --filter '!@opencodehub/docs' -r build
       - run: pnpm --filter '!@opencodehub/docs' -r test
 
@@ -105,6 +126,16 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - run: bash scripts/check-banned-strings.sh
+
+  no-dist-cache:
+    # Guardrail: fail if any workflow caches build output (dist/ or
+    # *.tsbuildinfo). A cached dist/ resurrects stale compiled `*.test.js`
+    # orphans (a .test.ts deleted in source) that fail the suite on a test
+    # that no longer exists. Cache the pnpm store for speed — never dist/.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - run: bash scripts/check-no-dist-cache.sh
 
   licenses:
     runs-on: ubuntu-latest

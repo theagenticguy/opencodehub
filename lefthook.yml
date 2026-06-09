@@ -33,6 +33,12 @@ pre-commit:
       priority: 3
       fail_text: "pnpm-lock is stale — run 'pnpm install' then re-stage."
 
+    - name: no-dist-cache
+      run: bash scripts/check-no-dist-cache.sh
+      glob: ".github/workflows/*.{yml,yaml}"
+      priority: 4
+      fail_text: "a workflow caches build output — see scripts/check-no-dist-cache.sh (never cache dist/)."
+
 commit-msg:
   jobs:
     - name: commitlint
@@ -43,7 +49,13 @@ pre-push:
   parallel: true
   jobs:
     - name: typecheck
-      run: pnpm -r exec tsc --noEmit
+      # Exclude @opencodehub/docs — its astro/starlight virtual modules
+      # (`astro:content`, `*.jsonc?raw`) only resolve after `astro sync`, so a
+      # bare `tsc --noEmit` always errors on vendored types. This matches the
+      # `mise run typecheck` task and ci.yml's typecheck lane (both filter docs
+      # out); without the filter the hook and its own reproduce-instruction
+      # disagree.
+      run: pnpm --filter '!@opencodehub/docs' -r exec tsc --noEmit
       skip:
         - merge
         - rebase

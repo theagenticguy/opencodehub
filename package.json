@@ -13,6 +13,7 @@
     "packages/*"
   ],
   "scripts": {
+    "clean": "pnpm -r run clean",
     "test": "pnpm -r test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
