@@ -1,6 +1,6 @@
 {
   "name": "opencodehub-monorepo",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "private": true,
   "description": "OpenCodeHub — Apache-2.0 code intelligence graph + MCP server for AI coding agents",
   "license": "Apache-2.0",
@@ -13,6 +13,7 @@
     "packages/*"
   ],
   "scripts": {
+    "clean": "pnpm -r run clean",
     "test": "pnpm -r test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -25,7 +26,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@commitlint/cli": "21.0.2",
-    "@commitlint/config-conventional": "21.0.1",
+    "@commitlint/config-conventional": "21.0.2",
     "@types/node": "25.9.2",
     "commitizen": "4.3.1",
     "cz-conventional-changelog": "3.3.0",

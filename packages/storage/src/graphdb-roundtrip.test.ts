@@ -2,9 +2,10 @@
  * Round-trip parity tests for {@link GraphDbStore}.
  *
  * These tests verify that a knowledge graph survives a bulk-load + rebuild
- * cycle byte-identical under `graphHash`. A CI gate pairs this with the
- * DuckDbStore round-trip to guarantee cross-backend parity; this file
- * establishes the correctness half.
+ * cycle byte-identical under `graphHash` on the in-tree lbug `GraphDbStore`.
+ * The same invariant is what the published `assertGraphParity` /
+ * `assertIGraphStoreConformance` harnesses hold a community `IGraphStore`
+ * adapter (AGE / Memgraph / Neo4j / Neptune) to.
  *
  * Three fixture sizes:
  *   - small: 2 files + 8 functions + 15 edges (mixed DEFINES / CALLS).

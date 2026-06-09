@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.2...cli-v0.7.3) (2026-06-09)
+
+
+### Bug Fixes
+
+* restore graphHash byte-parity under ladybug 0.17.1 (cut 0.8.3 / cli 0.7.3) ([#207](https://github.com/theagenticguy/opencodehub/issues/207)) ([41947b5](https://github.com/theagenticguy/opencodehub/commit/41947b58b3113c22693e5b27c68cc66d3b7bc67c))
+
 ## [0.7.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.1...cli-v0.7.2) (2026-06-08)
 
 

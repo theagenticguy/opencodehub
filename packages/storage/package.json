@@ -42,8 +42,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@duckdb/node-api": "1.5.2-r.2",
-    "@ladybugdb/core": "^0.16.1",
+    "@duckdb/node-api": "1.5.3-r.3",
+    "@ladybugdb/core": "^0.17.1",
     "@opencodehub/core-types": "workspace:*"
   },
   "devDependencies": {
