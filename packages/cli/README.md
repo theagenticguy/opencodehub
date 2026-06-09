@@ -84,3 +84,10 @@ top-level subcommands by phase of the workflow.
 See ADR 0016 for the lbug-graph + DuckDB-temporal storage layout and the
 root README's "MCP tool surface" section for the agent-facing tool
 inventory.
+
+The bundled graph backend is `@ladybugdb/core` **0.17.1** or newer. 0.17.0
+changed empty-`STRING[]` serialization (empty lists now round-trip as a typed
+empty array rather than collapsing to NULL); the adapter decodes a bare empty
+array as an absent field on every supported lbug version, so `graphHash`
+byte-identity — and the Parquet embeddings sidecar `packHash` that depends on
+it — is preserved across the upgrade.
