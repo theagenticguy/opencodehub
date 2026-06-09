@@ -235,11 +235,21 @@ async function runParse(
     try {
       parseResults = await pool.dispatch(tasks);
     } catch (err) {
-      // A global WASM-runtime failure (missing vendored grammars) rejects the
-      // dispatch — abort the parse phase loudly. Piscina serializes the worker
-      // error as a plain Error, so match on `name`, not `instanceof`. Re-throw
-      // with a phase prefix; any other dispatch error propagates unchanged.
-      if (err instanceof Error && err.name === "WasmRuntimeUnavailableError") {
+      // A global WASM-runtime failure (missing vendored grammars / un-loadable
+      // web-tree-sitter.wasm) rejects the dispatch — abort the parse phase
+      // loudly. Piscina's structured-clone transport across the worker boundary
+      // resets a custom Error subclass's `.name` back to "Error" (verified
+      // against piscina 5.1.4), so the WasmRuntimeUnavailableError identity is
+      // GONE by the time it arrives here — only `.message` survives. Match on
+      // the stable message token both throw sites emit, NOT on `.name` /
+      // `instanceof`. Re-throw with a phase prefix; any other dispatch error
+      // propagates unchanged. (The run aborts either way — the runner wraps a
+      // thrown phase error as `Phase 'parse' failed: …` — but this keeps the
+      // actionable reinstall/re-vendor guidance front-and-center.)
+      if (
+        err instanceof Error &&
+        /web-tree-sitter runtime failed to initialize/.test(err.message)
+      ) {
         throw new Error(`parse: WASM runtime unavailable — ${err.message}`);
       }
       throw err;

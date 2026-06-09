@@ -224,9 +224,19 @@ export async function openWasmParser(lang: LanguageId): Promise<WasmParserHandle
 }
 
 /**
- * Load the web-tree-sitter runtime on demand and initialize it. Returns
- * `undefined` when the package isn't installed or the runtime refuses to
- * init (sandboxed, missing WebAssembly, etc.).
+ * Load the web-tree-sitter runtime on demand and initialize it.
+ *
+ * Contract (post-PR #204) — three outcomes:
+ *   - Returns the runtime on success.
+ *   - Returns `undefined` ONLY for the SOFT case: the `web-tree-sitter`
+ *     package is genuinely not installed (the `require` catch below). This
+ *     degrades to a per-language skip; the run-level zero-symbol guard is the
+ *     backstop.
+ *   - THROWS {@link WasmRuntimeUnavailableError} for the two GLOBAL-failure
+ *     cases — the vendored `vendor/wasms/` dir is missing
+ *     ({@link assertRuntimeAvailable}) or `web-tree-sitter.wasm` won't init.
+ *     Callers MUST let this propagate so a run aborts loudly instead of
+ *     producing a symbol-free skeleton graph.
  *
  * The runtime WASM (`web-tree-sitter.wasm`) is also vendored — we point
  * Emscripten at it via `locateFile` so global installs don't have to find

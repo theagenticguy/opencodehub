@@ -13,9 +13,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { KnowledgeGraph } from "@opencodehub/core-types";
+import { WasmRuntimeUnavailableError } from "../../parse/wasm-runtime.js";
 import type { PipelineContext } from "../types.js";
-import { COMPLEXITY_PHASE_NAME, type ComplexityOutput, complexityPhase } from "./complexity.js";
+import {
+  COMPLEXITY_PHASE_NAME,
+  type ComplexityOutput,
+  complexityPhase,
+  runComplexity,
+} from "./complexity.js";
+import type { ParseOutput } from "./parse.js";
 import { PARSE_PHASE_NAME, parsePhase } from "./parse.js";
+import type { ScanOutput } from "./scan.js";
 import { SCAN_PHASE_NAME, scanPhase } from "./scan.js";
 import { STRUCTURE_PHASE_NAME, structurePhase } from "./structure.js";
 
@@ -335,6 +343,80 @@ describe(`${COMPLEXITY_PHASE_NAME}Phase`, () => {
         populated >= Math.ceil(names.length * 0.99),
         `expected >=99% of callables to carry halsteadVolume, got ${populated}/${names.length}`,
       );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Build the {ctx, scan, parse} inputs for {@link runComplexity} from a real
+ * single-`if` Python fixture (one callable, `foo`). Stops before the complexity
+ * phase so the test can drive it directly with an injected parser builder.
+ */
+async function prepareComplexityInputs(
+  repo: string,
+): Promise<{ ctx: PipelineContext; scan: ScanOutput; parse: ParseOutput }> {
+  await fs.writeFile(
+    path.join(repo, "m.py"),
+    ["def foo(x):", "    if x:", "        return 1", "    return 0", ""].join("\n"),
+  );
+  const ctx: PipelineContext = {
+    repoPath: repo,
+    options: { skipGit: true },
+    graph: new KnowledgeGraph(),
+    phaseOutputs: new Map(),
+  };
+  const scan = (await scanPhase.run(ctx, new Map())) as ScanOutput;
+  const structure = await structurePhase.run(
+    ctx,
+    new Map<string, unknown>([[SCAN_PHASE_NAME, scan]]),
+  );
+  const parse = (await parsePhase.run(
+    ctx,
+    new Map<string, unknown>([
+      [SCAN_PHASE_NAME, scan],
+      [STRUCTURE_PHASE_NAME, structure],
+    ]),
+  )) as ParseOutput;
+  return { ctx, scan, parse };
+}
+
+describe(`${COMPLEXITY_PHASE_NAME}Phase — fail-loud parser contract`, () => {
+  it("RETHROWS a global WasmRuntimeUnavailableError instead of swallowing it into skipped", async () => {
+    // A GLOBAL runtime death is broken-for-every-file; complexity must let it
+    // propagate and abort the run — NOT fold it into the soft per-language skip
+    // path and resolve with skipped>0 (which would let a broken install produce
+    // a symbol-free graph on an all-cache-hit run, where parse never opened the
+    // runtime to abort first). Mirror of parse-worker.test.ts's sentinel test.
+    const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-failloud-"));
+    try {
+      const { ctx, scan, parse } = await prepareComplexityInputs(repo);
+      assert.ok(parse.definitionsByFile.size >= 1, "fixture must yield a callable to annotate");
+      await assert.rejects(
+        runComplexity(ctx, parse, scan, () => {
+          throw new WasmRuntimeUnavailableError(
+            "web-tree-sitter runtime failed to initialize; test",
+          );
+        }),
+        /web-tree-sitter runtime failed to initialize/,
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an undefined parser (soft case) as a per-language skip, not a throw", async () => {
+    // The SOFT case (web-tree-sitter package genuinely absent, or no grammar)
+    // returns undefined → complexity degrades to a best-effort skip and still
+    // resolves. Locks the documented split so a future edit can't collapse the
+    // two cases in either direction.
+    const repo = await mkdtemp(path.join(tmpdir(), "och-complexity-soft-"));
+    try {
+      const { ctx, scan, parse } = await prepareComplexityInputs(repo);
+      const out = await runComplexity(ctx, parse, scan, async () => undefined);
+      assert.equal(out.symbolsAnnotated, 0, "no parser → nothing annotated");
+      assert.ok(out.skipped >= 1, "the soft case skips the callable rather than throwing");
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
