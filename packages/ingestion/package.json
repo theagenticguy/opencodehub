@@ -41,8 +41,8 @@
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
-    "@aws-sdk/client-bedrock-runtime": "3.1054.0",
-    "@cyclonedx/cyclonedx-library": "10.0.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1064.0",
+    "@cyclonedx/cyclonedx-library": "10.1.0",
     "@iarna/toml": "2.2.5",
     "@opencodehub/analysis": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
@@ -55,7 +55,7 @@
     "graphology": "0.26.0",
     "graphology-dag": "0.4.1",
     "piscina": "5.1.4",
-    "snyk-nodejs-lockfile-parser": "2.7.1",
+    "snyk-nodejs-lockfile-parser": "2.8.0",
     "spdx-correct": "^3.2.0",
     "web-tree-sitter": "0.26.9",
     "write-file-atomic": "7.0.1"
