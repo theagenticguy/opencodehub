@@ -43,12 +43,12 @@ Next: run 'codehub analyze' to build the graph, then restart Claude Code.
     ├── codehub-onboarding/
     ├── codehub-contract-map/
     ├── codehub-code-pack/
-    ├── opencodehub-guide/         # analysis skills
-    ├── opencodehub-exploring/
-    ├── opencodehub-impact-analysis/
-    ├── opencodehub-debugging/
-    ├── opencodehub-refactoring/
-    └── opencodehub-pr-review/
+    ├── codehub-guide/         # analysis skills
+    ├── codehub-exploring/
+    ├── codehub-impact-analysis/
+    ├── codehub-debugging/
+    ├── codehub-refactoring/
+    └── codehub-pr-review/
 ```
 
 :::note[Why `settings.json` and not `hooks.json`?]
