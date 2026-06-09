@@ -1,5 +1,5 @@
 ---
-name: opencodehub-guide
+name: codehub-guide
 description: "Use when the user asks about OpenCodeHub itself — available MCP tools, resources, graph schema, or workflow reference. Examples: \"What OpenCodeHub tools are available?\", \"How do I query the code graph?\", \"Show me the schema\"."
 ---
 
@@ -21,12 +21,12 @@ For any task that touches code understanding, debugging, impact analysis, refact
 
 | Task                                          | Skill to read                 |
 | --------------------------------------------- | ----------------------------- |
-| Understand architecture / "How does X work?"  | `opencodehub-exploring`       |
-| Blast radius / "What breaks if I change X?"   | `opencodehub-impact-analysis` |
-| Trace bugs / "Why is X failing?"              | `opencodehub-debugging`       |
-| Plan a rename / extract / move (analysis only) | `opencodehub-refactoring`     |
-| Review a PR / "Is this safe to merge?"        | `opencodehub-pr-review`       |
-| Tools, resources, schema reference            | `opencodehub-guide` (here)    |
+| Understand architecture / "How does X work?"  | `codehub-exploring`       |
+| Blast radius / "What breaks if I change X?"   | `codehub-impact-analysis` |
+| Trace bugs / "Why is X failing?"              | `codehub-debugging`       |
+| Plan a rename / extract / move (analysis only) | `codehub-refactoring`     |
+| Review a PR / "Is this safe to merge?"        | `codehub-pr-review`       |
+| Tools, resources, schema reference            | `codehub-guide` (here)    |
 
 ## Skills · artifact factory (spec 001)
 
