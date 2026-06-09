@@ -1,5 +1,5 @@
 ---
-name: opencodehub-refactoring
+name: codehub-refactoring
 description: "Use when the user is planning a rename, extraction, split, move, or restructure and wants to know the blast radius and verify the result. Examples: \"What breaks if I rename this function?\", \"Map every caller before I extract this module.\", \"Did my refactor touch anything I didn't expect?\". OpenCodeHub does NOT edit source — it plans and verifies; you (or your editor) apply the edits."
 ---
 

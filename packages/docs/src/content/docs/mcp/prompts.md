@@ -31,9 +31,9 @@ covers the playbook surface:
 
 | Playbook | Lives at |
 |---|---|
-| Impact / blast-radius analysis | `opencodehub-impact-analysis` skill + `verdict` MCP tool |
-| PR review | `opencodehub-pr-review` skill + `codehub-pr-description` skill |
-| Codebase exploration | `opencodehub-exploring` skill + `codehub-onboarding` skill |
+| Impact / blast-radius analysis | `codehub-impact-analysis` skill + `verdict` MCP tool |
+| PR review | `codehub-pr-review` skill + `codehub-pr-description` skill |
+| Codebase exploration | `codehub-exploring` skill + `codehub-onboarding` skill |
 | Dependency audit | `dependencies` MCP tool + `license_audit` MCP tool |
 | Route / tool map generation | `codehub-document` skill + `route_map` / `tool_map` MCP tools |
 

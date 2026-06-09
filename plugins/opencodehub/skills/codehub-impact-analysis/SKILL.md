@@ -1,5 +1,5 @@
 ---
-name: opencodehub-impact-analysis
+name: codehub-impact-analysis
 description: "Use when the user wants to know what will break if they change something, or needs safety analysis before editing or merging code. Examples: \"Is it safe to change X?\", \"What depends on this?\", \"What will break?\", \"Blast radius for this change\"."
 ---
 

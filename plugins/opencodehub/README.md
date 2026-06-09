@@ -38,7 +38,7 @@ Restart Claude Code so it picks up the new agent, skills, and hooks. The auto-re
 
 ## What ships
 
-- **11 skills** — 5 artifact-factory (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`, `codehub-code-pack`) + 6 analysis (`opencodehub-guide`, `opencodehub-exploring`, `opencodehub-impact-analysis`, `opencodehub-debugging`, `opencodehub-refactoring`, `opencodehub-pr-review`).
+- **11 skills** — 5 artifact-factory (`codehub-document`, `codehub-pr-description`, `codehub-onboarding`, `codehub-contract-map`, `codehub-code-pack`) + 6 analysis (`codehub-guide`, `codehub-exploring`, `codehub-impact-analysis`, `codehub-debugging`, `codehub-refactoring`, `codehub-pr-review`).
 - **18 agents** — `code-analyst` for analysis, plus 17 `doc-*` subagents dispatched by `codehub-document`, grouped into six families:
   - **analysis** (3) — `doc-analysis-dead-code`, `doc-analysis-ownership`, `doc-analysis-risk-hotspots`.
   - **architecture** (3) — `doc-architecture-data-flow`, `doc-architecture-module-map`, `doc-architecture-system-overview`.
