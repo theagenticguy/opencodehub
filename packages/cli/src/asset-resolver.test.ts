@@ -38,6 +38,11 @@ const CI_TEMPLATE_CANDIDATES = [
   ["ci-templates"],
   ["src", "commands", "ci-templates"],
 ] as const;
+// vendor/wasms is resolved by doctor.ts's inline walk-up (resolveVendorWasmsDir,
+// accepts on manifest.json) and by @opencodehub/ingestion's vendor-wasms.ts.
+const VENDOR_WASMS_CANDIDATES = [["vendor", "wasms"]] as const;
+// java/cobol_to_scip.java is resolved by cobol-proleap-setup.ts's inline walk-up.
+const JAVA_WRAPPER_CANDIDATE = [["java", "cobol_to_scip.java"]] as const;
 
 test("resolveAsset: flat post-collapse bundle — finds dist/plugin-assets as a sibling", async () => {
   const root = await mkTree();
@@ -208,5 +213,29 @@ test("drift guard: production resolver candidates hit real files in the built di
     config,
     join(dist, "config", "betterleaks.default.toml"),
     "betterleaks default config",
+  );
+
+  // vendored grammar WASMs — doctor.ts's resolveVendorWasmsDir walks up probing
+  // vendor/wasms and accepts on manifest.json. Also the runtime parse path
+  // (ingestion vendor-wasms.ts) loads from here. A fixed-offset regression would
+  // resolve outside dist/ and this assert.equal would fail.
+  const wasms = resolveAsset(VENDOR_WASMS_CANDIDATES, { startDir: dist });
+  assert.equal(wasms, join(dist, "vendor", "wasms"), "ingestion vendored grammars");
+  assert.ok(
+    statSync(join(wasms as string, "manifest.json")).isFile(),
+    "vendor/wasms/manifest.json must ship (doctor + parse pipeline accept on it)",
+  );
+  assert.ok(
+    statSync(join(wasms as string, "web-tree-sitter.wasm")).isFile(),
+    "vendor/wasms/web-tree-sitter.wasm runtime must ship",
+  );
+
+  // COBOL ProLeap JVM bridge source — cobol-proleap-setup.ts walks up probing
+  // java/cobol_to_scip.java.
+  const javaSrc = resolveAsset(JAVA_WRAPPER_CANDIDATE, { startDir: dist, kind: "file" });
+  assert.equal(
+    javaSrc,
+    join(dist, "java", "cobol_to_scip.java"),
+    "cobol proleap wrapper java source",
   );
 });

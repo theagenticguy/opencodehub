@@ -168,6 +168,12 @@ export interface AnalyzeSummary {
   readonly durationMs: number;
   readonly upToDate: boolean;
   readonly warnings: readonly string[];
+  /**
+   * Set when the parse phase produced zero code symbols from a non-trivial
+   * number of tree-sitter files (likely a globally-broken parser). The CLI maps
+   * this to a distinct advisory exit code so CI catches a silent-skeleton run.
+   */
+  readonly zeroSymbolGuard?: boolean;
 }
 
 export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promise<AnalyzeSummary> {
@@ -308,6 +314,17 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   }
 
   logWarnings(result.warnings, opts.verbose === true);
+
+  // Surface the zero-symbol guard prominently — the detailed message is already
+  // in result.warnings, but logWarnings collapses grouped warnings, so emit an
+  // explicit run-level banner that can't be missed (and that the exit-code
+  // mapping in index.ts keys off via the returned summary flag).
+  if (result.zeroSymbolGuardTripped === true) {
+    log(
+      "codehub analyze: WARNING — extracted 0 code symbols from a non-trivial source tree; " +
+        "the parser is likely broken (see the parse warning above). Run 'codehub doctor'.",
+    );
+  }
 
   // Persist to the composed graph + temporal store. Storage is always
   // graph.lbug (graph-tier) + temporal.duckdb sidecar (cochanges, summary
@@ -497,6 +514,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     durationMs,
     upToDate: false,
     warnings: result.warnings,
+    ...(result.zeroSymbolGuardTripped === true ? { zeroSymbolGuard: true } : {}),
   };
 }
 

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { runIngestion } from "./orchestrator.js";
+import { runIngestion, shouldTripZeroSymbolGuard } from "./orchestrator.js";
 import type { PipelineContext, PipelineOptions, PipelinePhase, PreviousGraph } from "./types.js";
 
 describe("runIngestion (end-to-end)", () => {
@@ -367,5 +367,32 @@ describe("runIngestion (determinism with communities + processes)", () => {
     const hasProcess = [...one.graph.nodes()].some((n) => n.kind === "Process");
     assert.ok(hasCommunity, "Community node missing");
     assert.ok(hasProcess, "Process node missing");
+  });
+
+  it("does NOT trip the zero-symbol guard on a healthy repo with real symbols", async () => {
+    const result = await runIngestion(repo, { skipGit: true });
+    assert.notEqual(
+      result.zeroSymbolGuardTripped,
+      true,
+      "guard must stay quiet when symbols extracted",
+    );
+    const fnCount = [...result.graph.nodes()].filter((n) => n.kind === "Function").length;
+    assert.ok(fnCount >= 1, "the TS fixture must yield at least one Function node");
+  });
+});
+
+describe("shouldTripZeroSymbolGuard", () => {
+  it("trips only when enough tree-sitter files yielded zero symbols", () => {
+    // A globally-broken parser: many files, zero symbols.
+    assert.equal(shouldTripZeroSymbolGuard(100, 0), true);
+    assert.equal(shouldTripZeroSymbolGuard(5, 0), true);
+    // Below the floor — a tiny repo is too small to distinguish broken-vs-sparse.
+    assert.equal(shouldTripZeroSymbolGuard(4, 0), false);
+    // Healthy — symbols were extracted.
+    assert.equal(shouldTripZeroSymbolGuard(5, 3), false);
+    assert.equal(shouldTripZeroSymbolGuard(100, 1), false);
+    // Legitimately-empty (configs-only / cobol-only / unsupported) — no
+    // tree-sitter files at all, so the guard never fires.
+    assert.equal(shouldTripZeroSymbolGuard(0, 0), false);
   });
 });

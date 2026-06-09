@@ -96,6 +96,36 @@ export interface RunPipelineResult {
    * runs it (the phase internally short-circuits when gated off).
    */
   readonly summarize?: SummarizePhaseOutput;
+  /**
+   * Set when the parse phase routed a non-trivial number of files to
+   * tree-sitter grammars but extracted ZERO code symbols — the signature of a
+   * globally-broken parser (e.g. a WASM grammar/resolver regression) that would
+   * otherwise complete "successfully" with a File/Directory-only skeleton
+   * graph. A run-level backstop to the per-file warnings (which collapse and
+   * never affect the verdict). See {@link shouldTripZeroSymbolGuard}.
+   */
+  readonly zeroSymbolGuardTripped?: boolean;
+}
+
+/**
+ * Below this many tree-sitter files, a real-but-tiny repo is too small to
+ * confidently distinguish "broken parser" from "genuinely few symbols", so the
+ * guard stays quiet. The failure mode it targets is a GLOBAL break across a
+ * real codebase, where the file count is comfortably above this floor.
+ */
+const ZERO_SYMBOL_MIN_FILES = 5;
+
+/**
+ * Predicate for the zero-symbol guard: trips when the repo presented at least
+ * {@link ZERO_SYMBOL_MIN_FILES} tree-sitter-parseable files yet produced zero
+ * code symbols. Pure + exported so the threshold logic is unit-testable
+ * without standing up the parser.
+ */
+export function shouldTripZeroSymbolGuard(
+  treeSitterFileCount: number,
+  treeSitterSymbolCount: number,
+): boolean {
+  return treeSitterFileCount >= ZERO_SYMBOL_MIN_FILES && treeSitterSymbolCount === 0;
 }
 
 export interface RunIngestionOptions extends PipelineOptions {
@@ -225,6 +255,25 @@ export async function runIngestion(
   if (phaseMemDebug) {
     process.stderr.write(`[phase-telemetry] graphHash-end dur=${Date.now() - hashStart}ms\n`);
   }
+
+  // Run-level backstop: a globally-broken parser yields empty captures for
+  // every file, so extraction produces a File/Directory-only skeleton and the
+  // run "succeeds". Per-file warnings collapse and never affect the verdict —
+  // so aggregate here and surface a loud, greppable warning. (The hard-runtime
+  // case aborts earlier via WasmRuntimeUnavailableError; this catches the
+  // residual soft case, e.g. web-tree-sitter genuinely absent.)
+  const zeroSymbolGuardTripped =
+    parse !== undefined &&
+    shouldTripZeroSymbolGuard(parse.treeSitterFileCount, parse.treeSitterSymbolCount);
+  if (zeroSymbolGuardTripped && parse !== undefined) {
+    warnings.push(
+      `parse: extracted 0 code symbols from ${parse.treeSitterFileCount} tree-sitter source file(s) ` +
+        `(expected Function/Class/Method/etc). The parser is likely globally broken — the graph holds ` +
+        `only File/Directory nodes. Re-run with --verbose for per-file parse warnings, or run ` +
+        `'codehub doctor' to check the vendored grammars.`,
+    );
+  }
+
   return {
     graph,
     graphHash: hashed,
@@ -251,6 +300,7 @@ export async function runIngestion(
     ...(scan !== undefined ? { scan } : {}),
     ...(cochange !== undefined ? { cochange } : {}),
     ...(summarize !== undefined ? { summarize } : {}),
+    ...(zeroSymbolGuardTripped ? { zeroSymbolGuardTripped: true } : {}),
   };
 }
 

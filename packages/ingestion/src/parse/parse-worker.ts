@@ -29,7 +29,11 @@ import { Buffer } from "node:buffer";
 import { performance } from "node:perf_hooks";
 import type { LanguageId, ParseBatch, ParseCapture, ParseResult, ParseTask } from "./types.js";
 import { getUnifiedQuery } from "./unified-queries.js";
-import { openWasmParser, type WasmParserHandle } from "./wasm-runtime.js";
+import {
+  openWasmParser,
+  type WasmParserHandle,
+  WasmRuntimeUnavailableError,
+} from "./wasm-runtime.js";
 
 const PER_FILE_TIMEOUT_MS = 30_000;
 /** Pre-parse byte cap. Inputs above this are skipped before any WASM call. */
@@ -101,6 +105,11 @@ export async function parseOne(
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (err) {
+    // A global runtime failure means the parser is dead for every file — let it
+    // propagate so the batch (and the run) abort loudly, instead of recording N
+    // identical per-file warnings and a silently symbol-free graph. Per-file
+    // errors (syntax, timeout, one bad grammar) stay warnings and skip the file.
+    if (err instanceof WasmRuntimeUnavailableError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(message);
     return {

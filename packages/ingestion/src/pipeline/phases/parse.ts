@@ -97,6 +97,22 @@ export interface ParseOutput {
   readonly cacheHits: number;
   /** Number of files that bypassed the cache and were parsed fresh. */
   readonly cacheMisses: number;
+  /**
+   * Number of files routed to a tree-sitter grammar (i.e. `parseCandidates`,
+   * which excludes cobol — it goes through the regex provider). This is the
+   * "should have produced symbols" denominator for the zero-symbol guard; a
+   * configs-only / cobol-only / unsupported-language repo reports 0 here and
+   * so never trips the guard.
+   */
+  readonly treeSitterFileCount: number;
+  /**
+   * Total extracted definitions (Function/Class/Method/etc) from tree-sitter
+   * files. Counts only `definitionsByFile` entries — NOT cobol CodeElements or
+   * external import stubs (those are emitted directly to the graph and would
+   * mask a broken parser). 0 with a non-trivial {@link treeSitterFileCount}
+   * means symbol extraction globally failed.
+   */
+  readonly treeSitterSymbolCount: number;
 }
 
 export const PARSE_PHASE_NAME = "parse";
@@ -218,6 +234,15 @@ async function runParse(
     const pool = new ParsePool({ maxThreads: poolMaxThreads() });
     try {
       parseResults = await pool.dispatch(tasks);
+    } catch (err) {
+      // A global WASM-runtime failure (missing vendored grammars) rejects the
+      // dispatch — abort the parse phase loudly. Piscina serializes the worker
+      // error as a plain Error, so match on `name`, not `instanceof`. Re-throw
+      // with a phase prefix; any other dispatch error propagates unchanged.
+      if (err instanceof Error && err.name === "WasmRuntimeUnavailableError") {
+        throw new Error(`parse: WASM runtime unavailable — ${err.message}`);
+      }
+      throw err;
     } finally {
       await pool.destroy();
     }
@@ -691,6 +716,15 @@ async function runParse(
     }
   }
 
+  // Sum definitions extracted from tree-sitter files only (keyed by relPath of
+  // a parseCandidate). Excludes cobol CodeElements + external import stubs,
+  // which are added straight to the graph and would mask a globally-broken
+  // parser. 0 here with a non-trivial treeSitterFileCount = symbols failed.
+  let treeSitterSymbolCount = 0;
+  for (const f of parseCandidates) {
+    treeSitterSymbolCount += definitionsByFile.get(f.relPath)?.length ?? 0;
+  }
+
   return {
     definitionsByFile,
     callsByFile,
@@ -704,6 +738,8 @@ async function runParse(
     fileCount: parseCandidates.length + cobolCandidates.length,
     cacheHits: hits.length,
     cacheMisses: missFiles.length,
+    treeSitterFileCount: parseCandidates.length,
+    treeSitterSymbolCount,
   };
 }
 
