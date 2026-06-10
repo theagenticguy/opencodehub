@@ -128,6 +128,77 @@ describe("scanPhase", () => {
     const out = await scanPhase.run(makeCtx(), new Map());
     assert.deepEqual([...out.submodulePaths], []);
   });
+
+  it("leaves trackedPaths undefined when skipGit is set", async () => {
+    // skipGit short-circuits the git probes — the tracked set is unknown, so
+    // consumers must fall back to their unfiltered behavior.
+    const out = await scanPhase.run(makeCtx(), new Map());
+    assert.equal(out.trackedPaths, undefined);
+  });
+
+  it("leaves trackedPaths undefined in a non-git directory", async () => {
+    // A plain directory (no .git) is not a git checkout — `git ls-files`
+    // exits non-zero and the helper resolves to undefined, not an empty set.
+    const ctx = makeCtx({ options: {} });
+    const out = await scanPhase.run(ctx, new Map());
+    assert.equal(out.trackedPaths, undefined);
+  });
+});
+
+describe("scanPhase — tracked-path capture", () => {
+  let repo: string;
+
+  async function runGit(cwd: string, args: readonly string[]): Promise<void> {
+    await execFileAsync("git", args as string[], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test Author",
+        GIT_AUTHOR_EMAIL: "author@example.com",
+        GIT_COMMITTER_NAME: "Test Author",
+        GIT_COMMITTER_EMAIL: "author@example.com",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_SYSTEM: "/dev/null",
+      },
+    });
+  }
+
+  before(async () => {
+    repo = await mkdtemp(path.join(tmpdir(), "och-scan-tracked-"));
+    await runGit(repo, ["init", "-q", "-b", "main"]);
+    await runGit(repo, ["config", "commit.gpgsign", "false"]);
+    // tracked.ts is committed → in HEAD; untracked.ts is written but never
+    // `git add`ed → on disk but absent from the tracked set.
+    await fs.writeFile(path.join(repo, "tracked.ts"), "export const T = 1;\n");
+    await runGit(repo, ["add", "tracked.ts"]);
+    await runGit(repo, ["commit", "-q", "-m", "feat: add tracked"]);
+    await fs.writeFile(path.join(repo, "untracked.ts"), "export const U = 2;\n");
+  });
+
+  after(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  it("captures HEAD-tracked paths and excludes untracked files on disk", async () => {
+    const ctx: PipelineContext = {
+      repoPath: repo,
+      options: {},
+      graph: new KnowledgeGraph(),
+      phaseOutputs: new Map(),
+    };
+    const out = await scanPhase.run(ctx, new Map());
+    assert.ok(out.trackedPaths !== undefined, "trackedPaths must be populated in a git repo");
+    assert.ok(out.trackedPaths.has("tracked.ts"), "committed file must be in the tracked set");
+    assert.ok(
+      !out.trackedPaths.has("untracked.ts"),
+      "untracked file on disk must NOT be in the tracked set",
+    );
+    // The set keys match scan.files relPaths exactly (forward-slash,
+    // repo-relative) so the ownership phase can intersect them directly.
+    const onDisk = out.files.map((f) => f.relPath);
+    assert.ok(onDisk.includes("tracked.ts"));
+    assert.ok(onDisk.includes("untracked.ts"), "scan walk still sees the untracked file on disk");
+  });
 });
 
 describe("scanPhase — submodule enumeration", () => {

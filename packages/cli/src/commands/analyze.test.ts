@@ -30,6 +30,8 @@ import {
   resolveScanEnabled,
   resolveSummariesEnabled,
 } from "./analyze.js";
+import { selectScannerIds } from "./scan.js";
+import { computeScanFingerprint, shouldSkipScan } from "./scan-fingerprint.js";
 
 /**
  * Run a subprocess and resolve once it exits. Returns the exit code so
@@ -470,4 +472,172 @@ test("buildStoreMeta: carries lastCommit and cacheHitRatio through verbatim", ()
   assert.equal(meta.cacheHitRatio, 0.5);
   assert.equal(meta.cacheSizeBytes, 1024);
   assert.deepEqual(meta.stats, { Function: 3 });
+});
+
+// ---------------------------------------------------------------------------
+// computeScanFingerprint — deterministic, order-independent fingerprint over
+// the scan INPUTS (per-file SHAs + selected scanner ids). Drives the
+// analyze-time scan-skip when the working tree is dirty but the scanned
+// content is unchanged.
+// ---------------------------------------------------------------------------
+
+test("computeScanFingerprint: identical inputs produce identical hex", () => {
+  const files = [
+    { relPath: "a.ts", sha256: "aaa" },
+    { relPath: "b.ts", sha256: "bbb" },
+  ];
+  const scanners = ["semgrep", "osv-scanner"];
+  assert.equal(computeScanFingerprint(files, scanners), computeScanFingerprint(files, scanners));
+});
+
+test("computeScanFingerprint: reordering files does not change the hex (order-independent)", () => {
+  const scanners = ["semgrep", "osv-scanner"];
+  const forward = computeScanFingerprint(
+    [
+      { relPath: "a.ts", sha256: "aaa" },
+      { relPath: "b.ts", sha256: "bbb" },
+    ],
+    scanners,
+  );
+  const reversed = computeScanFingerprint(
+    [
+      { relPath: "b.ts", sha256: "bbb" },
+      { relPath: "a.ts", sha256: "aaa" },
+    ],
+    scanners,
+  );
+  assert.equal(forward, reversed);
+});
+
+test("computeScanFingerprint: reordering scanner ids does not change the hex", () => {
+  const files = [{ relPath: "a.ts", sha256: "aaa" }];
+  const forward = computeScanFingerprint(files, ["semgrep", "osv-scanner"]);
+  const reversed = computeScanFingerprint(files, ["osv-scanner", "semgrep"]);
+  assert.equal(forward, reversed);
+});
+
+test("computeScanFingerprint: changing a file sha256 changes the hex", () => {
+  const scanners = ["semgrep"];
+  const before = computeScanFingerprint([{ relPath: "a.ts", sha256: "aaa" }], scanners);
+  const after = computeScanFingerprint([{ relPath: "a.ts", sha256: "zzz" }], scanners);
+  assert.notEqual(before, after);
+});
+
+test("computeScanFingerprint: adding a scanner id changes the hex", () => {
+  const files = [{ relPath: "a.ts", sha256: "aaa" }];
+  const before = computeScanFingerprint(files, ["semgrep"]);
+  const after = computeScanFingerprint(files, ["semgrep", "osv-scanner"]);
+  assert.notEqual(before, after);
+});
+
+test("computeScanFingerprint: adding a file changes the hex", () => {
+  const scanners = ["semgrep"];
+  const before = computeScanFingerprint([{ relPath: "a.ts", sha256: "aaa" }], scanners);
+  const after = computeScanFingerprint(
+    [
+      { relPath: "a.ts", sha256: "aaa" },
+      { relPath: "b.ts", sha256: "bbb" },
+    ],
+    scanners,
+  );
+  assert.notEqual(before, after);
+});
+
+test("computeScanFingerprint: empty file set differs from empty scanner set", () => {
+  // The framed serialization keeps the two "empty" inputs distinct so they
+  // can't collide on the same hex.
+  const emptyFiles = computeScanFingerprint([], ["semgrep"]);
+  const emptyScanners = computeScanFingerprint([{ relPath: "a.ts", sha256: "aaa" }], []);
+  assert.notEqual(emptyFiles, emptyScanners);
+});
+
+// ---------------------------------------------------------------------------
+// shouldSkipScan — pure decision: skip only when !force && fingerprint match
+// && the prior scan.sarif still exists.
+// ---------------------------------------------------------------------------
+
+test("shouldSkipScan: --force always runs even on a fingerprint match", () => {
+  assert.equal(
+    shouldSkipScan({
+      force: true,
+      priorFingerprint: "fp",
+      currentFingerprint: "fp",
+      sarifExists: true,
+    }),
+    false,
+  );
+});
+
+test("shouldSkipScan: no prior fingerprint runs (first scan)", () => {
+  assert.equal(
+    shouldSkipScan({
+      force: false,
+      priorFingerprint: undefined,
+      currentFingerprint: "fp",
+      sarifExists: true,
+    }),
+    false,
+  );
+});
+
+test("shouldSkipScan: fingerprint match + sarif present skips", () => {
+  assert.equal(
+    shouldSkipScan({
+      force: false,
+      priorFingerprint: "fp",
+      currentFingerprint: "fp",
+      sarifExists: true,
+    }),
+    true,
+  );
+});
+
+test("shouldSkipScan: fingerprint mismatch runs", () => {
+  assert.equal(
+    shouldSkipScan({
+      force: false,
+      priorFingerprint: "old",
+      currentFingerprint: "new",
+      sarifExists: true,
+    }),
+    false,
+  );
+});
+
+test("shouldSkipScan: fingerprint match but missing sarif runs", () => {
+  // The fingerprint matched but `scan.sarif` was deleted — must NOT skip, so
+  // the SARIF the MCP surface reads gets regenerated.
+  assert.equal(
+    shouldSkipScan({
+      force: false,
+      priorFingerprint: "fp",
+      currentFingerprint: "fp",
+      sarifExists: false,
+    }),
+    false,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// selectScannerIds — single-sources the scanner-id set so the analyze
+// fingerprint and `runScan` agree on which scanners run.
+// ---------------------------------------------------------------------------
+
+test("selectScannerIds: --scanners override returns a sorted, unique id list", async () => {
+  // No graph store at the temp path → readProjectProfile returns {} →
+  // selection is driven entirely by the explicit --scanners list. Passing
+  // duplicates + reverse order proves the result is deduped and sorted.
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-scanids-"));
+  const ids = await selectScannerIds(dir, {
+    scanners: ["semgrep", "osv-scanner", "semgrep"],
+  });
+  assert.deepEqual(ids, ["osv-scanner", "semgrep"]);
+});
+
+test("selectScannerIds: empty profile yields the sorted polyglot P1 subset", async () => {
+  // A repo with no ProjectProfile graph row falls back to the polyglot P1
+  // scanners; the helper must return them sorted + unique.
+  const dir = await mkdtemp(join(tmpdir(), "och-analyze-scanids-empty-"));
+  const ids = await selectScannerIds(dir, {});
+  assert.deepEqual(ids, ["betterleaks", "grype", "osv-scanner", "semgrep"]);
 });

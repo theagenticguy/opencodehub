@@ -43,6 +43,7 @@ async function runGit(
 function buildScanOutput(
   relPaths: readonly string[],
   submodulePaths: readonly string[] = [],
+  trackedPaths?: ReadonlySet<string>,
 ): ScanOutput {
   return {
     files: relPaths.map((p) => ({
@@ -54,6 +55,7 @@ function buildScanOutput(
     })),
     totalBytes: 0,
     submodulePaths,
+    ...(trackedPaths !== undefined ? { trackedPaths } : {}),
   };
 }
 
@@ -298,6 +300,61 @@ describe("ownershipPhase — blame integration", () => {
     assert.ok(
       warnings.some((m) => m.includes("vendor/mod/does-not-exist.ts")),
       "with excludeSubmodules=false, blame should run on submodule paths and emit its warning",
+    );
+  });
+
+  it("skips untracked files (not in HEAD) so blame never fires on them", async () => {
+    // Write an UNTRACKED file on disk: it passes the scan walk but is not in
+    // git, so per-file `git blame` would fail with "no such path in HEAD".
+    // The scan's trackedPaths set excludes it; the ownership phase must drop
+    // it before batchBlame so no warning fires — while the tracked foo.ts
+    // still produces ownership.
+    const untracked = "untracked.ts";
+    await fs.writeFile(path.join(repo, untracked), "export const U = 1;\n");
+    const warnings: string[] = [];
+    const graph = new KnowledgeGraph();
+    addFileNode(graph, "foo.ts");
+    addFileNode(graph, untracked);
+    const ctx: PipelineContext = {
+      repoPath: repo,
+      options: {} as PipelineContext["options"],
+      graph,
+      phaseOutputs: new Map(),
+      onProgress: (ev) => {
+        if (ev.kind === "warn" && ev.message !== undefined) warnings.push(ev.message);
+      },
+    };
+    const deps = new Map<string, unknown>([
+      [
+        SCAN_PHASE_NAME,
+        // trackedPaths contains ONLY the committed file — untracked.ts is on
+        // disk (in scan.files) but absent from the tracked set.
+        buildScanOutput(["foo.ts", untracked], [], new Set(["foo.ts"])),
+      ],
+      [PARSE_PHASE_NAME, buildParseOutput(new Map())],
+      [
+        TEMPORAL_PHASE_NAME,
+        { signalsEmitted: 0, filesSkipped: 0, windowDays: 365, subprocessCount: 0 },
+      ],
+      [
+        COMMUNITIES_PHASE_NAME,
+        { communityCount: 0, memberCount: 0, unclusteredCount: 0, usedFallback: false },
+      ],
+    ]);
+    const out = await ownershipPhase.run(ctx, deps);
+    for (const msg of warnings) {
+      assert.ok(
+        !msg.includes(untracked),
+        `untracked paths must be filtered before blame; got warning: ${msg}`,
+      );
+    }
+    // The tracked file still produces ownership; the untracked file did not
+    // even reach blame, so only foo.ts is blamed.
+    assert.ok(out.blamedFileCount >= 1, "tracked foo.ts should still yield ownership");
+    assert.ok(out.contributorCount >= 1, "tracked foo.ts should attribute a contributor");
+    assert.ok(
+      out.subprocessCount <= 1,
+      "blame should run only on the single tracked file, not the untracked one",
     );
   });
 

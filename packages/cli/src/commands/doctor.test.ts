@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { BANDIT_SPEC } from "@opencodehub/scanners";
 import { buildChecks, type RunCommandFn, runDoctor } from "./doctor.js";
 
 /**
@@ -397,7 +398,14 @@ test("bandit check fails when the [sarif] formatter is missing (exit 2 + usage b
     assert.ok(bandit, "bandit check must be registered under the 'bandit binary' row");
     const result = await bandit.run();
     assert.equal(result.status, "fail", `expected fail; got ${result.status}: ${result.message}`);
-    assert.match(result.hint ?? "", /bandit\[sarif\]/);
+    // The hint must carry the PINNED catalog install command (single source
+    // of truth), not the legacy unpinned `bandit[sarif]` literal — so it can
+    // never drift from the scanner wrapper advisory.
+    assert.match(result.hint ?? "", /bandit\[sarif\]==1\.9\.4/);
+    assert.ok(
+      (result.hint ?? "").includes(BANDIT_SPEC.installCmd),
+      `hint must contain the pinned BANDIT_SPEC.installCmd; got: ${result.hint}`,
+    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -430,6 +438,13 @@ test("bandit check warns (not fails) when the binary is absent", async () => {
     assert.ok(bandit);
     const result = await bandit.run();
     assert.equal(result.status, "warn", `absent binary is a soft warn; got ${result.status}`);
+    // Even the absent-binary warn must carry the PINNED catalog install
+    // command, identical to the formatter-missing fail path.
+    assert.match(result.hint ?? "", /bandit\[sarif\]==1\.9\.4/);
+    assert.ok(
+      (result.hint ?? "").includes(BANDIT_SPEC.installCmd),
+      `hint must contain the pinned BANDIT_SPEC.installCmd; got: ${result.hint}`,
+    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }
