@@ -33,17 +33,19 @@ concurrency:
 # Top-level permissions: a job's permissions can only be a SUBSET of the
 # top-level set. The `release` job below (workflow_call → release.yml)
 # needs `id-token: write` for npm OIDC trusted publishing + Sigstore
-# attestation, plus `contents: write` for the release-please-action's
-# branch/tag create. So the ceiling here must include both. The
-# `release-please` job further narrows to the subset it needs.
-# (Scorecard Token-Permissions still passes — every per-job block is
-# least-privilege within this ceiling.)
+# attestation, `attestations: write` for the build-provenance attestation
+# (actions/attest-build-provenance in release.yml), plus `contents: write`
+# for the release-please-action's branch/tag create. So the ceiling here
+# must include all of them. The `release-please` job further narrows to the
+# subset it needs. (Scorecard Token-Permissions still passes — every per-job
+# block is least-privilege within this ceiling.)
 permissions:
   contents: write
   id-token: write
   pull-requests: write
   actions: read
   security-events: write
+  attestations: write
 
 jobs:
   release-please:
@@ -72,6 +74,7 @@ jobs:
       id-token: write
       actions: read
       security-events: write
+      attestations: write   # release.yml's provenance job writes a build attestation
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
