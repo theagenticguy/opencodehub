@@ -208,6 +208,15 @@ jobs:
   #    tag); SHA pinning short-circuits SLSA's own trust model. This is
   #    the documented exception to repo-wide SHA pinning. See
   #    https://github.com/slsa-framework/slsa-github-generator#referencing-slsa-builders-and-generators
+  #
+  #    Node-20 deprecation note: this generator emits "Node.js 20 actions are
+  #    deprecated" warnings during release runs. Those originate INSIDE
+  #    v2.1.0's own internal actions (upload-artifact@v4.6.0,
+  #    download-artifact@v4.1.8, checkout, setup-go) — not our caller code.
+  #    v2.1.0 is the latest release (no newer tag exists), and SLSA requires
+  #    the @vX.Y.Z tag form, so the warnings are NOT fixable from this repo.
+  #    The fix must come upstream (a v2.x with node24 internals). Until then
+  #    the warnings are expected; bump this tag when a newer release ships.
   # ---------------------------------------------------------------------------
   provenance:
     name: SLSA L3 provenance
@@ -314,7 +323,7 @@ jobs:
 
       - name: Upload SARIF to code scanning
         if: hashFiles('artifacts/och-scan.sarif') != ''
-        uses: github/codeql-action/upload-sarif@eda5730a8bfb740e03a28087a958444c646e5842  # codeql-bundle-v2.25.4
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4
         with:
           sarif_file: artifacts/och-scan.sarif
           category: opencodehub-release
