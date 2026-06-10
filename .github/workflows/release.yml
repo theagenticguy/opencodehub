@@ -3,8 +3,9 @@
 # Triggered when a release-please tag is published. Builds every package,
 # generates a CycloneDX SBOM, runs the OCH self-scan + analyze + code-pack
 # against the released SHA, signs every artifact with Sigstore cosign
-# (keyless / OIDC), generates SLSA Level 3 provenance, and attaches every
-# artifact + signature + provenance bundle to the GitHub release.
+# (keyless / OIDC), attests build provenance via actions/attest-build-provenance
+# (stored in the GitHub attestations API), and attaches every artifact +
+# signature to the GitHub release.
 #
 # Trigger model:
 #
@@ -110,7 +111,6 @@ jobs:
       pack-sha256: ${{ steps.hashes.outputs.pack }}
       sbom-sha256: ${{ steps.hashes.outputs.sbom }}
       sarif-sha256: ${{ steps.hashes.outputs.sarif }}
-      hashes-b64: ${{ steps.hashes.outputs.b64 }}
     steps:
       - name: Checkout released SHA
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -165,10 +165,11 @@ jobs:
           fi
           ls -la artifacts/
 
-      # Compute per-file SHA-256 once. Reused by:
-      #   - the SLSA generator's base64-subjects input,
-      #   - the cosign sign-blob job for transparency,
-      #   - the operator's runbook verification commands.
+      # Compute per-file SHA-256 once, surfaced as job outputs for the
+      # operator's runbook verification commands (docs/RELEASE.md). Build
+      # provenance over these artifacts is attested in the `provenance` job
+      # via actions/attest-build-provenance, which hashes the files itself —
+      # so no base64-subjects bundle is produced here anymore.
       - name: Compute artifact SHA-256 hashes
         id: hashes
         run: |
@@ -183,13 +184,6 @@ jobs:
           echo "pack=$PACK" >> "$GITHUB_OUTPUT"
           echo "sbom=$SBOM" >> "$GITHUB_OUTPUT"
           echo "sarif=$SARIF" >> "$GITHUB_OUTPUT"
-          # base64-encoded sha256sum-formatted lines for slsa-github-generator.
-          if [ -f och-scan.sarif ]; then
-            B64=$(sha256sum opencodehub-pack.tar.gz SBOM.cdx.json och-scan.sarif | base64 -w0)
-          else
-            B64=$(sha256sum opencodehub-pack.tar.gz SBOM.cdx.json | base64 -w0)
-          fi
-          echo "b64=$B64" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -200,37 +194,51 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # 2. SLSA Level 3 provenance.
+  # 2. SLSA build provenance (node24, first-party).
   #
-  #    The SLSA generator is a reusable workflow. Reusable workflows MUST
-  #    be referenced by a release tag (the SLSA project signs each release
-  #    and the trusted-builder model hashes the workflow at the referenced
-  #    tag); SHA pinning short-circuits SLSA's own trust model. This is
-  #    the documented exception to repo-wide SHA pinning. See
-  #    https://github.com/slsa-framework/slsa-github-generator#referencing-slsa-builders-and-generators
+  #    Migrated off slsa-framework/slsa-github-generator (a reusable workflow
+  #    pinned at v2.1.0) to actions/attest-build-provenance. Two reasons:
   #
-  #    Node-20 deprecation note: this generator emits "Node.js 20 actions are
-  #    deprecated" warnings during release runs. Those originate INSIDE
-  #    v2.1.0's own internal actions (upload-artifact@v4.6.0,
-  #    download-artifact@v4.1.8, checkout, setup-go) — not our caller code.
-  #    v2.1.0 is the latest release (no newer tag exists), and SLSA requires
-  #    the @vX.Y.Z tag form, so the warnings are NOT fixable from this repo.
-  #    The fix must come upstream (a v2.x with node24 internals). Until then
-  #    the warnings are expected; bump this tag when a newer release ships.
+  #      1. node24. The SLSA generator v2.1.0 carries node20 internals
+  #         (upload-artifact@v4.6.0, download-artifact@v4.1.8, checkout,
+  #         setup-go) and v2.1.0 is its latest release, so the node20→node24
+  #         forced cutover (2026-06-16) was unfixable while on it.
+  #      2. Resilience. A reusable-workflow-calling job cannot carry
+  #         `continue-on-error` (GitHub disallows it), so a generator failure
+  #         RED-ed the whole release run and — via `needs` — skipped the npm
+  #         publish. attest-build-provenance runs as a normal action step, so
+  #         this job takes `continue-on-error: true`: a provenance failure no
+  #         longer fails the run, and npm-publish (job 5) is decoupled from it.
+  #
+  #    Delivery model change: provenance is now stored in the GitHub
+  #    attestations API (verify with `gh attestation verify <file> --repo
+  #    theagenticguy/opencodehub`) instead of an `intoto.jsonl` asset on the
+  #    release + `slsa-verifier`. The signing identity is still this workflow's
+  #    OIDC token (SLSA build-provenance predicate). See docs/RELEASE.md §3.2.
   # ---------------------------------------------------------------------------
   provenance:
-    name: SLSA L3 provenance
+    name: Build provenance (attestation)
     needs: [resolve, build]
+    runs-on: ubuntu-latest
+    continue-on-error: true   # provenance is best-effort; never red the run / block publish
     permissions:
-      id-token: write       # mint OIDC token for the trusted builder
-      contents: write       # generator can attach .intoto.jsonl to the release
-      actions: read         # required by slsa-verifier inside the generator
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: ${{ needs.build.outputs.hashes-b64 }}
-      upload-assets: true
-      upload-tag-name: ${{ needs.resolve.outputs.tag }}
-      provenance-name: opencodehub-${{ needs.resolve.outputs.tag }}.intoto.jsonl
+      id-token: write         # OIDC token for the attestation signing identity
+      contents: read          # read the released tree
+      attestations: write     # write the attestation to the GitHub attestations API
+    steps:
+      - name: Download artifact bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: release-artifacts
+          path: artifacts/
+
+      - name: Attest build provenance for every released artifact
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-path: |
+            artifacts/opencodehub-pack.tar.gz
+            artifacts/SBOM.cdx.json
+            artifacts/och-scan.sarif
 
   # ---------------------------------------------------------------------------
   # 3. Cosign keyless signing of every artifact.
@@ -349,7 +357,19 @@ jobs:
   # ---------------------------------------------------------------------------
   npm-publish:
     name: npm publish (OIDC + provenance)
-    if: vars.OCH_NPM_PUBLISH_ENABLED == 'true'
+    # Decoupled from the `provenance` job's result: npm publish generates its
+    # OWN Sigstore provenance via `pnpm publish --provenance` and never
+    # consumed the SLSA/attestation artifact. We still list `provenance` in
+    # `needs` so publish runs AFTER it (ordering), but `!cancelled()` overrides
+    # the implicit success() gate so a provenance failure cannot skip publish.
+    # The explicit == 'success' clauses re-assert the deps we DO require.
+    # (provenance is also continue-on-error, so this is belt-and-suspenders.)
+    if: >-
+      !cancelled()
+      && vars.OCH_NPM_PUBLISH_ENABLED == 'true'
+      && needs.resolve.result == 'success'
+      && needs.build.result == 'success'
+      && needs.sign.result == 'success'
     needs: [resolve, build, sign, provenance]
     runs-on: ubuntu-latest
     permissions:
