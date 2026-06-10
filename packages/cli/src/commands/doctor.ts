@@ -20,6 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
+import { BANDIT_SPEC } from "@opencodehub/scanners";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
 import { GRAPH_BINDING_SUPPORTED_PLATFORMS, graphBindingPlatformNote } from "@opencodehub/storage";
 import Table from "cli-table3";
@@ -593,7 +594,11 @@ function binaryOnPathCheck(bin: string, hint: string, run: RunCommandFn): Check 
  * not on advisory prose, so it can't silently regress to "ok".
  */
 function banditSarifCheck(run: RunCommandFn): Check {
-  const installHint = "P1 scanner — install with `uv tool install 'bandit[sarif]'`";
+  // Reuse the catalog spec's pinned install command (single source of truth)
+  // so doctor's hint never drifts from the scanner wrapper advisory
+  // (`packages/scanners/src/wrappers/bandit.ts`), which also derives from
+  // `BANDIT_SPEC.installCmd`.
+  const installHint = `P1 scanner — install with \`${BANDIT_SPEC.installCmd}\``;
   return {
     name: "bandit binary",
     async run() {
