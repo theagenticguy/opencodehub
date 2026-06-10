@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.4...root-v0.8.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* **release:** grant attestations:write in release-please workflow_call ceiling ([#220](https://github.com/theagenticguy/opencodehub/issues/220)) ([21cf1c5](https://github.com/theagenticguy/opencodehub/commit/21cf1c502cdd96f1c60f99e58798b9092872f181))
+* **release:** migrate provenance to node24 attest-build-provenance + decouple npm publish ([#219](https://github.com/theagenticguy/opencodehub/issues/219)) ([86cc5f8](https://github.com/theagenticguy/opencodehub/commit/86cc5f88d0887286be218e8b38844be1775ce42f))
+
 ## [0.8.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.3...root-v0.8.4) (2026-06-10)
 
 
