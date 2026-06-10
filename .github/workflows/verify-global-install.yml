@@ -49,12 +49,8 @@ jobs:
       matrix:
         include:
           # ---------------------------- Linux x64 -----------------------------
-          - label: linux-x64-node20-mise
-            runner: ubuntu-24.04
-            os: linux
-            arch: x64
-            node: "20"
-            installer: mise
+          # Floor is Node 22 (engines.node >= 22.12.0); the prior node20 row
+          # tested a sub-floor runtime and was dropped.
           - label: linux-x64-node22-mise
             runner: ubuntu-24.04
             os: linux
