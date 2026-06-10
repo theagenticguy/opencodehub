@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.3...cli-v0.7.4) (2026-06-10)
+
+
+### Bug Fixes
+
+* **cli,ingestion:** eliminate 3 first-run rough edges (blame noise, scan re-run, doctor pin) ([#215](https://github.com/theagenticguy/opencodehub/issues/215)) ([c7fd5f0](https://github.com/theagenticguy/opencodehub/commit/c7fd5f0deb04b9327a7d0e2f24bfdcdfead49998))
+
 ## [0.7.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.2...cli-v0.7.3) (2026-06-09)
 
 
