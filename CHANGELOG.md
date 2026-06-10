@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.3...root-v0.8.4) (2026-06-10)
+
+
+### Bug Fixes
+
+* **cli,ingestion:** eliminate 3 first-run rough edges (blame noise, scan re-run, doctor pin) ([#215](https://github.com/theagenticguy/opencodehub/issues/215)) ([c7fd5f0](https://github.com/theagenticguy/opencodehub/commit/c7fd5f0deb04b9327a7d0e2f24bfdcdfead49998))
+
 ## [0.8.3](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.2...root-v0.8.3) (2026-06-09)
 
 
