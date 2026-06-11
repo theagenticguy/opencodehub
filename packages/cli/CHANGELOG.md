@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6](https://github.com/theagenticguy/opencodehub/compare/v0.7.5...v0.7.6) (2026-06-11)
+
+
+### Bug Fixes
+
+* **release:** make npm publish idempotent on stuck-release re-runs ([#224](https://github.com/theagenticguy/opencodehub/issues/224)) ([12e1c66](https://github.com/theagenticguy/opencodehub/commit/12e1c66a893d0fdef3dc0a253f1aab313d13666a))
+
 ## [0.7.5](https://github.com/theagenticguy/opencodehub/compare/v0.7.4...v0.7.5) (2026-06-11)
 
 
