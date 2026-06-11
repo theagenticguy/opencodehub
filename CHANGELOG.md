@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.6](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.5...root-v0.8.6) (2026-06-11)
+
+
+### Bug Fixes
+
+* **release:** collapse release-please to one published @opencodehub/cli component ([#222](https://github.com/theagenticguy/opencodehub/issues/222)) ([ab749bd](https://github.com/theagenticguy/opencodehub/commit/ab749bdcc9a337481b0cbda2b7ddd623e6d027fc))
+* **release:** make npm publish idempotent on stuck-release re-runs ([#224](https://github.com/theagenticguy/opencodehub/issues/224)) ([12e1c66](https://github.com/theagenticguy/opencodehub/commit/12e1c66a893d0fdef3dc0a253f1aab313d13666a))
+* **release:** restore two-component config + linked-versions to fix CLI starvation ([#227](https://github.com/theagenticguy/opencodehub/issues/227)) ([f849f24](https://github.com/theagenticguy/opencodehub/commit/f849f24f6657c2c0ec9a5e62abdb8969f392ca48))
+* **release:** set explicit empty component so the CLI release PR matches ([#226](https://github.com/theagenticguy/opencodehub/issues/226)) ([4188b52](https://github.com/theagenticguy/opencodehub/commit/4188b528f1d09a3ef4b8336dc1dadb6c76f9ce4d))
+
 ## [0.8.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.4...root-v0.8.5) (2026-06-10)
 
 
