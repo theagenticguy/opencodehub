@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.6](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.4...cli-v0.8.6) (2026-06-11)
+
+
+### Bug Fixes
+
+* **release:** restore two-component config + linked-versions to fix CLI starvation ([#227](https://github.com/theagenticguy/opencodehub/issues/227)) ([f849f24](https://github.com/theagenticguy/opencodehub/commit/f849f24f6657c2c0ec9a5e62abdb8969f392ca48))
+
 ## [0.7.6](https://github.com/theagenticguy/opencodehub/compare/v0.7.5...v0.7.6) (2026-06-11)
 
 
