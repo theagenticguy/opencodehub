@@ -22,6 +22,7 @@
   "packages": {
     ".": {
       "package-name": "@opencodehub/cli",
+      "component": "",
       "include-component-in-tag": false,
       "changelog-path": "packages/cli/CHANGELOG.md",
       "extra-files": [
