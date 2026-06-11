@@ -26,6 +26,6 @@
     "rehype-mermaid": "^3.0.0",
     "starlight-links-validator": "^0.24.0",
     "starlight-llms-txt": "^0.10.0",
-    "starlight-page-actions": "^0.6.0"
+    "starlight-page-actions": "^0.6.1"
   }
 }
