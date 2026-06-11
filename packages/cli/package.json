@@ -42,7 +42,7 @@
   "//deps": "The 14 @opencodehub/* workspace libs are INLINED into the bundle at build time (tsup noExternal) — they are devDependencies, not runtime deps. `dependencies` below is exactly the third-party set the bundle imports at runtime (kept `external`), plus the two @sourcegraph/scip-* indexers the parse pipeline spawns as subprocesses. onnxruntime-node is optional (lazy-loaded only when embeddings are enabled).",
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
-    "@aws-sdk/client-bedrock-runtime": "3.1064.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1066.0",
     "@aws-sdk/client-sagemaker-runtime": "3.1064.0",
     "@chonkiejs/core": "^0.0.10",
     "@cyclonedx/cyclonedx-library": "10.1.0",
