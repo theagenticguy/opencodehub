@@ -21,9 +21,12 @@
   ],
   "packages": {
     ".": {
-      "package-name": "opencodehub",
-      "component": "root"
-    },
-    "packages/cli": { "package-name": "@opencodehub/cli" }
+      "package-name": "@opencodehub/cli",
+      "include-component-in-tag": false,
+      "changelog-path": "packages/cli/CHANGELOG.md",
+      "extra-files": [
+        { "type": "json", "path": "packages/cli/package.json", "jsonpath": "$.version" }
+      ]
+    }
   }
 }
