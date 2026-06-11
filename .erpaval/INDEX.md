@@ -77,3 +77,4 @@ development sessions. Solutions are reusable; specs are per-feature.
 ## Specs
 
 - [001-scip-replaces-lsp](specs/001-scip-replaces-lsp/spec.md) — rip-and-replace LSP with SCIP for TS/Py/Go/Rust/Java. Task map: [tasks.md](specs/001-scip-replaces-lsp/tasks.md).
+- [release-please single root package cannot release](solutions/conventions/release-please-single-root-package-cannot-release.md) — a scoped single root package can't create a release (the `||` coercion derives a component the PR can't match); keep 2 components + linked-versions so the published CLI bumps on every commit.
