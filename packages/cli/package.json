@@ -43,7 +43,7 @@
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
     "@aws-sdk/client-bedrock-runtime": "3.1064.0",
-    "@aws-sdk/client-sagemaker-runtime": "3.1064.0",
+    "@aws-sdk/client-sagemaker-runtime": "3.1066.0",
     "@chonkiejs/core": "^0.0.10",
     "@cyclonedx/cyclonedx-library": "10.1.0",
     "@duckdb/node-api": "1.5.3-r.3",
