@@ -42,8 +42,8 @@
   "//deps": "The 14 @opencodehub/* workspace libs are INLINED into the bundle at build time (tsup noExternal) — they are devDependencies, not runtime deps. `dependencies` below is exactly the third-party set the bundle imports at runtime (kept `external`), plus the two @sourcegraph/scip-* indexers the parse pipeline spawns as subprocesses. onnxruntime-node is optional (lazy-loaded only when embeddings are enabled).",
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
-    "@aws-sdk/client-bedrock-runtime": "3.1064.0",
-    "@aws-sdk/client-sagemaker-runtime": "3.1064.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1068.0",
+    "@aws-sdk/client-sagemaker-runtime": "3.1068.0",
     "@chonkiejs/core": "^0.0.10",
     "@cyclonedx/cyclonedx-library": "10.1.0",
     "@duckdb/node-api": "1.5.3-r.3",
@@ -58,7 +58,7 @@
     "fast-xml-parser": "5.8.0",
     "listr2": "10.2.1",
     "lru-cache": "11.5.1",
-    "piscina": "5.1.4",
+    "piscina": "5.2.0",
     "snyk-nodejs-lockfile-parser": "2.8.0",
     "web-tree-sitter": "0.26.9",
     "write-file-atomic": "7.0.1",
@@ -82,7 +82,7 @@
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
-    "@types/node": "25.9.2",
+    "@types/node": "25.9.3",
     "@types/write-file-atomic": "4.0.3",
     "tsup": "^8.5.1",
     "typescript": "6.0.3"

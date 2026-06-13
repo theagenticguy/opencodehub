@@ -26,6 +26,12 @@ overrides:
   # (used only by @opencodehub/docs, a private workspace package). Pinned to
   # 5.8.1 until astro releases a version that constrains devalue itself.
   devalue@<5.8.1: "5.8.1"
+  # esbuild 0.27.3..0.28.0 is vulnerable to GHSA-g7r4-m6w7-qqqr (LOW, dev-server
+  # path traversal via `\` on Windows). Comes in via astro (which pins
+  # esbuild@^0.27.3 and never widens it, so Dependabot's security update fails
+  # with security_update_not_possible) and via tsx@4.x (esbuild@0.28.0). Pinned
+  # to 0.28.1 — the first patched release — until astro widens its own range.
+  esbuild@>=0.27.3 <0.28.1: "0.28.1"
 
 # Project-level settings. In pnpm v11, only auth+registry settings are read
 # from .npmrc; non-auth settings belong here or in ~/.config/pnpm/config.yaml.
