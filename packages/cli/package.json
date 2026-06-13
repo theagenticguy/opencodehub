@@ -61,7 +61,7 @@
     "piscina": "5.2.0",
     "snyk-nodejs-lockfile-parser": "2.8.0",
     "web-tree-sitter": "0.26.9",
-    "write-file-atomic": "7.0.1",
+    "write-file-atomic": "8.0.0",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
@@ -104,6 +104,6 @@
     "code-analysis"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.15.0"
   }
 }

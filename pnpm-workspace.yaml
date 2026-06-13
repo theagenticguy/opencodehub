@@ -33,6 +33,19 @@ overrides:
   # to 0.28.1 — the first patched release — until astro widens its own range.
   esbuild@>=0.27.3 <0.28.1: "0.28.1"
 
+# packageExtensions patch third-party manifests that under-declare their deps.
+packageExtensions:
+  # snyk-nodejs-lockfile-parser@2.8.0 requires('debug') in its lockfile parsers
+  # (dist/parsers/lock-parser-base.js) but does not declare it — it relied on
+  # `debug` being flat-hoisted by npm. Under pnpm's strict symlinked layout
+  # that resolution fails, so `codehub analyze` crashes with
+  # "Cannot find module 'debug'" when the CLI is installed via `pnpm add -g`.
+  # Inject the missing dep so pnpm places `debug` in snyk's resolution scope.
+  # (`npm install -g` is unaffected — it flat-hoists `debug` regardless.)
+  snyk-nodejs-lockfile-parser:
+    dependencies:
+      debug: "4.4.3"
+
 # Project-level settings. In pnpm v11, only auth+registry settings are read
 # from .npmrc; non-auth settings belong here or in ~/.config/pnpm/config.yaml.
 # User-specific settings (store-dir, package-import-method) stay in
