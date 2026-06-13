@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.8.6...cli-v0.9.0) (2026-06-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* baseline Node 24 + apply held majors (lcr@5, write-file-atomic@8) + fix snyk phantom debug dep ([#232](https://github.com/theagenticguy/opencodehub/issues/232))
+
+### Bug Fixes
+
+* **deps:** refresh dependencies + clear esbuild CVE (GHSA-g7r4-m6w7-qqqr) ([#230](https://github.com/theagenticguy/opencodehub/issues/230)) ([75b687f](https://github.com/theagenticguy/opencodehub/commit/75b687f0214194a7170c98de322acdc79f2907ad))
+
+
+### Chores
+
+* baseline Node 24 + apply held majors (lcr@5, write-file-atomic@8) + fix snyk phantom debug dep ([#232](https://github.com/theagenticguy/opencodehub/issues/232)) ([93c90e9](https://github.com/theagenticguy/opencodehub/commit/93c90e9455442b658fb32602b5004939c1ae9a28))
+
 ## [0.8.6](https://github.com/theagenticguy/opencodehub/compare/cli-v0.7.4...cli-v0.8.6) (2026-06-11)
 
 
