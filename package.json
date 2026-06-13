@@ -5,7 +5,7 @@
   "description": "OpenCodeHub — Apache-2.0 code intelligence graph + MCP server for AI coding agents",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.12.0",
+    "node": ">=24.15.0",
     "pnpm": ">=11.0.0"
   },
   "packageManager": "pnpm@11.1.0",
@@ -31,7 +31,7 @@
     "commitizen": "4.3.2",
     "cz-conventional-changelog": "3.3.0",
     "lefthook": "2.1.9",
-    "license-checker-rseidelsohn": "4.4.2",
+    "license-checker-rseidelsohn": "5.0.1",
     "tsx": "4.22.4",
     "typescript": "6.0.3"
   },

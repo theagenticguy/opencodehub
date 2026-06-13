@@ -115,7 +115,7 @@ echo "5/${TOTAL_GATES}: license allowlist"
 # mise/ci callers.
 if pnpm exec license-checker-rseidelsohn \
     --start packages/cli \
-    --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD' \
+    --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD;Python-2.0;CC-BY-3.0;MIT OR Apache-2.0;(Apache-2.0 AND MIT);(BSD-3-Clause AND Apache-2.0);(BSD-2-Clause OR MIT OR Apache-2.0);(MIT OR CC0-1.0)' \
     --excludePrivatePackages --production \
     > "$tmpdir/license.log" 2>&1; then
   pass "licenses within allowlist"

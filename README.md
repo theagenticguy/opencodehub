@@ -108,7 +108,7 @@ for musl / `win32-arm64` coverage.
 
 ### Install from npm (recommended)
 
-**Requirements:** Node 22 or 24.
+**Requirements:** Node 24+.
 
 ```bash
 # global install — puts `codehub` on your PATH
@@ -136,7 +136,7 @@ codehub analyze
 
 ### Build from source
 
-**Requirements:** Node 22 or 24; pnpm 11+; Python 3.12 (only needed for
+**Requirements:** Node 24+; pnpm 11+; Python 3.12 (only needed for
 SCIP indexers on Python-heavy repos); `mise` recommended.
 
 ```bash
