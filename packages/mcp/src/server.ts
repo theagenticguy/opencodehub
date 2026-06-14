@@ -26,6 +26,7 @@ import { registerRepoProcessesResource } from "./resources/repo-processes.js";
 import { registerRepoSchemaResource } from "./resources/repo-schema.js";
 import { registerReposResource } from "./resources/repos.js";
 import { registerApiImpactTool } from "./tools/api-impact.js";
+import { registerChangePackTool } from "./tools/change-pack.js";
 import { registerContextTool } from "./tools/context.js";
 import { registerDependenciesTool } from "./tools/dependencies.js";
 import { registerDetectChangesTool } from "./tools/detect-changes.js";
@@ -61,9 +62,9 @@ const SERVER_VERSION = "0.0.0";
 const INSTRUCTIONS = [
   "OpenCodeHub exposes indexed code graphs for MCP agents.",
   "Typical flow: call `list_repos` first to discover indexed repos, then route subsequent calls through one of those repo names.",
-  "Every per-repo tool (`query`, `context`, `impact`, `detect_changes`, `sql`, `scan`, `list_findings`, `list_findings_delta`, `list_dead_code`, `license_audit`, `project_profile`, `dependencies`, `owners`, `risk_trends`, `verdict`) accepts an optional `repo` argument (registry name) or a `repo_uri` alias (Sourcegraph-style URI like `github.com/org/repo`, or `local:<hash>` for unpublished repos; wins when both are provided). When exactly one repo is registered, both are optional and the tool defaults to that repo. When ≥ 2 repos are registered and neither is supplied, the tool returns `AMBIGUOUS_REPO` — the structured envelope carries `structuredContent.error.choices[]` (capped at 10, with `{repo_uri, default_branch, group}`) plus `total_matches`, so a caller can retry with one of `choices[].repo_uri`.",
+  "Every per-repo tool (`query`, `context`, `impact`, `detect_changes`, `sql`, `scan`, `list_findings`, `list_findings_delta`, `list_dead_code`, `license_audit`, `project_profile`, `dependencies`, `owners`, `risk_trends`, `verdict`, `change_pack`) accepts an optional `repo` argument (registry name) or a `repo_uri` alias (Sourcegraph-style URI like `github.com/org/repo`, or `local:<hash>` for unpublished repos; wins when both are provided). When exactly one repo is registered, both are optional and the tool defaults to that repo. When ≥ 2 repos are registered and neither is supplied, the tool returns `AMBIGUOUS_REPO` — the structured envelope carries `structuredContent.error.choices[]` (capped at 10, with `{repo_uri, default_branch, group}`) plus `total_matches`, so a caller can retry with one of `choices[].repo_uri`.",
   "Every tool response includes a `next_steps` array under structuredContent and a `_meta.codehub/staleness` entry when the index may be behind HEAD.",
-  "Use `query` to locate symbols, `context` for a 360-degree view, `impact` for blast radius (plan a refactor before you edit — OpenCodeHub does not edit source), `detect_changes` to map a diff to flows (verify a refactor after you apply it), `dependencies` for the external package list, `license_audit` for a copyleft/unknown/proprietary tier check of dependencies, `list_findings` to browse SARIF findings, `list_findings_delta` to diff the latest scan against a frozen baseline (new/fixed/unchanged/updated buckets), `scan` to run Priority-1 scanners (openWorld — spawns processes), `verdict` for a 5-tier PR decision (exit codes 0/1/2), `risk_trends` for per-community trend lines and 30-day projections, and `sql` for bespoke queries.",
+  "Use `query` to locate symbols, `context` for a 360-degree view, `impact` for blast radius (plan a refactor before you edit — OpenCodeHub does not edit source), `detect_changes` to map a diff to flows (verify a refactor after you apply it), `dependencies` for the external package list, `license_audit` for a copyleft/unknown/proprietary tier check of dependencies, `list_findings` to browse SARIF findings, `list_findings_delta` to diff the latest scan against a frozen baseline (new/fixed/unchanged/updated buckets), `scan` to run Priority-1 scanners (openWorld — spawns processes), `verdict` for a 5-tier PR decision (exit codes 0/1/2), `change_pack` for a deterministic diff-scoped pack (impacted subgraph + verdict + affected tests + char-heuristic cost estimate; CI-oriented), `risk_trends` for per-community trend lines and 30-day projections, and `sql` for bespoke queries.",
   "For cross-repo work, call `group_list` to discover named repo groups, then `group_query`/`group_status` to fan out BM25 search and staleness across the group. `group_query` returns `{ group, query, results: [{ _repo, _rrf_score, ... }], per_repo, warnings }`; results are tagged with the source repo and per-repo errors surface in `per_repo[].error` + `warnings[]` (the fan-out never aborts on a single-repo failure). Use `group_sync` to materialize a cross-repo contract registry (HTTP / gRPC / topic) under `~/.codehub/groups/<name>/contracts.json`, then `group_contracts` to list the DuckDB-backed FETCHES↔Route edges together with the registry's signature-matched cross-links.",
 ].join(" ");
 
@@ -169,6 +170,7 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
   registerListDeadCodeTool(server, ctx);
   registerScanTool(server, ctx);
   registerVerdictTool(server, ctx);
+  registerChangePackTool(server, ctx);
   registerRiskTrendsTool(server, ctx);
   registerRouteMapTool(server, ctx);
   registerApiImpactTool(server, ctx);

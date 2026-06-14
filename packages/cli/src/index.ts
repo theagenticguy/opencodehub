@@ -554,6 +554,39 @@ program
     });
   });
 
+program
+  .command("change-pack")
+  .description(
+    "Diff-scoped change-pack: impacted subgraph + verdict + affected tests + cost estimate (CLI sibling of the change_pack MCP tool)",
+  )
+  .option("--repo <name>", "Registered repo name (default: current directory)")
+  .option("--base <ref>", "Base git ref (default: main)")
+  .option("--head <ref>", "Head git ref (default: HEAD)")
+  .option("--depth <n>", "Upstream traversal depth (default: 4)", (v) => Number.parseInt(v, 10))
+  .option("--min-confidence <f>", "Traversal confidence floor 0-1 (default: 0.7)", (v) =>
+    Number.parseFloat(v),
+  )
+  .option("--budget <n>", "Context budget in heuristic tokens (default: 100000)", (v) =>
+    Number.parseInt(v, 10),
+  )
+  .option("--include-tests-in-subgraph", "Retain test nodes in the impacted subgraph")
+  .option("--json", "Emit JSON on stdout")
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/change-pack.js");
+    await mod.runChangePackCmd({
+      ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
+      ...(typeof opts["base"] === "string" ? { base: opts["base"] } : {}),
+      ...(typeof opts["head"] === "string" ? { head: opts["head"] } : {}),
+      ...(typeof opts["depth"] === "number" ? { depth: opts["depth"] } : {}),
+      ...(typeof opts["minConfidence"] === "number"
+        ? { minConfidence: opts["minConfidence"] }
+        : {}),
+      ...(typeof opts["budget"] === "number" ? { budget: opts["budget"] } : {}),
+      ...(opts["includeTestsInSubgraph"] === true ? { includeTestsInSubgraph: true } : {}),
+      json: opts["json"] === true,
+    });
+  });
+
 // `codehub group ...` — cross-repo groups. We register placeholder
 // subcommands so `commander` routes the invocation correctly, and load the
 // real handler lazily on .action(). This keeps `codehub --help` snappy.
