@@ -115,7 +115,7 @@ function renderText(pack: ChangePack): string {
     `Affected tests: ${pack.costAttribution.affectedTestCount} of ${pack.costAttribution.totalTestCount}; CI tests skippable: ${pack.costAttribution.ciTestsSkipped}.`,
   );
   lines.push(
-    `Tokens saved (est.): ${pack.costAttribution.tokensSaved} (${pack.costAttribution.tokensSavedPct}% vs. blind baseline).`,
+    `Tokens saved: ${pack.costAttribution.tokensSaved} (${pack.costAttribution.tokensSavedPct}% vs. blind baseline, ${pack.costAttribution.tokenizerModel}).`,
   );
   return lines.join("\n");
 }
@@ -159,7 +159,7 @@ export function registerChangePackTool(server: McpServer, ctx: ToolContext): voi
     {
       title: "Diff-scoped change-pack",
       description:
-        "Deterministic, diff-scoped context pack for a git range: the impacted upstream subgraph (retained, not collapsed), the 5-tier verdict, the affected tests, and a char-heuristic cost estimate (tokens saved vs. opening every impacted file blind). CI-oriented — read-only, no LLM, byte-deterministic with a content hash.",
+        "Deterministic, diff-scoped context pack for a git range: the impacted upstream subgraph (retained, not collapsed), the 5-tier verdict, the affected tests, and o200k_base token-cost attribution (tokens saved vs. opening every impacted file blind). CI-oriented — read-only, no LLM, byte-deterministic with a content hash.",
       inputSchema: ChangePackInput,
       annotations: {
         readOnlyHint: true,

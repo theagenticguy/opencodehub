@@ -36,7 +36,7 @@ Full detail in `.erpaval/sessions/session-6afa8d/{explore-detect-changes,explore
 - **U3**: change-pack MUST read the ingested graph only (via `runImpact`/`runDetectChanges`); it MUST NOT re-derive edges, MUST NOT mutate the graph, MUST NOT call any LLM.
 - **U4**: `bash scripts/check-banned-strings.sh` exits 0; `mise run check` exits 0 after every commit.
 - **U5**: All output collections MUST be deterministically ordered — nodes/tests by `id` asc, edges by `(from,type,to,step)`, files by path. No locale-dependent or insertion-order leakage into hashed bytes.
-- **U6**: The cost-attribution block MUST self-label as an estimate (`estimate:true`, `tokenizer_model:"char-heuristic-v1"`). It MUST NOT present heuristic counts as model tokens.
+- **U6**: The cost-attribution block MUST count real BPE tokens via OpenAI's `o200k_base` encoding (`gpt-tokenizer`, pure-JS/MIT, no native binding — respects ADR 0015) and record the basis in `tokenizer_model:"openai/o200k_base"` with `estimate:false`. The encoder MAY fall back to a `len/4` character heuristic ONLY on pathological input that throws (rare, still deterministic); it MUST NOT otherwise present heuristic counts as model tokens. (Superseded the v1 char-heuristic decision per operator request — "ship tiktoken instead"; chose pure-JS `gpt-tokenizer` over native/WASM `tiktoken` to honor the no-native-binding rail.)
 
 ## Event-driven requirements
 

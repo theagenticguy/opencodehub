@@ -1,6 +1,6 @@
 ---
 name: tokenizer-id-is-provenance-not-an-encoder
-description: The `openai:o200k_base@tiktoken-0.8.0` tokenizerId string threaded through @opencodehub/pack is a PROVENANCE LABEL, not an enforced encoder. No tiktoken/anthropic tokenizer is installed anywhere in the repo; @chonkiejs/core's default 'character' tokenizer (1 char = 1 token) does the counting, with a len/4 degraded fallback. So any feature that needs "tokens saved / token cost" numbers cannot get model-accurate counts for free — it must either add a real tokenizer dep or compute an explicitly-labeled char heuristic and never present it as model tokens.
+description: The `openai:o200k_base@tiktoken-0.8.0` tokenizerId string threaded through @opencodehub/pack is a PROVENANCE LABEL, not an enforced encoder — @chonkiejs/core's default 'character' tokenizer (1 char = 1 token) does the pack's counting. A feature needing real "tokens saved / token cost" numbers must add a real encoder; change-pack ships gpt-tokenizer (pure-JS, MIT, zero-dep) via the isolated `gpt-tokenizer/encoding/o200k_base` subpath for synchronous deterministic o200k_base counts, with a len/4 char heuristic only as a throw-fallback. Prefer pure-JS gpt-tokenizer over native/WASM tiktoken to honor the no-native-binding rail (ADR 0015).
 metadata:
   type: convention
   category: conventions
@@ -38,21 +38,33 @@ Anthropic encoder ran.
 When a feature needs token counts (cost attribution, budget trimming, "tokens
 saved"):
 
-1. **Do not assume model-accurate counts exist.** Reuse the existing `len/4`
-   char heuristic — it is zero-dep, byte-deterministic, and the same model the
-   pack already uses.
-2. **Label the output an estimate.** `change-pack`'s `CostAttribution` carries
-   `estimate: true` + `tokenizerModel: "char-heuristic-v1"` so no caller mistakes
-   it for tiktoken counts.
-3. **Compute the baseline auditably from the graph**, not from a borrowed
-   marketing percentage — e.g. sum char-heuristic tokens over every File node in
-   the impacted subgraph as the "agent reads each file blind" baseline.
-4. If you genuinely need model-accurate counts, that's a real new dependency
-   (tiktoken / gpt-tokenizer) and an ADR — not a one-liner.
+1. **The pin is not a counter — add a real encoder if you want real tokens.**
+   `change-pack` ships `gpt-tokenizer` (v3.4.0, MIT, **pure-JS, zero-dep**) and
+   counts via `import { encode } from "gpt-tokenizer/encoding/o200k_base"`. The
+   encoding subpath bundles its BPE ranks inline, so `encode` is **synchronous
+   and deterministic** — no async rank fetch to break byte-identity.
+2. **Pick pure-JS over native/WASM `tiktoken`.** The headline package
+   `tiktoken` is a WASM/native binding; OCH's no-native-binding-at-the-
+   npm-distributed-boundary rail (ADR 0015) rules it out. `gpt-tokenizer` is the
+   rail-compatible way to get the SAME o200k_base counts.
+3. **Keep a heuristic FALLBACK, not as the primary.** `countTokens` wraps the
+   encoder in try/catch and falls back to `max(1, ceil(len/4))` only on
+   pathological input that throws — so cost attribution never crashes the pack,
+   but the normal path is real model tokens. Record the basis:
+   `estimate: false`, `tokenizerModel: "openai/o200k_base"` (fold it into the
+   content hash so a tokenizer swap changes the hash).
+4. **Compute the baseline auditably from the graph**, not from a borrowed
+   marketing percentage — sum real tokens over every File node in the impacted
+   subgraph as the "agent reads each file blind" baseline.
 
 ## Why this matters
 
 A cost feature that silently reports character counts as "tokens" is worse than
 no number — it reads as authoritative and is wrong by a model-specific factor.
-Naming the heuristic in the output keeps the feature honest and lets a future
-tokenizer upgrade swap the basis without changing the contract shape.
+The honest options are (a) a clearly-labeled heuristic or (b) a real encoder.
+`change-pack` started at (a) and shipped (b) the same session — the contract
+shape (`estimate`/`tokenizerModel` fields) was built wide enough that swapping
+the basis touched only the counter + the field values, never the structure.
+When you do add a tokenizer, prefer a **pure-JS** one if the repo bans native
+bindings, and import the **isolated encoding subpath** so counting stays
+synchronous and deterministic.

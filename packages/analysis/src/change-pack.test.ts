@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { canonicalJson } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
-import { type ChangePackInternal, charHeuristicTokens, runChangePack } from "./change-pack.js";
+import {
+  type ChangePackInternal,
+  COST_TOKENIZER_MODEL,
+  countTokens,
+  runChangePack,
+} from "./change-pack.js";
 import { FakeStore } from "./test-utils.js";
 import type { DetectChangesResult } from "./types.js";
 import type { VerdictQuery, VerdictResponse } from "./verdict-types.js";
@@ -305,12 +310,15 @@ test("runChangePack: affected tests sorted by (filePath, id), deduped by id", as
 // Cost attribution
 // ---------------------------------------------------------------------------
 
-test("charHeuristicTokens: max(1, ceil(len/4))", () => {
-  assert.equal(charHeuristicTokens(""), 1);
-  assert.equal(charHeuristicTokens("abc"), 1);
-  assert.equal(charHeuristicTokens("abcd"), 1);
-  assert.equal(charHeuristicTokens("abcde"), 2);
-  assert.equal(charHeuristicTokens("a".repeat(40)), 10);
+test("countTokens: real o200k_base counts, empty string → 0", () => {
+  // Empty is the one fixed point we can assert by value; otherwise we assert
+  // against the encoder itself (self-consistency) rather than magic numbers,
+  // and that token counts are <= char length (BPE merges chars into tokens).
+  assert.equal(countTokens(""), 0);
+  assert.ok(countTokens("hello world") > 0);
+  assert.ok(countTokens("hello world") <= "hello world".length);
+  // Stable across calls — deterministic encoder, no async rank load.
+  assert.equal(countTokens("function foo() {}"), countTokens("function foo() {}"));
 });
 
 test("runChangePack: cost attribution computes baseline, savings, pct, ci skip", async () => {
@@ -329,10 +337,11 @@ test("runChangePack: cost attribution computes baseline, savings, pct, ci skip",
   );
 
   const cost = pack.costAttribution;
-  assert.equal(cost.estimate, true);
-  assert.equal(cost.tokenizerModel, "char-heuristic-v1");
-  // Baseline = sum over the two impacted files (src/b.ts, src/c.ts).
-  const expectedBaseline = charHeuristicTokens(bigBody) * 2;
+  // Real model tokens now — not an estimate.
+  assert.equal(cost.estimate, false);
+  assert.equal(cost.tokenizerModel, COST_TOKENIZER_MODEL);
+  // Baseline = real token count summed over the two impacted files.
+  const expectedBaseline = countTokens(bigBody) * 2;
   assert.equal(cost.blindBaselineTokens, expectedBaseline);
   assert.ok(cost.changePackTokens > 0);
   assert.equal(cost.tokensSaved, Math.max(0, cost.blindBaselineTokens - cost.changePackTokens));
@@ -355,7 +364,7 @@ test("runChangePack: unreadable impacted file is skipped without breaking the ba
     { repoPath: "/repo" },
     makeInternal(detect(FOO_CHANGE), files),
   );
-  assert.equal(pack.costAttribution.blindBaselineTokens, charHeuristicTokens("y".repeat(400)));
+  assert.equal(pack.costAttribution.blindBaselineTokens, countTokens("y".repeat(400)));
 });
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,8 @@
  *
  * Covers:
  *   1. `--json` → raw camelCase ChangePack on stdout (changePackHash +
- *      costAttribution.estimate === true), exit code = verdict.exitCode.
+ *      costAttribution.estimate === false — real o200k tokens), exit code =
+ *      verdict.exitCode.
  *   2. Default (no `--json`) → human summary, exit code = verdict.exitCode.
  *   3. The query envelope (base/head/depth/min-confidence/budget/
  *      include-tests) is threaded through to the injected runner verbatim.
@@ -100,8 +101,8 @@ function packFixture(exitCode: 0 | 1 | 2, overrides: Partial<ChangePack> = {}): 
       },
     ],
     costAttribution: {
-      estimate: true,
-      tokenizerModel: "char-heuristic-v1",
+      estimate: false,
+      tokenizerModel: "openai/o200k_base",
       changePackTokens: 120,
       blindBaselineTokens: 480,
       tokensSaved: 360,
@@ -176,7 +177,7 @@ test("runChangePackCmd --json emits raw camelCase ChangePack, exit = verdict.exi
   const fixture = packFixture(2);
   const parsed = JSON.parse(output) as ChangePack;
   assert.equal(parsed.changePackHash, "deadbeef".repeat(8));
-  assert.equal(parsed.costAttribution.estimate, true);
+  assert.equal(parsed.costAttribution.estimate, false);
   assert.equal(parsed.verdict.verdict, "expert_review");
   // CLI<->MCP parity (CLI half): `--json` is a PURE passthrough — the emitted
   // object deep-equals the analysis ChangePack with zero reshaping. The MCP
@@ -211,7 +212,7 @@ test("runChangePackCmd default (no --json) → human summary, exit = verdict.exi
   assert.match(output, /• itFoo — src\/foo\.test\.ts/);
   assert.match(
     output,
-    /Est\. tokens saved: 360 \(75%\) vs blind read; CI tests skippable: 3\/4 \(est\.\)/,
+    /Tokens saved: 360 \(75%\) vs blind read \[openai\/o200k_base\]; CI tests skippable: 3\/4/,
   );
   // Summary mode is not JSON.
   assert.doesNotMatch(output, /"changePackHash"/);

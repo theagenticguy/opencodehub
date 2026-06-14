@@ -96,7 +96,7 @@ export async function runChangePackCmd(opts: ChangePackOptions = {}): Promise<vo
       }
       const cost = pack.costAttribution;
       console.log(
-        `Est. tokens saved: ${cost.tokensSaved} (${cost.tokensSavedPct}%) vs blind read; CI tests skippable: ${cost.ciTestsSkipped}/${cost.totalTestCount} (est.)`,
+        `Tokens saved: ${cost.tokensSaved} (${cost.tokensSavedPct}%) vs blind read [${cost.tokenizerModel}]; CI tests skippable: ${cost.ciTestsSkipped}/${cost.totalTestCount}`,
       );
     }
 

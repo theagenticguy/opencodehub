@@ -2,7 +2,8 @@ export type { ApiImpactFilter, ApiImpactRow } from "./api-impact.js";
 export { listApiImpact, scoreRisk, worseRisk } from "./api-impact.js";
 export {
   type ChangePackInternal,
-  charHeuristicTokens,
+  COST_TOKENIZER_MODEL,
+  countTokens,
   type ReadFileText,
   runChangePack,
 } from "./change-pack.js";

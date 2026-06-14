@@ -89,16 +89,19 @@ export interface AffectedTest {
 }
 
 /**
- * Cost attribution for the change-pack. All token figures are estimates from
- * a character heuristic, never model-tokenizer counts — `estimate` is always
- * true and `tokenizerModel` self-labels the basis.
+ * Cost attribution for the change-pack. Token figures are real BPE counts from
+ * OpenAI's `o200k_base` encoding (the encoding modern OpenAI models use, and
+ * the one the pack's `tokenizerId` pin names). `tokenizerModel` records the
+ * basis; `estimate` is false because these are model tokens, not a heuristic.
+ * (The encoder falls back to a `len/4` character heuristic only on
+ * pathological input that throws — rare, and still deterministic.)
  */
 export interface CostAttribution {
-  readonly estimate: true;
-  readonly tokenizerModel: "char-heuristic-v1";
-  /** Heuristic tokens for the change-pack context body the agent consumes. */
+  readonly estimate: boolean;
+  readonly tokenizerModel: string;
+  /** o200k_base tokens for the change-pack context body the agent consumes. */
   readonly changePackTokens: number;
-  /** Heuristic tokens an agent would read by opening every impacted file blind. */
+  /** o200k_base tokens an agent would read by opening every impacted file blind. */
   readonly blindBaselineTokens: number;
   readonly tokensSaved: number;
   readonly tokensSavedPct: number;

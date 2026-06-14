@@ -80,15 +80,15 @@ test("change_pack returns the snake_case structuredContent envelope", async () =
   });
 });
 
-test("change_pack cost attribution is always a char-heuristic estimate", async () => {
+test("change_pack cost attribution reports real o200k_base token counts", async () => {
   await withHarness(async (ctx, server) => {
     registerChangePackTool(server, ctx);
     const handler = getToolHandler(server, "change_pack");
     const result = await handler({ repo: "fakerepo" }, {});
     const sc = result.structuredContent as unknown as StructuredChangePack;
 
-    assert.equal(sc.cost_attribution.estimate, true);
-    assert.equal(sc.cost_attribution.tokenizer_model, "char-heuristic-v1");
+    assert.equal(sc.cost_attribution.estimate, false);
+    assert.equal(sc.cost_attribution.tokenizer_model, "openai/o200k_base");
     assert.equal(typeof sc.cost_attribution.change_pack_tokens, "number");
     assert.equal(typeof sc.cost_attribution.blind_baseline_tokens, "number");
     assert.equal(typeof sc.cost_attribution.tokens_saved, "number");
@@ -146,6 +146,6 @@ test("change_pack threads optional knobs through without error", async () => {
     );
     assert.equal(result.isError, undefined);
     const sc = result.structuredContent as unknown as StructuredChangePack;
-    assert.equal(sc.cost_attribution.estimate, true);
+    assert.equal(sc.cost_attribution.estimate, false);
   });
 });

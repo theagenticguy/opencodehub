@@ -17,6 +17,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, sha256Hex } from "@opencodehub/core-types";
 import type { IGraphStore } from "@opencodehub/storage";
+// Real BPE token counts via the o200k_base encoding (the encoding the
+// `tokenizerId` pin already names). `gpt-tokenizer` is pure-JS + zero-dep
+// (MIT) — no native binding, so it respects the WASM-only / no-native-binding
+// rail (ADR 0015). The encoding subpath bundles its BPE ranks inline, so
+// `encode` is synchronous and deterministic (no async rank fetch).
+import { encode as encodeO200k } from "gpt-tokenizer/encoding/o200k_base";
 import type {
   AffectedTest,
   ChangedSymbol,
@@ -65,12 +71,25 @@ export interface ChangePackInternal {
   readonly computeVerdict?: (store: IGraphStore, q: VerdictQuery) => Promise<VerdictResponse>;
 }
 
+/** The model whose tokenizer backs the cost counts. Folded into the hash. */
+export const COST_TOKENIZER_MODEL = "openai/o200k_base";
+
 /**
- * Character-count token heuristic. Matches the pack's degraded counter
- * (`max(1, ceil(len / 4))`). This is an estimate, not a model tokenizer.
+ * Count tokens with OpenAI's `o200k_base` BPE encoding — the encoding modern
+ * models (gpt-4o, gpt-4.1, o-series) use, and the one the `tokenizerId` pin
+ * already names. These are real model tokens, not a heuristic.
+ *
+ * Falls back to the `max(1, ceil(len / 4))` character heuristic only if the
+ * encoder throws on pathological input, so cost attribution never crashes the
+ * pack; the fallback is rare and still deterministic.
  */
-export function charHeuristicTokens(text: string): number {
-  return Math.max(1, Math.ceil(text.length / 4));
+export function countTokens(text: string): number {
+  if (text.length === 0) return 0;
+  try {
+    return encodeO200k(text).length;
+  } catch {
+    return Math.max(1, Math.ceil(text.length / 4));
+  }
 }
 
 /** Resolved query envelope, folded into the hash so identical inputs hash alike. */
@@ -353,7 +372,7 @@ interface CostAttributionInput {
 async function computeCostAttribution(input: CostAttributionInput): Promise<CostAttribution> {
   const { store, repoPath, impactedSubgraph, affectedTests, body, readFileText } = input;
 
-  const changePackTokens = charHeuristicTokens(canonicalJson(body));
+  const changePackTokens = countTokens(canonicalJson(body));
 
   // Blind baseline: the cost an agent pays by reading every impacted file
   // whole. Distinct File paths in the subgraph; read each once from disk.
@@ -373,7 +392,7 @@ async function computeCostAttribution(input: CostAttributionInput): Promise<Cost
       // Unreadable file (deleted, permissions): skip, stay deterministic.
       continue;
     }
-    blindBaselineTokens += charHeuristicTokens(text);
+    blindBaselineTokens += countTokens(text);
   }
 
   const tokensSaved = Math.max(0, blindBaselineTokens - changePackTokens);
@@ -385,8 +404,8 @@ async function computeCostAttribution(input: CostAttributionInput): Promise<Cost
   const ciTestsSkipped = Math.max(0, totalTestCount - affectedTestCount);
 
   return {
-    estimate: true,
-    tokenizerModel: "char-heuristic-v1",
+    estimate: false,
+    tokenizerModel: COST_TOKENIZER_MODEL,
     changePackTokens,
     blindBaselineTokens,
     tokensSaved,
@@ -402,8 +421,8 @@ async function emptyCostAttribution(store: IGraphStore): Promise<CostAttribution
   // because there are no impacted files. Report total tests for context.
   const totalTestCount = await countTestFiles(store);
   return {
-    estimate: true,
-    tokenizerModel: "char-heuristic-v1",
+    estimate: false,
+    tokenizerModel: COST_TOKENIZER_MODEL,
     changePackTokens: 0,
     blindBaselineTokens: 0,
     tokensSaved: 0,

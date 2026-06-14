@@ -97,8 +97,8 @@ const FIXTURE: ChangePack = {
     },
   ],
   costAttribution: {
-    estimate: true,
-    tokenizerModel: "char-heuristic-v1",
+    estimate: false,
+    tokenizerModel: "openai/o200k_base",
     changePackTokens: 1280,
     blindBaselineTokens: 9600,
     tokensSaved: 8320,
@@ -162,10 +162,10 @@ test("content hash is preserved verbatim through the MCP recasing", () => {
   assert.equal(toStructured(FIXTURE)["change_pack_hash"], FIXTURE.changePackHash);
 });
 
-test("cost attribution stays an estimate with values intact through MCP", () => {
+test("cost attribution carries real o200k token values intact through MCP", () => {
   const cost = toStructured(FIXTURE)["cost_attribution"] as Record<string, unknown>;
-  assert.equal(cost["estimate"], true);
-  assert.equal(cost["tokenizer_model"], "char-heuristic-v1");
+  assert.equal(cost["estimate"], false);
+  assert.equal(cost["tokenizer_model"], "openai/o200k_base");
   assert.equal(cost["tokens_saved"], FIXTURE.costAttribution.tokensSaved);
   assert.equal(cost["ci_tests_skipped"], FIXTURE.costAttribution.ciTestsSkipped);
 });
