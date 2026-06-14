@@ -144,6 +144,9 @@ importers:
       fast-xml-parser:
         specifier: 5.8.0
         version: 5.8.0
+      gpt-tokenizer:
+        specifier: ^3.4.0
+        version: 3.4.0
       listr2:
         specifier: 10.2.1
         version: 10.2.1
