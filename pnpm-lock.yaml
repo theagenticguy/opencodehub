@@ -80,6 +80,9 @@ importers:
       '@opencodehub/wiki':
         specifier: workspace:*
         version: link:../wiki
+      gpt-tokenizer:
+        specifier: ^3.4.0
+        version: 3.4.0
       write-file-atomic:
         specifier: 8.0.0
         version: 8.0.0
@@ -141,6 +144,9 @@ importers:
       fast-xml-parser:
         specifier: 5.8.0
         version: 5.8.0
+      gpt-tokenizer:
+        specifier: ^3.4.0
+        version: 3.4.0
       listr2:
         specifier: 10.2.1
         version: 10.2.1
@@ -3800,6 +3806,9 @@ packages:
   got@11.8.6:
     resolution: {integrity: sha512-6tfZ91bOr7bOXnK7PRDCGBLa1H4U080YHNaAQ2KsMGlLEzRbk44nsZF2E1IeRc3vtJHPVbKCYgdFbaGO2ljd8g==}
     engines: {node: '>=10.19.0'}
+
+  gpt-tokenizer@3.4.0:
+    resolution: {integrity: sha512-wxFLnhIXTDjYebd9A9pGl3e31ZpSypbpIJSOswbgop5jLte/AsZVDvjlbEuVFlsqZixVKqbcoNmRlFDf6pz/UQ==}
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
@@ -9619,6 +9628,8 @@ snapshots:
       p-cancelable: 2.1.1
       responselike: 2.0.1
 
+  gpt-tokenizer@3.4.0: {}
+
   graceful-fs@4.2.11: {}
 
   grapheme-splitter@1.0.4: {}
@@ -12572,6 +12583,7 @@ time:
   commitizen@4.3.2: '2026-06-12T12:50:44.903Z'
   cz-conventional-changelog@3.3.0: '2020-08-26T18:43:16.534Z'
   fast-xml-parser@5.8.0: '2026-05-12T03:39:29.203Z'
+  gpt-tokenizer@3.4.0: '2025-11-07T20:15:06.227Z'
   graphology-dag@0.4.1: '2023-12-09T08:29:05.655Z'
   graphology@0.26.0: '2025-01-26T10:25:05.589Z'
   lefthook@2.1.9: '2026-05-29T08:40:26.517Z'

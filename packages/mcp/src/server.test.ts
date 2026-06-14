@@ -52,6 +52,7 @@ test("buildServer registers zero prompts — ListPrompts returns an empty set", 
  */
 const EXPECTED_TOOL_NAMES = [
   "api_impact",
+  "change_pack",
   "context",
   "dependencies",
   "detect_changes",
@@ -104,7 +105,7 @@ test("buildServer registers exactly the expected read-only tool set", async () =
         !registered.includes("remove_dead_code"),
         "source-mutating remove_dead_code tool must NOT be registered",
       );
-      assert.equal(registered.length, 28);
+      assert.equal(registered.length, 29);
     } finally {
       await running.shutdown();
     }

@@ -1,5 +1,22 @@
 export type { ApiImpactFilter, ApiImpactRow } from "./api-impact.js";
 export { listApiImpact, scoreRisk, worseRisk } from "./api-impact.js";
+export {
+  type ChangePackInternal,
+  COST_TOKENIZER_MODEL,
+  countTokens,
+  type ReadFileText,
+  runChangePack,
+} from "./change-pack.js";
+export type {
+  AffectedTest,
+  ChangedSymbol,
+  ChangePack,
+  ChangePackQuery,
+  CostAttribution,
+  ImpactedSubgraph,
+  ImpactedSubgraphEdge,
+  ImpactedSubgraphNode,
+} from "./change-pack-types.js";
 export type {
   DeadCodeResult,
   Deadness,

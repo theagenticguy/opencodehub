@@ -43,6 +43,7 @@
     "@opencodehub/sarif": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
+    "gpt-tokenizer": "^3.4.0",
     "write-file-atomic": "8.0.0"
   },
   "devDependencies": {
