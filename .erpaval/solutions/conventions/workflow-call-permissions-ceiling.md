@@ -16,6 +16,10 @@ created: 2026-05-15
 session: session-569b82
 track: bug
 category: conventions
+related:
+  - release-published-event-needs-pat-or-inline
+  - npm-trusted-publisher-matches-entry-workflow-not-reusable
+  - release-please-single-root-package-cannot-release
 ---
 
 # GitHub Actions: top-level `permissions:` is a hard ceiling

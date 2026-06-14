@@ -11,6 +11,7 @@ related:
   - tsup-collapse-monorepo-to-single-cli
   - npm-trusted-publisher-matches-entry-workflow-not-reusable
   - release-published-event-needs-pat-or-inline
+  - workflow-call-permissions-ceiling
 ---
 
 # release-please: a single root package with a scoped name cannot create a release
