@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.0...root-v0.9.1) (2026-06-14)
+
+
+### Features
+
+* diff-scoped change-pack (impacted subgraph + affected tests + cost estimate) with CLI/MCP parity ([#234](https://github.com/theagenticguy/opencodehub/issues/234)) ([4e5e705](https://github.com/theagenticguy/opencodehub/commit/4e5e7052712174ed997d889417931a433367532f))
+
+
+### Bug Fixes
+
+* **ingestion,cli:** make a broken parser fail loud, not silently produce a symbol-free graph ([#204](https://github.com/theagenticguy/opencodehub/issues/204)) ([94b9165](https://github.com/theagenticguy/opencodehub/commit/94b9165766704b99366b8d8f3e8b42ba497ad25e))
+
 ## [0.9.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.6...root-v0.9.0) (2026-06-13)
 
 
