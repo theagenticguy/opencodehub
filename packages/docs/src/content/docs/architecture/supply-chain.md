@@ -18,10 +18,13 @@ GitHub Release plus a tree of always-on files in `main`:
 
 | Artifact | Format | Trust anchor |
 |---|---|---|
-| `opencodehub-pack.tar.gz` | Deterministic 9-item code-pack BOM (100k-token budget). | cosign keyless `.sig.bundle` |
-| `SBOM.cdx.json` | CycloneDX 1.5 SBOM produced by `@cyclonedx/cdxgen`. | cosign keyless `.sig.bundle` |
-| `och-scan.sarif` | OCH self-scan output at the released SHA. | cosign keyless `.sig.bundle` |
-| `opencodehub-<tag>.intoto.jsonl` | SLSA Level 3 provenance covering all subjects. | `slsa-verifier` |
+| `opencodehub-pack.tar.gz` | Deterministic 9-item code-pack BOM (100k-token budget). | cosign keyless `.sig.bundle` + `gh attestation verify` |
+| `SBOM.cdx.json` | CycloneDX 1.5 SBOM produced by `@cyclonedx/cdxgen`. | cosign keyless `.sig.bundle` + `gh attestation verify` |
+| `och-scan.sarif` | OCH self-scan output at the released SHA. | cosign keyless `.sig.bundle` + `gh attestation verify` |
+
+Build provenance is no longer a release file: it is attested by
+`actions/attest-build-provenance` and stored in the GitHub attestations
+API (verify with `gh attestation verify <artifact> --repo theagenticguy/opencodehub`).
 
 In-tree files:
 
@@ -131,8 +134,8 @@ To verify a downloaded release end-to-end:
 
 1. **cosign verify each blob** (code-pack, SBOM, SARIF) against its
    `.sig.bundle` and the `release.yml` workflow identity.
-2. **slsa-verifier** the `intoto.jsonl` provenance covering the
-   release subjects.
+2. **`gh attestation verify`** each artifact against the build-provenance
+   attestation stored in the repo's GitHub attestations API.
 3. **License audit** — confirm every component in `SBOM.cdx.json` is
    on the allowlist; cross-check against `THIRD_PARTY_LICENSES.md`.
 4. **CVE check** — run `osv-scanner` against the tag's lockfile

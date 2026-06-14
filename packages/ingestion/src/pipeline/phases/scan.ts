@@ -67,6 +67,19 @@ export interface ScanOutput {
    * is set. Empty when the repo has no submodules or is not a git checkout.
    */
   readonly submodulePaths: readonly string[];
+  /**
+   * Set of HEAD-tracked paths (relative to `repoPath`, POSIX-separated)
+   * captured via `git ls-files -z`. Consumers (e.g. the ownership phase) use
+   * it to skip per-file work for files that are on disk but not tracked in
+   * git — those would otherwise produce noisy "no such path in HEAD" blame
+   * failures. The keys match {@link ScannedFile.relPath} exactly.
+   *
+   * `undefined` means "tracked set unknown — do not filter": it is omitted
+   * when `skipGit` is set or the repo is not a git checkout, so consumers
+   * fall back to their pre-existing (unfiltered) behavior. An empty set is a
+   * distinct, meaningful value (a git repo with no tracked files at HEAD).
+   */
+  readonly trackedPaths?: ReadonlySet<string>;
 }
 
 export const SCAN_PHASE_NAME = "scan";
@@ -122,9 +135,11 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
 
   let gitHead: string | undefined;
   let submodulePaths: readonly string[] = [];
+  let trackedPaths: ReadonlySet<string> | undefined;
   if (ctx.options.skipGit !== true) {
     gitHead = await tryGitHead(ctx.repoPath);
     submodulePaths = await listGitSubmodules(ctx.repoPath);
+    trackedPaths = await listGitTrackedPaths(ctx.repoPath);
   } else {
     submodulePaths = await parseGitmodulesSubmodules(ctx.repoPath);
   }
@@ -134,6 +149,7 @@ async function runScan(ctx: PipelineContext): Promise<ScanOutput> {
     ...(gitHead !== undefined ? { gitHead } : {}),
     totalBytes,
     submodulePaths,
+    ...(trackedPaths !== undefined ? { trackedPaths } : {}),
   };
 }
 
@@ -322,6 +338,54 @@ function parseLsTreeSubmodules(raw: string): readonly string[] {
     out.push(normalizeSubmodulePath(path));
   }
   return out;
+}
+
+/**
+ * Capture the set of git-tracked paths via `git ls-files -z`. The output is
+ * NUL-delimited, POSIX-separated paths relative to the repo root — already in
+ * the exact shape {@link ScannedFile.relPath} uses, so the resulting set keys
+ * compare equal to scan entries without further normalisation.
+ *
+ * Returns `undefined` (not an empty set) when `git` is unavailable, the repo
+ * is not a git checkout, or the command exits non-zero. That distinction is
+ * load-bearing for consumers: `undefined` means "tracked set unknown — do not
+ * filter", whereas an empty set means "git repo, zero tracked files — filter
+ * everything". We use the same spawn-resolves-on-nonzero pattern as
+ * {@link listGitSubmodules}.
+ */
+async function listGitTrackedPaths(repoPath: string): Promise<ReadonlySet<string> | undefined> {
+  return new Promise((resolveProm) => {
+    let stdout = "";
+    let settled = false;
+    const child = spawn("git", ["ls-files", "-z"], {
+      cwd: repoPath,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => {
+      if (!settled) {
+        settled = true;
+        resolveProm(undefined);
+      }
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        resolveProm(undefined);
+        return;
+      }
+      const set = new Set<string>();
+      for (const record of stdout.split("\0")) {
+        if (record.length === 0) continue;
+        set.add(record);
+      }
+      resolveProm(set);
+    });
+  });
 }
 
 /**

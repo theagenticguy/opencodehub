@@ -336,6 +336,27 @@ export function selectScanners(
 }
 
 /**
+ * Resolve the sorted, unique scanner-id set that `runScan` would select for
+ * `repoPath` under `opts`, without running anything. Single-sources the
+ * scanner selection (`readProjectProfile` + `selectScanners`) so callers
+ * that need to know the scanner set ahead of time — e.g. analyze's
+ * scan-input fingerprint — don't duplicate the gating logic. `runScan`'s
+ * behavior is unchanged; it still selects internally.
+ *
+ * Exported for the analyze fingerprint path and unit tests.
+ */
+export async function selectScannerIds(
+  repoPath: string,
+  opts: ScanOptions = {},
+): Promise<string[]> {
+  const profile = await readProjectProfile(repoPath);
+  const specs = selectScanners(profile, opts);
+  const ids = new Set<string>();
+  for (const s of specs) ids.add(s.id);
+  return [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
  * Build the per-scanner context passed to `createDefaultWrappers`. Only
  * populates fields for scanners that are actually in `specs` — avoids
  * wasted filesystem work.

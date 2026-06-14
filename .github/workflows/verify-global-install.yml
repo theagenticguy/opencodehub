@@ -6,7 +6,7 @@
 # `npm install -g`, run the 5 hard gates plus the 4 smoke commands. The CLI is
 # the only published package — the 14 internal libraries are bundled into its
 # tarball at build time (tsup noExternal), so a single tarball is the entire
-# install graph. The matrix exercises Linux/macOS x Node 20/22/24 x
+# install graph. The matrix exercises Linux/macOS x Node 24 x
 # mise/nvm/Homebrew/Volta installers so a regression in any one of those tool
 # managers cannot land silently.
 #
@@ -49,68 +49,58 @@ jobs:
       matrix:
         include:
           # ---------------------------- Linux x64 -----------------------------
-          - label: linux-x64-node20-mise
-            runner: ubuntu-24.04
-            os: linux
-            arch: x64
-            node: "20"
-            installer: mise
-          - label: linux-x64-node22-mise
-            runner: ubuntu-24.04
-            os: linux
-            arch: x64
-            node: "22"
-            installer: mise
+          # Floor is Node 24 (engines.node >= 24.15.0); the prior node20/node22
+          # rows tested sub-floor runtimes and were dropped.
           - label: linux-x64-node24-mise
             runner: ubuntu-24.04
             os: linux
             arch: x64
             node: "24"
             installer: mise
-          - label: linux-x64-node22-nvm
+          - label: linux-x64-node24-nvm
             runner: ubuntu-24.04
             os: linux
             arch: x64
-            node: "22"
+            node: "24"
             installer: nvm
           # ---------------------------- Linux arm64 ---------------------------
           # ubuntu-24.04-arm is the public-repo arm64 runner label; it is
           # the closest proxy GitHub offers for Apple Silicon Linux boxes.
-          - label: linux-arm64-node22-mise
+          - label: linux-arm64-node24-mise
             runner: ubuntu-24.04-arm
             os: linux
             arch: arm64
-            node: "22"
+            node: "24"
             installer: mise
           # ---------------------------- macOS arm64 ---------------------------
           # macos-14 / macos-15 are arm64 runners (Apple Silicon).
-          - label: macos-arm64-node22-homebrew
+          - label: macos-arm64-node24-homebrew
             runner: macos-14
             os: macos
             arch: arm64
-            node: "22"
+            node: "24"
             installer: homebrew
-          - label: macos-arm64-node22-nvm
+          - label: macos-arm64-node24-nvm
             runner: macos-14
             os: macos
             arch: arm64
-            node: "22"
+            node: "24"
             installer: nvm
-          - label: macos-arm64-node22-volta
+          - label: macos-arm64-node24-volta
             runner: macos-14
             os: macos
             arch: arm64
-            node: "22"
+            node: "24"
             installer: volta
           # ---------------------------- macOS x64 -----------------------------
           # macos-15-intel is the current Intel-Mac (x86_64) runner label;
           # covers the Intel Mac smoke case the plan calls out. The older
           # `macos-13` label was retired by GitHub.
-          - label: macos-x64-node22-nvm
+          - label: macos-x64-node24-nvm
             runner: macos-15-intel
             os: macos
             arch: x64
-            node: "22"
+            node: "24"
             installer: nvm
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -139,7 +129,7 @@ jobs:
           bash /tmp/nvm-install.sh
           export NVM_DIR="$HOME/.nvm"
           # Sourcing nvm.sh runs nvm's auto-use against the repo `.nvmrc`
-          # (node 22). On the macOS runners nvm is freshly cloned and no
+          # (node 24). On the macOS runners nvm is freshly cloned and no
           # node is installed yet, so that auto-use returns exit 3
           # ("version N/A — not installed"). Under `set -e` that aborts the
           # step before `nvm install` ever runs. On the Ubuntu runners nvm +

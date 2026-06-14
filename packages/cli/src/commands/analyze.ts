@@ -44,6 +44,13 @@ import {
 import { writeAgentContextFiles } from "../agent-context.js";
 import { type RepoEntry, readRegistry, upsertRegistry } from "../registry.js";
 import { generateSkills } from "../skills-gen.js";
+import {
+  computeScanFingerprint,
+  countSarifFindings,
+  readScanFingerprint,
+  shouldSkipScan,
+  writeScanFingerprint,
+} from "./scan-fingerprint.js";
 
 export interface AnalyzeOptions {
   readonly force?: boolean;
@@ -489,17 +496,69 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // severity-gated exit code — analyze remains the "build the graph"
   // command; operators who want the gate invoke `codehub verdict` or
   // `codehub scan` directly.
+  //
+  // Scan-INPUT fingerprint skip: the commit-based fast-path is bypassed
+  // whenever the working tree is dirty (e.g. right after `codehub init`
+  // re-stamps CLAUDE.md/AGENTS.md), which would re-run the full scanner
+  // pass on every invocation and churn finding counts via non-deterministic
+  // scanners. To avoid that, we fingerprint the scanned content
+  // (`result.scan.files`) + the selected scanner-id set; if it matches the
+  // prior `scan-fingerprint.json` sidecar AND `scan.sarif` still exists AND
+  // `--force` was not passed, we reuse the prior SARIF and skip `runScan`.
+  // Otherwise we run the scan as today and refresh the sidecar. `--force`
+  // always re-scans. If the scan-phase output is absent we can't
+  // fingerprint, so we fall back to running the scan unconditionally.
   if (scanEnabled) {
     try {
       const scanMod = await import("./scan.js");
-      const scanSummary = await scanMod.runScan(repoPath, {
+      const scanOpts: { repo: string; home?: string } = {
         repo: repoName,
         ...(opts.home !== undefined ? { home: opts.home } : {}),
-      });
-      log(
-        `codehub analyze: scan — ${scanSummary.runs.length} scanner(s), ` +
-          `${scanSummary.totalFindings} finding(s), sarif=${scanSummary.outputPath}`,
-      );
+      };
+      const runScanAndLog = async (): Promise<void> => {
+        const scanSummary = await scanMod.runScan(repoPath, scanOpts);
+        log(
+          `codehub analyze: scan — ${scanSummary.runs.length} scanner(s), ` +
+            `${scanSummary.totalFindings} finding(s), sarif=${scanSummary.outputPath}`,
+        );
+      };
+
+      if (result.scan === undefined) {
+        // No scan-phase output to fingerprint — run unconditionally rather
+        // than crash or skip.
+        await runScanAndLog();
+      } else {
+        const scannerIds = await scanMod.selectScannerIds(repoPath, scanOpts);
+        const currentFingerprint = computeScanFingerprint(
+          result.scan.files.map((f) => ({ relPath: f.relPath, sha256: f.sha256 })),
+          scannerIds,
+        );
+        const prior = await readScanFingerprint(repoPath);
+        const sarifPath = join(resolveRepoMetaDir(repoPath), "scan.sarif");
+        const sarifExists = await fileExists(sarifPath);
+        if (
+          shouldSkipScan({
+            force: opts.force === true,
+            priorFingerprint: prior?.fingerprint,
+            currentFingerprint,
+            sarifExists,
+          })
+        ) {
+          const priorCount = await countSarifFindings(sarifPath);
+          const countNote = priorCount !== undefined ? `, reusing ${priorCount} finding(s)` : "";
+          log(`codehub analyze: scan — up to date (fingerprint match)${countNote}`);
+        } else {
+          await runScanAndLog();
+          // Refresh the sidecar only after a successful scan so a thrown
+          // runScan leaves the prior fingerprint intact (next run re-scans).
+          await writeScanFingerprint(repoPath, {
+            schemaVersion: 1,
+            fingerprint: currentFingerprint,
+            scannedAt: new Date().toISOString(),
+            scannerIds,
+          });
+        }
+      }
     } catch (err) {
       log(`codehub analyze: scan skipped: ${(err as Error).message}`);
     }
@@ -1460,6 +1519,21 @@ function log(message: string): void {
   // Using console.warn keeps stdout reserved for machine-readable output from
   // subcommands like `sql` and `query --json`.
   console.warn(message);
+}
+
+/**
+ * Resolve whether a file exists. Used by the scan-fingerprint skip path to
+ * confirm the prior `scan.sarif` is still on disk before reusing it. Any
+ * error (missing file, permission) resolves to `false`.
+ */
+async function fileExists(path: string): Promise<boolean> {
+  const { access } = await import("node:fs/promises");
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

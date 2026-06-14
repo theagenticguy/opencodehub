@@ -173,9 +173,21 @@ async function runOwnership(
   const excludeSubmodules = opts.excludeSubmodules !== false; // default true
 
   const allSorted = [...scan.files].map((f) => f.relPath).sort();
-  const sortedPaths = excludeSubmodules
+  const afterSubmodules = excludeSubmodules
     ? filterOutSubmodules(allSorted, scan.submodulePaths)
     : allSorted;
+  // Drop files that are on disk (and passed the scan walk) but are NOT tracked
+  // in git — e.g. anything `codehub init` writes (`.mcp.json`, `.claude/`,
+  // `opencodehub.policy.yaml`). Per-file `git blame` on those fails with
+  // "no such path in HEAD", emitting one noisy warning each. They have no
+  // blame/ownership by definition, so we exclude them silently. `trackedPaths`
+  // is `undefined` on a non-git repo or an older scan output — in that case we
+  // keep the prior unfiltered behavior so genuine blame failures still surface.
+  const trackedPaths = scan.trackedPaths;
+  const sortedPaths =
+    trackedPaths !== undefined
+      ? afterSubmodules.filter((p) => trackedPaths.has(p))
+      : afterSubmodules;
   if (sortedPaths.length === 0) return emptyResult;
 
   const blameOptsBase = { warmCommitGraph } as const;

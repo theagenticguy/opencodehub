@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.9.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.6...root-v0.9.0) (2026-06-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* baseline Node 24 + apply held majors (lcr@5, write-file-atomic@8) + fix snyk phantom debug dep ([#232](https://github.com/theagenticguy/opencodehub/issues/232))
+
+### Bug Fixes
+
+* **deps:** refresh dependencies + clear esbuild CVE (GHSA-g7r4-m6w7-qqqr) ([#230](https://github.com/theagenticguy/opencodehub/issues/230)) ([75b687f](https://github.com/theagenticguy/opencodehub/commit/75b687f0214194a7170c98de322acdc79f2907ad))
+
+
+### Chores
+
+* baseline Node 24 + apply held majors (lcr@5, write-file-atomic@8) + fix snyk phantom debug dep ([#232](https://github.com/theagenticguy/opencodehub/issues/232)) ([93c90e9](https://github.com/theagenticguy/opencodehub/commit/93c90e9455442b658fb32602b5004939c1ae9a28))
+
+## [0.8.6](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.5...root-v0.8.6) (2026-06-11)
+
+
+### Bug Fixes
+
+* **release:** collapse release-please to one published @opencodehub/cli component ([#222](https://github.com/theagenticguy/opencodehub/issues/222)) ([ab749bd](https://github.com/theagenticguy/opencodehub/commit/ab749bdcc9a337481b0cbda2b7ddd623e6d027fc))
+* **release:** make npm publish idempotent on stuck-release re-runs ([#224](https://github.com/theagenticguy/opencodehub/issues/224)) ([12e1c66](https://github.com/theagenticguy/opencodehub/commit/12e1c66a893d0fdef3dc0a253f1aab313d13666a))
+* **release:** restore two-component config + linked-versions to fix CLI starvation ([#227](https://github.com/theagenticguy/opencodehub/issues/227)) ([f849f24](https://github.com/theagenticguy/opencodehub/commit/f849f24f6657c2c0ec9a5e62abdb8969f392ca48))
+* **release:** set explicit empty component so the CLI release PR matches ([#226](https://github.com/theagenticguy/opencodehub/issues/226)) ([4188b52](https://github.com/theagenticguy/opencodehub/commit/4188b528f1d09a3ef4b8336dc1dadb6c76f9ce4d))
+
+## [0.8.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.4...root-v0.8.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* **release:** grant attestations:write in release-please workflow_call ceiling ([#220](https://github.com/theagenticguy/opencodehub/issues/220)) ([21cf1c5](https://github.com/theagenticguy/opencodehub/commit/21cf1c502cdd96f1c60f99e58798b9092872f181))
+* **release:** migrate provenance to node24 attest-build-provenance + decouple npm publish ([#219](https://github.com/theagenticguy/opencodehub/issues/219)) ([86cc5f8](https://github.com/theagenticguy/opencodehub/commit/86cc5f88d0887286be218e8b38844be1775ce42f))
+
+## [0.8.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.3...root-v0.8.4) (2026-06-10)
+
+
+### Bug Fixes
+
+* **cli,ingestion:** eliminate 3 first-run rough edges (blame noise, scan re-run, doctor pin) ([#215](https://github.com/theagenticguy/opencodehub/issues/215)) ([c7fd5f0](https://github.com/theagenticguy/opencodehub/commit/c7fd5f0deb04b9327a7d0e2f24bfdcdfead49998))
+
 ## [0.8.3](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.2...root-v0.8.3) (2026-06-09)
 
 

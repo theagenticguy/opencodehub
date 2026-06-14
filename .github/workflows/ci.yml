@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [22, 24]
+        node-version: [24]
     runs-on: ${{ matrix.os }}
     env:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
@@ -92,7 +92,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [22]
+        node-version: [24]
     runs-on: ${{ matrix.os }}
     env:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
@@ -146,10 +146,17 @@ jobs:
       - name: license allowlist
         # Root is `private: true` with no runtime deps post-collapse; scan
         # packages/cli (the real third-party runtime deps) via `--start`.
+        # license-checker-rseidelsohn v5 walks the tree via @npmcli/arborist
+        # and reports raw SPDX expressions (e.g. "MIT OR Apache-2.0") instead
+        # of normalizing to a single id, so the compound expressions below are
+        # listed verbatim. Python-2.0 (argparse, via js-yaml) and CC-BY-3.0
+        # (spdx-exceptions data) are both OSI-approved permissive. Keep this
+        # allowlist identical across ci.yml, pre-release-gate.yml, and
+        # scripts/acceptance.sh.
         run: >
           pnpm exec license-checker-rseidelsohn
           --start packages/cli
-          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD'
+          --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;0BSD;Python-2.0;CC-BY-3.0;MIT OR Apache-2.0;(Apache-2.0 AND MIT);(BSD-3-Clause AND Apache-2.0);(BSD-2-Clause OR MIT OR Apache-2.0);(MIT OR CC0-1.0)'
           --excludePrivatePackages
           --production
 
