@@ -46,7 +46,12 @@ function makeInternal(
     detectChanges: () => Promise.resolve(changes),
     computeVerdict: (_store: IGraphStore, _q: VerdictQuery) => Promise.resolve(verdict),
     readFileText: (absPath: string) => {
-      const v = files[absPath];
+      // The production code joins repoPath + relPath with the OS separator, so
+      // on Windows the lookup arrives backslash-separated. The fixture keys are
+      // POSIX; normalize both to forward slashes so the in-memory reader is
+      // path-separator-agnostic across platforms.
+      const key = absPath.replace(/\\/g, "/");
+      const v = files[key] ?? files[absPath];
       if (v === undefined) return Promise.reject(new Error(`ENOENT: ${absPath}`));
       return Promise.resolve(v);
     },
