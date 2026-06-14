@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.0...root-v0.9.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* **ingestion,cli:** make a broken parser fail loud, not silently produce a symbol-free graph ([#204](https://github.com/theagenticguy/opencodehub/issues/204)) ([94b9165](https://github.com/theagenticguy/opencodehub/commit/94b9165766704b99366b8d8f3e8b42ba497ad25e))
+
 ## [0.9.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.8.6...root-v0.9.0) (2026-06-13)
 
 
