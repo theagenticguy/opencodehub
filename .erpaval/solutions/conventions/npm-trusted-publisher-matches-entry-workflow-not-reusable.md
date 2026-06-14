@@ -10,6 +10,8 @@ session: session-88b46e
 related:
   - release-published-event-needs-pat-or-inline
   - vendored-artifact-bump-must-revendor-in-same-pr
+  - release-please-single-root-package-cannot-release
+  - workflow-call-permissions-ceiling
 ---
 
 # npm trusted publisher matches the ENTRY workflow, not the reusable one

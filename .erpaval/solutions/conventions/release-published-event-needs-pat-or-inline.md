@@ -5,6 +5,10 @@ type: knowledge
 tags: [github-actions, release-please, release-published, github-token, sbom, code-pack, ci]
 session: session-85faf1
 ac: AC-D-4
+related:
+  - npm-trusted-publisher-matches-entry-workflow-not-reusable
+  - workflow-call-permissions-ceiling
+  - release-please-single-root-package-cannot-release
 ---
 
 ## Context
