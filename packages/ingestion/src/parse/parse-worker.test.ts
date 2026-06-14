@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import type { LanguageId } from "@opencodehub/core-types";
 import { MAX_FILE_BYTES, parseOne } from "./parse-worker.js";
 import type { ParseCapture, ParseTask } from "./types.js";
+import { WasmRuntimeUnavailableError } from "./wasm-runtime.js";
 
 function task(content: Buffer, language: LanguageId = "typescript"): ParseTask {
   return { filePath: "src/sample.ts", content, language };
@@ -74,6 +75,25 @@ describe("parseOne — error to warning mapping", () => {
     });
 
     assert.equal(result.warnings?.[0], "plain string failure");
+  });
+
+  it("RETHROWS a global WasmRuntimeUnavailableError instead of mapping it to a warning", async () => {
+    // A global runtime death is broken-for-every-file; it must abort the run,
+    // not become a per-file warning that hides behind a 0-symbol skeleton graph.
+    await assert.rejects(
+      parseOne(task(Buffer.from("x")), async () => {
+        throw new WasmRuntimeUnavailableError("vendor/wasms missing");
+      }),
+      /vendor\/wasms missing/,
+    );
+  });
+
+  it("keeps an ordinary per-file Error as a warning (not the global sentinel)", async () => {
+    const result = await parseOne(task(Buffer.from("x")), () => {
+      throw new Error("one bad file");
+    });
+    assert.deepEqual(result.captures, []);
+    assert.equal(result.warnings?.[0], "one bad file");
   });
 });
 

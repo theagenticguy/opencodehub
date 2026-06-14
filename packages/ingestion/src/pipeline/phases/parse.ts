@@ -97,6 +97,22 @@ export interface ParseOutput {
   readonly cacheHits: number;
   /** Number of files that bypassed the cache and were parsed fresh. */
   readonly cacheMisses: number;
+  /**
+   * Number of files routed to a tree-sitter grammar (i.e. `parseCandidates`,
+   * which excludes cobol — it goes through the regex provider). This is the
+   * "should have produced symbols" denominator for the zero-symbol guard; a
+   * configs-only / cobol-only / unsupported-language repo reports 0 here and
+   * so never trips the guard.
+   */
+  readonly treeSitterFileCount: number;
+  /**
+   * Total extracted definitions (Function/Class/Method/etc) from tree-sitter
+   * files. Counts only `definitionsByFile` entries — NOT cobol CodeElements or
+   * external import stubs (those are emitted directly to the graph and would
+   * mask a broken parser). 0 with a non-trivial {@link treeSitterFileCount}
+   * means symbol extraction globally failed.
+   */
+  readonly treeSitterSymbolCount: number;
 }
 
 export const PARSE_PHASE_NAME = "parse";
@@ -218,6 +234,25 @@ async function runParse(
     const pool = new ParsePool({ maxThreads: poolMaxThreads() });
     try {
       parseResults = await pool.dispatch(tasks);
+    } catch (err) {
+      // A global WASM-runtime failure (missing vendored grammars / un-loadable
+      // web-tree-sitter.wasm) rejects the dispatch — abort the parse phase
+      // loudly. Piscina's structured-clone transport across the worker boundary
+      // resets a custom Error subclass's `.name` back to "Error" (verified
+      // against piscina 5.1.4), so the WasmRuntimeUnavailableError identity is
+      // GONE by the time it arrives here — only `.message` survives. Match on
+      // the stable message token both throw sites emit, NOT on `.name` /
+      // `instanceof`. Re-throw with a phase prefix; any other dispatch error
+      // propagates unchanged. (The run aborts either way — the runner wraps a
+      // thrown phase error as `Phase 'parse' failed: …` — but this keeps the
+      // actionable reinstall/re-vendor guidance front-and-center.)
+      if (
+        err instanceof Error &&
+        /web-tree-sitter runtime failed to initialize/.test(err.message)
+      ) {
+        throw new Error(`parse: WASM runtime unavailable — ${err.message}`);
+      }
+      throw err;
     } finally {
       await pool.destroy();
     }
@@ -691,6 +726,15 @@ async function runParse(
     }
   }
 
+  // Sum definitions extracted from tree-sitter files only (keyed by relPath of
+  // a parseCandidate). Excludes cobol CodeElements + external import stubs,
+  // which are added straight to the graph and would mask a globally-broken
+  // parser. 0 here with a non-trivial treeSitterFileCount = symbols failed.
+  let treeSitterSymbolCount = 0;
+  for (const f of parseCandidates) {
+    treeSitterSymbolCount += definitionsByFile.get(f.relPath)?.length ?? 0;
+  }
+
   return {
     definitionsByFile,
     callsByFile,
@@ -704,6 +748,8 @@ async function runParse(
     fileCount: parseCandidates.length + cobolCandidates.length,
     cacheHits: hits.length,
     cacheMisses: missFiles.length,
+    treeSitterFileCount: parseCandidates.length,
+    treeSitterSymbolCount,
   };
 }
 

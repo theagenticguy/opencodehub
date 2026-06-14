@@ -75,6 +75,8 @@ function buildParseOutput(defs: ReadonlyMap<string, readonly ExtractedDefinition
     fileCount: defs.size,
     cacheHits: 0,
     cacheMisses: defs.size,
+    treeSitterFileCount: defs.size,
+    treeSitterSymbolCount: [...defs.values()].reduce((n, d) => n + d.length, 0),
   };
 }
 

@@ -333,16 +333,28 @@ else
     rm -f "$ANALYZE_LOG"
   fi
 
-  # ------------------------------------------------------------------ smoke: codehub query 'export default'
-  # The query phase exits 0 even on zero hits, so the gate is "1+ hits".
+  # ------------------------------------------------------------------ smoke: known fixture symbol parses
+  # Assert the analyzer extracted a REAL symbol, not just that BM25 returned
+  # some text. `Greet` is the top-level Go func in greeter.go — uniquely cased
+  # (lowercase `greet` lives in greeter.ts AND greeter.py; `Greeting` is in all
+  # three), never an external/dependency ref, and a no-receiver Go func is
+  # always kind Function. We require a printed table ROW whose KIND is
+  # Function/Class/Method on the same line as the greeter.go FILE column. This
+  # FAILS on a 0-symbol skeleton graph, where `query` prints only the stderr
+  # header and zero rows — the exact regression the old 'export default' /
+  # "1+ hits" gate let through (the header alone satisfied "non-empty").
   if [ -d "$FIXTURE_DIR" ]; then
-    QUERY_OUT=$(cd "$FIXTURE_DIR" && codehub query 'export default' 2>&1 || true)
-    if printf '%s' "$QUERY_OUT" | grep -qiE 'no results|0 results|0 hits|no matches'; then
-      fail "smoke: codehub query 'export default' returned no hits"
-    elif [ -n "$QUERY_OUT" ]; then
-      pass "smoke: codehub query 'export default' returned at least one hit"
+    QUERY_OUT=$(cd "$FIXTURE_DIR" && codehub query 'Greet' 2>&1 || true)
+    # Columns are padded with two spaces (SCORE KIND NAME FILE SOURCES); a line
+    # carrying both a real KIND token and greeter.go proves symbol extraction.
+    # Anchored on the KIND token so the stderr header line (which contains
+    # "Greet" but no KIND column and no greeter.go) cannot match.
+    if printf '%s\n' "$QUERY_OUT" | grep -qE '(^|[[:space:]])(Function|Class|Method)[[:space:]].*greeter\.go'; then
+      pass "smoke: codehub query 'Greet' returned a real symbol row (Function/Class/Method) from greeter.go"
     else
-      fail "smoke: codehub query 'export default' returned empty output"
+      fail "smoke: codehub query 'Greet' did not return a Function/Class/Method row from greeter.go — parser produced no real symbols"
+      note "query output:"
+      printf '%s\n' "$QUERY_OUT" | head -20 | sed 's/^/      /' >&2 || true
     fi
   fi
 fi

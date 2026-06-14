@@ -1,4 +1,4 @@
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsup";
@@ -59,6 +59,15 @@ const distDir = join(here, "dist");
 const EXTERNAL = [/^[^.]/];
 
 async function copyTree(from: string, to: string): Promise<void> {
+  // rm the leaf dest FIRST so a rename/delete in the source tree doesn't leave
+  // a stale entry behind in `dist/`. `cp(force:true)` overwrites files present
+  // in both trees but never removes dest-only entries, so without this an
+  // incremental/watch rebuild accumulates renamed dirs (e.g. a renamed skill
+  // left both old and new names under dist/plugin-assets/skills/). `clean:true`
+  // only wipes dist on a full build, not in --watch. rm the exact leaf `to`
+  // (never `dirname(to)`) — every onSuccess dest is a distinct non-nested leaf,
+  // and plugin-assets is copied as one tree, so this can't clobber a sibling.
+  await rm(to, { recursive: true, force: true });
   await mkdir(dirname(to), { recursive: true });
   await cp(from, to, { recursive: true, force: true, errorOnExist: false });
 }

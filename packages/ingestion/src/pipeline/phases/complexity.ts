@@ -90,16 +90,41 @@ interface WasmParserLike {
   parse(source: string): WasmTree | null;
 }
 
-async function getParser(lang: LanguageId): Promise<WasmParserLike | undefined> {
-  const cached = parserCache.get(lang);
+/**
+ * Builder seam for the per-language WASM parser. Defaults to the production
+ * {@link buildParserForLanguage}; injectable so the fail-loud contract (a
+ * GLOBAL runtime failure must propagate, the SOFT case must skip) is testable
+ * without standing up Emscripten. Mirrors the injectable-default-param idiom
+ * used by `parseOne` in parse-worker.ts.
+ */
+type ParserBuilder = (lang: LanguageId) => Promise<WasmParserLike | undefined>;
+
+const defaultParserBuilder: ParserBuilder = (lang) =>
+  buildParserForLanguage(lang) as Promise<WasmParserLike | undefined>;
+
+async function getParser(
+  lang: LanguageId,
+  cache: Map<LanguageId, WasmParserLike | null>,
+  build: ParserBuilder = defaultParserBuilder,
+): Promise<WasmParserLike | undefined> {
+  const cached = cache.get(lang);
   if (cached === null) return undefined;
   if (cached !== undefined) return cached;
-  const parser = (await buildParserForLanguage(lang)) as WasmParserLike | undefined;
+  // build() returns undefined for the SOFT case (web-tree-sitter package
+  // genuinely absent, or no grammar for this lang) → cache null and skip this
+  // language (best-effort, mirrors the parse phase). It THROWS
+  // WasmRuntimeUnavailableError on a GLOBAL runtime break; complexity
+  // intentionally lets that propagate (fail-loud) — do NOT wrap this in a
+  // try/catch that folds the throw into the undefined skip-path, or a broken
+  // install would silently produce a symbol-free graph. The parse phase aborts
+  // first on the common path; this is the backstop on an all-cache-hit run
+  // where parse re-used cached extractions and never opened the runtime.
+  const parser = await build(lang);
   if (parser === undefined) {
-    parserCache.set(lang, null);
+    cache.set(lang, null);
     return undefined;
   }
-  parserCache.set(lang, parser);
+  cache.set(lang, parser);
   return parser;
 }
 
@@ -495,11 +520,19 @@ const CALLABLE_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
   "Constructor",
 ]);
 
-async function runComplexity(
+export async function runComplexity(
   ctx: PipelineContext,
   parse: ParseOutput,
   scan: ScanOutput,
+  // Test seam: inject a parser builder to exercise the fail-loud contract
+  // without Emscripten. In production this is undefined → the module-global
+  // parserCache + defaultParserBuilder are used (cross-run caching preserved).
+  // When injected, a fresh cache scopes the call so a prior cached null can't
+  // shadow the injected behavior and the test can't pollute the global cache.
+  build?: ParserBuilder,
 ): Promise<ComplexityOutput> {
+  const cache = build === undefined ? parserCache : new Map<LanguageId, WasmParserLike | null>();
+  const buildFn = build ?? defaultParserBuilder;
   const absByRel = new Map<string, string>();
   const langByRel = new Map<string, LanguageId>();
   for (const f of scan.files) {
@@ -532,7 +565,7 @@ async function runComplexity(
       continue;
     }
 
-    const parser = await getParser(lang);
+    const parser = await getParser(lang, cache, buildFn);
     if (parser === undefined) {
       skipped += callableDefs.length;
       continue;

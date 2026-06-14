@@ -17,9 +17,49 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { LanguageId } from "./types.js";
-import { resolveVendorWasmsDir } from "./vendor-wasms.js";
+import { isDirSync, resolveVendorWasmsDir } from "./vendor-wasms.js";
 
 const requireFn = createRequire(import.meta.url);
+
+/**
+ * Thrown when the WASM parse runtime cannot be brought up at all — the
+ * vendored `vendor/wasms/` directory is missing or `web-tree-sitter.wasm`
+ * fails to initialize. This is a GLOBAL, deployment-level failure (a broken
+ * install / vendoring regression), distinct from a per-file parse error or a
+ * single missing grammar. Callers let it propagate so a run aborts loudly
+ * instead of silently producing a symbol-free graph.
+ *
+ * `name` is set explicitly so the identity survives Piscina's structured-clone
+ * across the worker boundary (the subclass prototype does not) — match on
+ * `err.name === "WasmRuntimeUnavailableError"` on the main thread.
+ */
+export class WasmRuntimeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WasmRuntimeUnavailableError";
+  }
+}
+
+/** Whether the vendored `vendor/wasms/` directory exists in this deployment. */
+export function vendorWasmsDirExists(): boolean {
+  return isDirSync(VENDOR_WASMS_DIR);
+}
+
+/**
+ * Guard that the WASM runtime's vendored assets are present. Throws
+ * {@link WasmRuntimeUnavailableError} (naming `dir`) when they are not. Split
+ * out as a pure function so the global-failure detection is unit-testable
+ * without standing up Emscripten or mutating the module-load-time
+ * `VENDOR_WASMS_DIR` const.
+ */
+export function assertRuntimeAvailable(dirExists: boolean, dir: string): void {
+  if (!dirExists) {
+    throw new WasmRuntimeUnavailableError(
+      `web-tree-sitter runtime failed to initialize; vendored grammar directory not found at ${dir} ` +
+        `(reinstall @opencodehub/cli, or re-vendor with scripts/build-vendor-wasms.sh in a source checkout)`,
+    );
+  }
+}
 
 // Resolve `vendor/wasms/` regardless of the emitted layout — the standalone
 // ingestion build (`dist/parse/`), the flat `@opencodehub/cli` bundle
@@ -173,16 +213,30 @@ export async function openWasmParser(lang: LanguageId): Promise<WasmParserHandle
     };
     wasmCache.set(lang, handle);
     return handle;
-  } catch {
+  } catch (err) {
+    // A global runtime failure must propagate — it means the parser is broken
+    // for EVERY file, not just this grammar. Only per-grammar/per-file load
+    // errors degrade to a soft null (skip this language).
+    if (err instanceof WasmRuntimeUnavailableError) throw err;
     wasmCache.set(lang, null);
     return null;
   }
 }
 
 /**
- * Load the web-tree-sitter runtime on demand and initialize it. Returns
- * `undefined` when the package isn't installed or the runtime refuses to
- * init (sandboxed, missing WebAssembly, etc.).
+ * Load the web-tree-sitter runtime on demand and initialize it.
+ *
+ * Contract (post-PR #204) — three outcomes:
+ *   - Returns the runtime on success.
+ *   - Returns `undefined` ONLY for the SOFT case: the `web-tree-sitter`
+ *     package is genuinely not installed (the `require` catch below). This
+ *     degrades to a per-language skip; the run-level zero-symbol guard is the
+ *     backstop.
+ *   - THROWS {@link WasmRuntimeUnavailableError} for the two GLOBAL-failure
+ *     cases — the vendored `vendor/wasms/` dir is missing
+ *     ({@link assertRuntimeAvailable}) or `web-tree-sitter.wasm` won't init.
+ *     Callers MUST let this propagate so a run aborts loudly instead of
+ *     producing a symbol-free skeleton graph.
  *
  * The runtime WASM (`web-tree-sitter.wasm`) is also vendored — we point
  * Emscripten at it via `locateFile` so global installs don't have to find
@@ -200,6 +254,10 @@ export async function ensureWasmRuntime(): Promise<WasmRuntime | undefined> {
   } catch {
     return undefined;
   }
+  // The package is installed, so a failure from here on is a GLOBAL deployment
+  // breakage (missing vendored runtime), not the soft "not installed" case —
+  // throw so the run aborts loudly rather than degrading to a 0-symbol graph.
+  assertRuntimeAvailable(vendorWasmsDirExists(), VENDOR_WASMS_DIR);
   try {
     if (typeof mod.Parser.init === "function") {
       const runtimeWasm = path.resolve(VENDOR_WASMS_DIR, "web-tree-sitter.wasm");
@@ -207,8 +265,12 @@ export async function ensureWasmRuntime(): Promise<WasmRuntime | undefined> {
         locateFile: () => runtimeWasm,
       });
     }
-  } catch {
-    return undefined;
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new WasmRuntimeUnavailableError(
+      `web-tree-sitter runtime failed to initialize; web-tree-sitter.wasm not loadable from ${VENDOR_WASMS_DIR} ` +
+        `(reinstall @opencodehub/cli, or re-vendor with scripts/build-vendor-wasms.sh in a source checkout): ${detail}`,
+    );
   }
   wasmRuntime = {
     Parser: mod.Parser,

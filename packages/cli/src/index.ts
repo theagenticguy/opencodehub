@@ -149,7 +149,7 @@ program
     const embeddingsWorkers = parseWorkerCount(workersRaw);
     const embeddingsBatchSize = parsePositiveInt(opts["embeddingsBatchSize"]);
 
-    await mod.runAnalyze(path ?? process.cwd(), {
+    const analyzeSummary = await mod.runAnalyze(path ?? process.cwd(), {
       force: opts["force"] === true,
       embeddings: opts["embeddings"] === true,
       embeddingsVariant: opts["embeddingsInt8"] === true ? "int8" : "fp32",
@@ -177,6 +177,10 @@ program
       strictDetectors: opts["strictDetectors"] === true,
       ...(allowBuildScripts !== undefined ? { allowBuildScripts } : {}),
     });
+    // Advisory exit code 3: analyze built a graph but extracted zero code
+    // symbols (likely a broken parser). Distinct from the generic failure
+    // exit 1 so CI can detect a silent-skeleton run without parsing logs.
+    if (analyzeSummary.zeroSymbolGuard === true) process.exitCode = 3;
   });
 
 program

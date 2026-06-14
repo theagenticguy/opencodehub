@@ -31,7 +31,7 @@ import { statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-function isDirSync(p: string): boolean {
+export function isDirSync(p: string): boolean {
   try {
     return statSync(p).isDirectory();
   } catch {
