@@ -1,0 +1,185 @@
+session_id: session-008
+phase: plan
+generated: 2026-06-19
+extends:
+  - ../../brainstorms/014-scip-lsp-packaging-determinism-plans.md
+spec: .erpaval/specs/008-distribution-determinism-breadth/spec.md
+parent_branch: feat/v1-distribution-breadth
+base_branch: main
+merge_strategy: "per-track PRs → main. Track B + Track C land independently; Track A waves gate on B (and A-L gates on Q1). NOT one bundled PR — tracks are decoupled by design."
+
+# =========================================================================
+# Gate-0 decisions (recorded for downstream / future sessions)
+# =========================================================================
+gate_0_decisions:
+  binary_dropped: "Laith 2026-06-19: single-binary track (pkg/SEA/Bun/Deno) is OUT — no exceptions. Docker multistage (pnpm + Node 24) is the SOLE non-npm distribution artifact. Recorded in ROADMAP §Explicitly rejected via AC-D0. Brainstorm 014 §Plan B binary half is superseded."
+  a_b_collapsed: "Dropping the binary merges old Plan A (breadth) and Plan B (packaging) into one track: the Docker image is both the distribution artifact AND the delivery vehicle for the heavy SCIP/LSP toolchains the npm package can't ship. 'Build breadth in the image; keep the npm CLI and the packHash lean.'"
+  docker_is_the_hinge: "Track B lands first because A's heavy indexers (scip-java JVM, etc.) are only affordable once the multi-arch image exists. Multistage node:24 also structurally fixes the onnxruntime/ladybug per-arch prebuild problem by building on the exact target arch."
+  tier_1_5: "scip-php (davidrjenni v0.0.2) and scip-dart (Workiva) are third-party / pre-alpha → a NEW 'scip-unofficial' (Tier 1.5) confidence label distinct from first-party 'scip:'. Not the same trust tier."
+  adr_0005_reopened: "Track A-L (LSP Tier-3) reopens ADR 0005 (which deleted lsp-oracle). Resolution path = new ADR 0019 amending 0005's SCOPE: 0005 rejected LSP as the ORACLE; 0019 adds LSP as a labeled, batch-only, packHash-quarantined FALLBACK for SCIP-blind languages only. GATED on Q1."
+  determinism_quarantine: "agent-lsp output is unsorted + server-version-unpinned. Tier-3 facts MUST be re-sorted, server-version-pinned, tagged source=lsp, and EXCLUDED from the packHash preimage (sidecar). This is the non-negotiable invariant protecting validation constraint #7."
+  mcp_scope_corrected: "Morning roadmap over-scoped move 4. For a stdio server: Mcp-Method/Mcp-Name headers + EMA/OAuth + tool-desc signing DO NOT APPLY. Real work = stateless _meta (drop initialize handshake), server/discover, remove ping/logging.setLevel/roots.list_changed, add ttlMs+cacheScope JSON fields. Hard clock July 28 2026."
+  scope_enum_additions: "commitlint scope-enum lacks `docker` and `lsp-tier`. Each MUST be added in the first commit that introduces it (prior lesson). `build:` is the type for Dockerfile work."
+
+# =========================================================================
+# Open decision blocking Wave 4
+# =========================================================================
+open_decisions:
+  Q1:
+    question: "Amend ADR 0005 to allow a quarantined Tier-3 LSP fallback for SCIP-blind languages?"
+    option_amend: "Write ADR 0019; unlock Swift/Elixir/Zig/Terraform/Clojure at a labeled lower-confidence tier. RECOMMENDED."
+    option_stop: "Ship A-S (php/dart) only; skip A-L; leave SCIP-blind langs on Tree-sitter. ADR 0005 stands; smaller surface, no daemon/warmup/quarantine cost."
+    blocks: [T-A-L]
+    does_not_block: [all of Track B, all of Track C, Milestone A-S]
+
+# =========================================================================
+# Wave structure
+# =========================================================================
+waves:
+  wave_1:
+    summary: "Docker lite skeleton + the 3 parallel Track-C items + the hard-clock MCP _meta migration"
+    parallel_tracks: 5
+    tasks: [T-B1, T-C9, T-C1, T-C2, T-C7]
+  wave_2:
+    summary: "Full multi-arch Docker image carrying the curated indexer toolchains (jlink JRE + scip-java + scip-go + uv)"
+    parallel_tracks: 1
+    tasks: [T-B2]
+  wave_3:
+    summary: "Finish all-SCIP: scip-php + scip-dart at Tier 1.5 + ADR 0006 refresh; MCP RC remainder"
+    parallel_tracks: 2
+    tasks: [T-A-S, T-C10-13]
+  wave_4:
+    summary: "LSP Tier-3 for SCIP-blind languages, packHash-quarantined — GATED ON Q1"
+    parallel_tracks: 1
+    tasks: [T-A-L]
+    gated_on: Q1
+
+# =========================================================================
+# Tasks (TaskCreate order; addBlockedBy populated)
+# =========================================================================
+tasks:
+  - id: T-B1
+    spec_ac: "E-D1, E-D4, S-D5, AC-D0, AC-D8, U5, U8, U9"
+    title: "Docker multistage skeleton (lite) + scope-enum += docker"
+    commit: "build(docker): multistage node:24 + pnpm 11 image (lite variant) [scope-enum += docker]"
+    files:
+      - "Dockerfile (new)"
+      - ".dockerignore (new)"
+      - "mise.toml (docker-build task)"
+      - "commitlint.config.mjs (scope-enum += docker — SAME commit)"
+      - "README.md (docker run -i + .mcp.json snippet)"
+      - ".erpaval/ROADMAP.md (§Explicitly rejected += single-binary line)"
+    blocked_by: []
+    parallel_safe: true
+    estimated_commits: 1
+
+  - id: T-C9
+    spec_ac: "E-C9, AC-C14, U7"
+    title: "MCP stateless _meta migration (drop initialize handshake)"
+    commit: "feat(mcp): read protocol negotiation from per-request _meta (2026-07-28 RC)"
+    files:
+      - "packages/mcp/src/server.ts"
+      - "packages/mcp/src/tool-handlers.* + tools/*"
+      - "packages/mcp/src/error-envelope.ts (UnsupportedProtocolVersionError)"
+    blocked_by: []
+    parallel_safe: true
+    risk: HIGH
+    notes: "Touches every handler; pin protocolVersion gated on upstream MCP SDK support. Do not hand-roll transport."
+
+  - id: T-C1
+    spec_ac: "E-C1, E-C2, AC-C3, U2"
+    title: "pack --prove + replay <hash>"
+    commit: "feat(pack): pack --prove (SLSA v1 over packHash) + codehub replay"
+    files:
+      - "packages/pack/src/prove.ts (new)"
+      - "packages/cli/src/commands/pack.ts (--prove)"
+      - "packages/cli/src/commands/replay.ts (new)"
+      - ".github/workflows/release.yml (reuse attest-build-provenance for pack subject)"
+    blocked_by: []
+    parallel_safe: true
+    notes: "Reuses existing manifest.ts packHash + CI cosign/attest machinery. Offline verify via vendored Sigstore root."
+
+  - id: T-C2
+    spec_ac: "AC-C4, E-C5"
+    title: "Cache-prefix reframe: stable-first BOM ordering + docs"
+    commit: "refactor(pack): order stable BOM items first for cache-prefix stability + reframe docs"
+    files:
+      - "packages/pack/src/index.ts (stable-first ordering)"
+      - "packages/pack/README.md"
+      - "packages/pack/src/pack-determinism.test.ts (rebaseline fixtures — one-time hash change)"
+    blocked_by: []
+    parallel_safe: true
+    notes: "Reordering changes packHash ONCE — rebaseline determinism fixtures in the same commit, gate explicitly."
+
+  - id: T-C7
+    spec_ac: "AC-C6, E-C7, AC-C8"
+    title: "CORE-Bench L3 harness (testbed repo)"
+    commit: "feat(eval): CORE-Bench L3 retrieval harness [opencodehub-testbed]"
+    repo: opencodehub-testbed
+    files:
+      - "testbed: core-bench-l3 harness + gold-label scorer"
+    blocked_by: []
+    parallel_safe: true
+    notes: "Read CORE-Bench PDF tables first (AC-C8) to fix metric. Anchor with CodeCompass +23.2pt."
+
+  - id: T-B2
+    spec_ac: "E-D2, E-D3, AC-D6, AC-D7"
+    title: "Full multi-arch image: jlink JRE + scip-java + scip-go + uv"
+    commit: "build(docker): full image variant w/ curated indexer toolchains (multi-arch)"
+    files:
+      - "Dockerfile (full target)"
+      - "mise.toml (docker-build-full)"
+      - ".github/workflows/docker.yml (new — buildx amd64+arm64 + smoke test)"
+    blocked_by: [T-B1]
+    parallel_safe: false
+
+  - id: T-A-S
+    spec_ac: "E-A1, E-A2, AC-A3, AC-A3b, U3, U7"
+    title: "scip-php + scip-dart runners at Tier 1.5 + ADR 0006 refresh"
+    commit: "feat(scip-ingest): add php + dart indexers at scip-unofficial tier"
+    files:
+      - "packages/scip-ingest/src/runners/index.ts (IndexerKind/ALLOWED_COMMANDS/detectLanguages)"
+      - "packages/scip-ingest/src/runners/php.ts + dart.ts (+ tests)"
+      - "packages/core-types (SCIP_PROVENANCE_PREFIXES += scip-unofficial:)"
+      - "packages/analysis (confidence-demote) + packages/mcp (confidence-breakdown)"
+      - "docs/adr/0006-scip-indexer-pins.md (scip-go path, CLI pin, php/dart rows)"
+    blocked_by: [T-B2]
+    parallel_safe: false
+
+  - id: T-C10-13
+    spec_ac: "E-C10, E-C11, E-C12, AC-C13"
+    title: "MCP RC remainder: server/discover, removals, ttlMs/cacheScope, README rail"
+    commit: "feat(mcp): server/discover + cache fields + remove deprecated methods"
+    files:
+      - "packages/mcp/src/server.ts + tools/*"
+      - "packages/mcp/README.md (stdio-rail rationale)"
+    blocked_by: [T-C9]
+    parallel_safe: true
+
+  - id: T-A-L
+    spec_ac: "E-A4, S-A4b, AC-A5, AC-A6, O-A7, U2, U7"
+    title: "@opencodehub/lsp-tier — LSP Tier-3 for SCIP-blind langs, packHash-quarantined"
+    commit: "feat(lsp-tier): quarantined LSP Tier-3 for SCIP-blind languages [scope-enum += lsp-tier]"
+    files:
+      - "packages/lsp-tier/* (new — vendor agent-lsp MIT pkg/lsp + blast_radius)"
+      - "packages/ingestion (wire Tier-3 for SCIP-blind langs)"
+      - "packages/pack (sidecar exclusion from packHash preimage)"
+      - "packages/core-types (tier tag)"
+      - "docs/adr/0019-lsp-tier-3-for-scip-blind-languages.md (new)"
+      - "commitlint.config.mjs (scope-enum += lsp-tier — SAME commit)"
+    blocked_by: [T-A-S]
+    gated_on: Q1
+    parallel_safe: false
+    status: BLOCKED-ON-DECISION
+
+# =========================================================================
+# Guardrails carried from spec (every Act subagent honors these)
+# =========================================================================
+guardrails:
+  - "U4: mise run check exits 0 after every commit (lint→typecheck→test→banned-strings)."
+  - "U1/U2: graphHash AND packHash byte-identity hold across every commit; Tier-3 LSP facts never enter the packHash preimage."
+  - "U5: new scopes (docker, lsp-tier) added to scope-enum in their first commit; new packages Apache-2.0 + type:module + tsc clean."
+  - "U8: @opencodehub/cli npm install path stays green (verify-global-install.yml) — Docker is additive."
+  - "U9: no HTTP server surface; docker run -i is stdio transport, not a listener."
+  - "Worktree: remove sibling worktrees before root mise run check (biome root-config collision); verify regressions on main, not in worktrees (native-binding flakiness)."
+  - "Banned strings: refer to the graph engine only via the @ladybugdb/core package dep, never the bare literal in tracked non-excluded source."
