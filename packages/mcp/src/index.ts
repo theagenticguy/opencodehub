@@ -16,8 +16,17 @@ export {
   type ErrorDetail,
   toolError,
   toolErrorFromUnknown,
+  toolUnsupportedProtocolVersionError,
+  type UnsupportedProtocolVersionDetail,
 } from "./error-envelope.js";
 export { withNextSteps } from "./next-step-hints.js";
+export {
+  assertProtocolVersion,
+  type ClientMeta,
+  readClientMeta,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  withProtocolGate,
+} from "./protocol-version.js";
 export {
   type RegistryEntry,
   RepoResolveError,

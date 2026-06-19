@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { getDefaultModelRoot, modelFileName, resolveModelDir } from "@opencodehub/embedder";
 import { ConnectionPool } from "./connection-pool.js";
+import { withProtocolGate } from "./protocol-version.js";
 import { registerRepoClusterResource } from "./resources/repo-cluster.js";
 import { registerRepoClustersResource } from "./resources/repo-clusters.js";
 import { registerRepoContextResource } from "./resources/repo-context.js";
@@ -148,35 +149,45 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
     },
   );
 
-  registerListReposTool(server, ctx);
-  registerPackCodebaseTool(server, ctx);
-  registerQueryTool(server, ctx);
-  registerContextTool(server, ctx);
-  registerImpactTool(server, ctx);
-  registerDetectChangesTool(server, ctx);
-  registerSqlTool(server, ctx);
-  registerGroupListTool(server, ctx);
-  registerGroupQueryTool(server, ctx);
-  registerGroupStatusTool(server, ctx);
-  registerGroupContractsTool(server, ctx);
-  registerGroupCrossRepoLinksTool(server, ctx);
-  registerGroupSyncTool(server, ctx);
-  registerProjectProfileTool(server, ctx);
-  registerDependenciesTool(server, ctx);
-  registerLicenseAuditTool(server, ctx);
-  registerOwnersTool(server, ctx);
-  registerListFindingsTool(server, ctx);
-  registerListFindingsDeltaTool(server, ctx);
-  registerListDeadCodeTool(server, ctx);
-  registerScanTool(server, ctx);
-  registerVerdictTool(server, ctx);
-  registerChangePackTool(server, ctx);
-  registerRiskTrendsTool(server, ctx);
-  registerRouteMapTool(server, ctx);
-  registerApiImpactTool(server, ctx);
-  registerShapeCheckTool(server, ctx);
-  registerSignatureTool(server, ctx);
-  registerToolMapTool(server, ctx);
+  // E-C9: every tool registered through `gated` runs the per-request
+  // protocol-version gate before its handler — reading
+  // `io.modelcontextprotocol/protocolVersion` from `_meta` per request, not
+  // from remembered handshake state, and rejecting mismatches with
+  // `UNSUPPORTED_PROTOCOL_VERSION`. One chokepoint covers all 29 tools
+  // (including the non-repo ones that bypass `withStore`) without touching
+  // any handler body. The returned `RunningServer.server` is the raw server
+  // so private-field test introspection and `close()` are unchanged.
+  const gated = withProtocolGate(server);
+
+  registerListReposTool(gated, ctx);
+  registerPackCodebaseTool(gated, ctx);
+  registerQueryTool(gated, ctx);
+  registerContextTool(gated, ctx);
+  registerImpactTool(gated, ctx);
+  registerDetectChangesTool(gated, ctx);
+  registerSqlTool(gated, ctx);
+  registerGroupListTool(gated, ctx);
+  registerGroupQueryTool(gated, ctx);
+  registerGroupStatusTool(gated, ctx);
+  registerGroupContractsTool(gated, ctx);
+  registerGroupCrossRepoLinksTool(gated, ctx);
+  registerGroupSyncTool(gated, ctx);
+  registerProjectProfileTool(gated, ctx);
+  registerDependenciesTool(gated, ctx);
+  registerLicenseAuditTool(gated, ctx);
+  registerOwnersTool(gated, ctx);
+  registerListFindingsTool(gated, ctx);
+  registerListFindingsDeltaTool(gated, ctx);
+  registerListDeadCodeTool(gated, ctx);
+  registerScanTool(gated, ctx);
+  registerVerdictTool(gated, ctx);
+  registerChangePackTool(gated, ctx);
+  registerRiskTrendsTool(gated, ctx);
+  registerRouteMapTool(gated, ctx);
+  registerApiImpactTool(gated, ctx);
+  registerShapeCheckTool(gated, ctx);
+  registerSignatureTool(gated, ctx);
+  registerToolMapTool(gated, ctx);
 
   const resCtx: { home?: string; pool: ConnectionPool } =
     opts.home !== undefined ? { home: opts.home, pool } : { pool };

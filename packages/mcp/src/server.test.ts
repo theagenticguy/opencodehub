@@ -14,7 +14,28 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { UnsupportedProtocolVersionDetail } from "./error-envelope.js";
+import { PROTOCOL_VERSION_META_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "./protocol-version.js";
 import { buildServer } from "./server.js";
+
+/**
+ * Reach into the SDK's private `_registeredTools` map and pull a tool's
+ * wrapped handler so a test can invoke it with a fabricated `extra`
+ * (carrying per-request `_meta`) — the same shape the SDK passes at call
+ * time. We target `list_repos` because it is the only zero-arg tool that
+ * needs no store: its callback is `(extra)`, so `extra` is the sole arg.
+ */
+function getToolHandler(
+  server: unknown,
+  name: string,
+): (extra: { _meta?: Record<string, unknown> }) => Promise<CallToolResult> {
+  const tools = (server as { _registeredTools?: Record<string, { handler: unknown }> })
+    ._registeredTools;
+  const entry = tools?.[name];
+  assert.ok(entry, `tool ${name} must be registered`);
+  return entry.handler as (extra: { _meta?: Record<string, unknown> }) => Promise<CallToolResult>;
+}
 
 async function withEmptyHome(fn: (home: string) => Promise<void>): Promise<void> {
   const home = await mkdtemp(resolve(tmpdir(), "codehub-mcp-server-test-"));
@@ -106,6 +127,107 @@ test("buildServer registers exactly the expected read-only tool set", async () =
         "source-mutating remove_dead_code tool must NOT be registered",
       );
       assert.equal(registered.length, 29);
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E-C9: stateless per-request `_meta` protocol-version negotiation.
+// ---------------------------------------------------------------------------
+
+test("E-C9: a request asserting the supported protocolVersion in _meta is served", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getToolHandler(running.server, "list_repos");
+      const result = await handler({
+        _meta: { [PROTOCOL_VERSION_META_KEY]: SUPPORTED_PROTOCOL_VERSIONS[0] },
+      });
+      // Served normally: the list_repos body comes through, not a reject.
+      assert.notEqual(result.isError, true);
+      const sc = result.structuredContent as { error?: unknown; repos?: unknown };
+      assert.equal(sc.error, undefined);
+      assert.ok(Array.isArray(sc.repos));
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C9: a request with no protocolVersion in _meta is served (back-compat)", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getToolHandler(running.server, "list_repos");
+      // No _meta at all — current SDK handshake / pre-2026-07-28 clients.
+      const result = await handler({});
+      assert.notEqual(result.isError, true);
+      const sc = result.structuredContent as { error?: unknown };
+      assert.equal(sc.error, undefined);
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C9: a request asserting a mismatched protocolVersion is rejected", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getToolHandler(running.server, "list_repos");
+      const result = await handler({
+        _meta: { [PROTOCOL_VERSION_META_KEY]: "2025-03-26" },
+      });
+      assert.equal(result.isError, true);
+      const detail = (result.structuredContent as { error: UnsupportedProtocolVersionDetail })
+        .error;
+      assert.equal(detail.code, "UNSUPPORTED_PROTOCOL_VERSION");
+      assert.equal(detail.error_code, "UNSUPPORTED_PROTOCOL_VERSION");
+      assert.equal(detail.jsonrpc_code, -32602);
+      assert.equal(detail.requested, "2025-03-26");
+      const supported = [...detail.supported];
+      assert.ok(supported.includes("2026-07-28"), "supported must include the pinned version");
+      // U7: supported[] is lex-sorted.
+      assert.deepEqual(supported, [...supported].sort());
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C9 / U7: two identical mismatched requests produce byte-identical error bodies", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getToolHandler(running.server, "list_repos");
+      const meta = { _meta: { [PROTOCOL_VERSION_META_KEY]: "2025-11-25" } };
+      const a = await handler(meta);
+      const b = await handler(meta);
+      assert.equal(JSON.stringify(a), JSON.stringify(b));
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C9: the protocol gate reaches non-repo tools that bypass withStore", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      // `group_list` and `tool_map` do not funnel through `withStore`, so
+      // they prove the chokepoint covers the full surface, not just the
+      // per-repo tools.
+      for (const name of ["group_list", "tool_map"]) {
+        const handler = getToolHandler(running.server, name);
+        const result = await handler({
+          _meta: { [PROTOCOL_VERSION_META_KEY]: "1999-01-01" },
+        });
+        assert.equal(result.isError, true, `${name} must reject a bad protocol version`);
+        const detail = (result.structuredContent as { error: { code: string } }).error;
+        assert.equal(detail.code, "UNSUPPORTED_PROTOCOL_VERSION", `${name} reject envelope`);
+      }
     } finally {
       await running.shutdown();
     }

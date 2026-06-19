@@ -25,7 +25,8 @@ export type ErrorCode =
   | "INTERNAL"
   | "NO_INDEX"
   | "AMBIGUOUS_REPO"
-  | "EMBEDDER_MISMATCH";
+  | "EMBEDDER_MISMATCH"
+  | "UNSUPPORTED_PROTOCOL_VERSION"; // E-C9: per-request `_meta` protocol mismatch
 
 /** Structured shape carried under `structuredContent.error`. */
 export interface ErrorDetail {
@@ -137,6 +138,63 @@ export function toolAmbiguousRepoError(payload: AmbiguousRepoPayload): CallToolR
     jsonrpc_code: -32602,
     choices: capped,
     total_matches: payload.totalMatches,
+  };
+  return {
+    content: base.content,
+    structuredContent: { error: detail },
+    isError: true,
+  };
+}
+
+/**
+ * Extended detail shape for `UNSUPPORTED_PROTOCOL_VERSION` (E-C9). Emitted
+ * when a request's `_meta["io.modelcontextprotocol/protocolVersion"]` does
+ * not match a version this server supports. Modeled on
+ * {@link AmbiguousRepoDetail}: retains the legacy `{ code, message, hint }`
+ * surface, adds the snake-case wire fields the MCP boundary expects.
+ *
+ * `supported` is emitted lex-sorted (U7) so two identical mismatched
+ * requests produce byte-identical error bodies.
+ */
+export interface UnsupportedProtocolVersionDetail extends ErrorDetail {
+  readonly code: "UNSUPPORTED_PROTOCOL_VERSION";
+  /** Alias of `code` — matches the `error_code` field convention. */
+  readonly error_code: "UNSUPPORTED_PROTOCOL_VERSION";
+  /** JSON-RPC code for "invalid params" — same code `AMBIGUOUS_REPO` uses. */
+  readonly jsonrpc_code: -32602;
+  /** The protocol version the client asserted in `_meta`. */
+  readonly requested: string;
+  /** The versions this server supports, lex-sorted (U7). */
+  readonly supported: readonly string[];
+}
+
+/**
+ * Build a structured `UNSUPPORTED_PROTOCOL_VERSION` envelope (E-C9). Wraps
+ * {@link toolError} so the legacy `{ code, message, hint }` fields stay
+ * intact, then layers on `error_code`, `jsonrpc_code`, `requested`, and a
+ * lex-sorted `supported[]`.
+ *
+ * `supported` is sorted defensively here (the caller may pass any order);
+ * `requested` echoes the client value verbatim so the agent can correlate.
+ * Two identical mismatched requests therefore yield byte-identical bodies.
+ */
+export function toolUnsupportedProtocolVersionError(
+  requested: string,
+  supported: readonly string[],
+): CallToolResult {
+  const sortedSupported = [...supported].sort();
+  const message = `Unsupported MCP protocol version: ${requested}.`;
+  const hint = `This server supports: ${sortedSupported.join(", ")}. Set _meta["io.modelcontextprotocol/protocolVersion"] to one of these.`;
+  const base = toolError("UNSUPPORTED_PROTOCOL_VERSION", message, hint);
+  const baseDetail = (base.structuredContent as { error: ErrorDetail }).error;
+  const detail: UnsupportedProtocolVersionDetail = {
+    code: "UNSUPPORTED_PROTOCOL_VERSION",
+    message: baseDetail.message,
+    ...(baseDetail.hint !== undefined ? { hint: baseDetail.hint } : {}),
+    error_code: "UNSUPPORTED_PROTOCOL_VERSION",
+    jsonrpc_code: -32602,
+    requested,
+    supported: sortedSupported,
   };
   return {
     content: base.content,
