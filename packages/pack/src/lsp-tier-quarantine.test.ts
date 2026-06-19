@@ -6,17 +6,19 @@
  * packHash byte-identical to the same pack with Tier-3 disabled (no sidecar),
  * for an unchanged `(commit, tokenizer, budget, pins, files)`.
  *
- * We prove it against the REAL manifest builder (`@opencodehub/pack`'s
- * `buildManifest`) — not a replica — so the test can never drift from the
- * actual preimage. The sidecar is written to the SAME output directory the
- * manifest lives in; if the sidecar's bytes leaked into the preimage, the
- * second `buildManifest` (run after the sidecar exists) would diverge.
+ * This test lives in `@opencodehub/pack` (not `@opencodehub/lsp-tier`) on
+ * purpose: the dependency graph runs `lsp-tier → pack → ingestion → lsp-tier`,
+ * so lsp-tier cannot reference pack (TS6202 circular project graph). pack is
+ * downstream of lsp-tier, so it can import both the real `buildManifest` (local)
+ * and the lsp-tier sidecar writer — and the invariant is fundamentally PACK's
+ * guarantee about its own hash preimage. We prove it against the REAL
+ * `buildManifest` so the test can never drift from the actual preimage.
  *
  * `buildManifest` is a pure function of its `opts` — it does not read the
- * filesystem — so the strongest possible statement of the invariant is: the
- * Tier-3 facts are simply not an input to it. We assert that directly (identical
- * opts → identical hash regardless of how many sidecar facts exist), AND we
- * assert the serialized manifest text never mentions the sidecar filename or any
+ * filesystem — so the strongest statement of the invariant is: the Tier-3 facts
+ * are simply not an input to it. We assert that directly (identical opts →
+ * identical hash regardless of how many sidecar facts exist), AND we assert the
+ * serialized manifest text never mentions the sidecar filename or any
  * `lsp`/`source=lsp` token, so a future refactor that tried to fold Tier-3 into
  * the manifest would fail this test.
  */
@@ -26,9 +28,9 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { type BuildManifestOpts, buildManifest, serializeManifest } from "@opencodehub/pack";
-import type { LspTierFact } from "./provenance.js";
-import { TIER3_SIDECAR_FILENAME, writeTier3Sidecar } from "./sidecar.js";
+import { type LspTierFact, TIER3_SIDECAR_FILENAME, writeTier3Sidecar } from "@opencodehub/lsp-tier";
+import type { BuildManifestOpts } from "./manifest.js";
+import { buildManifest, serializeManifest } from "./manifest.js";
 
 /** Fixed manifest inputs — the unchanged `(commit, tokenizer, budget, pins)`. */
 function fixtureManifestOpts(): BuildManifestOpts {

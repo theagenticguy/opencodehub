@@ -492,6 +492,9 @@ importers:
         specifier: workspace:*
         version: link:../storage
     devDependencies:
+      '@opencodehub/lsp-tier':
+        specifier: workspace:*
+        version: link:../lsp-tier
       '@types/node':
         specifier: 25.9.3
         version: 25.9.3

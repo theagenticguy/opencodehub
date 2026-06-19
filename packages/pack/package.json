@@ -46,6 +46,7 @@
     "@opencodehub/storage": "workspace:*"
   },
   "devDependencies": {
+    "@opencodehub/lsp-tier": "workspace:*",
     "@types/node": "25.9.3",
     "typescript": "6.0.3"
   },

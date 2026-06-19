@@ -11,6 +11,7 @@
     { "path": "../storage" },
     { "path": "../ingestion" },
     { "path": "../analysis" },
-    { "path": "../sarif" }
+    { "path": "../sarif" },
+    { "path": "../lsp-tier" }
   ]
 }
