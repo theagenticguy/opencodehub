@@ -201,6 +201,17 @@ export interface PipelineOptions {
    * ts-morph. Exposed by the `codehub analyze --strict-detectors` flag.
    */
   readonly strictDetectors?: boolean;
+  /**
+   * O-A7 (opt-in only): when `true`, the `lsp-tier` phase drives the
+   * quarantined Tier-3 LSP fallback (vendored agent-lsp) for SCIP-blind
+   * languages (Swift, Zig, Elixir, Terraform, Clojure, …) and writes a
+   * packHash-EXCLUDED sidecar. When `false` (the default), the LSP servers
+   * are NEVER spawned and SCIP-blind languages degrade to Tree-sitter
+   * heuristics silently — no daemon, no warmup cost. The `offline` flag
+   * always wins: an offline run never spawns a server regardless of this
+   * flag. Toggled via `codehub analyze --tier3-lsp`. See ADR 0019.
+   */
+  readonly tier3Lsp?: boolean;
 }
 
 /** Lightweight progress event emitted during pipeline execution. */

@@ -19,6 +19,7 @@
     { "path": "../core-types" },
     { "path": "../embedder" },
     { "path": "../frameworks" },
+    { "path": "../lsp-tier" },
     { "path": "../scip-ingest" },
     { "path": "../storage" },
     { "path": "../summarizer" }

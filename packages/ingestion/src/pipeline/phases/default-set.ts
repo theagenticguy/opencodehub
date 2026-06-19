@@ -34,6 +34,7 @@ import { dependenciesPhase } from "./dependencies.js";
 import { embeddingsPhase } from "./embeddings.js";
 import { fetchesPhase } from "./fetches.js";
 import { incrementalScopePhase } from "./incremental-scope.js";
+import { makeLspTierPhase } from "./lsp-tier-index.js";
 import { markdownPhase } from "./markdown.js";
 import { mroPhase } from "./mro.js";
 import { openapiPhase } from "./openapi.js";
@@ -100,6 +101,17 @@ export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   // also covered by a confidence-1.0 SCIP-sourced edge to 0.2 with a
   // `+scip-unconfirmed` reason suffix.
   confidenceDemotePhase,
+  // `lsp-tier` is the quarantined Tier-3 LSP fallback for SCIP-blind languages
+  // (Swift, Zig, Elixir, Terraform, Clojure, …). It is a SILENT no-op unless
+  // `options.tier3Lsp === true` (O-A7) — when off, no LSP server is spawned and
+  // those languages keep their tree-sitter heuristic edges. It depends only on
+  // scan + profile (it reads the file list + detected languages), and it writes
+  // a packHash-EXCLUDED sidecar (U2) — never the manifest preimage. The default
+  // factory supplies NO backend, so an opted-in run in an environment without
+  // agent-lsp surfaces a BLOCKED-ON-ENV skip rather than faking an extraction;
+  // a deployment that installs agent-lsp wires a live backend via
+  // `makeLspTierPhase({ backend })`. See ADR 0019.
+  makeLspTierPhase(),
   mroPhase,
   communitiesPhase,
   // Dead-code classification. Depends on cross-file (for inbound

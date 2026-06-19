@@ -45,6 +45,7 @@ export default {
         "embedder",
         "frameworks",
         "ingestion",
+        "lsp-tier",
         "mcp",
         "pack",
         "policy",

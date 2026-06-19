@@ -42,6 +42,13 @@ describe("runIngestion (end-to-end)", () => {
         "incremental-scope",
         "profile",
         "dependencies",
+        // `lsp-tier` (Tier-3 LSP fallback) depends only on scan + profile, so it
+        // becomes runnable the moment `profile` completes; the topological
+        // alphabetic tiebreak in the ready tier lands it after `dependencies`
+        // and before `repo-node`. It is a silent no-op unless
+        // `options.tier3Lsp === true` (O-A7), so its presence in the ordering
+        // does not change default behaviour.
+        "lsp-tier",
         // `repo-node` depends on `profile` only, so the topological
         // alphabetic tiebreak lands it after `dependencies` and before `sbom`.
         "repo-node",
@@ -136,6 +143,7 @@ describe("runIngestion option normalization", () => {
       maxSummariesPerRun: 7,
       summaryModel: "model-x",
       strictDetectors: true,
+      tier3Lsp: true,
     };
 
     await runIngestion(repo, { ...options, phases: [probe] });

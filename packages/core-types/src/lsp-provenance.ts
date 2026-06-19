@@ -39,4 +39,27 @@ export const SCIP_UNOFFICIAL_PROVENANCE_PREFIXES: readonly string[] = [
   "scip-unofficial:scip-dart@",
 ];
 
+/**
+ * **Tier 3 (`lsp:`)** provenance prefixes — the quarantined LSP fallback for
+ * SCIP-blind languages (Swift, Zig, Elixir, Terraform, Clojure, Gleam, Nix,
+ * Lua, SQL) driven through the vendored agent-lsp wrapper (ADR 0019, amending
+ * ADR 0005). An edge whose `reason` starts with one of these is LOWEST-tier
+ * structural intel: derived from a stateful LSP server (not a deterministic
+ * one-shot SCIP artifact), so it is re-sorted + server-version-pinned + kept
+ * in a packHash-EXCLUDED sidecar.
+ *
+ * This set is deliberately DISJOINT from both {@link SCIP_PROVENANCE_PREFIXES}
+ * (Tier 1, first-party oracle) and {@link SCIP_UNOFFICIAL_PROVENANCE_PREFIXES}
+ * (Tier 1.5, pre-alpha SCIP). A reader MUST rank these three tiers distinctly:
+ * a `lsp:` edge MUST NOT be treated as an oracle confirmer, MUST NOT be merged
+ * into either SCIP bucket, and ranks below a `scip-unofficial:` edge. Keeping
+ * the three arrays separate is what enforces that split at every reader.
+ *
+ * The match is `reason.startsWith("lsp:")`; the tail is
+ * `<binary>@<pinned-version>` (e.g. `lsp:sourcekit-lsp@6.0.3`) so the exact
+ * wrapped server + version is recoverable from the reason alone — load-bearing
+ * for determinism (a server bump is a deliberate index-version bump).
+ */
+export const LSP_PROVENANCE_PREFIXES: readonly string[] = ["lsp:"];
+
 export const PROVENANCE_PREFIXES: readonly string[] = SCIP_PROVENANCE_PREFIXES;

@@ -48,6 +48,7 @@
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/embedder": "workspace:*",
     "@opencodehub/frameworks": "workspace:*",
+    "@opencodehub/lsp-tier": "workspace:*",
     "@opencodehub/scip-ingest": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",

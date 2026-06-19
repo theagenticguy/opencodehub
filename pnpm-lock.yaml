@@ -349,6 +349,9 @@ importers:
       '@opencodehub/frameworks':
         specifier: workspace:*
         version: link:../frameworks
+      '@opencodehub/lsp-tier':
+        specifier: workspace:*
+        version: link:../lsp-tier
       '@opencodehub/scip-ingest':
         specifier: workspace:*
         version: link:../scip-ingest
@@ -408,6 +411,22 @@ importers:
       ts-morph:
         specifier: ^28.0.0
         version: 28.0.0
+
+  packages/lsp-tier:
+    dependencies:
+      '@opencodehub/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+    devDependencies:
+      '@opencodehub/pack':
+        specifier: workspace:*
+        version: link:../pack
+      '@types/node':
+        specifier: 25.9.3
+        version: 25.9.3
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   packages/mcp:
     dependencies:
@@ -8107,7 +8126,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 24.13.2
+      '@types/node': 25.9.3
 
   '@types/semver@7.7.1': {}
 

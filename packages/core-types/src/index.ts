@@ -7,6 +7,7 @@ export type { EdgeId, MakeNodeIdOptions, NodeId, ParsedNodeId } from "./id.js";
 export { makeEdgeId, makeNodeId, parseNodeId } from "./id.js";
 export type { LanguageId } from "./language-id.js";
 export {
+  LSP_PROVENANCE_PREFIXES,
   PROVENANCE_PREFIXES,
   SCIP_PROVENANCE_PREFIXES,
   SCIP_UNOFFICIAL_PROVENANCE_PREFIXES,
