@@ -7,10 +7,16 @@
 # `docker run -i --rm` instead of a global npm install. The npm path
 # (`@opencodehub/cli`) is unchanged and remains the recommended install.
 #
-# LITE = parser + graph + CLI + stdio MCP only. NO embedder (the
-# `onnxruntime-node` native, an `optionalDependencies` entry), NO JVM /
-# scip-java / scip-go / uv. Those belong to the FULL variant (built from a
-# separate `--target full` stage in a later change). Target ~300 MB.
+# LITE = parser + graph + CLI + stdio MCP, WITH precise SCIP for TypeScript
+# and Python baked in (`@sourcegraph/scip-typescript` + `scip-python` are
+# `@opencodehub/cli` prod deps, so they ship in the pruned closure). What LITE
+# omits: the embedder (`onnxruntime-node`, an `optionalDependencies` native),
+# and the toolchain-heavy indexers + their runtimes — scip-go, scip-java/JVM,
+# scip-clang, scip-ruby, scip-dotnet, uv. Those are pre-baked in the FULL
+# variant (`--target full`); on LITE they are fetched on demand by
+# `codehub setup <lang>` at runtime. Target ~300 MB (actual ~600 MB — the
+# lockfile-faithful prod closure: DuckDB + graph natives + the bundled TS
+# indexers; see T-B1 packet for why it is not trimmed).
 #
 # Build:   docker build -t opencodehub:lite --target lite .
 # Run MCP: docker run -i --rm opencodehub:lite och-mcp

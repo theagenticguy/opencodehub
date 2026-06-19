@@ -152,8 +152,12 @@ mise run cli:link       # puts `codehub` on your PATH
 
 A container image is an additive distribution channel alongside the npm
 package — the npm path above stays the recommended install. The **lite**
-image carries the parser, graph, CLI, and stdio MCP server (no embedder,
-no JVM) and weighs in around 300 MB.
+image carries the parser, graph, CLI, stdio MCP server, and precise SCIP
+indexing for TypeScript and Python out of the box. It omits the embedder
+and the toolchain-heavy indexers (Go, Java, clang, Ruby, .NET) — those are
+pre-baked in the **full** image, or fetched on demand by `codehub setup`
+on lite. The **full** image adds a trimmed JRE plus every SCIP indexer and
+`uv`.
 
 ```bash
 # build the lite image
