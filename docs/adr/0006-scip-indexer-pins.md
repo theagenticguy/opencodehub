@@ -18,18 +18,42 @@ This ADR pins the current versions, documents why each one, and records
 the bump procedure so the next bump is a one-PR change instead of a
 multi-day scavenger hunt.
 
-## Decision — pin table (2026-04-27)
+## Decision — pin table (2026-04-27, refreshed 2026-06-19)
 
-| Language   | Indexer            | Version tag              | Install channel                                           |
-|------------|--------------------|--------------------------|-----------------------------------------------------------|
-| TypeScript | scip-typescript    | 0.4.0                    | `npm install -g @sourcegraph/scip-typescript@<version>`   |
-| Python     | scip-python        | 0.6.6                    | `npm install -g @sourcegraph/scip-python@<version>`       |
-| Go         | scip-go            | v0.2.3                   | `go install github.com/scip-code/scip-go/cmd/scip-go@<v>` |
-| Rust       | rust-analyzer      | stable component         | `rustup component add rust-analyzer`                      |
-| Java       | scip-java          | 0.12.3                   | `coursier install scip-java` (future: installed on demand) |
+### Tier 1 — first-party SCIP indexers (oracle-confirmed, `scip:` provenance)
 
-The versions are mirrored in `.github/workflows/gym.yml` env block and
-in `packages/gym/baselines/performance.json` so the regression harness
+| Language   | Indexer            | Version tag              | Install channel                                                       |
+|------------|--------------------|--------------------------|-----------------------------------------------------------------------|
+| TypeScript | scip-typescript    | 0.4.0                    | `npm install -g @sourcegraph/scip-typescript@<version>`               |
+| Python     | scip-python        | 0.6.6                    | `npm install -g @sourcegraph/scip-python@<version>`                   |
+| Go         | scip-go            | v0.2.7                   | `go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`          |
+| Rust       | rust-analyzer      | stable component         | `rustup component add rust-analyzer`                                  |
+| Java       | scip-java          | 0.12.3                   | `coursier install scip-java` (future: installed on demand)            |
+
+### SCIP CLI / protocol pin
+
+| Component  | Pin                | Version tag              | Install channel / org                                                 |
+|------------|--------------------|--------------------------|-----------------------------------------------------------------------|
+| SCIP CLI   | scip               | 0.8.1 (2026-06-04)       | `scip-code/scip@0.8.1` — org is `scip-code`, NOT `sourcegraph`        |
+
+### Tier 1.5 — `scip-unofficial` indexers (third-party / pre-alpha, `scip-unofficial:` provenance)
+
+These are SCIP-shaped and deterministic but are NOT first-party,
+CSC-governed oracles. Their edges carry the `scip-unofficial:` provenance
+prefix (distinct from `scip:`) so a consumer can tell a first-party edge
+from a pre-alpha one. They are surfaced as their own confidence tier in
+`confidence-demote` and the MCP confidence-breakdown helper, and never
+count as oracle confirmers. Both are package-manager installs, NOT native
+release binaries — there is nothing to `COPY` as a static binary; the
+image provisions PHP + Composer and the Dart SDK respectively.
+
+| Language   | Indexer            | Version tag              | Install channel                                                       |
+|------------|--------------------|--------------------------|-----------------------------------------------------------------------|
+| PHP        | scip-php           | v0.0.2                   | Composer (Packagist) `composer require --dev davidrjenni/scip-php` — Tier 1.5 (`scip-unofficial`) |
+| Dart       | scip-dart          | 1.6.2                    | `dart pub global activate scip_dart` (Workiva, pub.dev) — Tier 1.5 (`scip-unofficial`)            |
+
+The Tier-1 versions are mirrored in `.github/workflows/gym.yml` env block
+and in `packages/gym/baselines/performance.json` so the regression harness
 has a single source of truth.
 
 ### Why scip-go resolves to the scip-code fork
@@ -39,8 +63,17 @@ The Go module name migrated mid-2025 from
 the go.mod at upstream declares the new path. `go install
 github.com/sourcegraph/...` fails with a module-path mismatch even
 though the GitHub repo still resolves. We install from the canonical
-path (`github.com/scip-code/scip-go/cmd/scip-go`). Noted so the next
-contributor does not spend an afternoon on the error.
+path (`github.com/scip-code/scip-go/cmd/scip-go@v0.2.7`). Noted so the
+next contributor does not spend an afternoon on the error.
+
+SCIP governance formally left Sourcegraph on 2026-03-25, moving to an
+independent `scip-code` org with a SEP (SCIP Enhancement Proposal) RFC
+process. As part of that hand-off, `scip-go` and `scip-rust` moved to
+`scip-code`, and the `scip` CLI/protocol itself is now released under
+`scip-code/scip` (pinned above at 0.8.1). The language indexers other
+than Go/Rust (scip-typescript, scip-python, scip-java, scip-clang,
+scip-ruby, scip-dotnet, scip-kotlin) stayed under `sourcegraph`, which
+is why their install channels above still reference `@sourcegraph/...`.
 
 ### rust-analyzer is rustup-sourced, not pinned by tag
 

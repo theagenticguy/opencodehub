@@ -302,6 +302,7 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
       }
       lines.push(
         `Confidence: ${confidenceBreakdown.confirmed} confirmed, ` +
+          `${confidenceBreakdown.scipUnofficial} scip-unofficial (tier 1.5), ` +
           `${confidenceBreakdown.heuristic} heuristic, ` +
           `${confidenceBreakdown.unknown} unknown`,
       );

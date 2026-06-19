@@ -208,6 +208,7 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
       );
       lines.push(
         `Confidence: ${confidenceBreakdown.confirmed} confirmed, ` +
+          `${confidenceBreakdown.scipUnofficial} scip-unofficial (tier 1.5), ` +
           `${confidenceBreakdown.heuristic} heuristic, ` +
           `${confidenceBreakdown.unknown} unknown`,
       );
@@ -270,7 +271,12 @@ export async function runImpact(ctx: ToolContext, args: ImpactArgs): Promise<Too
         next.push("no direct dependents — this change looks safe");
       }
       if (
-        confidenceBreakdown.heuristic + confidenceBreakdown.unknown >
+        // scip-unofficial (Tier 1.5) edges are SCIP-shaped but NOT first-party
+        // oracles, so they count on the unconfirmed side alongside heuristic /
+        // unknown when judging whether the blast radius is oracle-backed.
+        confidenceBreakdown.scipUnofficial +
+          confidenceBreakdown.heuristic +
+          confidenceBreakdown.unknown >
         confidenceBreakdown.confirmed
       ) {
         next.push(

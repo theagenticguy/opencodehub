@@ -12,11 +12,16 @@
  *   3. Map each SCIP call site (document, line) back to the tightest
  *      OpenCodeHub symbol node via the same file+line lookup the LSP
  *      phases used.
- *   4. Emit CodeRelation edges with `confidence = 1.0` and
- *      `reason = scip:<indexer>@<version>` so the downstream
- *      `confidence-demote`, `summarize`, `mcp/confidence`, and
- *      `cli/analyze` consumers keep treating SCIP edges as oracle-
- *      confirmed (see `SCIP_PROVENANCE_PREFIXES`).
+ *   4. Emit CodeRelation edges. First-party (Tier-1) indexers emit
+ *      `confidence = 1.0` + `reason = scip:<indexer>@<version>` so the
+ *      downstream `confidence-demote`, `summarize`, `mcp/confidence`, and
+ *      `cli/analyze` consumers keep treating them as oracle-confirmed (see
+ *      `SCIP_PROVENANCE_PREFIXES`). Third-party / pre-alpha (Tier-1.5)
+ *      indexers (php, dart) emit `confidence = 0.7` +
+ *      `reason = scip-unofficial:<indexer>@<version>` (see
+ *      `SCIP_UNOFFICIAL_PROVENANCE_PREFIXES`) — SCIP-shaped and deterministic
+ *      but NOT oracle confirmers. The reason class + confidence both flow from
+ *      the `LANG_REGISTRY` `tier` so the writer never drifts from the readers.
  *
  * Skip semantics:
  *   - `CODEHUB_DISABLE_SCIP=1`       -> entire phase no-op.
@@ -38,6 +43,7 @@ import type {
   IndexerKind,
   IndexerResult,
   ScipIndexerName,
+  ScipUnofficialIndexerName,
 } from "@opencodehub/scip-ingest";
 import {
   buildSymbolDefIndex,
@@ -46,6 +52,7 @@ import {
   parseScipIndex,
   runIndexer,
   scipProvenanceReason,
+  scipUnofficialProvenanceReason,
 } from "@opencodehub/scip-ingest";
 import { META_DIR_NAME } from "@opencodehub/storage";
 import type { PipelineContext, PipelinePhase } from "../types.js";
@@ -57,7 +64,16 @@ import { SCAN_PHASE_NAME } from "./scan.js";
 
 export const SCIP_INDEX_PHASE_NAME = "scip-index";
 
+/** First-party oracle confidence (Tier 1) — `scip:` provenance. */
 const SCIP_CONFIDENCE = 1.0;
+/**
+ * Tier-1.5 (`scip-unofficial:`) confidence for third-party / pre-alpha indexers
+ * (php, dart). Distinct from the 1.0 oracle ceiling and the 0.5 tree-sitter
+ * heuristic floor: it sits in the (0.5, 0.95) band so these edges are NOT auto-
+ * confirmed and are NOT demoted, while the `scip-unofficial:` reason prefix lets
+ * every consumer surface them as their own tier (see SCIP_UNOFFICIAL_PROVENANCE_PREFIXES).
+ */
+const SCIP_UNOFFICIAL_CONFIDENCE = 0.7;
 
 export interface ScipIndexPerLanguage {
   readonly kind: IndexerKind;
@@ -238,8 +254,12 @@ async function runScipIndex(
     const index = parseScipIndex(new Uint8Array(buf));
     const derived = deriveIndex(index);
     const symbolDef = buildSymbolDefIndex(index);
-    const reason = scipProvenanceReason(
-      kindToProvenance(result.kind),
+    // Tier-aware: first-party kinds emit `scip:` at oracle confidence (1.0);
+    // Tier-1.5 kinds (php, dart) emit `scip-unofficial:` at 0.7. Both the reason
+    // class AND the confidence flow from the LANG_REGISTRY `tier` so the writer
+    // can never drift from the readers (confidence-demote, mcp/confidence).
+    const { reason, confidence } = buildScipReasonAndConfidence(
+      result.kind,
       result.version || index.tool.version || "unknown",
     );
 
@@ -249,6 +269,7 @@ async function runScipIndex(
       derived.edges,
       symbolDef,
       reason,
+      confidence,
       existingEdgeKeys,
     );
     const { added: relAdded, upgraded: relUpgraded } = emitRelations(
@@ -257,6 +278,7 @@ async function runScipIndex(
       derived.relations,
       symbolDef,
       reason,
+      confidence,
       existingEdgeKeys,
     );
     const added = edgeAdded + relAdded;
@@ -318,27 +340,74 @@ interface ProfileNodeLike {
  * instead of the prior `scip-typescript` placeholder that only existed to
  * satisfy switch exhaustiveness.
  *
+ * `tier` discriminates the provenance CLASS the edge reason is built from:
+ *   - `"first-party"` — CSC-governed oracle. Edges emit `scip:<indexer>@<v>`
+ *     at confidence 1.0 (`SCIP_CONFIDENCE`); they are oracle confirmers.
+ *   - `"scip-unofficial"` — third-party / pre-alpha (php, dart). Edges emit
+ *     `scip-unofficial:<indexer>@<v>` at `SCIP_UNOFFICIAL_CONFIDENCE` (0.7);
+ *     they are Tier 1.5 and MUST NOT act as oracle confirmers.
+ * For `cobol-proleap` (`provenance: null`) the tier is irrelevant — it never
+ * reaches SCIP edge emission — so it is pinned `"first-party"` for type
+ * uniformity.
+ *
  * `Record<IndexerKind, LangEntry>` keeps the same compile-time
  * exhaustiveness the per-kind switches got from
  * `noFallthroughCasesInSwitch`: tsc errors if a kind is missing or unknown.
  */
+type ProvenanceTier = "first-party" | "scip-unofficial";
+
 interface LangEntry {
   readonly ochLang: string;
   readonly tool: string;
-  readonly provenance: ScipIndexerName | null;
+  readonly provenance: ScipIndexerName | ScipUnofficialIndexerName | null;
+  readonly tier: ProvenanceTier;
 }
 
 export const LANG_REGISTRY: Record<IndexerKind, LangEntry> = {
-  typescript: { ochLang: "typescript", tool: "scip-typescript", provenance: "scip-typescript" },
-  python: { ochLang: "python", tool: "scip-python", provenance: "scip-python" },
-  go: { ochLang: "go", tool: "scip-go", provenance: "scip-go" },
-  rust: { ochLang: "rust", tool: "rust-analyzer", provenance: "rust-analyzer" },
-  java: { ochLang: "java", tool: "scip-java", provenance: "scip-java" },
-  clang: { ochLang: "c", tool: "scip-clang", provenance: "scip-clang" },
-  "cobol-proleap": { ochLang: "cobol", tool: "scip-cobol-proleap", provenance: null },
-  ruby: { ochLang: "ruby", tool: "scip-ruby", provenance: "scip-ruby" },
-  dotnet: { ochLang: "csharp", tool: "scip-dotnet", provenance: "scip-dotnet" },
-  kotlin: { ochLang: "kotlin", tool: "scip-kotlin", provenance: "scip-kotlin" },
+  typescript: {
+    ochLang: "typescript",
+    tool: "scip-typescript",
+    provenance: "scip-typescript",
+    tier: "first-party",
+  },
+  python: {
+    ochLang: "python",
+    tool: "scip-python",
+    provenance: "scip-python",
+    tier: "first-party",
+  },
+  go: { ochLang: "go", tool: "scip-go", provenance: "scip-go", tier: "first-party" },
+  rust: {
+    ochLang: "rust",
+    tool: "rust-analyzer",
+    provenance: "rust-analyzer",
+    tier: "first-party",
+  },
+  java: { ochLang: "java", tool: "scip-java", provenance: "scip-java", tier: "first-party" },
+  clang: { ochLang: "c", tool: "scip-clang", provenance: "scip-clang", tier: "first-party" },
+  "cobol-proleap": {
+    ochLang: "cobol",
+    tool: "scip-cobol-proleap",
+    provenance: null,
+    tier: "first-party",
+  },
+  ruby: { ochLang: "ruby", tool: "scip-ruby", provenance: "scip-ruby", tier: "first-party" },
+  dotnet: {
+    ochLang: "csharp",
+    tool: "scip-dotnet",
+    provenance: "scip-dotnet",
+    tier: "first-party",
+  },
+  kotlin: {
+    ochLang: "kotlin",
+    tool: "scip-kotlin",
+    provenance: "scip-kotlin",
+    tier: "first-party",
+  },
+  // Tier 1.5 — third-party / pre-alpha SCIP indexers. `scip-unofficial:` reason
+  // class, mid confidence, never an oracle confirmer.
+  php: { ochLang: "php", tool: "scip-php", provenance: "scip-php", tier: "scip-unofficial" },
+  dart: { ochLang: "dart", tool: "scip-dart", provenance: "scip-dart", tier: "scip-unofficial" },
 };
 
 function scipLangToOchLang(k: IndexerKind): string {
@@ -349,7 +418,7 @@ function kindToTool(k: IndexerKind): string {
   return LANG_REGISTRY[k].tool;
 }
 
-function kindToProvenance(k: IndexerKind): ScipIndexerName {
+function kindToProvenance(k: IndexerKind): ScipIndexerName | ScipUnofficialIndexerName {
   const provenance = LANG_REGISTRY[k].provenance;
   if (provenance === null) {
     throw new Error(
@@ -357,6 +426,32 @@ function kindToProvenance(k: IndexerKind): ScipIndexerName {
     );
   }
   return provenance;
+}
+
+/**
+ * Build the `(reason, confidence)` pair for a SCIP-derived edge, branching on
+ * the LANG_REGISTRY `tier`:
+ *   - `"first-party"` → `scip:<indexer>@<v>` at {@link SCIP_CONFIDENCE} (1.0).
+ *   - `"scip-unofficial"` (php, dart) → `scip-unofficial:<indexer>@<v>` at
+ *     {@link SCIP_UNOFFICIAL_CONFIDENCE} (0.7). These edges are Tier 1.5 and are
+ *     deliberately NOT emitted as oracle (1.0, `scip:`) edges, so the
+ *     confidence-demote phase never treats them as confirmers.
+ */
+function buildScipReasonAndConfidence(
+  kind: IndexerKind,
+  version: string,
+): { reason: string; confidence: number } {
+  const provenance = kindToProvenance(kind);
+  if (LANG_REGISTRY[kind].tier === "scip-unofficial") {
+    return {
+      reason: scipUnofficialProvenanceReason(provenance as ScipUnofficialIndexerName, version),
+      confidence: SCIP_UNOFFICIAL_CONFIDENCE,
+    };
+  }
+  return {
+    reason: scipProvenanceReason(provenance as ScipIndexerName, version),
+    confidence: SCIP_CONFIDENCE,
+  };
 }
 
 function isCacheFresh(scipPath: string, repoPath: string, _kind: IndexerKind): boolean {
@@ -470,6 +565,7 @@ function emitEdges(
   edges: readonly DerivedEdge[],
   symbolDef: ReadonlyMap<string, { file: string; line: number }>,
   reason: string,
+  confidence: number,
   existingKeys: Set<string>,
 ): { added: number; upgraded: number } {
   let added = 0;
@@ -502,7 +598,7 @@ function emitEdges(
       from: fromId,
       to: toId,
       type: e.kind,
-      confidence: SCIP_CONFIDENCE,
+      confidence,
       reason,
     });
 
@@ -531,6 +627,7 @@ function emitRelations(
   relations: readonly DerivedRelation[],
   symbolDef: ReadonlyMap<string, { file: string; line: number }>,
   reason: string,
+  confidence: number,
   existingKeys: Set<string>,
 ): { added: number; upgraded: number } {
   let added = 0;
@@ -553,7 +650,7 @@ function emitRelations(
       from: fromId,
       to: toId,
       type: r.kind,
-      confidence: SCIP_CONFIDENCE,
+      confidence,
       reason,
     });
 

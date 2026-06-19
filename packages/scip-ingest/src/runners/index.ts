@@ -25,7 +25,9 @@ export type IndexerKind =
   | "cobol-proleap"
   | "ruby"
   | "dotnet"
-  | "kotlin";
+  | "kotlin"
+  | "php"
+  | "dart";
 
 /**
  * Closed allowlist of every executable `runCommand` may spawn. The command
@@ -44,6 +46,14 @@ export const ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
   "scip-clang",
   "scip-ruby",
   "scip-dotnet",
+  // PHP indexer: davidrjenni/scip-php@v0.0.2 (Composer/Packagist). composer.json
+  // declares `bin: ["bin/scip-php"]`, so the installed binary is `scip-php`.
+  "scip-php",
+  // Dart indexer: Workiva/scip-dart@1.6.2 (pub). pubspec.yaml `executables:`
+  // declares `scip_dart` (UNDERSCORE), so `dart pub global activate scip_dart`
+  // installs the `scip_dart` binary on PATH — NOT `scip-dart`. Verified against
+  // the pinned-tag pubspec.yaml; the spawn literal MUST match the real binary.
+  "scip_dart",
   "cobol-proleap",
   "kotlinc",
   "rust-analyzer",
@@ -207,6 +217,14 @@ export function detectLanguages(projectRoot: string): readonly IndexerKind[] {
   if (hasDotnetProject(projectRoot)) {
     langs.push("dotnet");
   }
+  // PHP: the canonical project manifest is `composer.json` (Composer). scip-php
+  // itself requires Composer's generated autoloader, but detection here stays
+  // manifest-based for consistency with the rest of this function.
+  if (exists("composer.json")) langs.push("php");
+  // Dart: the canonical project manifest is `pubspec.yaml`. scip-dart needs a
+  // resolved pubspec (`dart pub get`) at index time, but detection here is
+  // manifest-based. `pubspec.yml` (rare alternate spelling) is also accepted.
+  if (exists("pubspec.yaml") || exists("pubspec.yml")) langs.push("dart");
   return langs;
 }
 
@@ -749,6 +767,85 @@ export function buildCommand(
         versionCmd: "kotlinc",
         versionArgs: ["-version"],
         tool: "scip-kotlin",
+      };
+    }
+    case "php": {
+      // scip-php = davidrjenni/scip-php@v0.0.2, installed via Composer
+      // (`composer require --dev davidrjenni/scip-php`) → `vendor/bin/scip-php`.
+      // Tier 1.5 (`scip-unofficial`): third-party, pre-alpha, single maintainer.
+      //
+      // CLI shape VERIFIED against `bin/scip-php` (v0.0.2) source: argv is parsed
+      // with `getopt('h', ['help', 'memory-limit:'])` — the ONLY flags are
+      // `-h`/`--help` and `--memory-limit:`. There is NO `index` subcommand and
+      // NO output flag. The output path is hardcoded:
+      //   `file_put_contents('index.scip', $index->serializeToString())`
+      // → scip-php always writes `index.scip` into the current working directory.
+      // We therefore pass NO args (passing `index --output …` would be silently
+      // wrong) and run from `cwd`. NOTE: the emitted `.scip` lands at
+      // `<cwd>/index.scip`, NOT at `scipPath` — output relocation is the
+      // ingestion/setup layer's concern (T-B2 owns the PHP+Composer toolchain),
+      // not this runner's; the runner only builds a correct shell plan.
+      //
+      // Gated behind `allowBuildScripts`: scip-php requires Composer's generated
+      // autoloader (`composer install`), which runs project build scripts.
+      if (!opts.allowBuildScripts) {
+        return {
+          cmd: "scip-php",
+          args: [],
+          cwd,
+          versionCmd: "scip-php",
+          versionArgs: ["--version"],
+          tool: "scip-php",
+          skipReason:
+            "php indexer requires Composer autoload generation; pass allowBuildScripts=true to opt in",
+        };
+      }
+      return {
+        cmd: "scip-php",
+        args: [],
+        cwd,
+        versionCmd: "scip-php",
+        versionArgs: ["--version"],
+        tool: "scip-php",
+      };
+    }
+    case "dart": {
+      // scip-dart = Workiva/scip-dart@1.6.2, installed via
+      // `dart pub global activate scip_dart` (pub.dev). Tier 1.5
+      // (`scip-unofficial`): third-party (Workiva), not Sourcegraph/CSC.
+      //
+      // CLI shape VERIFIED against `pubspec.yaml` + `bin/scip_dart.dart` (1.6.2):
+      //   - The installed binary is `scip_dart` (UNDERSCORE) — pubspec's
+      //     `executables:` declares `scip_dart`, and the README invokes
+      //     `dart pub global run scip_dart ./`. The spawn literal is therefore
+      //     `scip_dart`, NOT `scip-dart`.
+      //   - ArgParser: `addOption('output', abbr: 'o', defaultsTo: 'index.scip')`
+      //     → `--output <path>` directs the index file. A positional project
+      //     root is accepted (`result.rest.first`, defaults to cwd).
+      // So `scip_dart --output <scipPath> <cwd>` is the verified invocation and
+      // output CAN be directed to `dart.scip` (unlike scip-php).
+      //
+      // Gated behind `allowBuildScripts`: scip-dart needs a resolved pubspec
+      // (`dart pub get`), which resolves + may run package build hooks.
+      if (!opts.allowBuildScripts) {
+        return {
+          cmd: "scip_dart",
+          args: [],
+          cwd,
+          versionCmd: "scip_dart",
+          versionArgs: ["--version"],
+          tool: "scip-dart",
+          skipReason:
+            "dart indexer requires `dart pub get` to resolve the pubspec; pass allowBuildScripts=true to opt in",
+        };
+      }
+      return {
+        cmd: "scip_dart",
+        args: ["--output", scipPath, cwd],
+        cwd,
+        versionCmd: "scip_dart",
+        versionArgs: ["--version"],
+        tool: "scip-dart",
       };
     }
   }

@@ -33,8 +33,8 @@ export {
   SCIP_ROLE_READ_ACCESS,
   SCIP_ROLE_WRITE_ACCESS,
 } from "./parse.js";
-export type { ScipIndexerName } from "./provenance.js";
-export { scipProvenanceReason } from "./provenance.js";
+export type { ScipIndexerName, ScipUnofficialIndexerName } from "./provenance.js";
+export { scipProvenanceReason, scipUnofficialProvenanceReason } from "./provenance.js";
 export type {
   CommandPlan,
   DotnetProbe,

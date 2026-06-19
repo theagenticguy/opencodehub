@@ -15,28 +15,66 @@
 
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type { IndexerKind, ScipIndexerName } from "@opencodehub/scip-ingest";
+import type {
+  IndexerKind,
+  ScipIndexerName,
+  ScipUnofficialIndexerName,
+} from "@opencodehub/scip-ingest";
 import { LANG_REGISTRY } from "./scip-index.js";
 
 interface ExpectedEntry {
   readonly ochLang: string;
   readonly tool: string;
-  readonly provenance: ScipIndexerName | null;
+  readonly provenance: ScipIndexerName | ScipUnofficialIndexerName | null;
+  readonly tier: "first-party" | "scip-unofficial";
 }
 
-// Pinned mapping for all 10 IndexerKinds. The `Record<IndexerKind, ...>`
-// annotation makes a missing/extra kind a compile error.
+// Pinned mapping for all 12 IndexerKinds. The `Record<IndexerKind, ...>`
+// annotation makes a missing/extra kind a compile error. php + dart are the
+// Tier-1.5 (`scip-unofficial`) kinds — distinct provenance class + tier.
 const EXPECTED: Record<IndexerKind, ExpectedEntry> = {
-  typescript: { ochLang: "typescript", tool: "scip-typescript", provenance: "scip-typescript" },
-  python: { ochLang: "python", tool: "scip-python", provenance: "scip-python" },
-  go: { ochLang: "go", tool: "scip-go", provenance: "scip-go" },
-  rust: { ochLang: "rust", tool: "rust-analyzer", provenance: "rust-analyzer" },
-  java: { ochLang: "java", tool: "scip-java", provenance: "scip-java" },
-  clang: { ochLang: "c", tool: "scip-clang", provenance: "scip-clang" },
-  "cobol-proleap": { ochLang: "cobol", tool: "scip-cobol-proleap", provenance: null },
-  ruby: { ochLang: "ruby", tool: "scip-ruby", provenance: "scip-ruby" },
-  dotnet: { ochLang: "csharp", tool: "scip-dotnet", provenance: "scip-dotnet" },
-  kotlin: { ochLang: "kotlin", tool: "scip-kotlin", provenance: "scip-kotlin" },
+  typescript: {
+    ochLang: "typescript",
+    tool: "scip-typescript",
+    provenance: "scip-typescript",
+    tier: "first-party",
+  },
+  python: {
+    ochLang: "python",
+    tool: "scip-python",
+    provenance: "scip-python",
+    tier: "first-party",
+  },
+  go: { ochLang: "go", tool: "scip-go", provenance: "scip-go", tier: "first-party" },
+  rust: {
+    ochLang: "rust",
+    tool: "rust-analyzer",
+    provenance: "rust-analyzer",
+    tier: "first-party",
+  },
+  java: { ochLang: "java", tool: "scip-java", provenance: "scip-java", tier: "first-party" },
+  clang: { ochLang: "c", tool: "scip-clang", provenance: "scip-clang", tier: "first-party" },
+  "cobol-proleap": {
+    ochLang: "cobol",
+    tool: "scip-cobol-proleap",
+    provenance: null,
+    tier: "first-party",
+  },
+  ruby: { ochLang: "ruby", tool: "scip-ruby", provenance: "scip-ruby", tier: "first-party" },
+  dotnet: {
+    ochLang: "csharp",
+    tool: "scip-dotnet",
+    provenance: "scip-dotnet",
+    tier: "first-party",
+  },
+  kotlin: {
+    ochLang: "kotlin",
+    tool: "scip-kotlin",
+    provenance: "scip-kotlin",
+    tier: "first-party",
+  },
+  php: { ochLang: "php", tool: "scip-php", provenance: "scip-php", tier: "scip-unofficial" },
+  dart: { ochLang: "dart", tool: "scip-dart", provenance: "scip-dart", tier: "scip-unofficial" },
 };
 
 describe("LANG_REGISTRY", () => {

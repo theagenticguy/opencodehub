@@ -832,6 +832,7 @@ test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted
       nodes: [
         { id: "F:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
         { id: "F:lsp", name: "lsp", kind: "Function", file_path: "src/lsp.ts" },
+        { id: "F:unofficial", name: "unofficial", kind: "Function", file_path: "src/u.php" },
         { id: "F:heur", name: "heur", kind: "Function", file_path: "src/heur.ts" },
         { id: "F:demoted", name: "demoted", kind: "Function", file_path: "src/demoted.ts" },
       ],
@@ -843,6 +844,16 @@ test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted
           type: "CALLS",
           confidence: 1.0,
           reason: "scip:scip-python@0.6.6",
+        },
+        {
+          // Tier 1.5 — a `scip-unofficial:` (php/dart) edge surfaces in its own
+          // bucket, NOT folded into `confirmed` or `heuristic`.
+          id: "E:unofficial",
+          from_id: "F:unofficial",
+          to_id: "F:foo",
+          type: "CALLS",
+          confidence: 0.7,
+          reason: "scip-unofficial:scip-php@0.0.2",
         },
         {
           id: "E:heur",
@@ -868,18 +879,27 @@ test("context: confidenceBreakdown tallies LSP-confirmed vs heuristic vs demoted
       const result = await handler({ symbol: "foo", repo: "fakerepo" }, {});
       const sc = result.structuredContent as {
         target: { id: string };
-        confidenceBreakdown: { confirmed: number; heuristic: number; unknown: number };
+        confidenceBreakdown: {
+          confirmed: number;
+          scipUnofficial: number;
+          heuristic: number;
+          unknown: number;
+        };
       };
       assert.equal(sc.target.id, "F:foo");
       assert.deepEqual(sc.confidenceBreakdown, {
         confirmed: 1,
+        scipUnofficial: 1,
         heuristic: 1,
         unknown: 1,
       });
       // Confirm the breakdown is surfaced in the rendered text too.
       const first = result.content[0];
       assert.ok(first && first.type === "text");
-      assert.match(first.text, /Confidence: 1 confirmed, 1 heuristic, 1 unknown/);
+      assert.match(
+        first.text,
+        /Confidence: 1 confirmed, 1 scip-unofficial \(tier 1\.5\), 1 heuristic, 1 unknown/,
+      );
     },
   );
 });
@@ -890,6 +910,7 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
       nodes: [
         { id: "F:foo", name: "foo", kind: "Function", file_path: "src/foo.ts" },
         { id: "F:lsp", name: "lsp", kind: "Function", file_path: "src/lsp.ts" },
+        { id: "F:unofficial", name: "unofficial", kind: "Function", file_path: "src/u.dart" },
         { id: "F:heur", name: "heur", kind: "Function", file_path: "src/heur.ts" },
         { id: "F:demoted", name: "demoted", kind: "Function", file_path: "src/demoted.ts" },
       ],
@@ -901,6 +922,16 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
           type: "CALLS",
           confidence: 1.0,
           reason: "scip:scip-typescript@0.4.0",
+        },
+        {
+          // Tier 1.5 — a `scip-unofficial:` (php/dart) traversed edge is tallied
+          // in its own bucket, distinct from the first-party `confirmed` edge.
+          id: "E:unofficial",
+          from_id: "F:unofficial",
+          to_id: "F:foo",
+          type: "CALLS",
+          confidence: 0.7,
+          reason: "scip-unofficial:scip-dart@1.6.2",
         },
         {
           id: "E:heur",
@@ -916,7 +947,7 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
           to_id: "F:foo",
           type: "CALLS",
           // This edge is exactly at the `unknown` ceiling (0.2) — the
-          // breakdown tiering logic classifies it alongside the two higher-
+          // breakdown tiering logic classifies it alongside the higher-
           // confidence siblings, which is the whole point of the feature:
           // even when the demoted edge makes it into the blast radius, the
           // agent can see it is unconfirmed and treat the risk band as a
@@ -942,18 +973,27 @@ test("impact: confidenceBreakdown tallies each traversed edge by provenance tier
       const sc = result.structuredContent as {
         risk: string;
         ambiguous: boolean;
-        confidenceBreakdown: { confirmed: number; heuristic: number; unknown: number };
+        confidenceBreakdown: {
+          confirmed: number;
+          scipUnofficial: number;
+          heuristic: number;
+          unknown: number;
+        };
       };
       assert.equal(sc.ambiguous, false);
       assert.deepEqual(sc.confidenceBreakdown, {
         confirmed: 1,
+        scipUnofficial: 1,
         heuristic: 1,
         unknown: 1,
       });
       // Confirm the breakdown is surfaced in the rendered text too.
       const first = result.content[0];
       assert.ok(first && first.type === "text");
-      assert.match(first.text, /Confidence: 1 confirmed, 1 heuristic, 1 unknown/);
+      assert.match(
+        first.text,
+        /Confidence: 1 confirmed, 1 scip-unofficial \(tier 1\.5\), 1 heuristic, 1 unknown/,
+      );
     },
   );
 });

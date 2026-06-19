@@ -92,6 +92,15 @@ function runConfidenceDemote(ctx: PipelineContext): ConfidenceDemoteOutput {
   };
 }
 
+/**
+ * True iff `reason` is a FIRST-PARTY oracle reason (`scip:<indexer>@…`). Matches
+ * ONLY {@link SCIP_PROVENANCE_PREFIXES} — deliberately NOT the Tier-1.5
+ * `scip-unofficial:` prefixes. A `scip-unofficial:` edge (php/dart) is mid-tier,
+ * not an oracle, so it must never enter `oracleConfirmedTriples` and must never
+ * demote a colliding heuristic edge. The `scip-unofficial:` prefix also does not
+ * `startsWith` any `scip:` prefix (the `-` after `scip` breaks the match), so
+ * this stays first-party-only by construction.
+ */
 function isScipReason(reason: string | undefined): boolean {
   if (reason === undefined) return false;
   for (const prefix of SCIP_PROVENANCE_PREFIXES) {

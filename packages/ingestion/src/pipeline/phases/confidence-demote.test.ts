@@ -76,6 +76,46 @@ describe(CONFIDENCE_DEMOTE_PHASE_NAME, () => {
     assert.ok(noteEvents.some((e) => e.message?.includes("python=1")));
   });
 
+  it("does NOT treat a scip-unofficial (Tier 1.5) edge as an oracle confirmer", async () => {
+    // A php/dart Tier-1.5 edge is SCIP-shaped but NOT a first-party oracle, so a
+    // colliding heuristic edge on the same (from,type,to) triple MUST stay at
+    // 0.5 — only a first-party `scip:` 1.0 edge confirms. We pin the Tier-1.5
+    // edge at the oracle confidence (1.0) on purpose: even at oracle confidence
+    // its `scip-unofficial:` reason must keep it out of `oracleConfirmedTriples`,
+    // proving the gate is the provenance prefix, not the numeric confidence.
+    const { ctx } = buildCtx();
+    const from = "Function:src/m.php:caller" as NodeId;
+    const to = "Function:src/m.php:callee" as NodeId;
+
+    ctx.graph.addEdge({
+      from,
+      to,
+      type: "CALLS",
+      confidence: 0.5,
+      reason: "heuristic/tier-2",
+      step: HEURISTIC_STEP,
+    });
+    ctx.graph.addEdge({
+      from,
+      to,
+      type: "CALLS",
+      confidence: 1.0,
+      reason: "scip-unofficial:scip-php@0.0.2",
+    });
+
+    const out = await confidenceDemotePhase.run(ctx, new Map());
+    assert.equal(out.demotedCount, 0, "a Tier-1.5 edge must not demote a colliding heuristic edge");
+
+    const heuristic = findEdge(ctx, (reason) => reason === "heuristic/tier-2");
+    assert.ok(heuristic, "heuristic edge should be untouched");
+    assert.equal(heuristic.confidence, 0.5);
+    assert.equal(heuristic.reason, "heuristic/tier-2");
+
+    const unofficial = findEdge(ctx, (reason) => reason === "scip-unofficial:scip-php@0.0.2");
+    assert.ok(unofficial, "the Tier-1.5 edge should still exist, unchanged");
+    assert.equal(unofficial.confidence, 1.0);
+  });
+
   it("is a no-op when no LSP edge exists for the heuristic triple", async () => {
     const { ctx } = buildCtx();
     const from = "Function:src/m.py:caller" as NodeId;
