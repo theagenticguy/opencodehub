@@ -162,16 +162,36 @@ export async function generatePack(
   const astChunksBytes = encodeJsonl(astResult.chunks);
   const licensesBytes = encodeUtf8(licensesContent.licensesMd);
 
-  // --- Compute BomItem[] (manifest + readme are appended last so the
-  //     manifest knows about its own readme without depending on read order). ---
+  // --- Compute BomItem[] in cache-prefix-stable order: most-stable items
+  //     first, most-volatile last. The array order flows into
+  //     manifest.files[] (manifest.ts:85) and therefore into the packHash
+  //     preimage, so it ALSO defines the order in which a consumer that
+  //     concatenates the BOM into a prompt would lay the bytes down. A
+  //     prompt cache matches the longest 100%-identical byte prefix and
+  //     invalidates at the first differing byte, so emitting the items
+  //     least likely to differ commit-to-commit FIRST maximizes the
+  //     cache-eligible prefix length:
+  //       1. skeleton  — symbol structure; changes only on symbol churn.
+  //       2. file-tree — file paths + framework labels; file-set churn only.
+  //       3. deps      — lockfile versions; dependency-bump churn only.
+  //       4. licenses  — derived from deps + repo NOTICE files; downstream
+  //                      of deps, so ~equally stable.
+  //       5. xrefs     — SCIP communities + calls; shifts with the call
+  //                      graph / community detection.
+  //       6. ast-chunks — token-budget + tokenizer sensitive (volatile).
+  //       7. findings  — scanner-run sensitive; SARIF churns every scan.
+  //     The optional embeddings sidecar (most volatile) is pushed last,
+  //     after this static body. (manifest + readme are derived AFTER, so
+  //     the manifest knows about its own readme without depending on read
+  //     order.) ---
   const items: BomItem[] = [
     bomItem("skeleton", "skeleton.jsonl", skeletonBytes),
     bomItem("file-tree", "file-tree.jsonl", fileTreeBytes),
     bomItem("deps", "deps.jsonl", depsBytes),
-    bomItem("ast-chunks", "ast-chunks.jsonl", astChunksBytes),
-    bomItem("xrefs", "xrefs.jsonl", xrefsBytes),
-    bomItem("findings", "findings.jsonl", findingsBytes),
     bomItem("licenses", "licenses.md", licensesBytes),
+    bomItem("xrefs", "xrefs.jsonl", xrefsBytes),
+    bomItem("ast-chunks", "ast-chunks.jsonl", astChunksBytes), // volatile (budget/tokenizer)
+    bomItem("findings", "findings.jsonl", findingsBytes), // volatile (scan run)
   ];
 
   // --- Optional Parquet embeddings sidecar (BOM item #7). Embeddings live
