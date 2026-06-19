@@ -137,15 +137,29 @@ jobs:
       - name: Self-scan (writes .codehub/scan.sarif)
         run: pnpm exec node packages/cli/dist/index.js scan .
 
-      - name: Generate code-pack
+      - name: Generate code-pack (+ in-toto/SLSA-v1 provenance statement)
+        # `--prove` emits pack-<packHash>.intoto.jsonl into the pack dir whose
+        # subject digest IS the packHash. The keyless cosign signature happens
+        # in the `sign` job below (this build job has no id-token); the attest
+        # step in the `provenance` job binds the pack subject via OIDC.
         run: |
           pnpm exec node packages/cli/dist/index.js code-pack . \
             --budget 100000 \
             --tokenizer "openai:o200k_base@tiktoken-0.8.0" \
+            --prove \
             --out-dir /tmp/pack
 
       - name: Tar code-pack
         run: tar -czf opencodehub-pack.tar.gz -C /tmp/pack .
+
+      - name: Stage pack provenance statement
+        # Surface the in-toto statement as its own artifact so the `sign` job
+        # can `cosign sign-blob --bundle` it and `provenance` can attest its
+        # packHash subject. Glob is single-match (one pack per run).
+        run: |
+          set -euo pipefail
+          STMT=$(ls /tmp/pack/pack-*.intoto.jsonl)
+          cp "$STMT" pack.intoto.jsonl
 
       - name: Generate CycloneDX SBOM
         run: |
@@ -160,6 +174,9 @@ jobs:
           mkdir -p artifacts
           cp opencodehub-pack.tar.gz artifacts/
           cp SBOM.cdx.json artifacts/
+          if [ -f pack.intoto.jsonl ]; then
+            cp pack.intoto.jsonl artifacts/
+          fi
           if [ -f .codehub/scan.sarif ]; then
             cp .codehub/scan.sarif artifacts/och-scan.sarif
           fi
@@ -235,10 +252,16 @@ jobs:
       - name: Attest build provenance for every released artifact
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
         with:
+          # Additive: pack.intoto.jsonl is the deterministic-pack provenance
+          # statement (subject digest == packHash). Attesting it binds the
+          # statement bytes to this workflow's OIDC identity; a third party
+          # then re-derives via `codehub replay <packHash>` and verifies the
+          # signature offline with `cosign verify-blob-attestation --bundle`.
           subject-path: |
             artifacts/opencodehub-pack.tar.gz
             artifacts/SBOM.cdx.json
             artifacts/och-scan.sarif
+            artifacts/pack.intoto.jsonl
 
   # ---------------------------------------------------------------------------
   # 3. Cosign keyless signing of every artifact.
@@ -273,7 +296,10 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          for f in opencodehub-pack.tar.gz SBOM.cdx.json och-scan.sarif; do
+          # pack.intoto.jsonl is the deterministic-pack provenance statement;
+          # signing it produces the offline-verifiable bundle a third party
+          # checks with `cosign verify-blob-attestation --bundle`.
+          for f in opencodehub-pack.tar.gz SBOM.cdx.json och-scan.sarif pack.intoto.jsonl; do
             if [ -f "$f" ]; then
               echo "Signing $f"
               cosign sign-blob --yes \

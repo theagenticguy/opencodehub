@@ -364,6 +364,13 @@ program
     "Engine: pack (default — 9-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
     "pack",
   )
+  .option(
+    "--prove",
+    "Emit an in-toto/SLSA-v1 provenance statement next to the BOM whose subject digest is the " +
+      "packHash, and attempt a keyless cosign signature (pack engine only). Verify offline with " +
+      "`cosign verify-blob-attestation --bundle <pack>.intoto.jsonl.sigstore`; re-derive with " +
+      "`codehub replay <packHash>`.",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/code-pack.js");
     const rawEngine = typeof opts["engine"] === "string" ? opts["engine"] : "pack";
@@ -381,6 +388,7 @@ program
       ...(budget !== undefined ? { budget } : {}),
       ...(typeof opts["tokenizer"] === "string" ? { tokenizer: opts["tokenizer"] } : {}),
       ...(typeof opts["outDir"] === "string" ? { outDir: opts["outDir"] } : {}),
+      ...(opts["prove"] === true ? { prove: true } : {}),
       engine,
     });
     if (result.engine === "pack") {
@@ -388,11 +396,43 @@ program
         `codehub code-pack: wrote ${result.bomItemCount} BOM items to ${result.outDir} ` +
           `(packHash=${result.packHash.slice(0, 12)})`,
       );
+      if (result.proveResult !== undefined) {
+        const p = result.proveResult;
+        console.warn(`codehub code-pack: wrote provenance statement ${p.statementPath}`);
+        if (p.signing.signed) {
+          console.warn(`codehub code-pack: signed -> ${p.signing.bundlePath}`);
+        } else {
+          console.warn(
+            `codehub code-pack: NOT signed (${p.signing.reason})\n  sign with: ${p.signing.command}`,
+          );
+        }
+      }
     } else {
       console.warn(
         `codehub code-pack: wrote repomix snapshot to ${result.repomixOutputPath ?? result.outDir} ` +
           `(packHash=${result.packHash.slice(0, 12)})`,
       );
+    }
+  });
+
+program
+  .command("replay <hash>")
+  .description(
+    "Re-derive the pack identified by <hash> and prove it matches its attested receipt, offline. " +
+      "Re-hashes every BOM body in .codehub/packs/<hash>/ and recomputes the packHash; a tampered " +
+      "byte exits non-zero naming the drifted item. Exits 0 'reproduced' on a match; a best_effort " +
+      "(Claude-tokenizer) re-pack mismatch is reported as expected drift (exit 0). No network.",
+  )
+  .option("--repo <path>", "Repo root holding .codehub/packs/<hash>/ (default: current directory)")
+  .action(async (hash: string, opts: Record<string, unknown>) => {
+    const mod = await import("./commands/replay.js");
+    const result = await mod.runReplay(hash, {
+      ...(typeof opts["repo"] === "string" ? { repoPath: opts["repo"] as string } : {}),
+    });
+    const verdict = mod.replayVerdict(result);
+    console.warn(verdict.line);
+    if (verdict.exitCode !== 0) {
+      process.exitCode = verdict.exitCode;
     }
   });
 

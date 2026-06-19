@@ -53,6 +53,23 @@ export type { LicensesContent, LicensesOpts } from "./licenses.js";
 export { buildLicenses } from "./licenses.js";
 export type { BuildManifestOpts } from "./manifest.js";
 export { buildManifest, serializeManifest } from "./manifest.js";
+export type {
+  InTotoStatement,
+  ProvenanceExternalParameters,
+  ProveResult,
+  ResourceDescriptor,
+  SlsaProvenancePredicate,
+} from "./prove.js";
+export {
+  buildProvenanceStatement,
+  IN_TOTO_STATEMENT_TYPE,
+  offlineVerifyCommand,
+  PACK_BUILDER_ID,
+  prove,
+  SIGSTORE_OIDC_ISSUER,
+  SLSA_PROVENANCE_PREDICATE_TYPE,
+  serializeStatement,
+} from "./prove.js";
 export type { ReadmeOpts } from "./readme.js";
 export { buildReadme } from "./readme.js";
 export type { SkeletonOpts, SkeletonRow } from "./skeleton.js";

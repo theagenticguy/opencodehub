@@ -33,12 +33,13 @@
  * analyze` to have already populated the graph store).
  */
 
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { generatePack, type PackManifest } from "@opencodehub/pack";
+import { generatePack, type PackManifest, type ProveResult, prove } from "@opencodehub/pack";
 import { type IGraphStore, openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
 import { runPack } from "./pack.js";
 
@@ -63,11 +64,28 @@ export interface CodePackArgs {
   /** Engine: "pack" (default) or "repomix" (legacy opt-in). */
   readonly engine?: "pack" | "repomix";
   /**
+   * When true (pack engine only), emit an in-toto/SLSA-v1 provenance
+   * statement alongside the BOM whose subject digest IS the packHash, and
+   * attempt a keyless cosign signature. Ignored on the repomix engine (no
+   * deterministic manifest to attest). See `@opencodehub/pack`'s `prove`.
+   */
+  readonly prove?: boolean;
+  /**
    * Test seam — inject a custom `generatePack` so unit tests don't need
    * to load native DuckDB bindings. Production callers leave this
    * unset.
    */
   readonly _generatePack?: typeof generatePack;
+  /**
+   * Test seam — override HEAD resolution so unit tests don't depend on a
+   * real git repo. Production resolves `git rev-parse HEAD` via spawn.
+   */
+  readonly _resolveCommit?: (repoPath: string) => Promise<string | undefined>;
+  /**
+   * Test seam — inject a custom `prove` so `--prove` unit tests don't shell
+   * out to cosign. Production callers leave this unset.
+   */
+  readonly _prove?: typeof prove;
   /**
    * Test seam — inject a pre-opened {@link Store} (or a graph-only
    * stand-in via {@link IGraphStore}) so unit tests can stub the graph
@@ -106,6 +124,12 @@ export interface CodePackResult {
    * directory; consumers should walk `outDir`).
    */
   readonly repomixOutputPath?: string;
+  /**
+   * Present only when `--prove` was passed on the pack engine. Carries the
+   * in-toto/SLSA-v1 statement, the on-disk statement path, and the signing
+   * outcome (signed, or BLOCKED-ON-ENV with the exact cosign command).
+   */
+  readonly proveResult?: ProveResult;
 }
 
 export async function runCodePack(args: CodePackArgs = {}): Promise<CodePackResult> {
@@ -157,11 +181,23 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
     ? undefined
     : args._store;
 
+  // Resolve the commit + origin so the manifest records what a later
+  // `codehub replay <hash>` must check out. Without this the manifest carries
+  // commit:"" (generatePack's fallback) and the pack is not replayable — the
+  // attestation's `externalParameters.commit` would be empty. HEAD resolution
+  // is best-effort (a non-git dir yields undefined → "" preserved).
+  const resolveCommit = args._resolveCommit ?? resolveHeadCommit;
+  const commit = (await resolveCommit(repoPath)) ?? "";
+  const repoOriginUrl = await resolveOriginUrl(repoPath);
+
   // Stage in a temp dir; we don't know `packHash` until generatePack returns,
   // and the canonical layout puts the hash in the directory name.
   const stagingDir = await mkdtemp(join(tmpdir(), "codehub-code-pack-"));
 
   try {
+    // Thread commit + origin into the internal seam so the manifest binds the
+    // pack to the source it was derived from (required for `replay`).
+    const internalCommon = { commit, repoOriginUrl };
     const manifest = await generate(
       {
         repoPath,
@@ -170,8 +206,8 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         tokenizerId: tokenizer,
       },
       composedStore !== undefined
-        ? { store: composedStore }
-        : { graphOnly: graphOnlyStub as IGraphStore },
+        ? { store: composedStore, ...internalCommon }
+        : { graphOnly: graphOnlyStub as IGraphStore, ...internalCommon },
     );
 
     const finalOutDir =
@@ -198,12 +234,22 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
     // tracks the deterministic items only.
     const bomItemCount = manifest.files.length + 1;
 
+    // --- `--prove`: emit the in-toto/SLSA-v1 statement next to the BOM and
+    //     attempt a keyless cosign signature. The statement's subject digest
+    //     IS the packHash; signing is additive and never blocks the pack. ---
+    let proveResult: ProveResult | undefined;
+    if (args.prove === true) {
+      const proveFn = args._prove ?? prove;
+      proveResult = await proveFn(manifest, finalOutDir);
+    }
+
     return {
       outDir: finalOutDir,
       packHash: manifest.packHash,
       bomItemCount,
       manifest,
       engine: "pack",
+      ...(proveResult !== undefined ? { proveResult } : {}),
     };
   } finally {
     if (owned !== undefined) {
@@ -261,4 +307,49 @@ function isStoreShape(s: Store | IGraphStore | undefined): s is Store {
   if (s === undefined) return false;
   const obj = s as { graph?: unknown; temporal?: unknown };
   return obj.graph !== undefined && obj.temporal !== undefined;
+}
+
+/**
+ * Resolve the repo's HEAD commit via `git rev-parse HEAD`. Returns
+ * `undefined` when git is unavailable or the dir is not a repo — the manifest
+ * then keeps its empty-commit fallback rather than aborting the pack. Mirrors
+ * the spawn pattern in `index-repo.ts`'s `readGitHeadViaSpawn`.
+ */
+async function resolveHeadCommit(repoPath: string): Promise<string | undefined> {
+  return gitCapture(repoPath, ["rev-parse", "HEAD"]);
+}
+
+/**
+ * Resolve the `origin` remote URL via `git remote get-url origin`. Returns
+ * `null` when there is no remote (matching the manifest's `repoOriginUrl:
+ * null` for the no-remote case).
+ */
+async function resolveOriginUrl(repoPath: string): Promise<string | null> {
+  const url = await gitCapture(repoPath, ["remote", "get-url", "origin"]);
+  return url ?? null;
+}
+
+/** Run a git subcommand and capture trimmed stdout. Never throws; undefined on any failure. */
+async function gitCapture(repoPath: string, args: readonly string[]): Promise<string | undefined> {
+  return new Promise((resolveP) => {
+    let stdout = "";
+    let settled = false;
+    const child = spawn("git", [...args], { cwd: repoPath, stdio: ["ignore", "pipe", "ignore"] });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.on("error", () => {
+      if (!settled) {
+        settled = true;
+        resolveP(undefined);
+      }
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      const t = stdout.trim();
+      resolveP(code === 0 && t.length > 0 ? t : undefined);
+    });
+  });
 }
