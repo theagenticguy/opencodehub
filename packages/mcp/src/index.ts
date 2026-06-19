@@ -12,6 +12,16 @@ export {
   type StoreFactory,
 } from "./connection-pool.js";
 export {
+  buildDiscoverResult,
+  CATALOG_CACHE_SCOPE,
+  CATALOG_TTL_MS,
+  type CacheHints,
+  type DiscoveredTool,
+  SERVER_DISCOVER_METHOD,
+  type ServerDiscoverResult,
+  wireProtocolFraming,
+} from "./discover.js";
+export {
   type ErrorCode,
   type ErrorDetail,
   toolError,
@@ -19,11 +29,14 @@ export {
   toolUnsupportedProtocolVersionError,
   type UnsupportedProtocolVersionDetail,
 } from "./error-envelope.js";
+export { SERVER_NAME, SERVER_VERSION } from "./identity.js";
 export { withNextSteps } from "./next-step-hints.js";
 export {
   assertProtocolVersion,
   type ClientMeta,
+  LOG_LEVEL_META_KEY,
   readClientMeta,
+  readLogLevel,
   SUPPORTED_PROTOCOL_VERSIONS,
   withProtocolGate,
 } from "./protocol-version.js";

@@ -18,6 +18,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { getDefaultModelRoot, modelFileName, resolveModelDir } from "@opencodehub/embedder";
 import { ConnectionPool } from "./connection-pool.js";
+import { wireProtocolFraming } from "./discover.js";
+import { SERVER_NAME, SERVER_VERSION } from "./identity.js";
 import { withProtocolGate } from "./protocol-version.js";
 import { registerRepoClusterResource } from "./resources/repo-cluster.js";
 import { registerRepoClustersResource } from "./resources/repo-clusters.js";
@@ -56,9 +58,6 @@ import { registerSignatureTool } from "./tools/signature.js";
 import { registerSqlTool } from "./tools/sql.js";
 import { registerToolMapTool } from "./tools/tool-map.js";
 import { registerVerdictTool } from "./tools/verdict.js";
-
-const SERVER_NAME = "opencodehub";
-const SERVER_VERSION = "0.0.0";
 
 const INSTRUCTIONS = [
   "OpenCodeHub exposes indexed code graphs for MCP agents.",
@@ -198,6 +197,13 @@ export function buildServer(opts: StartServerOptions = {}): RunningServer {
   registerRepoClusterResource(server, resCtx);
   registerRepoProcessesResource(server, resCtx);
   registerRepoProcessResource(server, resCtx);
+
+  // 2026-07-28 RC protocol-framing, attached after the full tool/resource
+  // set is registered: `server/discover` (E-C10, advertises identity +
+  // protocol versions + the live 29 tools), `ping` removal (E-C11), and
+  // `ttlMs`/`cacheScope` cache hints on the catalog list + read results
+  // (E-C12). See `discover.ts` for the SDK-gate rationale.
+  wireProtocolFraming(server);
 
   return {
     server,

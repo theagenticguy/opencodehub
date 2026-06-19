@@ -39,6 +39,7 @@ import type {
   CallToolResult,
   ClientCapabilities,
   Implementation,
+  LoggingLevel,
   RequestMeta,
 } from "@modelcontextprotocol/sdk/types.js";
 import { toolUnsupportedProtocolVersionError } from "./error-envelope.js";
@@ -47,6 +48,25 @@ import { toolUnsupportedProtocolVersionError } from "./error-envelope.js";
 export const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion" as const;
 export const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo" as const;
 export const CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities" as const;
+/**
+ * E-C11: the 2026-07-28 RC removes the stateful `logging/setLevel` request
+ * and `logging` capability; a client now declares its desired log level
+ * per request under this `_meta` key instead of mutating remembered server
+ * state. Stateless, like the protocol-version key above.
+ */
+export const LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel" as const;
+
+/** The eight syslog-style levels the spec's `logLevel` accepts. */
+const LOG_LEVELS: readonly LoggingLevel[] = [
+  "debug",
+  "info",
+  "notice",
+  "warning",
+  "error",
+  "critical",
+  "alert",
+  "emergency",
+];
 
 /**
  * The protocol versions this server supports, lex-sorted (U7). Pinned to
@@ -67,6 +87,13 @@ export interface ClientMeta {
   readonly protocolVersion?: string;
   readonly clientInfo?: Implementation;
   readonly clientCapabilities?: ClientCapabilities;
+  /**
+   * E-C11: the desired log level for *this* request, read from
+   * `io.modelcontextprotocol/logLevel`. Replaces the removed stateful
+   * `logging/setLevel` round-trip. Absent for clients that emit no
+   * preference (the server then uses its own default verbosity).
+   */
+  readonly logLevel?: LoggingLevel;
 }
 
 /**
@@ -84,6 +111,7 @@ export function readClientMeta(meta: RequestMeta | undefined): ClientMeta {
     protocolVersion?: string;
     clientInfo?: Implementation;
     clientCapabilities?: ClientCapabilities;
+    logLevel?: LoggingLevel;
   } = {};
   const version = bag[PROTOCOL_VERSION_META_KEY];
   if (typeof version === "string") out.protocolVersion = version;
@@ -95,7 +123,21 @@ export function readClientMeta(meta: RequestMeta | undefined): ClientMeta {
   if (caps !== undefined && caps !== null && typeof caps === "object") {
     out.clientCapabilities = caps as ClientCapabilities;
   }
+  const level = bag[LOG_LEVEL_META_KEY];
+  if (typeof level === "string" && (LOG_LEVELS as readonly string[]).includes(level)) {
+    out.logLevel = level as LoggingLevel;
+  }
   return out;
+}
+
+/**
+ * E-C11: read the per-request log level from a request's `_meta`, the
+ * stateless replacement for `logging/setLevel`. Returns `undefined` when
+ * the client expressed no preference (or an unrecognised level), in which
+ * case the server keeps its own default verbosity.
+ */
+export function readLogLevel(meta: RequestMeta | undefined): LoggingLevel | undefined {
+  return readClientMeta(meta).logLevel;
 }
 
 /**

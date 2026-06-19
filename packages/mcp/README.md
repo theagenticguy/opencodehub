@@ -22,12 +22,71 @@ codehub mcp   # spawn the stdio server
   `_meta.codehub/staleness` entry when the index may be behind HEAD
   (`packages/mcp/src/staleness.ts`).
 
+## The stdio-only rail — what is intentionally absent
+
+This server runs on **stdio and stdio only** (`codehub mcp` spawns it as a
+child process; the parent agent owns the credentials and the lifecycle).
+That single decision makes a whole category of MCP transport machinery
+**deliberately absent**. If you are tempted to "helpfully" add any of the
+following, stop — the rail forbids it, and adding it is a regression, not
+an improvement:
+
+- **No `Mcp-Method` / `Mcp-Name` request headers.** These are
+  **Streamable-HTTP-only** routing/identification headers. There is no HTTP
+  layer here — the transport is a pipe — so there are no headers to set or
+  read. Method dispatch happens over JSON-RPC `method` strings on the
+  stdio stream, not HTTP headers.
+- **No OAuth / EMA / ID-JAG / token exchange.** Authorization on stdio is
+  **ambient**: the spawning agent already has the user's filesystem and
+  environment credentials, and the child inherits them. There is no remote
+  origin to authenticate to and no bearer token to mint, exchange, or
+  refresh. Wiring an OAuth flow onto a child process the user already owns
+  adds attack surface for zero security gain.
+- **No session IDs.** Streamable-HTTP needs a session ID to correlate many
+  stateless HTTP requests back to one logical connection. A stdio pipe *is*
+  the session — one process, one connection, lifetime-bound to the pipe —
+  so there is nothing to correlate. The 2026-07-28 protocol model is
+  stateless per-request (`io.modelcontextprotocol/*` keys in `_meta`,
+  `packages/mcp/src/protocol-version.ts`), which reinforces this: the
+  server remembers no handshake state, so there is no session to key.
+- **No tool-description signing.** The spec mandates no signature on tool
+  descriptions, and on a trusted local pipe there is no man-in-the-middle
+  to defend against. The descriptions are read straight from the registered
+  tools.
+
+The corollary: **do not add an HTTP/SSE transport, a daemon mode, a
+session store, or auth middleware to this package.** If a future use case
+genuinely needs remote transport, that is a separate package with its own
+rail — not a flag on this one.
+
+## 2026-07-28 RC protocol framing
+
+The 2026-07-28 spec revision is wired application-side (the installed
+`@modelcontextprotocol/sdk@1.29.0` is still on `2025-11-25`), in
+`packages/mcp/src/discover.ts` + `protocol-version.ts`:
+
+- **`server/discover`** advertises server identity, the supported protocol
+  versions (`["2026-07-28"]`, lex-sorted), and the live registered tools
+  (the real 29, name-sorted). Two calls are byte-identical.
+- **`ping`, `logging/setLevel`, `notifications/roots/list_changed` are
+  gone.** `ping` is de-registered from the SDK default; the other two are
+  never installed under our capability posture. Log level is now read
+  per-request from `io.modelcontextprotocol/logLevel` in `_meta`, not from
+  a stateful `logging/setLevel` round-trip.
+- **`tools/list`, `resources/list`, and resource reads carry `ttlMs` +
+  `cacheScope`** (`ttlMs: 3_600_000`, `cacheScope: "shared"`) — the catalog
+  is static within a server version, so the hints are generous and
+  shareable. These are `ttlMs` + `cacheScope`, **not** `etag` (the RC
+  corrected that earlier proposal).
+
 ## Tools
 
-28 tools registered in `packages/mcp/src/server.ts`. Implementation
+29 tools registered in `packages/mcp/src/server.ts`. Implementation
 files live under `packages/mcp/src/tools/<id>.ts`. Every tool is
 **read-only with respect to user source** — no tool edits the working
-tree.
+tree. `server/discover` advertises this live set (plus server identity
+and the supported protocol versions) at the protocol layer; the test in
+`packages/mcp/src/server.test.ts` pins the count at exactly 29.
 
 | Group       | Tools                                                                                                      |
 | ----------- | ---------------------------------------------------------------------------------------------------------- |

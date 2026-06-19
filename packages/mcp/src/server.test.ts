@@ -15,9 +15,31 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ServerDiscoverResult } from "./discover.js";
+import { CATALOG_CACHE_SCOPE, CATALOG_TTL_MS, SERVER_DISCOVER_METHOD } from "./discover.js";
 import type { UnsupportedProtocolVersionDetail } from "./error-envelope.js";
+import { SERVER_NAME, SERVER_VERSION } from "./identity.js";
 import { PROTOCOL_VERSION_META_KEY, SUPPORTED_PROTOCOL_VERSIONS } from "./protocol-version.js";
 import { buildServer } from "./server.js";
+
+/**
+ * Reach into the low-level SDK `Server`'s private `_requestHandlers` map and
+ * pull a JSON-RPC method handler so a test can invoke it directly with a
+ * fabricated request + extra — the same shape the dispatcher passes. Used
+ * for protocol-framing methods (`server/discover`) and the catalog list
+ * handlers (`tools/list` etc.) that the SDK installs on `server.server`.
+ */
+function getRequestHandler(
+  running: { server: unknown },
+  method: string,
+): ((request: unknown, extra: unknown) => Promise<Record<string, unknown>>) | undefined {
+  const lowLevel = (running.server as { server?: unknown }).server;
+  const handlers = (lowLevel as { _requestHandlers?: Map<string, unknown> })?._requestHandlers;
+  const handler = handlers?.get(method);
+  return handler as
+    | ((request: unknown, extra: unknown) => Promise<Record<string, unknown>>)
+    | undefined;
+}
 
 /**
  * Reach into the SDK's private `_registeredTools` map and pull a tool's
@@ -228,6 +250,167 @@ test("E-C9: the protocol gate reaches non-repo tools that bypass withStore", asy
         const detail = (result.structuredContent as { error: { code: string } }).error;
         assert.equal(detail.code, "UNSUPPORTED_PROTOCOL_VERSION", `${name} reject envelope`);
       }
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E-C10: server/discover advertises identity + protocol versions + the 29 tools.
+// ---------------------------------------------------------------------------
+
+test("E-C10: server/discover advertises identity, protocol versions, and the 29 tools", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getRequestHandler(running, SERVER_DISCOVER_METHOD);
+      assert.ok(handler, "server/discover must be registered");
+      const result = (await handler(
+        { method: SERVER_DISCOVER_METHOD },
+        {},
+      )) as unknown as ServerDiscoverResult;
+
+      // Server identity from the shared SERVER_NAME / SERVER_VERSION constants.
+      assert.deepEqual(result.serverInfo, { name: SERVER_NAME, version: SERVER_VERSION });
+      assert.equal(result.serverInfo.name, "opencodehub");
+
+      // Supported protocol versions = T-C9's pinned set, lex-sorted (U7).
+      assert.deepEqual(result.protocolVersions, [...SUPPORTED_PROTOCOL_VERSIONS].sort());
+      assert.ok(result.protocolVersions.includes("2026-07-28"));
+
+      // The advertised tools are the REAL 29 (not the stale 28), name-sorted.
+      const names = result.tools.map((t) => t.name);
+      assert.equal(names.length, 29, "server/discover must advertise the real 29 tools, not 28");
+      assert.deepEqual(names, EXPECTED_TOOL_NAMES);
+      assert.deepEqual(names, [...names].sort());
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C10 / U7: two server/discover calls produce byte-identical bodies", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getRequestHandler(running, SERVER_DISCOVER_METHOD);
+      assert.ok(handler);
+      const a = await handler({ method: SERVER_DISCOVER_METHOD }, {});
+      const b = await handler({ method: SERVER_DISCOVER_METHOD }, {});
+      assert.equal(JSON.stringify(a), JSON.stringify(b));
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E-C11: ping / logging/setLevel / notifications/roots/list_changed removed.
+// ---------------------------------------------------------------------------
+
+test("E-C11: ping is no longer served (SDK default de-registered)", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      assert.equal(
+        getRequestHandler(running, "ping"),
+        undefined,
+        "the SDK's default `ping` handler must be removed",
+      );
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C11: logging/setLevel and roots/list_changed are never served (no capability)", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      // OCH never declares the `logging` capability, so the SDK installs no
+      // `logging/setLevel` handler; log level moves to per-request `_meta`.
+      assert.equal(getRequestHandler(running, "logging/setLevel"), undefined);
+      // The server installs no `notifications/roots/list_changed` handler
+      // (it only ever *sends* `roots/list`), so it is absent by posture.
+      assert.equal(getRequestHandler(running, "notifications/roots/list_changed"), undefined);
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E-C12: tools/list, resources/list, and resource reads carry ttlMs + cacheScope.
+// ---------------------------------------------------------------------------
+
+test("E-C12: tools/list carries ttlMs + cacheScope (never etag)", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getRequestHandler(running, "tools/list");
+      assert.ok(handler, "tools/list must be installed");
+      const result = await handler({ method: "tools/list" }, {});
+      assert.equal(result["ttlMs"], CATALOG_TTL_MS);
+      assert.equal(result["cacheScope"], CATALOG_CACHE_SCOPE);
+      assert.equal(result["cacheScope"], "shared");
+      assert.equal(result["etag"], undefined, "etag must NOT be present (corrected to ttlMs)");
+      assert.ok(Array.isArray(result["tools"]), "the original list body is preserved");
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C12: resources/list carries ttlMs + cacheScope", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getRequestHandler(running, "resources/list");
+      assert.ok(handler, "resources/list must be installed");
+      const result = await handler({ method: "resources/list" }, {});
+      assert.equal(result["ttlMs"], CATALOG_TTL_MS);
+      assert.equal(result["cacheScope"], "shared");
+      assert.ok(Array.isArray(result["resources"]));
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C12: a resource read carries ttlMs + cacheScope", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      const handler = getRequestHandler(running, "resources/read");
+      assert.ok(handler, "resources/read must be installed");
+      // `codehub://repos` reads the (empty) registry — no store needed.
+      const result = await handler(
+        { method: "resources/read", params: { uri: "codehub://repos" } },
+        {},
+      );
+      assert.equal(result["ttlMs"], CATALOG_TTL_MS);
+      assert.equal(result["cacheScope"], "shared");
+      assert.ok(Array.isArray(result["contents"]), "the original read body is preserved");
+    } finally {
+      await running.shutdown();
+    }
+  });
+});
+
+test("E-C12: prompts/list is unreachable for OCH (zero prompts) — no cache-hint wrap needed", async () => {
+  await withEmptyHome(async (home) => {
+    const running = buildServer({ home, silentEmbedderProbe: true });
+    try {
+      // OCH registers zero prompts, so the SDK never installs prompts/list;
+      // the cache-hint wrap is a documented no-op for it. This pins that the
+      // method genuinely isn't served (rather than silently serving without
+      // hints), matching the "confirm reachability before wiring" note.
+      assert.equal(
+        getRequestHandler(running, "prompts/list"),
+        undefined,
+        "prompts/list must not be installed when zero prompts are registered",
+      );
     } finally {
       await running.shutdown();
     }
