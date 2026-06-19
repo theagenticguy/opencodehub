@@ -12,7 +12,7 @@
 npm install -g @opencodehub/cli
 cd /path/to/your/repo
 codehub init && codehub analyze
-# your agent now has impact, query, context, detect_changes — 28 tools over MCP
+# your agent now has impact, query, context, detect_changes — 29 tools over MCP
 ```
 
 ## Why this exists
@@ -79,7 +79,7 @@ flowchart LR
 | **Deterministic indexing** | Identical inputs produce a byte-identical graph hash. Reproducible. Auditable. Cacheable in CI. |
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
 | **Embedded storage, two-tier** | `@ladybugdb/core` holds the structural store: symbols, edges, embeddings, BM25 + HNSW. A dedicated DuckDB sibling holds the temporal views: cochanges and summaries. Embedded files. No daemon. No database to operate. Both tiers are always present, with no backend knob (ADR 0016). |
-| **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
+| **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. Precise SCIP edges layer on top for the languages with an indexer (first-party for TS/JS, Python, Go, Java, Rust; a `scip-unofficial` mid-confidence tier for PHP and Dart). SCIP-blind languages (Swift, Zig, Elixir, Terraform, Clojure, …) can opt into a quarantined LSP-backed tier-3 — see `docs/adr/0019`. |
 | **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`, so parsing does **zero grammar/native builds and zero GitHub fetches** at install time — there is no native parser opt-in. Storage and embeddings still load prebuilt native bindings (see Platform support). |
 
 ## Platform support
@@ -189,7 +189,38 @@ The transport is JSON-RPC over stdio only — there is no HTTP server, no
 exposed port, and no network listener (OpenCodeHub is local-first by
 design).
 
-## MCP tool surface (28 tools)
+### Prove a code-pack is reproducible
+
+A deterministic code-pack hashes to a stable `packHash` given the same
+`(commit, tokenizer, budget, pins)`. `--prove` turns that into a checkable
+receipt, and `replay` lets anyone re-derive the pack byte-for-byte and
+confirm it — offline.
+
+```bash
+# produce the 9-item BOM and an in-toto/SLSA-v1 statement whose subject
+# digest IS the packHash; attempts a keyless cosign signature
+codehub code-pack --prove
+
+# re-derive the pack and byte-compare against its attested hash.
+# "reproduced" on a match; non-zero naming the drifted item on a mismatch.
+codehub replay <packHash>
+```
+
+The signature uses **keyless cosign** (Sigstore — Fulcio cert + Rekor
+transparency log), the same identity the release workflow signs with. It
+needs an OIDC token, so signing happens in CI (`id-token: write`) or in an
+interactive session where cosign can open a browser; on a headless box
+without OIDC the statement is still written and `code-pack` prints the exact
+`cosign sign-blob` command to run elsewhere — it never fabricates a
+signature. Verify a signed pack offline with
+`cosign verify-blob-attestation --bundle <pack>.intoto.jsonl.sigstore`.
+`replay` itself needs no cosign — it is a pure local re-hash.
+
+> `strict` packs (the OpenAI-tokenizer lane) byte-match on replay. The
+> Anthropic-tokenizer lane is `best_effort` — a replay mismatch there is
+> reported as expected tokenizer drift, not a hard failure.
+
+## MCP tool surface (29 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -325,6 +356,18 @@ While on `0.x`, **any release may contain breaking changes** to the
 graph schema, MCP tool shapes, CLI flags, or storage layout. Breaking
 changes are called out with `!` or a `BREAKING CHANGE:` footer in the
 commit log and summarised in each release's generated CHANGELOG.
+
+**Since v1 (distribution + determinism, spec 008).** A Docker distribution
+(lite + full multi-arch images) ships alongside npm; `code-pack --prove`
++ `replay` make a pack's reproducibility a signed, offline-verifiable
+receipt; the MCP server moved to the stateless `_meta` model with
+`server/discover` ahead of the 2026-07-28 protocol cutover; PHP and Dart
+gained a `scip-unofficial` SCIP tier; and `@opencodehub/lsp-tier` adds a
+packHash-quarantined LSP tier-3 for SCIP-blind languages (ADR 0019). One
+follow-up remains: the lsp-tier ships the extraction logic with an
+*injectable* backend — the concrete `agent-lsp`-spawning backend and the
+`codehub analyze --tier3-lsp` opt-in flag are not yet wired, so SCIP-blind
+languages stay on tree-sitter until that backend lands.
 
 ## Troubleshooting
 
