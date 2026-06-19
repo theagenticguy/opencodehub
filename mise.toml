@@ -76,6 +76,23 @@ description = "Build the lite Docker image (opencodehub:lite) via buildx"
 sources = ["Dockerfile", ".dockerignore", "packages/*/src/**/*.ts", "packages/*/package.json", "pnpm-lock.yaml"]
 run = "docker buildx build --target lite -t opencodehub:lite --load ."
 
+# Builds the FULL multi-arch image (lite + jlink JRE-21 + scip-java 0.12.3 +
+# scip-go v0.2.7 + uv/uvx for the Python indexers) for both linux/amd64 and
+# linux/arm64 (E-D2: per-arch build makes onnxruntime-node / @ladybugdb/core
+# prebuilds match the target arch). Target ~500-700 MB (E-D4).
+#
+# A multi-arch buildx build CANNOT `--load` into the local docker store (the
+# docker driver holds one platform; a manifest list is registry-only). This
+# task is the canonical RELEASE/CI invocation — it requires a buildx
+# `docker-container` builder + QEMU/binfmt for cross-emulation (CI sets these
+# up via docker/setup-qemu-action + docker/setup-buildx-action). For a
+# locally-runnable image, build a single arch with `--load`:
+#   docker buildx build --target full -t opencodehub:full --load .
+[tasks."docker:build-full"]
+description = "Build the full multi-arch image (lite + scip-go/scip-java/uv toolchains)"
+sources = ["Dockerfile", ".dockerignore", "packages/*/src/**/*.ts", "packages/*/package.json", "pnpm-lock.yaml"]
+run = "docker buildx build --target full --platform linux/amd64,linux/arm64 -t opencodehub:full ."
+
 [tasks.clean]
 description = "Remove dist/ and TS build info across every package"
 run = "pnpm -r clean"

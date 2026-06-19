@@ -1,0 +1,160 @@
+# OpenCodeHub — Docker image build + smoke test.
+#
+# An additive distribution channel alongside the npm package. Builds the two
+# container variants from the root Dockerfile:
+#
+#   lite — parser + graph + CLI + stdio MCP server (no embedder, no JVM). ~300 MB.
+#   full — lite + a jlink-trimmed JRE-21 + scip-java, the scip-go static binary,
+#          and uv/uvx for the Python indexers. ~500-700 MB.
+#
+# E-D2: BOTH variants are built for linux/amd64 AND linux/arm64 via buildx +
+# QEMU, so onnxruntime-node and @ladybugdb/core native prebuilds match the
+# target arch (no cross-arch prebuild mismatch). The per-arch `docker run …
+# och-mcp` initialize probe exercises the @ladybugdb/core native addon load,
+# so a per-arch ABI break surfaces as a failed smoke test, not a silent crash.
+#
+# AC-D7: a CI job builds both variants on push-to-main and on release tags and
+# smoke-tests `docker run -i --rm <image> och-mcp` answering a JSON-RPC
+# initialize round-trip over stdio; the full image additionally proves
+# `scip-go --version` and `scip-java --version` resolve.
+#
+# Transport is stdio JSON-RPC only — there is no HTTP surface, no EXPOSE, no
+# network listener (U9). This workflow only builds + smoke-tests; it does NOT
+# push to a registry (no registry credentials are wired). The multi-arch leg
+# proves both arches COMPILE; the smoke leg loads the native arch locally
+# (a multi-arch manifest list cannot be `docker run` without a registry).
+
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Multi-arch build (E-D2). Proves both the lite and full targets COMPILE
+  #    for linux/amd64 AND linux/arm64. No `--load`/push: a multi-platform
+  #    manifest list cannot be loaded into the local docker store, and no
+  #    registry is wired — the build itself is the assertion that every arch's
+  #    native prebuilds (onnxruntime-node, @ladybugdb/core) resolve.
+  # ---------------------------------------------------------------------------
+  build-multiarch:
+    name: Build lite + full (linux/amd64, linux/arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      # Register QEMU/binfmt handlers so the buildx container can cross-emulate
+      # the non-native arch (arm64 on an amd64 runner).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+
+      # The docker-container buildx driver is required for multi-platform
+      # builds (the default `docker` driver is single-platform only).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Build lite (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          target: lite
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: opencodehub:lite
+
+      - name: Build full (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          target: full
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: opencodehub:full
+
+  # ---------------------------------------------------------------------------
+  # 2. Smoke test (AC-D7). Builds the NATIVE arch with `--load` so the images
+  #    materialize in the local docker store and can be run. Then:
+  #      - lite + full each answer a JSON-RPC `initialize` round-trip over
+  #        stdio via `docker run -i --rm <image> och-mcp` (also exercises the
+  #        @ladybugdb/core native addon load on this arch);
+  #      - full proves `scip-go --version` and `scip-java --version` exit 0 and
+  #        `uv` / `uvx` resolve on PATH.
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: Smoke test lite + full (native arch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Build lite (native arch, loaded)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          target: lite
+          load: true
+          tags: opencodehub:lite
+
+      - name: Build full (native arch, loaded)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          target: full
+          load: true
+          tags: opencodehub:full
+
+      # MCP initialize round-trip over stdio. A single JSON-RPC `initialize`
+      # request on stdin must yield a `"result"` with a matching `"id":1` on
+      # stdout. `-i` keeps stdin open for the stream; we close stdin after the
+      # request so the server flushes its response and the container exits.
+      # The probe loading + answering proves the @ladybugdb/core native addon
+      # loaded for this arch (per-arch ABI assurance — the load-bearing risk).
+      - name: MCP initialize round-trip — lite
+        run: |
+          set -euo pipefail
+          REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0.0.0"}}}'
+          OUT="$(printf '%s\n' "$REQ" | docker run -i --rm opencodehub:lite och-mcp)"
+          echo "$OUT"
+          echo "$OUT" | grep -q '"id":1' || { echo "::error::lite MCP initialize did not return id:1"; exit 1; }
+          echo "$OUT" | grep -q '"result"' || { echo "::error::lite MCP initialize had no result"; exit 1; }
+
+      - name: MCP initialize round-trip — full
+        run: |
+          set -euo pipefail
+          REQ='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0.0.0"}}}'
+          OUT="$(printf '%s\n' "$REQ" | docker run -i --rm opencodehub:full och-mcp)"
+          echo "$OUT"
+          echo "$OUT" | grep -q '"id":1' || { echo "::error::full MCP initialize did not return id:1"; exit 1; }
+          echo "$OUT" | grep -q '"result"' || { echo "::error::full MCP initialize had no result"; exit 1; }
+
+      # The toolchains the npm package can't ship: scip-go (Go static binary),
+      # scip-java (jlink JRE + standalone Coursier launcher), uv/uvx (Python).
+      # `--version` exiting 0 proves each binary loads on this arch.
+      - name: Full image — scip-go / scip-java / uv resolve on PATH
+        run: |
+          set -euo pipefail
+          docker run --rm opencodehub:full scip-go --version
+          docker run --rm opencodehub:full scip-java --version
+          docker run --rm opencodehub:full uv --version
+          docker run --rm opencodehub:full uvx --version
+
+      # Report the full image size (E-D4 target ~500-700 MB). Informational —
+      # not a hard gate, but surfaced so a size regression is visible in the log.
+      - name: Report full image size
+        run: |
+          echo "full image size:"
+          docker images opencodehub:full --format '{{.Size}}'
