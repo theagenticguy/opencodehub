@@ -37,7 +37,6 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generatePack, type PackManifest, type ProveResult, prove } from "@opencodehub/pack";
 import { type IGraphStore, openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
@@ -190,9 +189,17 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   const commit = (await resolveCommit(repoPath)) ?? "";
   const repoOriginUrl = await resolveOriginUrl(repoPath);
 
-  // Stage in a temp dir; we don't know `packHash` until generatePack returns,
-  // and the canonical layout puts the hash in the directory name.
-  const stagingDir = await mkdtemp(join(tmpdir(), "codehub-code-pack-"));
+  // Stage in a temp dir on the SAME filesystem as the final destination, so
+  // the move below is an atomic on-device `rename`. `os.tmpdir()` is often a
+  // separate mount (tmpfs) from an EFS/NFS-backed repo, which makes
+  // `rename(staging, final)` throw EXDEV ("cross-device link not permitted").
+  // The staging root is the destination's parent dir; for the canonical
+  // layout that is `<repo>/.codehub/packs/`, for `--out-dir` it is the
+  // supplied path's parent. Both share a device with the final dir.
+  const stagingRoot =
+    args.outDir !== undefined ? resolve(args.outDir, "..") : join(repoPath, ".codehub", "packs");
+  await mkdir(stagingRoot, { recursive: true });
+  const stagingDir = await mkdtemp(join(stagingRoot, ".codehub-code-pack-"));
 
   try {
     // Thread commit + origin into the internal seam so the manifest binds the
