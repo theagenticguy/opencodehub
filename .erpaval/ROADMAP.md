@@ -213,6 +213,7 @@ SARIF 2.1.0 ingestion + baseline diff + `codehub verdict` CI exit codes + `ci-in
 - Hosted review UI (GitHub Checks + PR comments only)
 - IDE plugin / LSP
 - Model fine-tuning
+- Single self-contained binary (pkg / SEA / Bun / Deno compile) — Docker image is the sole non-npm distribution artifact.
 
 ## Rip-and-replace latitude
 

@@ -41,6 +41,7 @@ export default {
         "cli",
         "cobol-proleap",
         "core-types",
+        "docker",
         "embedder",
         "frameworks",
         "ingestion",

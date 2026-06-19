@@ -148,6 +148,43 @@ pnpm run check          # lint + typecheck + test + banned-strings
 mise run cli:link       # puts `codehub` on your PATH
 ```
 
+### Run via Docker (no Node install)
+
+A container image is an additive distribution channel alongside the npm
+package — the npm path above stays the recommended install. The **lite**
+image carries the parser, graph, CLI, and stdio MCP server (no embedder,
+no JVM) and weighs in around 300 MB.
+
+```bash
+# build the lite image
+docker build -t opencodehub:lite --target lite .
+
+# run the stdio MCP server (-i keeps stdin open for the JSON-RPC stream)
+docker run -i --rm opencodehub:lite och-mcp
+
+# or drive the CLI against a mounted repo
+docker run --rm -v "$PWD:/repo" -w /repo opencodehub:lite codehub analyze
+```
+
+Point Claude Code / Cursor at the containerized MCP server by adding this
+to your project's `.mcp.json` — the agent host launches the container on
+stdio, no global install required:
+
+```jsonc
+{
+  "mcpServers": {
+    "opencodehub": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-v", "${workspaceFolder}:/repo", "opencodehub:lite", "och-mcp"]
+    }
+  }
+}
+```
+
+The transport is JSON-RPC over stdio only — there is no HTTP server, no
+exposed port, and no network listener (OpenCodeHub is local-first by
+design).
+
 ## MCP tool surface (28 tools)
 
 | Tool | Purpose |

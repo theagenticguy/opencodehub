@@ -1,0 +1,86 @@
+# .dockerignore — build-context hygiene for the OpenCodeHub image.
+#
+# Mirrors .gitignore intent plus extra trimming: the builder stage runs a clean
+# `pnpm install --frozen-lockfile` inside the image, so any host-side install
+# artifacts, scratch state, and heavyweight test fixtures must NOT enter the
+# build context (they bloat the context tarball and can shadow the in-image
+# install). Keep this aligned with .gitignore when that file changes.
+
+# --- Installed deps: re-installed fresh in the builder stage (AC-D8) ---
+node_modules/
+packages/*/node_modules/
+.pnpm-store/
+
+# --- Build outputs: rebuilt in the image; never copy host dist/ in ---
+#
+# CRITICAL: TypeScript `tsc -b` writes a per-package incremental cache at
+# packages/<pkg>/tsconfig.tsbuildinfo. Docker's .dockerignore matches by PATH,
+# so a bare `*.tsbuildinfo` only catches the context root — the nested
+# per-package ones would still be copied in by `COPY . .`. A stale host
+# tsbuildinfo makes the in-image `tsc -b` think a composite project is already
+# built, emit ZERO output, and leave dependents unable to resolve
+# `@opencodehub/<pkg>` (`TS2307`). The `**/` globs below exclude these at EVERY
+# depth so the image always does a true clean build. (Same staleness trap as
+# the project-references tsbuildinfo lesson.)
+dist/
+dist-test/
+**/dist/
+**/dist-test/
+packages/*/dist/
+packages/*/dist-test/
+.tsbuildinfo
+*.tsbuildinfo
+**/*.tsbuildinfo
+.astro/
+
+# --- VCS + agent/planning scratch space (AC-D8) ---
+.git/
+.gitignore
+.github/
+.erpaval/
+.handoff/
+.claude/
+.codehub/
+
+# --- Sibling worktrees + local agent scratch (AC-D8) ---
+.worktrees/
+worktrees/
+
+# --- Test fixtures rendered/checked-in for the suite (AC-D8) ---
+#
+# Only the runtime-rendered example fixtures under examples/fixtures/ are
+# excluded — they are heavyweight sample repos consumed by the test suite, are
+# never part of the TypeScript compilation unit, and are not needed at runtime.
+#
+# Do NOT exclude in-`src` `__fixtures__/` directories or per-package
+# `test*/fixtures/`: several packages compile their tests as part of `tsc -b`
+# (e.g. analysis/tsconfig includes `test/**/*` and src co-located tests import
+# `src/group/__fixtures__/two-repo-contracts.ts`). Stripping those from the
+# build context breaks the in-image workspace build with `TS2307`. The pruned
+# `pnpm deploy --prod` closure already drops all test code from the RUNTIME
+# stage, so excluding them from the build context buys nothing and only risks
+# breaking the build.
+examples/fixtures/
+
+# --- Python eval venv + caches (not part of the JS runtime image) ---
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Local env / editor / OS noise ---
+.env
+.env.local
+mise.local.toml
+*.log
+.DS_Store
+coverage/
+
+# --- Release / SBOM artifacts (regenerated; never baked into the image) ---
+SBOM.cdx.json
+
+# --- Docker's own files: no need to send them into the context ---
+Dockerfile
+.dockerignore
