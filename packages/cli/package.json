@@ -60,7 +60,7 @@
     "listr2": "10.2.1",
     "lru-cache": "11.5.1",
     "piscina": "5.2.0",
-    "snyk-nodejs-lockfile-parser": "2.8.0",
+    "snyk-nodejs-lockfile-parser": "2.8.1",
     "web-tree-sitter": "0.26.9",
     "write-file-atomic": "8.0.0",
     "yaml": "2.9.0",

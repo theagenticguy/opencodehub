@@ -158,8 +158,8 @@ importers:
         specifier: 5.2.0
         version: 5.2.0
       snyk-nodejs-lockfile-parser:
-        specifier: 2.8.0
-        version: 2.8.0(typanion@3.14.0)
+        specifier: 2.8.1
+        version: 2.8.1(typanion@3.14.0)
       web-tree-sitter:
         specifier: 0.26.9
         version: 0.26.9
@@ -372,8 +372,8 @@ importers:
         specifier: 5.2.0
         version: 5.2.0
       snyk-nodejs-lockfile-parser:
-        specifier: 2.8.0
-        version: 2.8.0(typanion@3.14.0)
+        specifier: 2.8.1
+        version: 2.8.1(typanion@3.14.0)
       spdx-correct:
         specifier: ^3.2.0
         version: 3.2.0
@@ -2546,8 +2546,8 @@ packages:
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
 
-  '@yarnpkg/core@4.8.0':
-    resolution: {integrity: sha512-knO69Rqtr5GkGwGOKKhX1gLv7i2SDujoe4TBODUUzY/NLRuNBHPtFoANGYrMsGSSbsnmLLbGEJGQQ6c/CJXF2w==}
+  '@yarnpkg/core@4.9.0':
+    resolution: {integrity: sha512-vhJEVo423jAZBtU5CDe2HEkyNkEYfgMfukNQk1uyYFkP3OmCsuLzpyqbJCEXIg6Fy3YTrQg7kSCnjHbLed3toA==}
     engines: {node: '>=18.12.0'}
 
   '@yarnpkg/fslib@3.1.5':
@@ -3507,6 +3507,9 @@ packages:
 
   es-toolkit@1.47.0:
     resolution: {integrity: sha512-n1GuoD0WEQZMBk5tttoZSqwgyLx01oqa5XsBmCHwPyNe1S9jPBEmtR2pSgp2kJuWE3ciFZ6yRHmY4pM4C3OOkw==}
+
+  es-toolkit@1.47.1:
+    resolution: {integrity: sha512-5RAqEwf4P4E17p+W75KLOWw/nOvKZzSQpxM32IpI2KZLaVonjTrZ0Ai5ghMaVI9eKC2p8eoQgcBdkEDgzFk6+Q==}
 
   esast-util-from-estree@2.0.0:
     resolution: {integrity: sha512-4CyanoAudUSBAn5K13H4JhsMH6L9ZP7XbLVe/dKybkxMO7eDyLsT8UHl9TRNrU2Gr9nz+FovfSIjuXWJ81uVwQ==}
@@ -5355,13 +5358,13 @@ packages:
   schemes@1.4.0:
     resolution: {integrity: sha512-ImFy9FbCsQlVgnE3TCWmLPCFnVzx0lHL/l+umHplDqAKd0dzFpnS6lFZIpagBlYhKwzVmlV36ec0Y1XTu8JBAQ==}
 
-  semver@7.8.3:
-    resolution: {integrity: sha512-wnilbGyMxzbY7dNOl7jpKbLSjcfeweJWU5j4+u5qW+6/wuGD9KzIGOyZnQVSBM9E7DtWaaH3CyHkppYrKYoxwg==}
+  semver@7.8.4:
+    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
 
-  semver@7.8.4:
-    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
+  semver@7.8.5:
+    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -5458,8 +5461,8 @@ packages:
   snyk-config@5.3.0:
     resolution: {integrity: sha512-YPxhYZXBXgnYdvovwlKf5JYcOp+nxB7lel3tWLarYqZ4hwxN118FodIFb8nSqMrepsPdyOaQYKKnrTYqvQeaJA==}
 
-  snyk-nodejs-lockfile-parser@2.8.0:
-    resolution: {integrity: sha512-dCHMl4ogQAxAyEHsH2Y9VIVfc30iTSiDIBNK1gNXvwIoXJPYFzB+mC7DLuPx/fx1LSGmKO05tj3pWrakfdh9Nw==}
+  snyk-nodejs-lockfile-parser@2.8.1:
+    resolution: {integrity: sha512-DlUuMVcKC+zZkSYKLsOTuoqDc6SneG1zN8hqc5p5gi8pvhr4AoCgHScICbLoW9ZnukLZi5gMOLVFF/ea61dv/A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24.0.0, npm: '>=10'}
     hasBin: true
 
@@ -6673,7 +6676,7 @@ snapshots:
   '@commitlint/ensure@21.0.1':
     dependencies:
       '@commitlint/types': 21.0.1
-      es-toolkit: 1.47.0
+      es-toolkit: 1.47.1
 
   '@commitlint/execute-rule@21.0.1': {}
 
@@ -8130,7 +8133,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@yarnpkg/core@4.8.0(typanion@3.14.0)':
+  '@yarnpkg/core@4.9.0(typanion@3.14.0)':
     dependencies:
       '@arcanis/slice-ansi': 1.1.1
       '@types/semver': 7.7.1
@@ -8146,7 +8149,7 @@ snapshots:
       cross-spawn: 7.0.6
       diff: 5.2.2
       dotenv: 16.6.1
-      es-toolkit: 1.47.0
+      es-toolkit: 1.47.1
       fast-glob: 3.3.3
       got: 11.8.6
       hpagent: 1.2.0
@@ -8658,7 +8661,7 @@ snapshots:
       fs-extra: 11.3.5
       node-api-headers: 1.9.0
       rc: 1.2.8
-      semver: 7.8.4
+      semver: 7.8.5
       tar: 7.5.16
       url-join: 4.0.1
       which: 6.0.1
@@ -9223,6 +9226,8 @@ snapshots:
     optional: true
 
   es-toolkit@1.47.0: {}
+
+  es-toolkit@1.47.1: {}
 
   esast-util-from-estree@2.0.0:
     dependencies:
@@ -10548,7 +10553,7 @@ snapshots:
       dagre-d3-es: 7.0.14
       dayjs: 1.11.20
       dompurify: 3.4.11
-      es-toolkit: 1.47.0
+      es-toolkit: 1.47.1
       katex: 0.16.46
       khroma: 2.1.0
       marked: 16.4.2
@@ -11691,9 +11696,9 @@ snapshots:
     dependencies:
       extend: 3.0.2
 
-  semver@7.8.3: {}
-
   semver@7.8.4: {}
+
+  semver@7.8.5: {}
 
   send@1.2.1:
     dependencies:
@@ -11887,12 +11892,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  snyk-nodejs-lockfile-parser@2.8.0(typanion@3.14.0):
+  snyk-nodejs-lockfile-parser@2.8.1(typanion@3.14.0):
     dependencies:
       '@snyk/dep-graph': 2.16.9
       '@snyk/error-catalog-nodejs-public': 5.82.0
       '@snyk/graphlib': 2.1.9-patch.3
-      '@yarnpkg/core': 4.8.0(typanion@3.14.0)
+      '@yarnpkg/core': 4.9.0(typanion@3.14.0)
       '@yarnpkg/lockfile': 1.1.0
       debug: 4.4.3
       dependency-path: 9.2.8
@@ -11904,7 +11909,7 @@ snapshots:
       lodash.topairs: 4.3.0
       micromatch: 4.0.8
       p-map: 4.0.0
-      semver: 7.8.3
+      semver: 7.8.4
       snyk-config: 5.3.0
       tslib: 1.14.1
       uuid: 14.0.0
@@ -12588,7 +12593,7 @@ time:
   playwright@1.60.0: '2026-05-11T19:09:33.114Z'
   rehype-mermaid@3.0.0: '2024-10-08T18:54:56.311Z'
   sharp@0.35.1: '2026-06-11T17:10:33.369Z'
-  snyk-nodejs-lockfile-parser@2.8.0: '2026-06-04T12:45:04.486Z'
+  snyk-nodejs-lockfile-parser@2.8.1: '2026-06-16T14:45:43.111Z'
   spdx-correct@3.2.0: '2023-03-07T01:53:18.381Z'
   starlight-links-validator@0.24.1: '2026-06-12T09:46:53.691Z'
   starlight-llms-txt@0.10.0: '2026-05-14T09:22:12.691Z'
