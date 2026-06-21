@@ -55,7 +55,7 @@
     "@sourcegraph/scip-typescript": "0.4.0",
     "cli-table3": "0.6.5",
     "commander": "15.0.0",
-    "fast-xml-parser": "5.8.0",
+    "fast-xml-parser": "5.9.3",
     "gpt-tokenizer": "^3.4.0",
     "listr2": "10.2.1",
     "lru-cache": "11.5.1",
