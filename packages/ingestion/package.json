@@ -51,7 +51,7 @@
     "@opencodehub/scip-ingest": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",
-    "fast-xml-parser": "5.8.0",
+    "fast-xml-parser": "5.9.3",
     "graphology": "0.26.0",
     "graphology-dag": "0.4.1",
     "piscina": "5.2.0",
