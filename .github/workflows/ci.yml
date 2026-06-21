@@ -17,16 +17,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm exec biome ci .
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build workspace .d.ts so cross-package types resolve
         # Skip @opencodehub/docs — its build runs astro + rehype-mermaid +
@@ -55,8 +55,8 @@ jobs:
     env:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       # Remove any stale build output before the incremental `tsc -b` build.
       # A `.test.ts` deleted in source leaves its compiled `dist/**/*.test.js`
@@ -98,8 +98,8 @@ jobs:
       MISE_NODE_VERSION: ${{ matrix.node-version }}
       CODEHUB_PLATFORM: "1" # set via env: (not an inline prefix) so it works on Windows cmd too
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       # Mirror the `test` lane: prune stale build output so a deleted-in-source
       # `dist/**/*.test.js` can't run against an interface it no longer matches.
@@ -115,8 +115,8 @@ jobs:
   sarif-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm -F @opencodehub/sarif build
       - run: pnpm -F @opencodehub/sarif run validate-schema
@@ -124,7 +124,7 @@ jobs:
   banned-strings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - run: bash scripts/check-banned-strings.sh
 
   no-dist-cache:
@@ -134,14 +134,14 @@ jobs:
     # that no longer exists. Cache the pnpm store for speed — never dist/.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - run: bash scripts/check-no-dist-cache.sh
 
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: license allowlist
         # Root is `private: true` with no runtime deps post-collapse; scan
@@ -171,7 +171,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - name: Install osv-scanner
         run: |
           curl -sL -o /tmp/osv-scanner \
