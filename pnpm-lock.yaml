@@ -267,11 +267,11 @@ importers:
         version: 0.35.1
     devDependencies:
       playwright:
-        specifier: ^1.60.0
-        version: 1.60.0
+        specifier: ^1.61.0
+        version: 1.61.0
       rehype-mermaid:
         specifier: ^3.0.0
-        version: 3.0.0(playwright@1.60.0)
+        version: 3.0.0(playwright@1.61.0)
       starlight-links-validator:
         specifier: ^0.24.1
         version: 0.24.1(@astrojs/starlight@0.40.0(astro@6.4.6(@types/node@25.9.3)(jiti@2.6.1)(rollup@4.61.1)(tsx@4.22.4)(yaml@2.9.0))(typescript@6.0.3))(astro@6.4.6(@types/node@25.9.3)(jiti@2.6.1)(rollup@4.61.1)(tsx@4.22.4)(yaml@2.9.0))
@@ -5028,13 +5028,13 @@ packages:
   pkg-types@1.3.1:
     resolution: {integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==}
 
-  playwright-core@1.60.0:
-    resolution: {integrity: sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==}
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright@1.60.0:
-    resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
+  playwright@1.61.0:
+    resolution: {integrity: sha512-Z+7BeeqQPRRzklHsVFP4KTGIyMxKUmfeRA4WisM6G3/XW6nwGeX6fX9qYaDa+CiUqpOkb2f6X3nar05R3kSuJQ==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -10528,13 +10528,13 @@ snapshots:
 
   merge@2.1.1: {}
 
-  mermaid-isomorphic@3.1.0(playwright@1.60.0):
+  mermaid-isomorphic@3.1.0(playwright@1.61.0):
     dependencies:
       '@fortawesome/fontawesome-free': 6.7.2
       katex: 0.16.46
       mermaid: 11.15.0
     optionalDependencies:
-      playwright: 1.60.0
+      playwright: 1.61.0
 
   mermaid@11.15.0:
     dependencies:
@@ -11242,11 +11242,11 @@ snapshots:
       mlly: 1.8.2
       pathe: 2.0.3
 
-  playwright-core@1.60.0: {}
+  playwright-core@1.61.0: {}
 
-  playwright@1.60.0:
+  playwright@1.61.0:
     dependencies:
-      playwright-core: 1.60.0
+      playwright-core: 1.61.0
     optionalDependencies:
       fsevents: 2.3.2
 
@@ -11410,19 +11410,19 @@ snapshots:
       '@types/hast': 3.0.4
       hast-util-format: 1.1.0
 
-  rehype-mermaid@3.0.0(playwright@1.60.0):
+  rehype-mermaid@3.0.0(playwright@1.61.0):
     dependencies:
       '@types/hast': 3.0.4
       hast-util-from-html-isomorphic: 2.0.0
       hast-util-to-text: 4.0.2
-      mermaid-isomorphic: 3.1.0(playwright@1.60.0)
+      mermaid-isomorphic: 3.1.0(playwright@1.61.0)
       mini-svg-data-uri: 1.4.4
       space-separated-tokens: 2.0.2
       unified: 11.0.5
       unist-util-visit-parents: 6.0.2
       vfile: 6.0.3
     optionalDependencies:
-      playwright: 1.60.0
+      playwright: 1.61.0
 
   rehype-minify-whitespace@6.0.2:
     dependencies:
@@ -12586,7 +12586,7 @@ time:
   lru-cache@11.5.1: '2026-05-27T15:04:12.732Z'
   onnxruntime-node@1.26.0: '2026-05-08T19:50:24.041Z'
   piscina@5.2.0: '2026-06-12T08:48:23.250Z'
-  playwright@1.60.0: '2026-05-11T19:09:33.114Z'
+  playwright@1.61.0: '2026-06-15T10:06:22.269Z'
   rehype-mermaid@3.0.0: '2024-10-08T18:54:56.311Z'
   sharp@0.35.1: '2026-06-11T17:10:33.369Z'
   snyk-nodejs-lockfile-parser@2.8.1: '2026-06-16T14:45:43.111Z'
