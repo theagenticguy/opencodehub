@@ -32,6 +32,12 @@ overrides:
   # with security_update_not_possible) and via tsx@4.x (esbuild@0.28.0). Pinned
   # to 0.28.1 — the first patched release — until astro widens its own range.
   esbuild@>=0.27.3 <0.28.1: "0.28.1"
+  # undici < 6.27.0 carries 4 advisories (GHSA-vxpw-j846-p89q HIGH, plus one
+  # MEDIUM and two LOW). Comes in dev-only and deeply transitively via
+  # node-gyp -> @npmcli/run-script -> ... -> license-checker-rseidelsohn.
+  # 6.27.0 is the first patched release on the 6.x line. Floored here so the
+  # OSV lockfile scan stays clean without forcing the undici 8.x major.
+  undici@<6.27.0: "6.27.0"
 
 # packageExtensions patch third-party manifests that under-declare their deps.
 packageExtensions:
