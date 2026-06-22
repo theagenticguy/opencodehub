@@ -47,10 +47,7 @@ export function installSqliteRuntimeGuard(): void {
     typeOrOptions?: string | { type?: string },
     ...rest: unknown[]
   ): void {
-    const type =
-      typeof typeOrOptions === "string"
-        ? typeOrOptions
-        : typeOrOptions?.type;
+    const type = typeof typeOrOptions === "string" ? typeOrOptions : typeOrOptions?.type;
     if (isSqliteExperimentalWarning(warning, type)) return;
     // Delegate everything else untouched.
     (original as (...a: unknown[]) => void)(warning, typeOrOptions, ...rest);

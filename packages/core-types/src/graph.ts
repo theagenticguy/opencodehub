@@ -74,7 +74,9 @@ export class KnowledgeGraph {
         ? rawStep
         : undefined;
     const candidate: CodeRelation =
-      normalizedStep === undefined ? { ...edgeRest, id } : { ...edgeRest, step: normalizedStep, id };
+      normalizedStep === undefined
+        ? { ...edgeRest, id }
+        : { ...edgeRest, step: normalizedStep, id };
     if (!existing) {
       this.edgeByKey.set(key, candidate);
       return;

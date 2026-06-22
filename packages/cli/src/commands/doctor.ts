@@ -60,12 +60,12 @@ export interface DoctorOptions {
    */
   readonly runCommand?: RunCommandFn;
   /**
-   * Injectable loader for the `onnxruntime-node` binding probe. The real
-   * loader is a dynamic `import("onnxruntime-node")` — an OPTIONAL dependency
-   * that ships prebuilds for only a handful of targets, so the binding may be
-   * absent on this platform. Tests inject a double to exercise both the
-   * load-OK and load-failure branches without depending on the host's prebuild
-   * coverage. Defaults to {@link loadOnnxBinding}.
+   * Injectable loader for the `onnxruntime-web` runtime probe. The real loader
+   * is a dynamic `import("onnxruntime-web")` — an OPTIONAL dependency (prebuilt
+   * WASM, no native binding, no platform matrix), so it is either installed or
+   * not. Tests inject a double to exercise both the load-OK and load-failure
+   * branches without depending on whether the host has it. Defaults to
+   * {@link loadOnnxBinding}.
    */
   readonly loadOnnxBinding?: () => Promise<unknown>;
 }
@@ -273,9 +273,7 @@ function nodeSqliteCheck(): Check {
           db.exec("PRAGMA journal_mode=WAL");
           db.exec("CREATE TABLE doctor_probe (n INTEGER)");
           db.prepare("INSERT INTO doctor_probe (n) VALUES (1)").run();
-          const row = db.prepare("SELECT n FROM doctor_probe").get() as
-            | { n?: number }
-            | undefined;
+          const row = db.prepare("SELECT n FROM doctor_probe").get() as { n?: number } | undefined;
           if (row?.n !== 1) {
             return {
               status: "fail",
@@ -858,4 +856,3 @@ function existsSyncSafe(path: string): boolean {
     return false;
   }
 }
-

@@ -24,8 +24,9 @@ test("guard swallows the SQLite experimental warning, passes others through", ()
   }) as typeof process.emitWarning;
   try {
     // Re-install so the guard wraps OUR capture sink as its delegate.
-    (process as unknown as { [k: symbol]: unknown })[Symbol.for("opencodehub.sqlite-runtime.installed")] =
-      undefined;
+    (process as unknown as { [k: symbol]: unknown })[
+      Symbol.for("opencodehub.sqlite-runtime.installed")
+    ] = undefined;
     installSqliteRuntimeGuard();
 
     // SQLite experimental warning → swallowed.
@@ -42,10 +43,7 @@ test("guard swallows the SQLite experimental warning, passes others through", ()
     process.emitWarning = original;
   }
 
-  assert.ok(
-    !seen.some((m) => /sqlite/i.test(m)),
-    "SQLite experimental warning must be swallowed",
-  );
+  assert.ok(!seen.some((m) => /sqlite/i.test(m)), "SQLite experimental warning must be swallowed");
   assert.ok(seen.includes("a normal deprecation"), "non-SQLite warning passes through");
   assert.ok(
     seen.includes("Fetch is an experimental feature"),
