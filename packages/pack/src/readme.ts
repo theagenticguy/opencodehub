@@ -1,5 +1,6 @@
 /**
- * BOM body item: README.md with the determinism contract (item 9 partial).
+ * BOM body item: README.md with the determinism contract (consumer-facing
+ * metadata; not a manifest BomItem).
  *
  * Pure-string renderer; deterministic by construction. The README pastes
  * the determinism contract verbatim and interpolates the manifest's
@@ -31,7 +32,7 @@ export function buildReadme(opts: ReadmeOpts): string {
   const lines: string[] = [];
   lines.push("# OpenCodeHub Code-Pack");
   lines.push("");
-  lines.push("Deterministic 9-item code-pack BOM produced by `@opencodehub/pack`.");
+  lines.push("Deterministic 8-item code-pack BOM produced by `@opencodehub/pack`.");
   lines.push("");
 
   lines.push("## Manifest");
@@ -48,7 +49,6 @@ export function buildReadme(opts: ReadmeOpts): string {
   lines.push("## Pins");
   lines.push("");
   lines.push(`- chonkie_version: \`${manifest.pins.chonkieVersion}\``);
-  lines.push(`- duckdb_version: \`${manifest.pins.duckdbVersion}\``);
   const grammarKeys = Object.keys(manifest.pins.grammarCommits).sort();
   if (grammarKeys.length === 0) {
     lines.push("- grammar_commits: (none)");
@@ -70,7 +70,7 @@ export function buildReadme(opts: ReadmeOpts): string {
   lines.push("## Determinism contract");
   lines.push("");
   lines.push(
-    "Same `(commit, tokenizer_id, budget_tokens, chonkie_version, duckdb_version, grammar_commits)` produces a byte-identical pack and the same `pack_hash`.",
+    "Same `(commit, tokenizer_id, budget_tokens, chonkie_version, grammar_commits)` produces a byte-identical pack and the same `pack_hash`.",
   );
   lines.push("");
   lines.push("- `strict` — every BOM file is byte-identity reproducible.");

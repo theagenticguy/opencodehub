@@ -90,7 +90,6 @@ function toSnakeCaseManifest(m: PackManifest): Record<string, unknown> {
     pack_hash: m.packHash,
     pins: {
       chonkie_version: m.pins.chonkieVersion,
-      duckdb_version: m.pins.duckdbVersion,
       grammar_commits: m.pins.grammarCommits,
     },
     repo_origin_url: m.repoOriginUrl,

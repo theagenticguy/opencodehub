@@ -15,14 +15,12 @@
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { access, open as fsOpen, mkdtemp, readFile, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
 import { BANDIT_SPEC } from "@opencodehub/scanners";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
-import { GRAPH_BINDING_SUPPORTED_PLATFORMS, graphBindingPlatformNote } from "@opencodehub/storage";
 import Table from "cli-table3";
 
 export type CheckStatus = "ok" | "warn" | "fail";
@@ -62,19 +60,12 @@ export interface DoctorOptions {
    */
   readonly runCommand?: RunCommandFn;
   /**
-   * Injectable npm-package resolver for the native-binding checks. Lets a
-   * test simulate an absent `@ladybugdb/core` (the mandatory graph binding
-   * is installed in every dev/CI checkout, so the only way to exercise the
-   * hard-fail path is to stub resolution). Defaults to {@link resolveFromRoot}.
-   */
-  readonly resolveBinding?: (root: string, pkg: string) => string | null;
-  /**
-   * Injectable loader for the `onnxruntime-node` binding probe. The real
-   * loader is a dynamic `import("onnxruntime-node")` — an OPTIONAL dependency
-   * that ships prebuilds for only a handful of targets, so the binding may be
-   * absent on this platform. Tests inject a double to exercise both the
-   * load-OK and load-failure branches without depending on the host's prebuild
-   * coverage. Defaults to {@link loadOnnxBinding}.
+   * Injectable loader for the `onnxruntime-web` runtime probe. The real loader
+   * is a dynamic `import("onnxruntime-web")` — an OPTIONAL dependency (prebuilt
+   * WASM, no native binding, no platform matrix), so it is either installed or
+   * not. Tests inject a double to exercise both the load-OK and load-failure
+   * branches without depending on whether the host has it. Defaults to
+   * {@link loadOnnxBinding}.
    */
   readonly loadOnnxBinding?: () => Promise<unknown>;
 }
@@ -137,12 +128,10 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const run = opts.runCommand ?? runCommand;
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck(run)];
   if (opts.skipNative !== true) {
-    list.push(duckdbWorksCheck(repoRoot));
-    list.push(
-      opts.resolveBinding !== undefined
-        ? lbugWorksCheck(repoRoot, opts.resolveBinding)
-        : lbugWorksCheck(repoRoot),
-    );
+    // node:sqlite is the mandatory single-file store. It is a Node builtin, so
+    // it has no resolve seam (it can't be "absent" the way a node_modules
+    // package can) — the check just imports it and exercises a WAL round-trip.
+    list.push(nodeSqliteCheck());
   }
   // Vendored parse grammars: a shipped artifact, so absence/corruption is
   // always a hard fail. One row covering all 16 blobs + the manifest pin.
@@ -237,104 +226,70 @@ function pnpmInstalledCheck(run: RunCommandFn): Check {
   };
 }
 
-function duckdbWorksCheck(repoRoot: string): Check {
-  return {
-    name: "duckdb native binding",
-    async run() {
-      try {
-        const duckPath = resolveFromRoot(repoRoot, "@duckdb/node-api");
-        if (!duckPath) {
-          return {
-            status: "warn",
-            message: "@duckdb/node-api not installed",
-            hint: "run `pnpm install` at the repo root",
-          };
-        }
-        // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
-        // (`disconnectSync`, `closeSync`). The async `.close()` accessors
-        // were dropped in 1.0.0; depending on them produced a false FAIL.
-        // `resolveFromRoot` returns an absolute fs path; ESM dynamic import
-        // requires a `file://` URL on Windows (a bare `D:\…` path throws
-        // "Only URLs with a scheme in: file, data, node are supported").
-        const mod = (await import(pathToFileURL(duckPath).href)) as {
-          DuckDBInstance: {
-            create: (path: string) => Promise<{
-              connect: () => Promise<{
-                disconnectSync?: () => void;
-                close?: () => void | Promise<void>;
-              }>;
-              closeSync?: () => void;
-              close?: () => void | Promise<void>;
-            }>;
-          };
-        };
-        // In-memory instance: never touches disk, never lingers.
-        const inst = await mod.DuckDBInstance.create(":memory:");
-        const conn = await inst.connect();
-        if (typeof conn.disconnectSync === "function") conn.disconnectSync();
-        else if (typeof conn.close === "function") await conn.close();
-        if (typeof inst.closeSync === "function") inst.closeSync();
-        else if (typeof inst.close === "function") await inst.close();
-        return { status: "ok", message: "duckdb open/close OK" };
-      } catch (err) {
-        return {
-          status: "fail",
-          message: `duckdb failed to open: ${err instanceof Error ? err.message : String(err)}`,
-          hint: "check platform support — pnpm only prebuilds linux-x64/arm64, darwin-arm64/x64, win32-x64",
-        };
-      }
-    },
-  };
-}
-
 /**
- * Mirror of {@link duckdbWorksCheck} for the `@ladybugdb/core` graph
- * binding. The graph tier is mandatory and always-on: there is no
- * selector env var, no probe, and no fallback — a failed binding throws
- * `GraphDbBindingError` and aborts every graph operation. So a
- * missing/broken binding is a hard `fail` here, exactly like a missing
+ * The single-file SQLite store ({@link SqliteStore}) is the mandatory storage
+ * backend: there is no selector env var, no probe, and no fallback — every
+ * graph/temporal operation opens one `node:sqlite` database in WAL mode. So a
+ * non-importable `node:sqlite` is a hard `fail` here, exactly like a missing
  * shipped artifact (see {@link vendoredWasmsCheck}) — never a soft `warn`.
  *
- * `resolve` is injectable so tests can simulate an absent binding without
- * uninstalling the real dependency; production passes {@link resolveFromRoot}.
+ * There is nothing to resolve from `node_modules`: `node:sqlite` is a Node
+ * builtin (stable on Node >= 24.15, our engines floor), so the probe is a
+ * plain `import("node:sqlite")` with no `resolve` injection.
+ * We still exercise the real load-and-use cycle — confirm `DatabaseSync` is a
+ * function, open an in-memory db, request WAL, and run a CREATE/INSERT/SELECT
+ * round-trip — so a builtin that loaded but is unusable still fails loudly.
  */
-function lbugWorksCheck(
-  repoRoot: string,
-  resolve: (root: string, pkg: string) => string | null = resolveFromRoot,
-): Check {
+function nodeSqliteCheck(): Check {
   return {
-    name: "graph-db native binding",
+    name: "node:sqlite built-in",
     async run() {
       try {
-        const lbugPath = resolve(repoRoot, "@ladybugdb/core");
-        if (!lbugPath) {
+        // `node:sqlite` is a builtin; a bare static-string specifier resolves
+        // it without touching `node_modules`. Older Node (< 24.15, below our
+        // engines floor) lacks the module entirely → the import throws.
+        const mod = (await import("node:sqlite")) as {
+          DatabaseSync?: new (
+            path: string,
+          ) => {
+            exec(sql: string): void;
+            prepare(sql: string): { get(): unknown; run(): unknown };
+            close(): void;
+          };
+        };
+        const DatabaseSync = mod.DatabaseSync;
+        if (typeof DatabaseSync !== "function") {
           return {
             status: "fail",
-            message: "@ladybugdb/core not installed (required graph backend)",
-            hint: lbugFailureHint(),
+            message: "node:sqlite imported but exports no DatabaseSync constructor",
+            hint: nodeSqliteFailureHint(),
           };
         }
-        // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
-        // exercise the load-and-close cycle the same way the duckdb check
-        // does — anything heavier would couple this probe to the adapter's
-        // evolving smoke-test surface. `lbugPath` is an absolute fs path;
-        // ESM import needs a `file://` URL on Windows (see duckdb check).
-        const mod = (await import(pathToFileURL(lbugPath).href)) as Record<string, unknown>;
-        const ctorRaw =
-          mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
-        if (typeof ctorRaw !== "function") {
-          return {
-            status: "fail",
-            message: "@ladybugdb/core is installed but exports no Database constructor",
-            hint: lbugFailureHint(),
-          };
+        // In-memory database: never touches disk, never lingers. We request
+        // WAL (the mode the real SqliteStore opens with) and run a trivial
+        // round-trip to prove the binding is usable, not merely importable.
+        const db = new DatabaseSync(":memory:");
+        try {
+          db.exec("PRAGMA journal_mode=WAL");
+          db.exec("CREATE TABLE doctor_probe (n INTEGER)");
+          db.prepare("INSERT INTO doctor_probe (n) VALUES (1)").run();
+          const row = db.prepare("SELECT n FROM doctor_probe").get() as { n?: number } | undefined;
+          if (row?.n !== 1) {
+            return {
+              status: "fail",
+              message: "node:sqlite round-trip returned an unexpected value",
+              hint: nodeSqliteFailureHint(),
+            };
+          }
+        } finally {
+          db.close();
         }
-        return { status: "ok", message: "@ladybugdb/core load OK" };
+        return { status: "ok", message: "node:sqlite (built-in) load + WAL OK" };
       } catch (err) {
         return {
           status: "fail",
-          message: `@ladybugdb/core failed to load: ${err instanceof Error ? err.message : String(err)}`,
-          hint: lbugFailureHint(),
+          message: `node:sqlite failed to load: ${err instanceof Error ? err.message : String(err)}`,
+          hint: nodeSqliteFailureHint(),
         };
       }
     },
@@ -342,22 +297,13 @@ function lbugWorksCheck(
 }
 
 /**
- * Hint for every `@ladybugdb/core` failure path. On a SUPPORTED platform a
- * reinstall can plausibly fix it (a pruned `--production` install, a partial
- * download), so we lead with that. On an UNSUPPORTED platform — win32-arm64
- * or musl/Alpine, where there is no prebuilt at all — `graphBindingPlatformNote`
- * names the gap so the user does not chase a futile reinstall. We reuse the
- * adapter's shared message (single source of truth) so doctor and the runtime
- * `GraphDbBindingError` never drift.
+ * Hint for every `node:sqlite` failure path. The module is a Node builtin, so
+ * there is nothing to install or reinstall — the only realistic cause is a Node
+ * older than our engines floor, where the builtin either does not exist or is
+ * behind an unsupported experimental gate. Point the user at the Node version.
  */
-function lbugFailureHint(): string {
-  const platformNote = graphBindingPlatformNote();
-  if (platformNote !== "") {
-    // Unsupported platform: a reinstall cannot produce a binding that does
-    // not ship. Name the gap + the realistic remedy.
-    return `${GRAPH_BINDING_SUPPORTED_PLATFORMS}${platformNote}`;
-  }
-  return `reinstall the graph backend binding (\`pnpm install\`, or \`npm i -g @opencodehub/cli\`). ${GRAPH_BINDING_SUPPORTED_PLATFORMS}`;
+function nodeSqliteFailureHint(): string {
+  return "node:sqlite is a built-in on Node >= 24.15 (our engines floor); upgrade Node with `mise use node@24` or `nvm install 24`";
 }
 
 /**
@@ -656,61 +602,38 @@ function embedderWeightsCheck(home: string): Check {
 }
 
 /**
- * Default loader for the `onnxruntime-node` binding. The CLI lazy-imports the
- * runtime only when embeddings are enabled (see
- * `embedder/src/onnx-embedder.ts`), so this probe mirrors that exact dynamic
- * import. `onnxruntime-node` is an OPTIONAL dependency — production resolves it
- * from the CLI's own `node_modules`.
+ * Default loader for the `onnxruntime-web` runtime. The CLI lazy-imports it
+ * only when embeddings are enabled (see `embedder/src/onnx-embedder.ts`), so
+ * this probe mirrors that exact dynamic import. `onnxruntime-web` is an
+ * OPTIONAL dependency — production resolves it from the CLI's own
+ * `node_modules`. Unlike the old `onnxruntime-node`, it is prebuilt WebAssembly
+ * with NO native binding and NO platform matrix: if it imports, it runs
+ * everywhere Node ≥24 does.
  */
 function loadOnnxBinding(): Promise<unknown> {
   // A template-string specifier keeps tsup/esbuild from statically resolving
-  // (and force-bundling) the optional native module at build time — it must
-  // resolve from `node_modules` at runtime, exactly like the embedder's own
-  // lazy `import("onnxruntime-node")`.
-  const specifier = "onnxruntime-node";
+  // (and force-bundling) the optional module at build time — it must resolve
+  // from `node_modules` at runtime, exactly like the embedder's own lazy
+  // `import("onnxruntime-web")`.
+  const specifier = "onnxruntime-web";
   return import(specifier);
 }
 
 /**
- * Platform-specific guidance for a missing `onnxruntime-node` prebuilt.
- * onnxruntime-node 1.x ships prebuilt binaries for darwin-arm64, linux-x64,
- * linux-arm64 (glibc), win32-x64, and win32-arm64 — but NOT darwin-x64
- * (Intel Mac) and NOT musl/Alpine Linux. On those targets the optional binding
- * cannot load and retrieval silently degrades to BM25-only. Naming the gap
- * here stops the user chasing a futile reinstall.
- *
- * Returns an empty string when the platform is one onnxruntime ships a prebuilt
- * for (no extra note to add).
- */
-function onnxBindingPlatformNote(
-  platform: NodeJS.Platform = process.platform,
-  arch: string = process.arch,
-): string {
-  if (platform === "darwin" && arch === "x64") {
-    return " Intel macOS (darwin-x64) has no onnxruntime-node prebuilt; use an Apple-silicon mac or a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT).";
-  }
-  if (platform === "linux") {
-    return " Alpine / musl-libc Linux has no onnxruntime-node prebuilt; use a glibc-based image (node:* not node:*-alpine) or a remote embedder.";
-  }
-  return "";
-}
-
-/**
- * Probe the OPTIONAL `onnxruntime-node` binding the same way the embedder
- * does — a lazy dynamic import. Unlike the duckdb/lbug probes, this is
- * deliberately NON-FATAL: the embedder is an optional capability, and the real
- * failure mode is a SILENT degrade to BM25-only retrieval (the embedder open
- * path catches the native-load error and falls back). So an absent/broken
- * binding is a `warn`, never a `fail`. The warn message names the platform gap
- * (Intel mac / musl) so the user is not left wondering why search quality
- * dropped.
+ * Probe the OPTIONAL `onnxruntime-web` runtime the same way the embedder does —
+ * a lazy dynamic import. Deliberately NON-FATAL: the embedder is an optional
+ * capability and the real failure mode is a SILENT degrade to BM25-only
+ * retrieval (the embedder open path catches the load error and falls back). So
+ * an absent runtime is a `warn`, never a `fail`. Because onnxruntime-web is
+ * prebuilt WASM with no platform matrix, there is no platform-specific gap to
+ * name — if the import fails the package simply isn't installed.
  *
  * `load` is injectable so tests can drive both branches without depending on
- * whatever prebuild coverage the host happens to have.
+ * whether the optional package is present on the host.
  */
 function embedderBindingCheck(load: () => Promise<unknown> = loadOnnxBinding): Check {
   return {
-    name: "embedder native binding",
+    name: "embedder runtime (onnxruntime-web, WASM)",
     async run() {
       try {
         const mod = (await load()) as Record<string, unknown> | undefined;
@@ -721,17 +644,17 @@ function embedderBindingCheck(load: () => Promise<unknown> = loadOnnxBinding): C
           return {
             status: "warn",
             message:
-              "onnxruntime-node loaded but exports no InferenceSession — retrieval will use BM25 only",
-            hint: `the local embedder is unavailable; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) or reinstall onnxruntime-node.${onnxBindingPlatformNote()}`,
+              "onnxruntime-web loaded but exports no InferenceSession — retrieval will use BM25 only",
+            hint: "the local embedder is unavailable; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) or reinstall onnxruntime-web.",
           };
         }
-        return { status: "ok", message: "onnxruntime-node load OK" };
+        return { status: "ok", message: "onnxruntime-web (WASM) load OK" };
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         return {
           status: "warn",
-          message: `embedder unavailable on this platform → retrieval will use BM25 only (${detail})`,
-          hint: `the local ONNX embedder is optional; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to embed off-box.${onnxBindingPlatformNote()}`,
+          message: `embedder runtime not installed → retrieval will use BM25 only (${detail})`,
+          hint: "the local WASM embedder is optional; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to embed off-box.",
         };
       }
     },
@@ -932,41 +855,4 @@ function existsSyncSafe(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function resolveFromRoot(repoRoot: string, pkg: string): string | null {
-  // 1. CLI's own resolution context — the canonical answer.
-  try {
-    const req = createRequire(import.meta.url);
-    return req.resolve(pkg);
-  } catch {
-    // fall through to repoRoot
-  }
-  // 2. Workspace/monorepo root fallback.
-  try {
-    const req = createRequire(join(repoRoot, "package.json"));
-    return req.resolve(pkg);
-  } catch {
-    // fall through to per-package fallbacks
-  }
-  // 3. Per-workspace fallback. Under pnpm strict isolation, native bindings
-  //    are direct deps of the package that uses them — `@duckdb/node-api`
-  //    and `@ladybugdb/core` both live in `packages/storage`. Probing that
-  //    package.json context lets `codehub doctor` resolve the bindings
-  //    even when neither the CLI nor the workspace root declare them as
-  //    direct deps. (The pure-JS `@sourcegraph/scip-*` indexers are NOT
-  //    resolved here — `scipIndexerCheck` checks them via
-  //    `hostedScipBinDirs()`, the same resolver the analyze-time spawn PATH
-  //    uses, which is the layout-correct authority for "will analyze find it".)
-  const owners =
-    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/") ? ["packages/storage"] : [];
-  for (const owner of owners) {
-    try {
-      const req = createRequire(join(repoRoot, owner, "package.json"));
-      return req.resolve(pkg);
-    } catch {
-      // try next
-    }
-  }
-  return null;
 }

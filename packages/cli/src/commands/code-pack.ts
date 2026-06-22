@@ -1,5 +1,5 @@
 /**
- * `codehub code-pack [path]` — produce the deterministic 9-item BOM via
+ * `codehub code-pack [path]` — produce the deterministic 8-item BOM via
  * `@opencodehub/pack`.
  *
  * Output goes to `<repo>/.codehub/packs/<packHash>/` so a pack's identity
@@ -11,11 +11,8 @@
  * Two engines are supported via the `--engine` flag:
  *   - `pack` (DEFAULT) — `@opencodehub/pack`'s `generatePack`. Opens a
  *     read-only graph store via `openStore({ readOnly: true })` and walks
- *     the indexed graph to produce the 8 mandatory BOM items + manifest +
- *     optional Parquet embeddings sidecar. The sidecar emitter lives in
- *     `@opencodehub/pack`; cli/ passes the composed `Store` and pack
- *     streams lbug embeddings through the DuckDB temporal store's
- *     deterministic COPY-to-Parquet path.
+ *     the indexed graph to produce the 7 BOM body items + manifest, plus a
+ *     consumer-facing readme. cli/ passes the composed `Store`.
  *   - `repomix` — legacy single-file snapshot via `npx repomix`. Retained
  *     under an opt-in flag for one milestone before removal. Internally
  *     delegates to `runPack` so the repomix shell-out is implemented
@@ -90,10 +87,9 @@ export interface CodePackResult {
   /** SHA256 of the manifest's canonical JSON (excluding `packHash`). */
   readonly packHash: string;
   /**
-   * Number of artifacts on disk that contribute to the BOM (mandatory
-   * 8 BOM items + manifest = 9; +1 if the embeddings.parquet sidecar
-   * was emitted). For the repomix engine this is 1 — repomix produces a
-   * single output file rather than the 9-item BOM.
+   * Number of artifacts on disk that contribute to the BOM (7 BOM body
+   * items + manifest = 8). For the repomix engine this is 1 — repomix
+   * produces a single output file rather than the 8-item BOM.
    */
   readonly bomItemCount: number;
   /** The pack manifest. `null` for the repomix engine — it does not produce one. */
@@ -139,11 +135,9 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   const owned = ownsStore
     ? await (async () => {
         const composed = await openStore({ path: dbPath, readOnly: true });
+        // graph and temporal are the same single-file SqliteStore instance
+        // (open() is idempotent); the pack reads only the graph view.
         await composed.graph.open();
-        // Pack stages embeddings through `temporal.exportEmbeddingsToParquet`,
-        // so the temporal DuckDB also needs an open connection — the graph
-        // view alone is not enough.
-        await composed.temporal.open();
         return composed;
       })()
     : undefined;
@@ -191,11 +185,11 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
     await rename(stagingDir, finalOutDir);
 
     // BOM item count = manifest.files[].length (skeleton, file-tree, deps,
-    // ast-chunks, xrefs, findings, licenses, [embeddings.parquet]) + 1 for
-    // the manifest itself. The readme.md is consumer-facing metadata and is
-    // not part of the manifest hash preimage; we still report it as an
-    // on-disk artifact downstream by walking the dir, but the BOM count
-    // tracks the deterministic items only.
+    // ast-chunks, xrefs, findings, licenses) + 1 for the manifest itself.
+    // The readme.md is consumer-facing metadata and is not part of the
+    // manifest hash preimage; we still report it as an on-disk artifact
+    // downstream by walking the dir, but the BOM count tracks the
+    // deterministic items only.
     const bomItemCount = manifest.files.length + 1;
 
     return {
@@ -222,7 +216,7 @@ async function runRepomixEngine(repoPath: string, args: CodePackArgs): Promise<C
   // either engine uniformly. `packHash` is a sha256 over the file's bytes,
   // which gives operators a deterministic identifier even though repomix
   // does not emit a manifest. `bomItemCount` is 1 — repomix is a
-  // single-file snapshot, not the 9-item BOM.
+  // single-file snapshot, not the 8-item BOM.
   const bytes = await readFile(result.outputPath);
   const packHash = createHash("sha256").update(bytes).digest("hex");
   return {

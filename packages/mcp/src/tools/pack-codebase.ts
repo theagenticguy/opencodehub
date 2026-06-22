@@ -3,12 +3,11 @@
  * to consume.
  *
  * Two engines are supported via the `engine` input field:
- *   - `pack` (DEFAULT) — `@opencodehub/pack`'s deterministic 9-item BOM
+ *   - `pack` (DEFAULT) — `@opencodehub/pack`'s deterministic 8-item BOM
  *     written to `<repo>/.codehub/packs/<packHash>/`. The BOM is what
  *     downstream agents should consume — it carries skeleton + file-tree
- *     + deps + ast-chunks + xrefs + findings + licenses + readme +
- *     optional embeddings.parquet, all bound by a manifest with a
- *     content-addressed `pack_hash`.
+ *     + deps + ast-chunks + xrefs + findings + licenses + readme, all
+ *     bound by a manifest with a content-addressed `pack_hash`.
  *   - `repomix` — the legacy single-file XML/Markdown snapshot under
  *     `<repo>/.codehub/pack/repo.<ext>`. Retained as an opt-in for one
  *     milestone (drop deferred to M7 per spec 005 Q-DELTA-6). Operators
@@ -57,7 +56,7 @@ const PackInput = z.object({
     .optional()
     .default("pack")
     .describe(
-      "Engine: `pack` (default) writes the 9-item BOM via @opencodehub/pack. " +
+      "Engine: `pack` (default) writes the 8-item BOM via @opencodehub/pack. " +
         "`repomix` is the legacy single-file snapshot, retained as an opt-in.",
     ),
   budget: z
@@ -367,8 +366,8 @@ export function registerPackCodebaseTool(server: McpServer, ctx: ToolContext): v
       title: "Pack a repo into an LLM-ready snapshot",
       description:
         "Produce a snapshot of a registered repo. The default `pack` engine writes the deterministic " +
-        "9-item BOM (manifest + skeleton + file-tree + deps + ast-chunks + xrefs + findings + " +
-        "licenses + readme + optional embeddings.parquet) under <repo>/.codehub/packs/<packHash>/. " +
+        "8-item BOM (manifest + skeleton + file-tree + deps + ast-chunks + xrefs + findings + " +
+        "licenses) plus a readme under <repo>/.codehub/packs/<packHash>/. " +
         "The legacy `repomix` engine is retained as an opt-in single-file snapshot (drop deferred to M7). " +
         "For relational/structural questions about the repo, prefer query/context/impact — those are " +
         "backed by the SCIP graph and give graph-aware answers without consuming context window.",

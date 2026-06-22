@@ -2,7 +2,7 @@
   "name": "@opencodehub/storage",
   "version": "0.3.0",
   "private": true,
-  "description": "OpenCodeHub — DuckDB graph store (@duckdb/node-api + hnsw_acorn + fts)",
+  "description": "OpenCodeHub — single-file SQLite store (node:sqlite, WAL)",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -24,6 +24,10 @@
     "./test-utils": {
       "types": "./dist/test-utils/index.d.ts",
       "import": "./dist/test-utils/index.js"
+    },
+    "./sqlite-runtime": {
+      "types": "./dist/sqlite-runtime.d.ts",
+      "import": "./dist/sqlite-runtime.js"
     }
   },
   "files": [
@@ -42,8 +46,6 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@duckdb/node-api": "1.5.3-r.3",
-    "@ladybugdb/core": "^0.17.1",
     "@opencodehub/core-types": "workspace:*"
   },
   "devDependencies": {

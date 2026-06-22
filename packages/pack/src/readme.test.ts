@@ -24,7 +24,6 @@ const FIXTURE_MANIFEST: PackManifest = {
   budgetTokens: 100_000,
   pins: {
     chonkieVersion: "0.0.9",
-    duckdbVersion: "1.1.3",
     grammarCommits: {
       python: "a".repeat(40),
       typescript: "b".repeat(40),
@@ -61,7 +60,6 @@ test("B. manifest fields are interpolated into the README", () => {
   assert.ok(md.includes("100000"));
   assert.ok(md.includes("strict"));
   assert.ok(md.includes(FIXTURE_MANIFEST.pins.chonkieVersion));
-  assert.ok(md.includes(FIXTURE_MANIFEST.pins.duckdbVersion));
 });
 
 test("C. BOM item paths are alpha-sorted regardless of input order", () => {

@@ -1,18 +1,4 @@
 export { assertReadOnlyCypher, CypherGuardError } from "./cypher-guard.js";
-export { classifyLicenseTier, DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
-export {
-  GRAPH_BINDING_SUPPORTED_PLATFORMS,
-  GraphDbBindingError,
-  GraphDbStore,
-  type GraphDbStoreOptions,
-  graphBindingPlatformNote,
-  NotImplementedError,
-} from "./graphdb-adapter.js";
-export {
-  type GraphDbSchemaOptions,
-  generateSchemaDdl,
-  getAllRelationTypes,
-} from "./graphdb-schema.js";
 export type {
   AncestorTraversalOptions,
   BulkLoadOptions,
@@ -48,6 +34,7 @@ export type {
   VectorQuery,
   VectorResult,
 } from "./interface.js";
+export { classifyLicenseTier } from "./license.js";
 export { readStoreMeta, writeStoreMeta } from "./meta.js";
 export {
   describeArtifacts,
@@ -59,86 +46,74 @@ export {
   resolveRegistryPath,
   resolveRepoMetaDir,
 } from "./paths.js";
+export { getAllRelationTypes } from "./relations.js";
 export { generateSchemaDDL, type SchemaOptions } from "./schema-ddl.js";
 export { assertReadOnlySql, SqlGuardError } from "./sql-guard.js";
+export { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
+export { installSqliteRuntimeGuard } from "./sqlite-runtime.js";
 
 import { dirname, join } from "node:path";
-import { DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
-import { GraphDbStore, type GraphDbStoreOptions } from "./graphdb-adapter.js";
 import type { OpenStoreOptions as ApiOpenStoreOptions, OpenStoreResult } from "./interface.js";
-import { describeArtifacts } from "./paths.js";
+import { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 
 /**
- * Combined options accepted by {@link openStore}. Backwards-compatible
- * superset of the spec-level {@link ApiOpenStoreOptions} that adds the
- * `duckOptions` / `graphDbOptions` adapter-specific bag so existing
- * callers (analyze CLI, ingestion harness) can pass through precise
- * per-backend tuning.
+ * Combined options accepted by {@link openStore}. Superset of the spec-level
+ * {@link ApiOpenStoreOptions} that adds the SQLite-adapter tuning bag. The
+ * single-file store replaced the lbug + DuckDB pair (ADR 0017), so the former
+ * `duckOptions` / `graphDbOptions` per-backend bags are gone.
  */
 export interface OpenStoreOptions extends ApiOpenStoreOptions {
-  readonly duckOptions?: DuckDbStoreOptions;
-  readonly graphDbOptions?: GraphDbStoreOptions;
+  /** SQLite-adapter tuning (journal mode, busy timeout). */
+  readonly sqliteOptions?: SqliteStoreOptions;
 }
 
 /**
- * Compose paired graph + temporal artifact paths. The graph artifact is
- * `<dir>/graph.lbug` (lbug owns this file); the temporal sidecar is
- * `<dir>/temporal.duckdb`.
- *
- * The input `path` is treated as the directory anchor — its dirname is
- * the `<repo>/.codehub/` parent, and the canonical filenames are
- * appended. `:memory:` is a special case for tests: both views resolve
- * to `:memory:` and no filesystem layout applies.
+ * Resolve the single store file. The whole index now lives in ONE
+ * `<dir>/store.sqlite` (WAL) — there is no graph.lbug / temporal.duckdb
+ * split. The input `path` is the directory anchor (its dirname is the
+ * `<repo>/.codehub/` parent); `:memory:` short-circuits for tests.
  */
-function composeArtifactPaths(path: string): { graphFile: string; temporalFile: string } {
-  if (path === ":memory:") {
-    return { graphFile: ":memory:", temporalFile: ":memory:" };
-  }
-  const dir = dirname(path);
-  const { graphFile, temporalFile } = describeArtifacts();
-  return {
-    graphFile: join(dir, graphFile),
-    temporalFile: join(dir, temporalFile),
-  };
+function resolveStoreFile(path: string): string {
+  if (path === ":memory:") return ":memory:";
+  return join(dirname(path), "store.sqlite");
 }
 
 /**
- * Factory that returns a composed graph + temporal {@link OpenStoreResult}.
+ * Factory returning an {@link OpenStoreResult} whose `graph` and `temporal`
+ * views are the SAME {@link SqliteStore} instance over one
+ * `<dir>/store.sqlite` file. Because one object satisfies both
+ * {@link IGraphStore} and {@link ITemporalStore}, every existing call site
+ * (`store.graph.X()` / `store.temporal.Y()`) keeps working unchanged — both
+ * now hit the same connection and file.
  *
- * A `GraphDbStore` instance backs the `graph` view at `<dir>/graph.lbug`;
- * a separate `DuckDbStore` over the sibling `<dir>/temporal.duckdb`
- * backs the `temporal` view. `OpenStoreResult.close()` closes both in
- * deterministic order — graph first, temporal second.
- *
- * The factory only constructs — callers still own the `open()` lifecycle
- * call so failures are attributable to the lifecycle boundary rather
- * than the factory.
+ * The factory only constructs; callers own the `open()` lifecycle. Opening
+ * the shared instance twice (once via `store.graph`, once via
+ * `store.temporal`, as the CLI's open-store helper does) is safe — `open()`
+ * is idempotent. `close()` closes the single handle once.
  */
 export async function openStore(opts: OpenStoreOptions): Promise<OpenStoreResult> {
-  const { graphFile, temporalFile } = composeArtifactPaths(opts.path);
+  const storeFile = resolveStoreFile(opts.path);
 
-  const graphDbOptions: GraphDbStoreOptions = {
-    ...(opts.graphDbOptions ?? {}),
+  const sqliteOptions: SqliteStoreOptions = {
+    ...(opts.sqliteOptions ?? {}),
     ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
     ...(opts.embeddingDim !== undefined ? { embeddingDim: opts.embeddingDim } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   };
-  const duckOptions: DuckDbStoreOptions = {
-    ...(opts.duckOptions ?? {}),
-    ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
-    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-  };
 
-  const graph = new GraphDbStore(graphFile, graphDbOptions);
-  const temporal = new DuckDbStore(temporalFile, duckOptions);
+  const store = new SqliteStore(storeFile, sqliteOptions);
+  let closed = false;
   return {
-    graph,
-    temporal,
-    graphFile,
-    temporalFile,
+    graph: store,
+    temporal: store,
+    graphFile: storeFile,
+    temporalFile: storeFile,
     close: async () => {
-      await graph.close();
-      await temporal.close();
+      // Both views are one instance; close once even though callers may
+      // invoke close() through the single envelope.
+      if (closed) return;
+      closed = true;
+      await store.close();
     },
   };
 }

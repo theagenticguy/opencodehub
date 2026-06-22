@@ -38,20 +38,6 @@ import {
 import { openStore, resolveGraphPath, resolveRepoMetaDir } from "@opencodehub/storage";
 import { loadPreviousGraph } from "./analyze.js";
 
-// These tests exercise the real lbug graph round-trip, so they require the
-// `@ladybugdb/core` native binding. CI installs with `--ignore-scripts`, which
-// skips the binding's prebuilt-copy install step, so the binding is unloadable
-// there — skip cleanly in that case, mirroring the `hasNativeBinding()` idiom in
-// `@opencodehub/storage`'s graphdb-roundtrip tests rather than hard-failing.
-async function hasNativeBinding(): Promise<boolean> {
-  try {
-    await import("@ladybugdb/core");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Build a minimal prior index + sidecar fixture:
  *   - `File` + `Function` + `Community` + `Process` nodes so the carry-
@@ -204,11 +190,7 @@ async function seedPriorIndex(repoPath: string): Promise<{
   return { nodeCount: graph.nodeCount(), edgeCount: graph.edgeCount() };
 }
 
-test("loadPreviousGraph: returns full nodes + edges from a seeded DuckDB", async (t) => {
-  if (!(await hasNativeBinding())) {
-    t.skip("@ladybugdb/core native binding unavailable");
-    return;
-  }
+test("loadPreviousGraph: returns full nodes + edges from a seeded DuckDB", async () => {
   const repoPath = await mkdtemp(join(tmpdir(), "och-carry-forward-"));
   const seeded = await seedPriorIndex(repoPath);
 
@@ -246,11 +228,7 @@ test("loadPreviousGraph: returns full nodes + edges from a seeded DuckDB", async
   assert.equal(procFields.stepCount, 1);
 });
 
-test("loadPreviousGraph result satisfies resolveIncrementalView active=true precondition", async (t) => {
-  if (!(await hasNativeBinding())) {
-    t.skip("@ladybugdb/core native binding unavailable");
-    return;
-  }
+test("loadPreviousGraph result satisfies resolveIncrementalView active=true precondition", async () => {
   // The active=true branch of `resolveIncrementalView`
   // (`packages/ingestion/src/pipeline/phases/incremental-helper.ts:95-102`)
   // returns true iff:

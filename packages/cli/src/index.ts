@@ -12,7 +12,13 @@ import { readFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// Silence the one-shot node:sqlite ExperimentalWarning before any subcommand
+// lazily loads the storage layer. This module is dependency-free (no native
+// binding), so importing it eagerly does not regress `--help` startup cost.
+import { installSqliteRuntimeGuard } from "@opencodehub/storage/sqlite-runtime";
 import { Command } from "commander";
+
+installSqliteRuntimeGuard();
 
 // Read the CLI's own version from its package.json. The bin entry is always
 // emitted at <pkg-root>/dist/index.js in every layout (the tsup collapse keeps
@@ -42,7 +48,7 @@ program
   .command("analyze [path]")
   .description("Index a repository at [path] (default: current directory)")
   .option("--force", "Ignore registry cache and re-run the pipeline")
-  .option("--embeddings", "Embed symbols and populate the DuckDB embeddings table")
+  .option("--embeddings", "Embed symbols and populate the embeddings table in store.sqlite")
   .option("--embeddings-int8", "Use the int8 embedder variant (~23 MB) instead of fp32")
   .option(
     "--granularity <csv>",
@@ -341,8 +347,8 @@ program
 program
   .command("code-pack [path]")
   .description(
-    "Produce the deterministic 9-item code-pack BOM (manifest + skeleton + file-tree + deps + " +
-      "ast-chunks + xrefs + findings + licenses + readme + optional embeddings.parquet) at " +
+    "Produce the deterministic 8-item code-pack BOM (manifest + skeleton + file-tree + deps + " +
+      "ast-chunks + xrefs + findings + licenses) plus a readme at " +
       "<repo>/.codehub/packs/<packHash>/. Default engine is the new @opencodehub/pack BOM; " +
       "--engine repomix opts into the legacy single-file snapshot (drop deferred to M7).",
   )
@@ -361,7 +367,7 @@ program
   )
   .option(
     "--engine <engine>",
-    "Engine: pack (default — 9-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
+    "Engine: pack (default — 8-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
     "pack",
   )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
@@ -694,7 +700,10 @@ program
   .description(
     "Probe the local environment (node/pnpm/native bindings/vendored grammars/scip indexers/scanners/registry) and print actionable hints",
   )
-  .option("--skip-native", "Skip checks that require native bindings (duckdb / lbug)")
+  .option(
+    "--skip-native",
+    "Skip checks that require native bindings (no longer any; retained for compat)",
+  )
   .option(
     "--strict",
     "Treat a missing SCIP indexer as a failure (exit 2), not a warning — for release/CI gates",

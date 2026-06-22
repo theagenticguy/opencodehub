@@ -115,7 +115,6 @@ test("ITemporalStore-shaped value lacks graph methods at runtime", () => {
     createSchema: async () => {},
     healthCheck: async () => ({ ok: true }),
     exec: async () => [],
-    exportEmbeddingsToParquet: async () => ({ rowCount: 0, duckdbVersion: "test" }),
     bulkLoadCochanges: async () => {},
     lookupCochangesForFile: async (): Promise<readonly CochangeRow[]> => [],
     lookupCochangesBetween: async () => undefined,

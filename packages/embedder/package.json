@@ -43,7 +43,7 @@
     "@opencodehub/core-types": "workspace:*"
   },
   "optionalDependencies": {
-    "onnxruntime-node": "1.26.0"
+    "onnxruntime-web": "1.27.0"
   },
   "devDependencies": {
     "@types/node": "25.9.3",

@@ -128,9 +128,9 @@ export type GraphDialect = "cypher";
  * capability and skipped cleanly when the adapter throws "not implemented"
  * or returns `[]` for a known-non-empty query.
  *
- * Both in-tree adapters (`DuckDbStore`, `GraphDbStore`) opt into this
- * suite from their own test files — any future signature change here
- * MUST keep the conformance suite green on both before landing.
+ * The in-tree adapter (`SqliteStore`) opts into this suite from its own
+ * test file — any future signature change here MUST keep the conformance
+ * suite green before landing.
  */
 export interface IGraphStore {
   /**
@@ -175,15 +175,13 @@ export interface IGraphStore {
    */
   listEmbeddingHashes(): Promise<Map<string, string>>;
   /**
-   * Stream every embedding row with deterministic ordering — used by
-   * `pack/embeddings-sidecar.ts` to write the Parquet artifact without
+   * Stream every embedding row with deterministic ordering, without
    * materializing the full embeddings table in memory.
    *
    * The result is `AsyncIterable<EmbeddingRow>` (NOT `Promise<readonly
    * EmbeddingRow[]>`). Adapters MUST implement this as `async function*`
    * so the caller can `for await (const row of store.listEmbeddings())`.
-   * Order: `(node_id ASC, granularity ASC, chunk_index ASC)` — matches
-   * the Parquet writer's row-group order.
+   * Order: `(node_id ASC, granularity ASC, chunk_index ASC)`.
    *
    * Optional filters narrow the stream by node kind (joined to `nodes`)
    * and cap total rows. Empty `kindFilter` short-circuits to an empty
@@ -414,21 +412,6 @@ export interface ITemporalStore {
     params?: readonly SqlParam[],
     opts?: { readonly timeoutMs?: number },
   ): Promise<readonly Record<string, unknown>[]>;
-
-  /**
-   * Stage an `EmbeddingRow` stream through a per-call DuckDB temp table and
-   * COPY it to a Parquet file. Used by `pack/embeddings-sidecar.ts` to
-   * produce the deterministic Parquet sidecar from rows that originate in
-   * `graph.lbug`. The temp table is dropped before the call returns.
-   *
-   * Returns `{rowCount: 0}` when the stream is empty (no file written).
-   * `duckdbVersion` is the runtime `SELECT version()` result — pinned by
-   * the pack manifest so the writer version stays bound to the artifact.
-   */
-  exportEmbeddingsToParquet(
-    rows: AsyncIterable<EmbeddingRow>,
-    absOutPath: string,
-  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }>;
 
   // ── Cochange surface (was on IGraphStore via CochangeStore) ───────────────
   /** Replace the cochanges table contents with the supplied rows. */

@@ -51,6 +51,15 @@ export interface EmbedderConfig {
   readonly maxSequenceLength?: number;
   /** L2-normalize the output vector. Defaults to `true`. */
   readonly normalize?: boolean;
+  /**
+   * Directory containing the onnxruntime-web `.wasm` artifacts
+   * (`ort-wasm-simd-threaded.*.wasm`). Sets `ort.env.wasm.wasmPaths`. When
+   * omitted, onnxruntime-web resolves its own bundled WASM next to its module
+   * entry — correct for a source checkout / plain `node_modules` install. The
+   * bundled CLI passes the dir its asset walk-up resolved, because the tsup
+   * bundle relocates the module away from its sibling `.wasm` files.
+   */
+  readonly wasmDir?: string;
 }
 
 /**

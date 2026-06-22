@@ -2,14 +2,12 @@
  * @opencodehub/pack — deterministic code-pack BOM.
  *
  * Public surface:
- *   - generatePack(opts): assembles the 9-item BOM (skeleton, file-tree,
- *     deps, ast-chunks, xrefs, findings, licenses.md, readme.md, optional
- *     Parquet embeddings sidecar) plus the manifest. The Parquet sidecar
- *     is absent when no embeddings exist.
+ *   - generatePack(opts): assembles the 8-item BOM (manifest + skeleton +
+ *     file-tree + deps + ast-chunks + xrefs + findings + licenses.md), plus
+ *     a consumer-facing readme.md derived from the manifest.
  *   - buildManifest / serializeManifest: BOM manifest + pack_hash.
  *   - Per-BOM-item builders re-exported for direct use (skeleton, file-tree,
- *     deps, ast-chunker, xrefs, findings, licenses, readme,
- *     embeddings-sidecar).
+ *     deps, ast-chunker, xrefs, findings, licenses, readme).
  *   - Type surface: {BomItem, DeterminismClass, PackManifest, PackOpts, PackPins}.
  */
 
@@ -24,7 +22,6 @@ import {
   buildAstChunks,
 } from "./ast-chunker.js";
 import { buildDeps } from "./deps.js";
-import { type SidecarDeterminismClass, writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 import { buildFileTree } from "./file-tree.js";
 import { buildFindings } from "./findings.js";
 import { buildLicenses } from "./licenses.js";
@@ -38,13 +35,6 @@ export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.j
 export { buildAstChunks } from "./ast-chunker.js";
 export type { DepRow, DepsOpts } from "./deps.js";
 export { buildDeps } from "./deps.js";
-export type {
-  SidecarDeterminismClass,
-  SidecarOptions,
-  SidecarResult,
-  SidecarWriterBackend,
-} from "./embeddings-sidecar.js";
-export { writeEmbeddingsSidecar } from "./embeddings-sidecar.js";
 export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";
 export { buildFileTree } from "./file-tree.js";
 export type { FindingExample, FindingGroup, FindingSeverity, FindingsOpts } from "./findings.js";
@@ -68,20 +58,18 @@ export { buildXrefs } from "./xrefs.js";
  * loader). Callers in production never set this; the public `PackOpts`
  * surface is unchanged.
  *
- * `store` is the composed {@link Store} (= `OpenStoreResult`) — the
- * embeddings sidecar dispatches on `store.backend` and reaches the
- * temporal-tier DuckDB COPY helper through this seam. Tests that only
- * need graph-side reads can pass an {@link IGraphStore} via the
- * `graphOnly` field; the sidecar then takes the absent path automatically.
+ * `store` is the composed {@link Store} (= `OpenStoreResult`); the BOM
+ * bodies read from its `graph` view. Tests that only need graph-side
+ * reads can pass an {@link IGraphStore} via the `graphOnly` field, which
+ * is wrapped into a minimal {@link Store}.
  */
 export interface GeneratePackInternalOpts {
   readonly store?: Store;
   /**
    * Backwards-compatible escape hatch — tests can supply an
-   * {@link IGraphStore} alone when they don't exercise the sidecar.
-   * Internally wrapped into a minimal {@link Store}; the temporal view is
-   * a typed alias of the graph value, sufficient for tests that only
-   * exercise the graph-tier reads.
+   * {@link IGraphStore} alone. Internally wrapped into a minimal
+   * {@link Store}; the temporal view is a typed alias of the graph value,
+   * sufficient for the graph-tier reads the BOM bodies perform.
    */
   readonly graphOnly?: IGraphStore;
   readonly commit?: string;
@@ -92,16 +80,14 @@ export interface GeneratePackInternalOpts {
     readonly language?: string;
   }>;
   readonly chonkieLoader?: AstChunkerInternalOpts["_loadChonkie"];
-  readonly duckdbVersion?: string;
   readonly grammarCommits?: Readonly<Record<string, string>>;
 }
 
 /**
- * Generate the deterministic 9-item code-pack.
+ * Generate the deterministic 8-item code-pack.
  *
- * Writes the 8 always-present BOM files plus the manifest into
- * `opts.outDir`, plus an optional Parquet sidecar when the underlying
- * embeddings table has rows:
+ * Writes the 7 BOM body files plus the manifest into `opts.outDir`, plus a
+ * consumer-facing readme.md derived from the manifest:
  *   - skeleton.jsonl
  *   - file-tree.jsonl
  *   - deps.jsonl
@@ -109,9 +95,8 @@ export interface GeneratePackInternalOpts {
  *   - xrefs.jsonl
  *   - findings.jsonl
  *   - licenses.md
- *   - readme.md
- *   - embeddings.parquet (optional — absent when no embeddings)
  *   - manifest.json
+ *   - readme.md (consumer-facing metadata; not a manifest BomItem)
  *
  * Determinism class:
  *   - `"strict"` by default.
@@ -174,44 +159,15 @@ export async function generatePack(
     bomItem("licenses", "licenses.md", licensesBytes),
   ];
 
-  // --- Optional Parquet embeddings sidecar (BOM item #7). Embeddings live
-  //     in the lbug graph; the sidecar streams them through the DuckDB
-  //     temporal store's deterministic COPY-to-Parquet path. When written,
-  //     the sidecar's runtime `SELECT version()` overrides
-  //     `pins.duckdbVersion` so the manifest binds determinism to the engine
-  //     version that produced the file — the parquet `created_by` metadata
-  //     embeds it. ---
   await mkdir(opts.outDir, { recursive: true });
-  const sidecarPath = path.join(opts.outDir, "embeddings.parquet");
-  const sidecar = await writeEmbeddingsSidecar({ store, outPath: sidecarPath });
-  if (sidecar.written && sidecar.fileHash !== undefined) {
-    items.push({
-      kind: "embeddings-sidecar",
-      path: "embeddings.parquet",
-      fileHash: sidecar.fileHash,
-    });
-  }
 
   // --- Resolve the determinism class + pins object. A `degraded` chunker
   //     (AST chunker fell back to line-split) dominates the class via the
   //     precedence rule: `degraded` wins over `best_effort`, which wins over
-  //     `strict`. The sidecar is always `strict`, so it never downgrades. ---
-  const determinismClass = resolveDeterminism(
-    opts.tokenizerId,
-    astResult.determinismClass,
-    sidecar.determinismClass,
-  );
+  //     `strict`. ---
+  const determinismClass = resolveDeterminism(opts.tokenizerId, astResult.determinismClass);
   const pins: PackPins = {
     chonkieVersion: astResult.pinsHint.chonkieVersion ?? "unknown",
-    // Prefer the runtime DuckDB engine version reported by the sidecar
-    // when it actually wrote a file — that string is what the parquet
-    // `created_by` metadata carries. Fall back to the test-injectable
-    // override, then the @duckdb/node-api package version, then "unknown".
-    duckdbVersion:
-      sidecar.pinsHint.duckdbVersion ??
-      internal.duckdbVersion ??
-      (await readDuckdbVersion()) ??
-      "unknown",
     grammarCommits: internal.grammarCommits ?? {},
   };
 
@@ -241,8 +197,8 @@ export async function generatePack(
   });
   const readmeBytes = encodeUtf8(readmeMd);
 
-  // --- Write everything. The outDir was already created above to host
-  //     the optional Parquet sidecar; the bodies share it.
+  // --- Write everything. The outDir was already created above; the bodies
+  //     share it.
   // BOM bodies first, then manifest, then readme. Order is irrelevant for
   // byte-identity (writes are independent), but we serialize manifest
   // last so a crash mid-write leaves an obviously-incomplete pack.
@@ -292,15 +248,11 @@ async function writeBytes(p: string, bytes: Uint8Array): Promise<void> {
 /**
  * Resolve the determinism class. A `degraded` chunker (AST chunker fell back
  * to line-split) dominates everything; Anthropic tokenizers downgrade to
- * `best_effort`; otherwise `strict`. The sidecar's own class is always
- * `"strict"` ({@link SidecarDeterminismClass}) post-ADR-0016 — the
- * DuckDB-temporal writer is the only sidecar path — so it never downgrades
- * the result and is accepted only to keep the precedence rule explicit.
+ * `best_effort`; otherwise `strict`.
  */
 function resolveDeterminism(
   tokenizerId: string,
   chunkerClass: AstChunkerResult["determinismClass"],
-  _sidecarClass: SidecarDeterminismClass,
 ): DeterminismClass {
   if (chunkerClass === "degraded") return "degraded";
   if (tokenizerId.startsWith("anthropic:")) return "best_effort";
@@ -309,10 +261,9 @@ function resolveDeterminism(
 
 /**
  * Resolve the composed store. The seam accepts a composed `Store`; tests
- * that don't exercise the sidecar can still pass an `IGraphStore` via
- * `internal.graphOnly` and we wrap it into a minimal `Store` shape that
- * funnels the sidecar to its absent path automatically (no `temporal`
- * DuckDB → no COPY helper → `writerBackend: "absent"`).
+ * can still pass an `IGraphStore` alone via `internal.graphOnly` and we
+ * wrap it into a minimal `Store` shape — the BOM bodies read only the
+ * `graph` view.
  */
 async function resolveStore(internal: GeneratePackInternalOpts, repoPath: string): Promise<Store> {
   if (internal.store !== undefined) return internal.store;
@@ -322,27 +273,14 @@ async function resolveStore(internal: GeneratePackInternalOpts, repoPath: string
 
 /**
  * Wrap a graph-only store so the legacy test seam (`internal.graphOnly`)
- * resolves into the `Store` shape `generatePack` now expects. The temporal
- * view is a stub that drains the embeddings stream and reports `rowCount:
- * 0` — sufficient for tests that don't exercise sidecar emission.
+ * resolves into the `Store` shape `generatePack` expects. The temporal
+ * view is unused by the BOM bodies (they read only `store.graph`), so it
+ * is a typed alias of the graph value.
  */
 function wrapGraphOnly(graph: IGraphStore): Store {
-  // Drain the stream without writing anything — graph-only tests don't
-  // exercise the COPY path, so reporting rowCount: 0 keeps the sidecar
-  // result `absent` regardless of how many embeddings the fake produces.
-  const stubTemporal = {
-    exportEmbeddingsToParquet: async (
-      rows: AsyncIterable<unknown>,
-    ): Promise<{ rowCount: number; duckdbVersion: string }> => {
-      for await (const _row of rows) {
-        // drain
-      }
-      return { rowCount: 0, duckdbVersion: "stub" };
-    },
-  };
   return {
     graph,
-    temporal: stubTemporal as unknown as Store["temporal"],
+    temporal: graph as unknown as Store["temporal"],
     graphFile: ":memory:",
     temporalFile: ":memory:",
     close: async () => {
@@ -352,10 +290,9 @@ function wrapGraphOnly(graph: IGraphStore): Store {
 }
 
 /**
- * Open a store from the repo path. Lazily imports `@opencodehub/storage`
- * to keep the pack package importable in environments where DuckDB
- * native bindings can't load. Tests inject `internal.store` (or
- * `internal.graphOnly`) instead.
+ * Open a store from the repo path. Tests inject `internal.store` (or
+ * `internal.graphOnly`) instead; production store lookup is wired by the
+ * CLI integration layer.
  */
 async function openStoreFromRepoPath(_repoPath: string): Promise<Store> {
   // Production store lookup is wired by the CLI integration layer.
@@ -364,20 +301,4 @@ async function openStoreFromRepoPath(_repoPath: string): Promise<Store> {
   throw new Error(
     "generatePack: production store lookup is wired by the CLI; pass internal.store in tests.",
   );
-}
-
-/**
- * Read `@duckdb/node-api`'s package.json for the version pin. Returns
- * `undefined` if the package isn't installed (e.g. browser build), so
- * the pins object falls back to `"unknown"`.
- */
-async function readDuckdbVersion(): Promise<string | undefined> {
-  try {
-    const { createRequire } = await import("node:module");
-    const require = createRequire(import.meta.url);
-    const pkg = require("@duckdb/node-api/package.json") as { version?: string };
-    return typeof pkg.version === "string" ? pkg.version : undefined;
-  } catch {
-    return undefined;
-  }
 }

@@ -2,9 +2,10 @@
  * Unit tests for `codehub doctor`.
  *
  * We exercise the check runner end-to-end against a fake `$HOME` so the
- * registry/embedder probes hit a known filesystem layout. Native checks
- * (duckdb, lbug) are skipped via `skipNative` because node --test may
- * run on a host without those prebuilds.
+ * registry/embedder probes hit a known filesystem layout. The native
+ * `node:sqlite` check is skipped via `skipNative` for parity with the other
+ * native probes (node:sqlite is a builtin, so it is always present on our
+ * engines floor, but it rides the same `skipNative` gate).
  */
 
 import { strict as assert } from "node:assert";
@@ -169,36 +170,6 @@ test("embedder weights check reports warn when only hyphenated int8 file is pres
     assert.ok(embedderCheck);
     const result = await embedderCheck.run();
     assert.equal(result.status, "warn");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
-// The duckdb check resolves from the CLI's own node_modules first, then
-// falls back to --repoRoot. In a workspace install the CLI's own
-// resolution context already sees the dependencies (hoisted or
-// otherwise), so passing a non-existent --repoRoot should still succeed
-// when running inside the repo. This test guards against the failure
-// mode where a user runs `codehub doctor` outside the monorepo layout:
-// the `repoRoot` walk-four-dirs-up heuristic yields a path that doesn't
-// contain the packages, but `createRequire(import.meta.url)` does.
-test("native-binding checks tolerate a missing --repoRoot fallback (workspace install, duckdb)", async () => {
-  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-resolve-"));
-  try {
-    const bogusRoot = join(home, "does-not-exist");
-    const checks = buildChecks({ home, repoRoot: bogusRoot });
-    const duck = checks.find((c) => c.name === "duckdb native binding");
-    assert.ok(duck, "duckdb check must be registered when skipNative is false");
-    // Running the full check under node:test against a real dev install
-    // should succeed — packages are resolvable via the CLI's own
-    // node_modules even when the repoRoot fallback is broken. A `fail`
-    // here would mean the CLI-first resolution path regressed.
-    const duckResult = await duck.run();
-    assert.notEqual(
-      duckResult.status,
-      "fail",
-      `duckdb check should not fail when CLI node_modules resolves; got: ${duckResult.message}`,
-    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -451,116 +422,114 @@ test("bandit check warns (not fails) when the binary is absent", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Graph binding (@ladybugdb/core) — mandatory, so absence is a HARD fail.
+// node:sqlite built-in — the mandatory single-file store backend.
 // ---------------------------------------------------------------------------
 
-// The graph tier is always-on with no selector env var, no probe, and no
-// fallback — a failed binding throws GraphDbBindingError and aborts every
-// graph op. So a missing/unresolvable binding must be `fail`, never `warn`.
-// The real package is installed in every dev/CI checkout, so we inject a
-// resolver that returns null to exercise the absent path.
-test("graph-db binding check hard-fails (not warns) when @ladybugdb/core cannot be resolved", async () => {
-  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-lbug-miss-"));
+// `node:sqlite` is a Node builtin (stable on our engines floor, Node >= 24.15),
+// so there is no resolve seam and no "absent" branch to inject — the check just
+// imports the builtin, confirms `DatabaseSync` is a constructor, opens an
+// in-memory db, and runs a WAL CREATE/INSERT/SELECT round-trip. On a real dev
+// install the round-trip must succeed → `ok`.
+test("node:sqlite check reports ok on a host with the builtin (WAL round-trip)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sqlite-ok-"));
   try {
-    const checks = buildChecks({
-      home,
-      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
-    });
-    const lbug = checks.find((c) => c.name === "graph-db native binding");
-    assert.ok(lbug, "graph-db binding check must be registered when skipNative is false");
-    const result = await lbug.run();
+    // skipNative is false so the native node:sqlite probe registers.
+    const checks = buildChecks({ home });
+    const sqlite = checks.find((c) => c.name === "node:sqlite built-in");
+    assert.ok(sqlite, "node:sqlite check must be registered when skipNative is false");
+    const result = await sqlite.run();
     assert.equal(
       result.status,
-      "fail",
-      `a missing mandatory graph binding must fail, never warn; got ${result.status}`,
+      "ok",
+      `node:sqlite is a builtin on our engines floor; got ${result.status}: ${result.message}`,
     );
-    // The hint must not reference the removed CODEHUB_STORE selector.
-    assert.doesNotMatch(result.hint ?? "", /CODEHUB_STORE/);
-    assert.doesNotMatch(result.message, /optional/);
+    assert.match(result.message, /WAL/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-// No doctor row may mention the phantom CODEHUB_STORE env var or frame the
-// graph backend as "optional" — that selector was removed when lbug became
-// the mandatory graph tier.
-test("doctor surfaces no CODEHUB_STORE selector or optional-backend framing", async () => {
+// The node:sqlite probe is a native check — `skipNative` must drop it
+// entirely, exactly like the other native-binding rows.
+test("node:sqlite check is gated by skipNative (no row, no exit contribution)", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sqlite-skip-"));
+  try {
+    const checks = buildChecks({ home, skipNative: true });
+    const names = checks.map((c) => c.name);
+    assert.ok(
+      !names.includes("node:sqlite built-in"),
+      "node:sqlite probe is a native check — skipNative must drop it",
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// No doctor row may mention the phantom CODEHUB_STORE env var — that selector
+// was removed when the single-file SQLite store became the mandatory backend.
+test("doctor surfaces no CODEHUB_STORE selector across any row", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-no-store-var-"));
   try {
     await mkdir(join(home, ".codehub"), { recursive: true });
     await writeFile(join(home, ".codehub", "registry.json"), JSON.stringify({}));
     const prev = process.exitCode;
-    const report = await runDoctor({
-      home,
-      runCommand: okRunCommand,
-      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
-    });
+    const report = await runDoctor({ home, runCommand: okRunCommand });
     process.exitCode = prev;
     for (const { result } of report.rows) {
       assert.doesNotMatch(result.message, /CODEHUB_STORE/);
       assert.doesNotMatch(result.hint ?? "", /CODEHUB_STORE/);
     }
-    // The absent graph binding makes the whole probe blocking (exit 2).
-    assert.equal(
-      report.exitCode,
-      2,
-      "an absent mandatory graph binding must block the doctor exit",
-    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
-// The lbug failure hint must carry the platform-support matrix (the shared
-// `@opencodehub/storage` source of truth), not a bare "pnpm install" — on
-// win32-arm64 / musl there is NO prebuilt, so a reinstall is futile and the
-// hint must say so. Every lbug failure path threads through `lbugFailureHint`.
-test("graph-db binding failure hint names the platform-support matrix, not a bare reinstall", async () => {
-  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-lbug-hint-"));
+// Every node:sqlite failure path threads through the same hint, which must
+// point the user at the Node version (the only realistic cause — the module is
+// a builtin, so there is nothing to install or reinstall). Run the real check
+// and assert the OK message shape; the builtin is always present on our floor,
+// so we verify the success path carries the "built-in" + WAL framing rather
+// than synthesizing an unreachable absent branch.
+test("node:sqlite check message names the built-in load + WAL on success", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sqlite-msg-"));
   try {
-    const checks = buildChecks({
-      home,
-      resolveBinding: (_root, pkg) => (pkg === "@ladybugdb/core" ? null : "/fake/duckdb"),
-    });
-    const lbug = checks.find((c) => c.name === "graph-db native binding");
-    assert.ok(lbug);
-    const result = await lbug.run();
-    assert.equal(result.status, "fail");
-    // The shared matrix string from @opencodehub/storage must be present so
-    // the user sees which platforms ship a prebuilt.
-    assert.match(result.hint ?? "", /Supported platforms:/);
-    assert.match(result.hint ?? "", /Windows x64/);
+    const checks = buildChecks({ home });
+    const sqlite = checks.find((c) => c.name === "node:sqlite built-in");
+    assert.ok(sqlite);
+    const result = await sqlite.run();
+    assert.equal(result.status, "ok");
+    assert.match(result.message, /built-in/);
+    assert.match(result.message, /OK/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
 });
 
 // ---------------------------------------------------------------------------
-// Embedder native binding (onnxruntime-node) — OPTIONAL, so absence is a
+// Embedder runtime (onnxruntime-web, WASM) — OPTIONAL, so absence is a
 // NON-FATAL warn that degrades retrieval to BM25, never a hard fail.
 // ---------------------------------------------------------------------------
 
-// onnxruntime-node ships prebuilds for only ~5 targets (no Intel-mac, no musl).
-// The real failure mode is a silent degrade to BM25 — the embedder open path
-// catches the native-load error — so doctor must surface a `warn`, not a fail.
-// Inject a loader that throws to exercise the absent-binding branch.
-test("embedder binding check warns (not fails) when onnxruntime-node fails to load", async () => {
+// onnxruntime-web is prebuilt WASM with no platform matrix — if it imports it
+// runs everywhere. The failure mode is simply "not installed", a silent degrade
+// to BM25 (the embedder open path catches the load error), so doctor surfaces a
+// `warn`, not a fail. Inject a loader that throws to exercise the absent branch.
+test("embedder runtime check warns (not fails) when onnxruntime-web fails to load", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-miss-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => {
-        throw new Error("Cannot find module 'onnxruntime-node'");
+        throw new Error("Cannot find module 'onnxruntime-web'");
       },
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
-    assert.ok(emb, "embedder binding check must be registered when skipNative is false");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
+    assert.ok(emb, "embedder runtime check must be registered when skipNative is false");
     const result = await emb.run();
     assert.equal(
       result.status,
       "warn",
-      `an absent OPTIONAL embedder binding is a soft warn; got ${result.status}: ${result.message}`,
+      `an absent OPTIONAL embedder runtime is a soft warn; got ${result.status}: ${result.message}`,
     );
     assert.match(result.message, /BM25/);
     // The hint must point at the remote-embedder escape hatch.
@@ -570,15 +539,15 @@ test("embedder binding check warns (not fails) when onnxruntime-node fails to lo
   }
 });
 
-// A successful binding load (exports an InferenceSession constructor) is `ok`.
-test("embedder binding check reports ok when onnxruntime-node loads with InferenceSession", async () => {
+// A successful runtime load (exports an InferenceSession constructor) is `ok`.
+test("embedder runtime check reports ok when onnxruntime-web loads with InferenceSession", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-ok-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => ({ InferenceSession: function fake() {} }),
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
     assert.ok(emb);
     const result = await emb.run();
     assert.equal(result.status, "ok", `expected ok; got ${result.status}: ${result.message}`);
@@ -589,14 +558,14 @@ test("embedder binding check reports ok when onnxruntime-node loads with Inferen
 
 // A module that loads but exports no InferenceSession is a `warn` (degrade),
 // never a crash — the embedder is optional.
-test("embedder binding check warns when the module loads but exports no InferenceSession", async () => {
+test("embedder runtime check warns when the module loads but exports no InferenceSession", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-noctor-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => ({}),
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
     assert.ok(emb);
     const result = await emb.run();
     assert.equal(result.status, "warn", `expected warn; got ${result.status}: ${result.message}`);
@@ -606,9 +575,9 @@ test("embedder binding check warns when the module loads but exports no Inferenc
 });
 
 // The optional embedder binding must NOT escalate the doctor exit code: with
-// a valid registry, a clean scanner runner, and the graph binding present
-// (real dev install), a failed embedder load yields at most a warn (exit ≤ 1),
-// never a blocking fail. This is the load-bearing "optional capability" guard.
+// a valid registry and a clean scanner runner, a failed embedder load yields
+// at most a warn (exit ≤ 1), never a blocking fail. This is the load-bearing
+// "optional capability" guard.
 test("embedder binding failure does not block the doctor exit (exit <= 1)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-nonblock-"));
   try {
@@ -625,8 +594,8 @@ test("embedder binding failure does not block the doctor exit (exit <= 1)", asyn
     process.exitCode = prev;
     const names = report.rows.map((r) => r.name);
     assert.ok(
-      !names.includes("embedder native binding"),
-      "embedder binding probe is a native check — skipNative must drop it",
+      !names.includes("embedder runtime (onnxruntime-web, WASM)"),
+      "embedder runtime probe is gated behind skipNative — skipNative must drop it",
     );
   } finally {
     await rm(home, { recursive: true, force: true });
