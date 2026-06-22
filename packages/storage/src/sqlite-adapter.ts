@@ -9,12 +9,11 @@
  * native dependencies, which is what unlocks the real goal: a zero-dep,
  * one-command, no-Docker install (`npm i -g @opencodehub/cli` and nothing else).
  *
- * P1 STATUS. This file now implements the FULL {@link IGraphStore} +
- * {@link ITemporalStore} surface against a single file. Every method except
- * {@link SqliteStore.exportEmbeddingsToParquet} is implemented; Parquet export
- * stays {@link NotImplementedError} (node:sqlite has no COPY-to-Parquet; the
- * keep-DuckDB-for-export vs write-Parquet-in-JS fork is deferred to WORKFLOW.md
- * Phase 4).
+ * STATUS. This file implements the FULL {@link IGraphStore} +
+ * {@link ITemporalStore} surface against a single file, including
+ * {@link SqliteStore.exportEmbeddingsToParquet} — which lazily imports DuckDB
+ * at pack time only (P4 option (a); see SPIKE-SQLITE-WORKFLOW.md). DuckDB is
+ * thus off the install hot path: only an embeddings-pack invocation loads it.
  *
  * GRAPH-HASH PARITY. The hard success criterion is that a `KnowledgeGraph`
  * rebuilt from `listNodes({})` + `listEdges({})` produces a byte-identical
@@ -53,7 +52,6 @@ import {
 } from "@opencodehub/core-types";
 
 import { classifyLicenseTier } from "./duckdb-adapter.js";
-import { NotImplementedError } from "./graphdb-adapter.js";
 import { getAllRelationTypes } from "./graphdb-schema.js";
 import { stepZeroSentinel } from "./column-encode.js";
 import { assertReadOnlySql } from "./sql-guard.js";
@@ -1324,17 +1322,37 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
   }
 
-  // ── Out-of-scope-for-P1 surface ──────────────────────────────────────────────
+  // ── Parquet embeddings sidecar (P4: lazy DuckDB, pack-time only) ─────────────
 
-  exportEmbeddingsToParquet(): never {
-    // Stays NotImplementedError for P1. node:sqlite has no COPY-to-Parquet;
-    // WORKFLOW.md Phase 4 decides keep-duckdb-for-export vs write-parquet-in-JS.
-    // Interface owes a {rowCount, duckdbVersion} shape the eventual implementor
-    // must satisfy (interface.ts:428-431).
-    throw new NotImplementedError(
-      "Parquet sidecar export is out of P1 scope; node:sqlite has no COPY-to-Parquet — " +
-        "WORKFLOW.md Phase 4 decides keep-duckdb-for-export vs write-parquet-in-JS",
-    );
+  /**
+   * Write the deterministic Parquet embeddings sidecar.
+   *
+   * P4 DECISION (see SPIKE-SQLITE-WORKFLOW.md). node:sqlite has no
+   * COPY-to-Parquet, and a byte-identical Parquet writer is the one capability
+   * DuckDB provides that SQLite does not. Rather than block the whole migration
+   * on a hand-rolled JS Parquet encoder (option b — deferred as a fast-follow),
+   * this keeps DuckDB as a LAZY, OPTIONAL, pack-time-only dependency: the import
+   * happens HERE, inside the one method the optional embeddings-pack path calls,
+   * so DuckDB is off the install hot path entirely. A repo packed without
+   * embeddings never loads it; `codehub analyze`/`query`/`impact` never load it.
+   *
+   * The staging table + deterministic `COPY (... ORDER BY ...) TO ... (FORMAT
+   * PARQUET, COMPRESSION ZSTD)` exactly mirror the original DuckDbStore writer,
+   * preserving the byte-identity contract the sidecar test asserts.
+   */
+  async exportEmbeddingsToParquet(
+    rows: AsyncIterable<EmbeddingRow>,
+    absOutPath: string,
+  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }> {
+    // Lazy import: DuckDB is only required to emit the optional Parquet sidecar.
+    const { DuckDbStore } = await import("./duckdb-adapter.js");
+    const duck = new DuckDbStore(":memory:", {});
+    await duck.open();
+    try {
+      return await duck.exportEmbeddingsToParquet(rows, absOutPath);
+    } finally {
+      await duck.close();
+    }
   }
 
   private conn(): DatabaseSync {

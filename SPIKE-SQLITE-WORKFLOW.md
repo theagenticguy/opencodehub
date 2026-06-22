@@ -101,22 +101,22 @@ here. Fix until green. This phase is the real go/no-go on the design.
   and CLAUDE.md / ADR 0016 get superseded by a new ADR.
 - Update `open-store.ts`, `doctor.ts`, `analyze.ts` call sites.
 
-### Phase 4 — Parquet sidecar decision
+### Phase 4 — Parquet sidecar decision ✅ DONE (option a)
 `exportEmbeddingsToParquet` is DuckDB's one genuinely hard-to-replace feature
 (it backs the byte-identical Parquet embeddings sidecar in
-`pack/embeddings-sidecar.ts`). Two options, pick one:
-- **(a) Keep DuckDB as an optional, lazy dep** used *only* at `pack` time for
-  Parquet export. Preserves the sidecar; keeps one native dep but off the
-  install hot path (optionalDependency, imported dynamically).
-- **(b) Write Parquet in JS** (e.g. `parquet-wasm` / hand-rolled) so the sidecar
-  stays but the native dep dies entirely. More work; fully honors the zero-dep
-  goal.
+`pack/embeddings-sidecar.ts`). **Decided: option (a).** `SqliteStore`
+`.exportEmbeddingsToParquet()` now **lazily `await import("./duckdb-adapter.js")`
+inside the method** and delegates to a throwaway in-memory `DuckDbStore` for the
+deterministic `COPY … (FORMAT PARQUET, COMPRESSION ZSTD)`. DuckDB is therefore
+**off the install hot path** — only an embeddings-pack invocation loads it;
+`analyze`/`query`/`impact` and an embedding-free `pack` never do. The
+`pack/embeddings-sidecar.test.ts` byte-identity test passes unchanged, and a
+direct probe emits a valid `PAR1` Parquet file (2 rows, version pinned).
+- **(b) Write Parquet in JS** (`parquet-wasm` / hand-rolled) remains the
+  fast-follow that kills the last native dep entirely. Deferred — it carries its
+  own byte-identical-determinism contract and must not block the install win.
 
-Recommend **(a) for the migration, (b) as a fast-follow** — don't let Parquet
-block the install win. Either way, embeddings now *live* in SQLite; this is only
-about the export format.
-
-### Phase 5 — Rip the native bindings out
+### Phase 5 — Rip the native bindings out  ⛔ NEEDS LAITH (not done autonomously)
 Remove `@ladybugdb/core` and `@duckdb/node-api` from all `package.json` (modulo
 Phase-4 option (a)'s lazy DuckDB). Delete `graphdb-adapter.ts`,
 `graphdb-pool.ts`, `graphdb-schema.ts`, `duckdb-adapter.ts` and their tests.
@@ -141,13 +141,40 @@ section to the one-liner. **This is the deliverable the whole spike exists for.*
 | Losing the Parquet sidecar breaks pack determinism | Med | Phase 4 option (a) keeps DuckDB lazily for export only. |
 | Concurrent writers (parallel `analyze`) | Low | WAL gives one-writer/many-reader; OCH indexes single-writer per repo anyway. |
 
-## Recommendation to Laith (morning read)
+## Progress log (autonomous run, 2026-06-22)
 
-The thesis holds — `node:sqlite` covers every storage primitive the two native
-engines provided, and the spike proves the hard parts (vectors, traversal, WAL,
-one file) in working code. The one thing to decide before greenlighting the full
-migration is the **`--experimental-sqlite` flag** on our shipping Node: if we're
-comfortable setting it in the CLI bin wrapper (or our Node bumps past the flag),
-this is a clean, high-leverage win on the distribution axis. The generic-node-
-table design is the one part I'd want the Phase-2 conformance gate to validate
-before trusting it. Everything else is mechanical surface-completion.
+| Phase | State | Evidence |
+|---|---|---|
+| P0 de-risk | ✅ | spike adapter + 2 tests (commit 3663cd4) |
+| "flag" | ✅ | node:sqlite is default-on at Node ≥24.15 — no flag needed to *run*; added a dependency-free guard that silences the one-shot ExperimentalWarning on stderr (matters for the MCP stdio channel). commit 8ee504b |
+| P1 surface | ✅ | full IGraphStore+ITemporalStore, only exportEmbeddingsToParquet was stubbed (commit 1f8fbcd) |
+| P2 graphHash gate | ✅ GREEN | sqlite-parity.test.ts: small+medium fixtures, all 4 sentinels, every edge kind, 2-store determinism. Verified SQLite is byte-correct *against the lbug reference* (commit 1f8fbcd) |
+| P3 openStore rewire | ✅ | one SqliteStore as both views; 52 call sites unchanged; live `analyze`→`query`→`impact` on one store.sqlite; storage 178/0, mcp 209/0, monorepo tsc clean (commit 806e8e3) |
+| P4 Parquet | ✅ option (a) | lazy DuckDB import at pack time only; sidecar test green; PAR1 file emitted |
+| P5 rip bindings | ⛔ **needs Laith** | large irreversible deletion (~3k lines, ADR 0016 supersede) — left as a decision, not done autonomously |
+| P6 clean-machine install | ⛔ pending P5 | — |
+
+### Two bugs the LIVE run caught that tests structurally could not
+1. **bulkLoad ignored `opts.mode`** — always full-replaced. `ingest-sarif` (run
+   inside `analyze`) calls `bulkLoad(graph,{mode:"upsert"})` with an empty SARIF
+   graph; the second call's `DELETE FROM nodes` wiped the 15 real nodes. Unit +
+   parity tests only exercised single-instance replace-mode, so they were green
+   while the product was broken. Fixed: honor `mode`; stamp `store_meta` from
+   actual post-write counts. **Lesson: a passing parity test ≠ a working CLI;
+   the analyze→query→impact loop is the real gate.**
+2. **tsup `removeNodeProtocol:true`** stripped `node:sqlite`→bare `sqlite`,
+   unresolvable at runtime. `tsc` was clean; only a live `codehub analyze`
+   surfaced it. Fixed with `removeNodeProtocol:false`.
+
+### Decision still owed by Laith
+- **Greenlight P5?** Ripping lbug + the graphdb adapters is the irreversible step
+  and the moment ADR 0016 gets superseded. The thesis is fully proven; this is a
+  "do you want to commit the architecture" call, not a technical unknown.
+- **Latent finding (separate from the spike):** the existing
+  `graphdb-roundtrip.test.ts` all-kinds test passes only because its TEST-LOCAL
+  rebuild helper re-attaches `step:0`; through the PUBLIC `rebuildFromStore`
+  harness, `GraphDbStore` breaks on a `step:0` edge identically to SQLite, since
+  `graphHash` emits `"step":0` but `listEdges` drops it on every adapter.
+  Ingestion only ever emits `step≥1`, so it's latent — but it's a real gap in the
+  conformance contract worth closing (either reject `step:0` at ingest, or make
+  `graphHash` drop it). Your call whether that's in-scope.
