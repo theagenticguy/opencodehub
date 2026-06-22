@@ -1,5 +1,15 @@
 export type { ApiImpactFilter, ApiImpactRow } from "./api-impact.js";
 export { listApiImpact, scoreRisk, worseRisk } from "./api-impact.js";
+export type {
+  BusinessCandidateVerdict,
+  PlumbingFeatures,
+  PlumbingVerdict,
+} from "./business-logic.js";
+export {
+  classifyBusinessCandidate,
+  classifyPlumbing,
+  SIEVE_VALIDATED_LANGUAGES,
+} from "./business-logic.js";
 export {
   type ChangePackInternal,
   COST_TOKENIZER_MODEL,
