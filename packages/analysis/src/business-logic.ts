@@ -131,8 +131,4 @@ export function classifyPlumbing(f: PlumbingFeatures): PlumbingVerdict {
  * unvalidated, so the analyze pass should gate on this set and skip the rest
  * rather than emit an unbacked verdict.
  */
-export const SIEVE_VALIDATED_LANGUAGES: ReadonlySet<string> = new Set([
-  "python",
-  "java",
-  "go",
-]);
+export const SIEVE_VALIDATED_LANGUAGES: ReadonlySet<string> = new Set(["python", "java", "go"]);

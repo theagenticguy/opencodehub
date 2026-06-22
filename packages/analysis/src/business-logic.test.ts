@@ -22,7 +22,9 @@ function feat(over: Partial<PlumbingFeatures>): PlumbingFeatures {
 test("a symbol with any domain signal abstains, even amid plumbing", () => {
   // The dangerous error is calling a domain rule "plumbing". A serializer call
   // sitting next to a domain conditional must NOT be swept into plumbing.
-  const v = classifyPlumbing(feat({ nDomainSignals: 1, nSerializationCalls: 2, nPlumbingSignals: 3 }));
+  const v = classifyPlumbing(
+    feat({ nDomainSignals: 1, nSerializationCalls: 2, nPlumbingSignals: 3 }),
+  );
   assert.equal(v.likelyPlumbing, false);
   assert.equal(v.tier, "none");
   assert.equal(v.plumbingConfidence, 0);
