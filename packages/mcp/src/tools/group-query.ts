@@ -12,7 +12,7 @@
  *
  * Determinism:
  *   - Repo iteration is the alphabetical sort of `group.repos[*].name`.
- *   - BM25 ties are broken by `id ASC` in the DuckDB adapter.
+ *   - BM25 ties are broken by `id ASC` in the SQLite adapter.
  *   - RRF tiebreak falls back to lex `(_repo, nodeId)` ordering (the
  *     underlying `rrf()` breaks ties by first-run / first-rank; we do the
  *     final lex pass ourselves to keep cross-run order stable).
@@ -20,7 +20,7 @@
  *     don't silently truncate and large groups don't pull unnecessarily.
  *
  * Graceful degradation:
- *   - A repo missing from the registry, a missing DB file, or a DuckDB
+ *   - A repo missing from the registry, a missing DB file, or a SQLite
  *     open error all emit a `per_repo[]` row with an `error` string and a
  *     human-readable entry in `warnings[]`. The fan-out continues; the
  *     tool never aborts unless the group itself is unknown.

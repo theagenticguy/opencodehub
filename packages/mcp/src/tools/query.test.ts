@@ -331,8 +331,8 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
     setMeta: async (_m: StoreMeta): Promise<void> => {},
     healthCheck: async () => ({ ok: true }),
     // ITemporalStore.exec — `bm25CorpusHasSummaries` calls this with two
-    // information_schema / count probes. Mirror the original SQL-regex
-    // dispatcher's responses for those exact texts.
+    // probes: a `sqlite_master` table-existence check (ADR 0019; node:sqlite
+    // has no information_schema) and a row count. Mirror those exact texts.
     exec: async (
       sql: string,
       _params: readonly SqlParam[] = [],
@@ -340,7 +340,7 @@ function makeFakeStore(opts: FakeStoreOptions): FakeStoreHandle {
       const normalized = sql.replace(/\s+/g, " ").trim();
       if (
         normalized ===
-        "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'symbol_summaries'"
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'symbol_summaries'"
       ) {
         return [{ n: summariesPresent ? 1 : 0 }];
       }

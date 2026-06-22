@@ -4,7 +4,7 @@
  * Extracted out of `duckdb-adapter.ts` so consumers (the single-file
  * `SqliteStore`, `listDependencies`, the license-audit surface) can use it
  * WITHOUT transitively importing `@duckdb/node-api`. That top-level native
- * import is exactly what would defeat the lazy-DuckDB contract — importing a
+ * import is exactly what would defeat the lazy-SQLite contract — importing a
  * pure helper must never load a native binding.
  */
 

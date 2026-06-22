@@ -1,9 +1,9 @@
 /**
  * Sidecar metadata reader / writer for `<repo>/.codehub/meta.json`.
  *
- * The DuckDB database stores the same information in its `store_meta` table,
- * but the sidecar is plain JSON so tools outside the OpenCodeHub runtime (e.g.
- * CI staleness probes) can read it without linking libduckdb.
+ * The `store.sqlite` index stores the same information in its `store_meta`
+ * table, but the sidecar is plain JSON so tools outside the OpenCodeHub
+ * runtime (e.g. CI staleness probes) can read it without opening the store.
  *
  * Writes are atomic: the payload is written to a temp file in the target
  * directory and renamed over the destination. `fs.rename` is atomic on POSIX

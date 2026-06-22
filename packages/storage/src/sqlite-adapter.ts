@@ -1,18 +1,19 @@
 /**
- * SqliteStore — single-file storage adapter (branch `spike/sqlite-single-file`).
+ * SqliteStore — single-file storage adapter (ADR 0019).
  *
- * THESIS. One `*.sqlite` file in WAL mode backs EVERYTHING: graph nodes,
+ * THESIS. One `store.sqlite` file in WAL mode backs EVERYTHING: graph nodes,
  * edges, embeddings, and the temporal/non-graph tables (cochanges, symbol
- * summaries) that today live in two native-binding engines
- * (`graph.lbug` via @ladybugdb/core + `temporal.duckdb` via @duckdb/node-api).
- * Collapsing both onto Node 24's built-in `node:sqlite` removes the last two
- * native dependencies, which is what unlocks the real goal: a zero-dep,
- * one-command, no-Docker install (`npm i -g @opencodehub/cli` and nothing else).
+ * summaries). It replaced the two native-binding engines this project used
+ * before — `graph.lbug` via @ladybugdb/core + `temporal.duckdb` via
+ * @duckdb/node-api. Collapsing both onto Node 24's built-in `node:sqlite`
+ * removed the last two native storage dependencies, which is what unlocked
+ * the real goal: a zero-dep, one-command, no-Docker install
+ * (`npm i -g @opencodehub/cli` and nothing else).
  *
  * STATUS. This file implements the FULL {@link IGraphStore} +
  * {@link ITemporalStore} surface against a single file. Embeddings live in
- * the `embeddings` table inside store.sqlite; there is no DuckDB dependency
- * and no Parquet export (ADR 0019 dropped the write-only sidecar).
+ * the `embeddings` table inside store.sqlite; there is no native storage
+ * binding and no Parquet export (ADR 0019 dropped the write-only sidecar).
  *
  * GRAPH-HASH PARITY. The hard success criterion is that a `KnowledgeGraph`
  * rebuilt from `listNodes({})` + `listEdges({})` produces a byte-identical

@@ -127,7 +127,7 @@ export interface RepoArgs {
 /**
  * Acquire a store for the given repo argument, invoke `fn`, and release
  * the handle unconditionally. Errors from repo resolution become
- * structured NO_INDEX/NOT_FOUND envelopes; DuckDB errors become DB_ERROR.
+ * structured NO_INDEX/NOT_FOUND envelopes; SQLite errors become DB_ERROR.
  * The inner function always returns a CallToolResult so the surface of
  * this helper is the same type.
  *

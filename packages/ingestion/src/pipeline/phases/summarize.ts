@@ -236,7 +236,7 @@ async function runSummarize(ctx: PipelineContext): Promise<SummarizePhaseOutput>
 
   // Resolve a cache adapter from the options bag if the CLI attached one.
   // Phases have no direct store handle, so we route cache probes through a
-  // narrow hook on `ctx.options`. Production attaches the DuckDB-backed
+  // narrow hook on `ctx.options`. Production attaches the SQLite-backed
   // adapter; tests supply an in-memory fake.
   const cacheAdapter = resolveCacheAdapter(ctx);
 

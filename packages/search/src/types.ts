@@ -3,7 +3,7 @@
  *
  * These are the only shapes cross-package callers (CLI, MCP server, evals)
  * should need to build a search integration on top of OpenCodeHub. They
- * deliberately avoid leaking DuckDB or HNSW identifiers.
+ * deliberately avoid leaking SQLite or HNSW identifiers.
  */
 
 /** One row returned by a keyword (BM25) or fused hit-list. */

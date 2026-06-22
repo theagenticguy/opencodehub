@@ -31,7 +31,7 @@ export interface StatusOptions {
   /**
    * Test seam: open a read-only store and return its retrieval state. Defaults
    * to opening the real composed store. Tests inject a stub so they don't need
-   * a live graph.lbug on disk.
+   * a live store.sqlite on disk.
    */
   readonly probeRetrieval?: (repoPath: string) => Promise<RetrievalState | undefined>;
 }

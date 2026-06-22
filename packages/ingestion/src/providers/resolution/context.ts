@@ -27,7 +27,7 @@ export interface ResolutionCandidate {
 
 /**
  * Minimal symbol-lookup surface. Concrete implementations sit atop the
- * DuckDB-backed `IGraphStore`, but every resolver strategy speaks to this
+ * SQLite-backed `IGraphStore`, but every resolver strategy speaks to this
  * interface so unit tests can drive it with in-memory fixtures.
  */
 export interface SymbolIndex {

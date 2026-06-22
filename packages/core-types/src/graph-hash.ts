@@ -23,17 +23,16 @@ import { writeCanonicalJson } from "./hash.js";
  * `{"keywords":[]}` in the canonical JSON projection, while the same node
  * with the `keywords` key absent emits no key at all — the two
  * canonical-JSON byte streams differ, so their SHA-256 graph hashes
- * differ. Storage adapters preserve this distinction at the writer +
- * reader boundary: see
- * `packages/storage/src/column-encode.ts:stringArrayOrNull`,
- * `packages/storage/src/duckdb-adapter.ts:setStringArrayField`,
- * `packages/storage/src/graphdb-adapter.ts:setStringArrayFieldGd`, and
- * `packages/cli/src/commands/analyze.ts:stringArrayField`. The contract
- * is exercised end-to-end by the
- * `graphHash parity: medium-with-empty-keywords` fixture in
- * `packages/storage/src/graph-hash-parity.test.ts`, which asserts both
- * (a) cross-adapter parity for `{keywords: []}` and (b) the resulting
- * hash differs from the equivalent fixture without the `keywords` key.
+ * differ. The single-file `SqliteStore` (ADR 0019) preserves this
+ * distinction by folding `keywords` into the canonical-JSON `payload`
+ * column, so `canonicalJson` over `payload` carries `[]`-vs-absent
+ * verbatim — see `packages/storage/src/sqlite-adapter.ts`. The CLI's
+ * read-back mirrors it at
+ * `packages/cli/src/commands/analyze.ts:stringArrayField`. The contract is
+ * exercised end-to-end by the
+ * `graphHash parity: medium fixture (mixed kinds + sentinels)` test in
+ * `packages/storage/src/sqlite-parity.test.ts`, which round-trips the
+ * `{keywords: []}` sentinel and asserts the rebuilt graph hashes identically.
  *
  * The same `[]`-vs-absent semantics apply to `responseKeys` on RouteNode.
  * Empty `Record<string, number>` (`languageStats: {}`) goes through a

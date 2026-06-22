@@ -63,7 +63,7 @@
     "ai",
     "code-graph",
     "static-analysis",
-    "duckdb",
+    "sqlite",
     "graph-database",
     "storage"
   ],

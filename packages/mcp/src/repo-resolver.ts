@@ -1,6 +1,6 @@
 /**
  * Resolve a user-supplied (or omitted) `repo` argument to a concrete repo
- * path, DuckDB file path, and (optionally) cached store metadata.
+ * path, store.sqlite file path, and (optionally) cached store metadata.
  *
  * The authoritative mapping lives at `~/.codehub/registry.json`. Callers
  * who pass a name look it up there. When `repo` is omitted:

@@ -4,7 +4,7 @@
  * Mirrors the tool-side `withStore` but returns shape appropriate for
  * resources: instead of `CallToolResult`, resource callbacks return
  * `ReadResourceResult`, which carries a plain text body. Errors
- * (missing pool, repo not found, DuckDB open failure) are surfaced as a
+ * (missing pool, repo not found, SQLite open failure) are surfaced as a
  * YAML error envelope inside the resource body so the agent sees the
  * problem inline rather than receiving a transport-level fault.
  */

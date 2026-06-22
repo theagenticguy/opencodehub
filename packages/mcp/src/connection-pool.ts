@@ -8,8 +8,8 @@
  * LRU:
  *
  *   1. Per-key promise dedupe. Concurrent acquires for the same repo share
- *      a single in-flight open() — otherwise DuckDB will raise on the
- *      second connection opening the same file in read-write mode.
+ *      a single in-flight open() — so the WAL-mode `store.sqlite` file is
+ *      opened once per repo rather than racing multiple handles.
  *   2. Reference counting. Release must decrement a per-entry counter; an
  *      eviction that lands on a still-in-use entry MUST NOT close it. We
  *      set `closePending` and park the entry in a side table (it has left
@@ -22,11 +22,11 @@
  * `shutdown()` drains the pool on stdio close so the server exits cleanly.
  *
  * The pool caches the composed `OpenStoreResult` so MCP tools can route
- * graph-tier calls through `store.graph` (lbug at `<repo>/.codehub/graph.lbug`)
- * and temporal-tier calls (cochanges, summaries, `--sql` escape hatch)
- * through `store.temporal` (DuckDB at `<repo>/.codehub/temporal.duckdb`).
- * `OpenStoreResult.close()` is the deterministic composite close — graph
- * first, then temporal.
+ * graph-tier calls through `store.graph` and temporal-tier calls
+ * (cochanges, summaries, `--sql` escape hatch) through `store.temporal`.
+ * Post-ADR 0019 both views are the SAME `SqliteStore` over one
+ * `<repo>/.codehub/store.sqlite` file. `OpenStoreResult.close()` is the
+ * deterministic composite close — it releases that single handle once.
  */
 
 import { openStore, type Store } from "@opencodehub/storage";
@@ -50,15 +50,15 @@ const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Factory indirection keeps tests mockable without standing up the
- * underlying database. Production always calls `openStore`, which
- * composes the lbug graph view and the DuckDB temporal view from the
- * `<repo>/.codehub/` parent directory.
+ * underlying database. Production always calls `openStore`, which returns
+ * one `SqliteStore` as both the graph and temporal views over the single
+ * `<repo>/.codehub/store.sqlite` file.
  */
 export type StoreFactory = (dbPath: string) => Promise<Store>;
 
 const defaultFactory: StoreFactory = async (dbPath) => {
-  // openStore composes graph (lbug) + temporal (DuckDB) views from the
-  // shared `<repo>/.codehub/` parent. We open read-only because every
+  // openStore serves graph + temporal from one SqliteStore over the
+  // shared `<repo>/.codehub/store.sqlite`. We open read-only because every
   // MCP tool is a reader; the ingestion pipeline owns writes and runs
   // out-of-process.
   const store = await openStore({ path: dbPath, readOnly: true });
@@ -114,7 +114,7 @@ export class ConnectionPool {
   /**
    * Acquire a store handle for the given repo. The caller MUST pair every
    * acquire with a release. The `dbPath` argument is the absolute path to
-   * the on-disk DuckDB file; `repoKey` is a stable identifier used for
+   * the on-disk store.sqlite file; `repoKey` is a stable identifier used for
    * caching (usually the absolute repo path).
    */
   async acquire(repoKey: string, dbPath: string): Promise<Store> {

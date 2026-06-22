@@ -1,25 +1,30 @@
 /**
- * `sql` — raw read-only SQL / Cypher over the local graph store.
+ * `sql` — raw read-only SQL over the local single-file store.
  *
- * The tool accepts either `sql` (temporal DuckDB view) or `cypher`
- * (graph lbug view) — exactly one per call. The read-only guards
- * (`assertReadOnlySql` / `assertReadOnlyCypher`) reject any write verb
- * before the statement reaches the underlying engine.
+ * Post-ADR 0019 the whole index is one `store.sqlite` (node:sqlite, WAL),
+ * so `nodes`, `edges`, `embeddings`, `store_meta`, `cochanges`, and
+ * `symbol_summaries` are all real SQL tables in the same file. The `sql`
+ * arg runs read-only SQL over them via `store.temporal.exec()`. The
+ * read-only guard (`assertReadOnlySql`) rejects any write verb before the
+ * statement reaches the engine.
+ *
+ * The `cypher` arg is retained on the input surface for the community-fork
+ * escape hatch (an AGE / Memgraph / Neo4j adapter that implements the
+ * optional `execCypher` hatch). The in-tree `SqliteStore` does NOT
+ * implement `execCypher` — a `cypher:` call against the default backend
+ * returns a clear "use `sql:` instead" envelope.
  *
  * - SQL path: `SqlGuardError` on violation → INVALID_INPUT envelope.
  * - Cypher path: `CypherGuardError` on violation → INVALID_INPUT envelope.
  * - Both `sql` and `cypher` supplied → INVALID_INPUT "choose one".
  *
- * A default 5 s timeout caps runaway queries (DuckDB itself has no SQL
- * timeout — the adapter interrupts via a JS timer; the graph adapter
- * honours `timeoutMs` through its pool).
+ * A default 5 s timeout caps runaway queries — the adapter interrupts via
+ * SQLite's `busy_timeout` PRAGMA plus a JS timer.
  *
- * The tool description embeds a two-section schema hint so agents author
- * correct queries without a separate schema probe: the SQL section lists
- * the DuckDB temporal tables (`cochanges`, `symbol_summaries`); the Cypher
- * section lists the lbug graph's node labels and relationship types. The
- * code graph (`nodes`/`relations`/`embeddings`/`store_meta`) is reachable
- * only through Cypher, not via SQL `FROM` — see ADR 0016.
+ * The tool description embeds a schema hint so agents author correct
+ * queries without a separate schema probe: it lists every SQL table in
+ * `store.sqlite` and the JSON1 `payload->>'$.field'` extract idiom for
+ * kind-specific node fields.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -44,14 +49,14 @@ const SqlInput = {
     .min(1)
     .optional()
     .describe(
-      "Read-only SQL statement against the temporal DuckDB view. INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
+      "Read-only SQL statement against the single-file `store.sqlite` index — query `nodes`, `edges`, `embeddings`, `store_meta`, `cochanges`, or `symbol_summaries` directly. INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
     ),
   cypher: z
     .string()
     .min(1)
     .optional()
     .describe(
-      "Read-only Cypher statement against the graph view (lbug). CREATE/DELETE/SET/MERGE/REMOVE/DROP are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
+      "Read-only Cypher statement, for a community-fork graph adapter that implements the optional `execCypher` hatch. The default SQLite backend does NOT support Cypher — use `sql:` instead. Provide exactly one of `sql` or `cypher`.",
     ),
   ...repoArgShape,
   timeout_ms: z
@@ -64,12 +69,17 @@ const SqlInput = {
 };
 
 const SCHEMA_HINT = [
-  "SQL mode (`sql:`, DuckDB temporal tier) — only these tables exist:",
+  "SQL mode (`sql:`) — the whole index is one `store.sqlite`; these tables are all directly SQL-queryable:",
+  "  nodes(id, kind, name, file_path, start_line, end_line, payload)  -- payload is canonical JSON; reach kind-specific fields via JSON1, e.g. payload->>'$.severity'",
+  "  edges(id, src, dst, type, confidence, step, reason)  -- the call/reference graph; join src/dst back to nodes.id",
+  "  embeddings(node_id, granularity, chunk_index, dim, vector, content_hash)",
   "  cochanges(source_file, target_file, cocommit_count, total_commits_source, total_commits_target, last_cocommit_at, lift)",
   "  symbol_summaries(node_id, content_hash, prompt_version, model_id, summary_text, signature_summary, returns_type_summary, created_at)",
-  "Cypher mode (`cypher:`, lbug graph tier) — query the graph by node label / relationship type. The code graph is NOT SQL-queryable: `nodes`, `relations`, `embeddings`, and `store_meta` are graph entities reachable only through Cypher (e.g. `MATCH (n:CodeNode) RETURN n`), never `SELECT ... FROM nodes`.",
-  `  Node labels: ${NODE_KINDS.join(", ")}.`,
-  `  Relationship types: ${RELATION_TYPES.join(", ")}.`,
+  "  store_meta(id, schema_version, indexed_at, node_count, edge_count, ...)",
+  `  nodes.kind values: ${NODE_KINDS.join(", ")}.`,
+  `  edges.type values: ${RELATION_TYPES.join(", ")}.`,
+  "  Example: SELECT id, name FROM nodes WHERE kind = 'Function' AND file_path LIKE 'src/auth/%';",
+  "Cypher mode (`cypher:`) — only for a community-fork graph adapter with the optional execCypher hatch. The default SQLite backend rejects it; use `sql:` instead.",
 ].join("\n");
 
 interface SqlArgs {
@@ -91,7 +101,7 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
       toolError(
         "INVALID_INPUT",
         "provide exactly one of `sql` or `cypher`",
-        "The sql tool accepts either a SQL statement (temporal DuckDB view) or a Cypher statement (graph view), not both.",
+        "The sql tool accepts either a SQL statement (against `store.sqlite`) or a Cypher statement (community-fork graph adapters only), not both.",
       ),
     );
   }
@@ -129,9 +139,9 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
         const exec = store.graph.execCypher;
         if (typeof exec !== "function") {
           return toolError(
-            "INTERNAL",
-            "cypher unavailable: graph adapter does not expose execCypher",
-            "The graph adapter is missing the `execCypher` escape hatch — re-run `codehub analyze` to rebuild the index against the lbug-backed graph store.",
+            "INVALID_INPUT",
+            "cypher unavailable: the default SQLite backend does not support Cypher",
+            "The single-file `store.sqlite` backend (ADR 0019) exposes the graph as SQL tables, not Cypher. Re-issue your query with the `sql:` arg — e.g. `SELECT * FROM nodes WHERE kind = 'Function'`. The `cypher:` arg only works against a community-fork graph adapter that implements `execCypher`.",
           );
         }
         rawRows = await exec.call(store.graph, statement);
@@ -139,7 +149,7 @@ export async function runSql(ctx: ToolContext, args: SqlArgs): Promise<ToolResul
         rawRows = await store.temporal.exec(statement, [], { timeoutMs });
       }
       // MCP serialises structuredContent via JSON, which cannot handle
-      // bigint values (DuckDB returns COUNT(*) etc. as bigint). Coerce
+      // bigint values (SQLite returns COUNT(*) etc. as bigint). Coerce
       // every bigint to a plain number or string before handing the
       // rows up the transport.
       const rows = rawRows.map(sanitizeRowForJson);
@@ -196,7 +206,7 @@ export function registerSqlTool(server: McpServer, ctx: ToolContext): void {
     {
       title: "Read-only SQL / Cypher over the code graph",
       description: [
-        "Execute a read-only query against the local graph store. Supply EXACTLY ONE of `sql` (temporal DuckDB view) or `cypher` (graph view). Results are returned as a markdown table plus raw row objects. Use this for one-off questions that the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
+        "Execute a read-only query against the local single-file `store.sqlite` index. Supply `sql` to query the graph and temporal tables directly (`nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, `store_meta`); `cypher` is reserved for community-fork graph adapters. Results are returned as a markdown table plus raw row objects. Use this for one-off questions the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
         "",
         SCHEMA_HINT,
       ].join("\n"),
