@@ -1,8 +1,10 @@
 # Spike: single-file SQLite storage — GOAL
 
 **Branch:** `spike/sqlite-single-file`
-**Status:** spike proven (adapter compiles, tests green, WAL verified). Not merged. Not production.
-**Author:** overnight spike for Laith, 2026-06-22.
+**Status:** ✅ COMPLETE — P0→P6 done. `@ladybugdb/core` removed; one `store.sqlite` per repo; clean-room one-command install proven (ADR 0019). Not merged to main yet — awaiting Laith's review of the branch.
+**Author:** overnight + next-day autonomous run for Laith, 2026-06-22.
+
+> Done means: monorepo tsc clean; storage 89/0, core-types 83/0, pack 105/0, mcp 209/0, cli 345/0; live `analyze`→`query`→`impact` on a pristine repo writes one `store.sqlite` (no `.lbug`/`.duckdb`) with `@ladybugdb/core` unresolvable. DuckDB remains only as a lazy pack-time import for the Parquet sidecar (pure-JS Parquet is the documented fast-follow).
 
 ## The goal in one sentence
 
