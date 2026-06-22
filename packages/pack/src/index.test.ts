@@ -12,9 +12,8 @@
  *          `best_effort`.
  *   E2E-C. The chunker's degraded fallback flips `determinism_class` to
  *          `degraded` even when the tokenizer is non-Anthropic.
- *   E2E-D. The expected 9 files (8 BOM bodies + manifest) appear on disk
- *          after a successful run; the Parquet sidecar is owned by a
- *          separate test variant.
+ *   E2E-D. The expected 9 files (7 BOM bodies + manifest + readme) appear
+ *          on disk after a successful run.
  *   E2E-E. The on-disk manifest's `files[]` lists every BOM item we
  *          wrote (excluding the manifest itself + readme).
  */
@@ -26,7 +25,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, test } from "node:test";
 import type { GraphNode } from "@opencodehub/core-types";
-import type { IGraphStore, ITemporalStore, ListNodesOptions, Store } from "@opencodehub/storage";
+import type { IGraphStore, ListNodesOptions } from "@opencodehub/storage";
 import { generatePack } from "./index.js";
 
 describe("@opencodehub/pack public entry", () => {
@@ -133,10 +132,11 @@ function makeFixtureStore(): IGraphStore {
         (n): n is Extract<GraphNode, { kind: "Finding" }> => n.kind === "Finding",
       );
     },
-    // The fixture store has no embeddings; sidecar-absent tests rely on
-    // `listEmbeddings` being callable (and returning nothing).
+    // The fixture store has no embeddings. `listEmbeddings` is part of the
+    // IGraphStore shape but is unused by the pack now that the Parquet
+    // sidecar is gone; kept callable for shape completeness.
     listEmbeddings: async function* () {
-      // Empty generator — pack writes no sidecar.
+      // Empty generator.
     },
   } as unknown as IGraphStore;
 }
@@ -157,7 +157,6 @@ const COMMON_OPTS: { budgetTokens: number; tokenizerId: string } = {
 const COMMON_INTERNAL = {
   commit: "0".repeat(40),
   repoOriginUrl: "https://github.com/example/repo",
-  duckdbVersion: "1.1.3",
   grammarCommits: { typescript: "b".repeat(40) },
   // Provide a deterministic chonkie loader for the strict path so tests
   // never depend on the real `@chonkiejs/core` install (worktree native
@@ -188,11 +187,10 @@ async function runFixture(
     },
     {
       ...COMMON_INTERNAL,
-      // The seam accepts a composed `Store`, but tests that don't
-      // exercise the sidecar can still pass a graph-only store via
-      // `graphOnly`. generatePack auto-wraps it into a Store with
-      // backend: "duck" and a no-op temporal — the sidecar's COPY-helper
-      // probe finds nothing and resolves to absent.
+      // The seam accepts a composed `Store`, but tests can pass a
+      // graph-only store via `graphOnly`. generatePack auto-wraps it into a
+      // Store whose temporal view aliases the graph; the BOM bodies read
+      // only `store.graph`.
       graphOnly: makeFixtureStore(),
       chunkerFiles: FIXTURE_FILES,
       ...internalOverrides,
@@ -270,7 +268,7 @@ test("E2E-C. chunker degraded fallback flips determinism_class to degraded", asy
   }
 });
 
-test("E2E-D. expected 9 files appear on disk after a run; no Parquet sidecar", async () => {
+test("E2E-D. expected 9 files appear on disk after a run", async () => {
   const dir = await tempDir();
   try {
     await runFixture(dir);
@@ -289,7 +287,8 @@ test("E2E-D. expected 9 files appear on disk after a run; no Parquet sidecar", a
     ]) {
       assert.ok(names.has(n), `missing BOM file: ${n}`);
     }
-    // No Parquet sidecar in this variant — covered by a dedicated test.
+    // The Parquet embeddings sidecar was dropped (ADR 0019); no .parquet
+    // file is ever produced.
     for (const n of names) {
       assert.ok(!n.endsWith(".parquet"), `unexpected Parquet file: ${n}`);
     }
@@ -344,109 +343,9 @@ test("E2E-F. production store path throws cleanly when no internal store provide
 });
 
 // ---------------------------------------------------------------------------
-// Sidecar wiring. The fixture store does not implement
-// `exportEmbeddingsParquet`, so the sidecar resolves to `absent: true`; the
-// manifest must therefore NOT list `embeddings.parquet` and the file must
-// NOT exist on disk. When the store DOES implement the export hook, the
-// manifest must list it and the file must exist.
+// The Parquet embeddings sidecar was dropped (ADR 0019): embeddings live in
+// store.sqlite and there is no longer a write-only Parquet export. The pack
+// is a fixed 8-item BOM (manifest + 7 bodies) plus a consumer-facing readme;
+// no .parquet file is ever produced. The on-disk invariant is covered by
+// E2E-D's `.parquet`-absence assertion above.
 // ---------------------------------------------------------------------------
-
-test("E2E-G. sidecar absent — manifest.files[] does not list embeddings.parquet", async () => {
-  const dir = await tempDir();
-  try {
-    const manifest = await runFixture(dir);
-    const paths = manifest.files.map((f) => f.path);
-    assert.ok(
-      !paths.includes("embeddings.parquet"),
-      "absent sidecar must not appear in manifest.files[]",
-    );
-    const entries = await readdir(dir);
-    assert.ok(
-      !entries.includes("embeddings.parquet"),
-      "absent sidecar must not produce a file on disk",
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("E2E-H. sidecar present — manifest lists it; pins.duckdbVersion overrides", async () => {
-  const dir = await tempDir();
-  try {
-    // Inject a graph view that produces a deterministic embeddings stream
-    // and a temporal view whose `exportEmbeddingsToParquet` writes 4
-    // magic bytes ("PAR1") to the destination so the manifest hash is
-    // stable across runs.
-    const baseStore = makeFixtureStore() as unknown as Record<string, unknown>;
-    baseStore["listEmbeddings"] = async function* () {
-      yield {
-        nodeId: "fn:a",
-        granularity: "symbol" as const,
-        chunkIndex: 0,
-        vector: new Float32Array([0.1, 0.2]),
-        contentHash: "h-a",
-      };
-      yield {
-        nodeId: "fn:b",
-        granularity: "symbol" as const,
-        chunkIndex: 0,
-        vector: new Float32Array([0.3, 0.4]),
-        contentHash: "h-b",
-      };
-      yield {
-        nodeId: "fn:c",
-        granularity: "symbol" as const,
-        chunkIndex: 0,
-        vector: new Float32Array([0.5, 0.6]),
-        contentHash: "h-c",
-      };
-    };
-    const fakeTemporal = {
-      exportEmbeddingsToParquet: async (rows: AsyncIterable<unknown>, absPath: string) => {
-        let n = 0;
-        for await (const _row of rows) n += 1;
-        await (await import("node:fs/promises")).writeFile(
-          absPath,
-          new Uint8Array([0x50, 0x41, 0x52, 0x31]),
-        );
-        return { rowCount: n, duckdbVersion: "v1.3.99-test" };
-      },
-    };
-    const composedStore: Store = {
-      graph: baseStore as unknown as IGraphStore,
-      temporal: fakeTemporal as unknown as ITemporalStore,
-      graphFile: ":memory:",
-      temporalFile: ":memory:",
-      close: async () => {
-        /* no-op */
-      },
-    };
-    const manifest = await generatePack(
-      {
-        repoPath: "/tmp/fixture-repo",
-        outDir: dir,
-        budgetTokens: COMMON_OPTS.budgetTokens,
-        tokenizerId: COMMON_OPTS.tokenizerId,
-      },
-      {
-        ...COMMON_INTERNAL,
-        store: composedStore,
-        chunkerFiles: FIXTURE_FILES,
-      },
-    );
-
-    // pins.duckdbVersion must override the test injection because the
-    // sidecar runtime version is more bound to the actual file.
-    assert.equal(manifest.pins.duckdbVersion, "v1.3.99-test");
-
-    const sidecarItem = manifest.files.find((f) => f.kind === "embeddings-sidecar");
-    assert.ok(sidecarItem, "manifest must list the sidecar BomItem when present");
-    assert.equal(sidecarItem.path, "embeddings.parquet");
-
-    const onDisk = await readFile(path.join(dir, "embeddings.parquet"));
-    const expected = createHash("sha256").update(onDisk).digest("hex");
-    assert.equal(sidecarItem.fileHash, expected);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});

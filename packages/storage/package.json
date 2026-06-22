@@ -2,7 +2,7 @@
   "name": "@opencodehub/storage",
   "version": "0.3.0",
   "private": true,
-  "description": "OpenCodeHub — single-file SQLite store (node:sqlite, WAL; lazy DuckDB only for the Parquet sidecar)",
+  "description": "OpenCodeHub — single-file SQLite store (node:sqlite, WAL)",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -46,7 +46,6 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@duckdb/node-api": "1.5.3-r.3",
     "@opencodehub/core-types": "workspace:*"
   },
   "devDependencies": {

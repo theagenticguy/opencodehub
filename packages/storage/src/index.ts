@@ -1,5 +1,4 @@
 export { assertReadOnlyCypher, CypherGuardError } from "./cypher-guard.js";
-export { DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
 export { classifyLicenseTier } from "./license.js";
 export { getAllRelationTypes } from "./relations.js";
 export type {

@@ -14,13 +14,10 @@
  *      `Buffer.compare(readFile(outA/f), readFile(outB/f)) === 0`
  *
  * Variant matrix:
- *   V1. Empty embeddings — store has no `exportEmbeddingsParquet` hook;
- *       sidecar is absent; manifest.files[] lists 7 BOM bodies (excluding
+ *   V1. Baseline — manifest.files[] lists 7 BOM bodies (excluding
  *       manifest+readme). 9 files on disk: 7 bodies + readme.md + manifest.json.
- *   V2. Populated embeddings — fake @internal `exportEmbeddingsParquet`
- *       (duck-typed onto the graph view) writes a deterministic
- *       parquet body; sidecar is present; embeddings.parquet bytes are
- *       identical across runs.
+ *       (The Parquet embeddings sidecar was dropped in ADR 0019; no .parquet
+ *       file is ever produced.)
  *   V3. Mixed framework labels — ProjectProfile.frameworks is a duplicated,
  *       reverse-sorted list. file-tree.jsonl frameworks must be alpha-sorted +
  *       deduped to the same byte sequence on both runs.
@@ -38,7 +35,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { GraphNode } from "@opencodehub/core-types";
-import type { IGraphStore, ITemporalStore, ListNodesOptions, Store } from "@opencodehub/storage";
+import type { IGraphStore, ListNodesOptions, Store } from "@opencodehub/storage";
 import { type GeneratePackInternalOpts, generatePack } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -46,13 +43,6 @@ import { type GeneratePackInternalOpts, generatePack } from "./index.js";
 // ---------------------------------------------------------------------------
 
 interface FixtureKnobs {
-  /**
-   * Attach a duck-typed @internal `exportEmbeddingsParquet` helper to the
-   * graph fake so the sidecar emits 4 deterministic bytes. The helper
-   * lives on the graph view because `runVariant` wraps the fake with
-   * `backend: "duck"`, where the sidecar narrows on `store.graph`.
-   */
-  readonly withEmbeddings: boolean;
   /** Use a duplicated, reverse-sorted ProjectProfile.frameworks list. */
   readonly withMixedFrameworks: boolean;
   /** Add multiple findings sharing (severity, ruleId) for grouping. */
@@ -267,52 +257,15 @@ function makeRichFixtureStore(knobs: FixtureKnobs): IGraphStore {
         }));
     },
     listFindings: async () => findingNodes,
+    // `listEmbeddings` is part of the IGraphStore shape but is unused by the
+    // pack now that the Parquet sidecar is gone; an empty generator keeps it
+    // callable for shape completeness.
     listEmbeddings: async function* () {
-      if (!knobs.withEmbeddings) return;
-      // Deterministic two-row stream — the temporal export fake below
-      // turns this into a 4-byte placeholder parquet.
-      yield {
-        nodeId: "fn:a",
-        granularity: "symbol" as const,
-        chunkIndex: 0,
-        vector: new Float32Array([0.1, 0.2]),
-        contentHash: "h-a",
-      };
-      yield {
-        nodeId: "fn:b",
-        granularity: "symbol" as const,
-        chunkIndex: 0,
-        vector: new Float32Array([0.3, 0.4]),
-        contentHash: "h-b",
-      };
+      // Empty generator.
     },
   };
 
   return store as unknown as IGraphStore;
-}
-
-/**
- * Fake `ITemporalStore` shim used by pack-determinism tests. The pack
- * sidecar routes through `temporal.exportEmbeddingsToParquet`; the real
- * DuckDB binding is irrelevant to these wiring tests so we drain the
- * stream and write a deterministic 4-byte parquet stand-in.
- */
-function makeFakeTemporalForPack(knobs: FixtureKnobs): unknown {
-  return {
-    exportEmbeddingsToParquet: async (
-      rows: AsyncIterable<unknown>,
-      absPath: string,
-    ): Promise<{ rowCount: number; duckdbVersion: string }> => {
-      let n = 0;
-      for await (const _row of rows) n += 1;
-      if (!knobs.withEmbeddings || n === 0) {
-        return { rowCount: 0, duckdbVersion: "v1.3.99-test" };
-      }
-      const fs = await import("node:fs/promises");
-      await fs.writeFile(absPath, new Uint8Array([0x50, 0x41, 0x52, 0x31]));
-      return { rowCount: n, duckdbVersion: "v1.3.99-test" };
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +297,6 @@ const COMMON_OPTS = {
 const COMMON_INTERNAL: GeneratePackInternalOpts = {
   commit: "0".repeat(40),
   repoOriginUrl: "https://github.com/example/repo",
-  duckdbVersion: "1.1.3",
   grammarCommits: { typescript: "b".repeat(40) },
   // Deterministic chonkie stub — emits one chunk per file. Avoids the real
   // import path so the test runs even when native bindings are unavailable.
@@ -366,12 +318,11 @@ async function tempDir(prefix: string): Promise<string> {
 
 async function runVariant(outDir: string, knobs: FixtureKnobs): Promise<{ packHash: string }> {
   const fakeGraph = makeRichFixtureStore(knobs);
-  // V2 attaches a duck-typed COPY helper to the graph — wrap into a
-  // backend:"duck" Store so the sidecar narrows correctly. V1/V3/V4
-  // never invoke the helper; the wrapper just exposes the graph view.
+  // The BOM bodies read only `store.graph`; the temporal view is unused by
+  // the pack (the Parquet sidecar was dropped), so alias it to the graph.
   const composedStore: Store = {
     graph: fakeGraph,
-    temporal: makeFakeTemporalForPack(knobs) as unknown as ITemporalStore,
+    temporal: fakeGraph as unknown as Store["temporal"],
     graphFile: ":memory:",
     temporalFile: ":memory:",
     close: async () => {
@@ -432,9 +383,8 @@ async function assertByteIdentical(label: string, knobs: FixtureKnobs): Promise<
 // Variant tests — 4 distinct shapes covering the determinism matrix.
 // ---------------------------------------------------------------------------
 
-test("V1. empty embeddings — sidecar absent, 9 files on disk, byte-identical", async () => {
-  await assertByteIdentical("v1-empty-embeddings", {
-    withEmbeddings: false,
+test("V1. baseline — 9 files on disk, no .parquet, byte-identical", async () => {
+  await assertByteIdentical("v1-baseline", {
     withMixedFrameworks: false,
     withGroupedFindings: false,
   });
@@ -444,7 +394,6 @@ test("V1. empty embeddings — sidecar absent, 9 files on disk, byte-identical",
   const outDir = await tempDir("pack-det-v1-shape-");
   try {
     await runVariant(outDir, {
-      withEmbeddings: false,
       withMixedFrameworks: false,
       withGroupedFindings: false,
     });
@@ -460,32 +409,10 @@ test("V1. empty embeddings — sidecar absent, 9 files on disk, byte-identical",
       "skeleton.jsonl",
       "xrefs.jsonl",
     ]);
-  } finally {
-    await rm(outDir, { recursive: true, force: true });
-  }
-});
-
-test("V2. populated embeddings — sidecar present, parquet bytes byte-identical", async () => {
-  await assertByteIdentical("v2-populated-embeddings", {
-    withEmbeddings: true,
-    withMixedFrameworks: false,
-    withGroupedFindings: false,
-  });
-
-  // Cross-check that the sidecar is actually on disk for this variant.
-  const outDir = await tempDir("pack-det-v2-shape-");
-  try {
-    await runVariant(outDir, {
-      withEmbeddings: true,
-      withMixedFrameworks: false,
-      withGroupedFindings: false,
-    });
-    const entries = new Set(await readdir(outDir));
-    assert.ok(entries.has("embeddings.parquet"), "v2 must produce embeddings.parquet");
-    assert.equal(
-      entries.size,
-      10,
-      "v2 should produce 10 files (8 BOM + readme + manifest + sidecar)",
+    // The Parquet sidecar was dropped (ADR 0019); no .parquet file exists.
+    assert.ok(
+      !entries.some((e) => e.endsWith(".parquet")),
+      "no Parquet sidecar should be produced",
     );
   } finally {
     await rm(outDir, { recursive: true, force: true });
@@ -494,7 +421,6 @@ test("V2. populated embeddings — sidecar present, parquet bytes byte-identical
 
 test("V3. mixed framework labels — file-tree.jsonl alpha-sorted + deduped, byte-identical", async () => {
   await assertByteIdentical("v3-mixed-frameworks", {
-    withEmbeddings: false,
     withMixedFrameworks: true,
     withGroupedFindings: false,
   });
@@ -503,7 +429,6 @@ test("V3. mixed framework labels — file-tree.jsonl alpha-sorted + deduped, byt
   const outDir = await tempDir("pack-det-v3-shape-");
   try {
     await runVariant(outDir, {
-      withEmbeddings: false,
       withMixedFrameworks: true,
       withGroupedFindings: false,
     });
@@ -522,7 +447,6 @@ test("V3. mixed framework labels — file-tree.jsonl alpha-sorted + deduped, byt
 
 test("V4. grouped findings — findings.jsonl groups stably, byte-identical", async () => {
   await assertByteIdentical("v4-grouped-findings", {
-    withEmbeddings: false,
     withMixedFrameworks: false,
     withGroupedFindings: true,
   });
@@ -532,7 +456,6 @@ test("V4. grouped findings — findings.jsonl groups stably, byte-identical", as
   const outDir = await tempDir("pack-det-v4-shape-");
   try {
     await runVariant(outDir, {
-      withEmbeddings: false,
       withMixedFrameworks: false,
       withGroupedFindings: true,
     });
@@ -556,12 +479,11 @@ test("V4. grouped findings — findings.jsonl groups stably, byte-identical", as
 
 // ---------------------------------------------------------------------------
 // Combined variant — exercises every knob together so the composition is
-// covered: populated embeddings + mixed frameworks + grouped findings.
+// covered: mixed frameworks + grouped findings.
 // ---------------------------------------------------------------------------
 
 test("V5. all-knobs — every byte identical across two runs", async () => {
   await assertByteIdentical("v5-all-knobs", {
-    withEmbeddings: true,
     withMixedFrameworks: true,
     withGroupedFindings: true,
   });

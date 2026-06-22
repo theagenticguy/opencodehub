@@ -20,7 +20,6 @@ import type { BomItem, PackPins } from "./types.js";
 
 const FIXTURE_PINS: PackPins = {
   chonkieVersion: "0.3.0",
-  duckdbVersion: "1.1.3",
   grammarCommits: {
     python: "a".repeat(40),
     typescript: "b".repeat(40),
@@ -129,7 +128,6 @@ test("C. packHash is not part of its own preimage (round-trip)", () => {
     pack_hash: "",
     pins: {
       chonkie_version: m.pins.chonkieVersion,
-      duckdb_version: m.pins.duckdbVersion,
       grammar_commits: m.pins.grammarCommits,
     },
     repo_origin_url: m.repoOriginUrl,

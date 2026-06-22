@@ -2,11 +2,10 @@
  * Unit tests for `codehub doctor`.
  *
  * We exercise the check runner end-to-end against a fake `$HOME` so the
- * registry/embedder probes hit a known filesystem layout. Native checks
- * (duckdb, node:sqlite) are skipped via `skipNative` because node --test may
- * run on a host without the duckdb prebuild (node:sqlite is a builtin, so it
- * is always present on our engines floor, but it rides the same `skipNative`
- * gate as the other native probes).
+ * registry/embedder probes hit a known filesystem layout. The native
+ * `node:sqlite` check is skipped via `skipNative` for parity with the other
+ * native probes (node:sqlite is a builtin, so it is always present on our
+ * engines floor, but it rides the same `skipNative` gate).
  */
 
 import { strict as assert } from "node:assert";
@@ -171,36 +170,6 @@ test("embedder weights check reports warn when only hyphenated int8 file is pres
     assert.ok(embedderCheck);
     const result = await embedderCheck.run();
     assert.equal(result.status, "warn");
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
-// The duckdb check resolves from the CLI's own node_modules first, then
-// falls back to --repoRoot. In a workspace install the CLI's own
-// resolution context already sees the dependencies (hoisted or
-// otherwise), so passing a non-existent --repoRoot should still succeed
-// when running inside the repo. This test guards against the failure
-// mode where a user runs `codehub doctor` outside the monorepo layout:
-// the `repoRoot` walk-four-dirs-up heuristic yields a path that doesn't
-// contain the packages, but `createRequire(import.meta.url)` does.
-test("native-binding checks tolerate a missing --repoRoot fallback (workspace install, duckdb)", async () => {
-  const home = await mkdtemp(join(tmpdir(), "codehub-doctor-resolve-"));
-  try {
-    const bogusRoot = join(home, "does-not-exist");
-    const checks = buildChecks({ home, repoRoot: bogusRoot });
-    const duck = checks.find((c) => c.name === "duckdb native binding");
-    assert.ok(duck, "duckdb check must be registered when skipNative is false");
-    // Running the full check under node:test against a real dev install
-    // should succeed — packages are resolvable via the CLI's own
-    // node_modules even when the repoRoot fallback is broken. A `fail`
-    // here would mean the CLI-first resolution path regressed.
-    const duckResult = await duck.run();
-    assert.notEqual(
-      duckResult.status,
-      "fail",
-      `duckdb check should not fail when CLI node_modules resolves; got: ${duckResult.message}`,
-    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -464,7 +433,7 @@ test("bandit check warns (not fails) when the binary is absent", async () => {
 test("node:sqlite check reports ok on a host with the builtin (WAL round-trip)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sqlite-ok-"));
   try {
-    // skipNative is false so the native probes (duckdb, node:sqlite) register.
+    // skipNative is false so the native node:sqlite probe registers.
     const checks = buildChecks({ home });
     const sqlite = checks.find((c) => c.name === "node:sqlite built-in");
     assert.ok(sqlite, "node:sqlite check must be registered when skipNative is false");
@@ -480,8 +449,8 @@ test("node:sqlite check reports ok on a host with the builtin (WAL round-trip)",
   }
 });
 
-// The node:sqlite probe is a native check — `skipNative` must drop it (and the
-// duckdb probe) entirely, exactly like the other native-binding rows.
+// The node:sqlite probe is a native check — `skipNative` must drop it
+// entirely, exactly like the other native-binding rows.
 test("node:sqlite check is gated by skipNative (no row, no exit contribution)", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-sqlite-skip-"));
   try {
@@ -490,10 +459,6 @@ test("node:sqlite check is gated by skipNative (no row, no exit contribution)", 
     assert.ok(
       !names.includes("node:sqlite built-in"),
       "node:sqlite probe is a native check — skipNative must drop it",
-    );
-    assert.ok(
-      !names.includes("duckdb native binding"),
-      "duckdb probe is a native check — skipNative must drop it",
     );
   } finally {
     await rm(home, { recursive: true, force: true });

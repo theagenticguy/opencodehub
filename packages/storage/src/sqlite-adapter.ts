@@ -10,10 +10,9 @@
  * one-command, no-Docker install (`npm i -g @opencodehub/cli` and nothing else).
  *
  * STATUS. This file implements the FULL {@link IGraphStore} +
- * {@link ITemporalStore} surface against a single file, including
- * {@link SqliteStore.exportEmbeddingsToParquet} — which lazily imports DuckDB
- * at pack time only (P4 option (a); see SPIKE-SQLITE-WORKFLOW.md). DuckDB is
- * thus off the install hot path: only an embeddings-pack invocation loads it.
+ * {@link ITemporalStore} surface against a single file. Embeddings live in
+ * the `embeddings` table inside store.sqlite; there is no DuckDB dependency
+ * and no Parquet export (ADR 0019 dropped the write-only sidecar).
  *
  * GRAPH-HASH PARITY. The hard success criterion is that a `KnowledgeGraph`
  * rebuilt from `listNodes({})` + `listEdges({})` produces a byte-identical
@@ -1319,39 +1318,6 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       return typeof n === "bigint" ? Number(n) : typeof n === "number" ? n : 0;
     } catch {
       return 0;
-    }
-  }
-
-  // ── Parquet embeddings sidecar (P4: lazy DuckDB, pack-time only) ─────────────
-
-  /**
-   * Write the deterministic Parquet embeddings sidecar.
-   *
-   * P4 DECISION (see SPIKE-SQLITE-WORKFLOW.md). node:sqlite has no
-   * COPY-to-Parquet, and a byte-identical Parquet writer is the one capability
-   * DuckDB provides that SQLite does not. Rather than block the whole migration
-   * on a hand-rolled JS Parquet encoder (option b — deferred as a fast-follow),
-   * this keeps DuckDB as a LAZY, OPTIONAL, pack-time-only dependency: the import
-   * happens HERE, inside the one method the optional embeddings-pack path calls,
-   * so DuckDB is off the install hot path entirely. A repo packed without
-   * embeddings never loads it; `codehub analyze`/`query`/`impact` never load it.
-   *
-   * The staging table + deterministic `COPY (... ORDER BY ...) TO ... (FORMAT
-   * PARQUET, COMPRESSION ZSTD)` exactly mirror the original DuckDbStore writer,
-   * preserving the byte-identity contract the sidecar test asserts.
-   */
-  async exportEmbeddingsToParquet(
-    rows: AsyncIterable<EmbeddingRow>,
-    absOutPath: string,
-  ): Promise<{ readonly rowCount: number; readonly duckdbVersion: string }> {
-    // Lazy import: DuckDB is only required to emit the optional Parquet sidecar.
-    const { DuckDbStore } = await import("./duckdb-adapter.js");
-    const duck = new DuckDbStore(":memory:", {});
-    await duck.open();
-    try {
-      return await duck.exportEmbeddingsToParquet(rows, absOutPath);
-    } finally {
-      await duck.close();
     }
   }
 

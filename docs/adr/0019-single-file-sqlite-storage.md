@@ -44,14 +44,17 @@ sites (`store.graph.X()` / `store.temporal.Y()`) keep working unchanged.
 - **`@ladybugdb/core` is removed entirely** from every `package.json`;
   `graphdb-adapter.ts`, `graphdb-pool.ts`, `graphdb-schema.ts` and their
   tests are deleted. The lbug graph tier is gone.
-- **`@duckdb/node-api` survives as a LAZY, pack-time-only dependency.**
-  `node:sqlite` has no COPY-to-Parquet, and the byte-identical Parquet
-  embeddings sidecar is the one capability DuckDB provides that SQLite
-  does not. `SqliteStore.exportEmbeddingsToParquet()` `await import()`s
-  DuckDB *inside the method*, so it is off the install hot path — only an
-  embeddings-pack invocation loads it. `analyze`/`query`/`impact` and an
-  embedding-free `pack` never do. (Writing Parquet in pure JS to drop the
-  last native dep is the documented fast-follow.)
+- **`@duckdb/node-api` is removed too.** It briefly survived as a lazy,
+  pack-time-only import for the byte-identical Parquet embeddings sidecar
+  (BOM item #7). But nothing in OCH ever *read* that Parquet file back —
+  it was a write-only export with no consumer — so the sidecar was
+  **dropped entirely** along with DuckDB. Embeddings live in the
+  `embeddings` table inside `store.sqlite` (BLOB-exact, queryable); the
+  Parquet export is gone, and the code-pack is now an **8-item BOM**
+  (manifest + skeleton + file-tree + deps + ast-chunks + xrefs + findings +
+  licenses + readme). The result: **zero native storage dependencies.**
+  (`onnxruntime-node`, the optional embedder, is the only native dep left
+  and is lazy-loaded solely under `--embeddings` — out of scope here.)
 - **No backwards compatibility.** Clean slate: an existing
   `graph.lbug` / `temporal.duckdb` pair is not migrated. Users re-run
   `codehub analyze`, which writes the single `store.sqlite`.
@@ -65,10 +68,9 @@ sites (`store.graph.X()` / `store.temporal.Y()`) keep working unchanged.
   speaks SQL via the `exec` temporal surface, and the optional
   `execCypher` graph hatch is not implemented. Widening `GraphDialect`
   to `"sql"` is a one-line change deferred until a consumer needs it.
-- **`codehub doctor`** drops the lbug binding probe and gains a
-  `node:sqlite` builtin check (import + WAL round-trip); the DuckDB check
-  is downgraded from hard-fail to a warn scoped to "embeddings Parquet
-  sidecar only."
+- **`codehub doctor`** drops the lbug binding probe and the DuckDB probe
+  entirely; it gains a `node:sqlite` builtin check (import + WAL
+  round-trip). There is no native storage binding left to probe.
 
 ### graphHash byte-identity (the go/no-go)
 

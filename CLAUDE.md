@@ -87,12 +87,13 @@ the temporal tables (cochanges, symbol summaries, the
 `codehub query --sql` escape hatch). One `SqliteStore` class implements
 **both** `IGraphStore` and `ITemporalStore`; `openStore()` returns that
 single instance as both the `graph` and `temporal` views, so call sites
-use `store.graph.X()` / `store.temporal.Y()` unchanged. There is no
-native graph binding — `@ladybugdb/core` was removed (ADR 0019 supersedes
-ADR 0016). `@duckdb/node-api` survives ONLY as a lazy, pack-time import
-inside `SqliteStore.exportEmbeddingsToParquet()` for the byte-identical
-Parquet embeddings sidecar — it is off the install hot path, so
-`analyze`/`query`/`impact` never load it.
+use `store.graph.X()` / `store.temporal.Y()` unchanged. **Zero native
+storage bindings:** `@ladybugdb/core` AND `@duckdb/node-api` are both
+removed (ADR 0019 supersedes ADR 0016). The write-only Parquet embeddings
+sidecar (BOM item #7) was dropped with DuckDB — nothing ever read it back;
+embeddings live in the `embeddings` table in `store.sqlite`. The code-pack
+is now an 8-item BOM. (`onnxruntime-node`, the embedder, is the only
+remaining native dep — optional, lazy under `--embeddings`.)
 
 Schema: one generic `nodes` table (typed base columns +
 `payload` JSON overflow for the 37 kind-specific shapes), one polymorphic

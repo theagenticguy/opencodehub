@@ -2,8 +2,8 @@
  * Tests for `runCodePack` (the `codehub code-pack` subcommand handler).
  *
  * Strategy: inject `_generatePack` and `_runRepomix` test seams so the
- * unit tests assert wiring without loading native DuckDB bindings or
- * shelling out to `npx repomix`. Engine routing, default values, and
+ * unit tests assert wiring without opening a real store or shelling out
+ * to `npx repomix`. Engine routing, default values, and
  * the `<repo>/.codehub/packs/<packHash>/` path layout are all asserted
  * here.
  */
@@ -29,7 +29,7 @@ function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
     tokenizerId: DEFAULT_TOKENIZER_ID,
     determinismClass: "strict",
     budgetTokens: DEFAULT_BUDGET_TOKENS,
-    pins: { chonkieVersion: "0.0.9", duckdbVersion: "1.4.0", grammarCommits: {} },
+    pins: { chonkieVersion: "0.0.9", grammarCommits: {} },
     files: [
       { kind: "skeleton", path: "skeleton.jsonl", fileHash: "a".repeat(64) },
       { kind: "file-tree", path: "file-tree.jsonl", fileHash: "b".repeat(64) },
@@ -167,48 +167,6 @@ test("runCodePack engine='pack' resolves a relative repo path against process.cw
   } finally {
     process.chdir(original);
     await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test("runCodePack engine='pack' counts the embeddings sidecar in bomItemCount when present", async () => {
-  const repoPath = await mkdtemp(join(tmpdir(), "codehub-codepack-sidecar-"));
-  try {
-    const fakeGenerate = (async (
-      opts: { repoPath: string; outDir: string; budgetTokens: number; tokenizerId: string },
-      _internal: unknown,
-    ) => {
-      await mkdir(opts.outDir, { recursive: true });
-      await writeFile(join(opts.outDir, "manifest.json"), "{}");
-      return makeFakeManifest({
-        packHash: "sidecar",
-        files: [
-          { kind: "skeleton", path: "skeleton.jsonl", fileHash: "a".repeat(64) },
-          { kind: "file-tree", path: "file-tree.jsonl", fileHash: "b".repeat(64) },
-          { kind: "deps", path: "deps.jsonl", fileHash: "c".repeat(64) },
-          { kind: "ast-chunks", path: "ast-chunks.jsonl", fileHash: "d".repeat(64) },
-          { kind: "xrefs", path: "xrefs.jsonl", fileHash: "e".repeat(64) },
-          { kind: "findings", path: "findings.jsonl", fileHash: "f".repeat(64) },
-          { kind: "licenses", path: "licenses.md", fileHash: "1".repeat(64) },
-          {
-            kind: "embeddings-sidecar",
-            path: "embeddings.parquet",
-            fileHash: "2".repeat(64),
-          },
-        ],
-      });
-      // biome-ignore lint/suspicious/noExplicitAny: cross-package generic narrowing in test injection
-    }) as any;
-
-    const result = await runCodePack({
-      repo: repoPath,
-      _generatePack: fakeGenerate,
-      _store: FAKE_STORE,
-    });
-
-    // 8 manifest.files entries + 1 manifest = 9 BOM items on disk.
-    assert.equal(result.bomItemCount, 9);
-  } finally {
-    await rm(repoPath, { recursive: true, force: true });
   }
 });
 

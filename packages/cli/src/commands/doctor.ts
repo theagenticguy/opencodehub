@@ -15,10 +15,9 @@
 import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { access, open as fsOpen, mkdtemp, readFile, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
 import { BANDIT_SPEC } from "@opencodehub/scanners";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
@@ -129,7 +128,6 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const run = opts.runCommand ?? runCommand;
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck(run)];
   if (opts.skipNative !== true) {
-    list.push(duckdbWorksCheck(repoRoot));
     // node:sqlite is the mandatory single-file store. It is a Node builtin, so
     // it has no resolve seam (it can't be "absent" the way a node_modules
     // package can) — the check just imports it and exercises a WAL round-trip.
@@ -228,59 +226,6 @@ function pnpmInstalledCheck(run: RunCommandFn): Check {
   };
 }
 
-function duckdbWorksCheck(repoRoot: string): Check {
-  return {
-    name: "duckdb native binding",
-    async run() {
-      try {
-        const duckPath = resolveFromRoot(repoRoot, "@duckdb/node-api");
-        if (!duckPath) {
-          return {
-            status: "warn",
-            message: "@duckdb/node-api not installed (optional — embeddings Parquet sidecar only)",
-            hint: "only needed for the embeddings Parquet sidecar; run `pnpm install` at the repo root to enable it",
-          };
-        }
-        // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
-        // (`disconnectSync`, `closeSync`). The async `.close()` accessors
-        // were dropped in 1.0.0; depending on them produced a false FAIL.
-        // `resolveFromRoot` returns an absolute fs path; ESM dynamic import
-        // requires a `file://` URL on Windows (a bare `D:\…` path throws
-        // "Only URLs with a scheme in: file, data, node are supported").
-        const mod = (await import(pathToFileURL(duckPath).href)) as {
-          DuckDBInstance: {
-            create: (path: string) => Promise<{
-              connect: () => Promise<{
-                disconnectSync?: () => void;
-                close?: () => void | Promise<void>;
-              }>;
-              closeSync?: () => void;
-              close?: () => void | Promise<void>;
-            }>;
-          };
-        };
-        // In-memory instance: never touches disk, never lingers.
-        const inst = await mod.DuckDBInstance.create(":memory:");
-        const conn = await inst.connect();
-        if (typeof conn.disconnectSync === "function") conn.disconnectSync();
-        else if (typeof conn.close === "function") await conn.close();
-        if (typeof inst.closeSync === "function") inst.closeSync();
-        else if (typeof inst.close === "function") await inst.close();
-        return { status: "ok", message: "duckdb open/close OK" };
-      } catch (err) {
-        return {
-          // DuckDB is now OPTIONAL — it backs only the embeddings Parquet
-          // sidecar, not the core store. A broken/absent binding degrades that
-          // one feature, so it is a soft `warn`, never a blocking `fail`.
-          status: "warn",
-          message: `duckdb unavailable (optional — embeddings Parquet sidecar only): ${err instanceof Error ? err.message : String(err)}`,
-          hint: "only needed for the embeddings Parquet sidecar; pnpm prebuilds linux-x64/arm64, darwin-arm64/x64, win32-x64",
-        };
-      }
-    },
-  };
-}
-
 /**
  * The single-file SQLite store ({@link SqliteStore}) is the mandatory storage
  * backend: there is no selector env var, no probe, and no fallback — every
@@ -288,9 +233,9 @@ function duckdbWorksCheck(repoRoot: string): Check {
  * non-importable `node:sqlite` is a hard `fail` here, exactly like a missing
  * shipped artifact (see {@link vendoredWasmsCheck}) — never a soft `warn`.
  *
- * Unlike the duckdb probe, there is nothing to resolve from `node_modules`:
- * `node:sqlite` is a Node builtin (stable on Node >= 24.15, our engines floor),
- * so the probe is a plain `import("node:sqlite")` with no `resolve` injection.
+ * There is nothing to resolve from `node_modules`: `node:sqlite` is a Node
+ * builtin (stable on Node >= 24.15, our engines floor), so the probe is a
+ * plain `import("node:sqlite")` with no `resolve` injection.
  * We still exercise the real load-and-use cycle — confirm `DatabaseSync` is a
  * function, open an in-memory db, request WAL, and run a CREATE/INSERT/SELECT
  * round-trip — so a builtin that loaded but is unusable still fails loudly.
@@ -700,8 +645,8 @@ function onnxBindingPlatformNote(
 
 /**
  * Probe the OPTIONAL `onnxruntime-node` binding the same way the embedder
- * does — a lazy dynamic import. Unlike the duckdb/lbug probes, this is
- * deliberately NON-FATAL: the embedder is an optional capability, and the real
+ * does — a lazy dynamic import. This is deliberately NON-FATAL: the embedder
+ * is an optional capability, and the real
  * failure mode is a SILENT degrade to BM25-only retrieval (the embedder open
  * path catches the native-load error and falls back). So an absent/broken
  * binding is a `warn`, never a `fail`. The warn message names the platform gap
@@ -937,38 +882,3 @@ function existsSyncSafe(path: string): boolean {
   }
 }
 
-function resolveFromRoot(repoRoot: string, pkg: string): string | null {
-  // 1. CLI's own resolution context — the canonical answer.
-  try {
-    const req = createRequire(import.meta.url);
-    return req.resolve(pkg);
-  } catch {
-    // fall through to repoRoot
-  }
-  // 2. Workspace/monorepo root fallback.
-  try {
-    const req = createRequire(join(repoRoot, "package.json"));
-    return req.resolve(pkg);
-  } catch {
-    // fall through to per-package fallbacks
-  }
-  // 3. Per-workspace fallback. Under pnpm strict isolation, the optional
-  //    `@duckdb/node-api` native binding is a direct dep of the package that
-  //    uses it (`packages/storage`, for the embeddings Parquet sidecar).
-  //    Probing that package.json context lets `codehub doctor` resolve the
-  //    binding even when neither the CLI nor the workspace root declare it as
-  //    a direct dep. (The pure-JS `@sourcegraph/scip-*` indexers are NOT
-  //    resolved here — `scipIndexerCheck` checks them via
-  //    `hostedScipBinDirs()`, the same resolver the analyze-time spawn PATH
-  //    uses, which is the layout-correct authority for "will analyze find it".)
-  const owners = pkg.startsWith("@duckdb/") ? ["packages/storage"] : [];
-  for (const owner of owners) {
-    try {
-      const req = createRequire(join(repoRoot, owner, "package.json"));
-      return req.resolve(pkg);
-    } catch {
-      // try next
-    }
-  }
-  return null;
-}

@@ -1,5 +1,5 @@
 /**
- * @opencodehub/pack — public type surface for the 9-item BOM.
+ * @opencodehub/pack — public type surface for the 8-item BOM.
  *
  * These interfaces are the contract every BOM body builder consumes.
  * Fields are `readonly` by convention (see sibling packages in this
@@ -7,7 +7,7 @@
  * in-place.
  */
 
-/** A single item in the 9-item BOM. */
+/** A single item in the 8-item BOM. */
 export interface BomItem {
   readonly kind:
     | "manifest"
@@ -16,7 +16,6 @@ export interface BomItem {
     | "deps"
     | "ast-chunks"
     | "xrefs"
-    | "embeddings-sidecar"
     | "findings"
     | "licenses";
   readonly path: string; // relative to pack output dir
@@ -34,7 +33,6 @@ export type DeterminismClass = "strict" | "best_effort" | "degraded";
 /** Version pins embedded in the BOM manifest for reproducibility. */
 export interface PackPins {
   readonly chonkieVersion: string;
-  readonly duckdbVersion: string;
   readonly grammarCommits: Readonly<Record<string, string>>; // lang -> grammar commit SHA
 }
 
