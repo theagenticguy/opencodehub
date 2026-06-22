@@ -52,6 +52,10 @@ describe("runIngestion (end-to-end)", () => {
         "coverage",
         "markdown",
         "parse",
+        // `business-logic` depends on parse + scan; once parse completes it is
+        // ready alongside complexity/orm/routes and the alphabetic tiebreak
+        // ("business-logic" < "complexity") lands it first.
+        "business-logic",
         "complexity",
         "orm",
         "routes",
