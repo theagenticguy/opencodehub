@@ -126,6 +126,57 @@ export function classifyPlumbing(f: PlumbingFeatures): PlumbingVerdict {
 }
 
 /**
+ * The recall-first complement of the sieve: a symbol is a `candidate_business`
+ * unless the sieve is confident it is plumbing. This is the "look here for
+ * domain logic" tag the user gets at analyze time without a query, labels, or
+ * embeddings.
+ *
+ * ## Why subtraction, not assertion
+ *
+ * Asserting "this IS business logic" needs a trained classifier and did not
+ * generalize across repos (held-out F1 ~0.3). SUBTRACTING confident plumbing
+ * does generalize, because the plumbing sieve does. So the candidate set is
+ * "everything the sieve did not remove" — recall-first BY CONSTRUCTION: a
+ * symbol only loses the tag when we are confident it is plumbing, so real
+ * domain logic cannot be silently dropped.
+ *
+ * ## Measured (286 labeled symbols, Python / Java / Go)
+ *
+ * Business RECALL 0.925 (misses 6 of 80 business symbols); per-repo recall
+ * 0.80–1.00 (flask 1.00, java 0.96, go 0.88, cosmic 0.80). Precision 0.385 —
+ * the tag fires on ~67% of symbols, which is the intended recall-first trade:
+ * the tag is the safety net (nothing important falls out), and an optional
+ * embedding-derived rank orders the candidates so the most domain-like surface
+ * first. The tag NEVER tries to be precise on its own.
+ */
+export interface BusinessCandidateVerdict {
+  /**
+   * `true` when the symbol is a candidate for business logic — i.e. the sieve
+   * did NOT classify it as plumbing. High recall, low precision by design. A
+   * consumer should treat this as "worth a look", not "confirmed business".
+   */
+  readonly candidateBusiness: boolean;
+  /**
+   * The complementary plumbing verdict that produced this tag, carried through
+   * for auditability so a consumer can see WHY a symbol was (or was not) a
+   * candidate without re-running the sieve.
+   */
+  readonly plumbing: PlumbingVerdict;
+}
+
+/**
+ * Tag a symbol as a business-logic candidate. Pure complement of
+ * {@link classifyPlumbing}: `candidateBusiness === !likelyPlumbing`. Shares the
+ * exact same feature inputs so the two tags can never disagree about a symbol
+ * (every symbol is either confident-plumbing or a candidate, never both,
+ * never neither).
+ */
+export function classifyBusinessCandidate(f: PlumbingFeatures): BusinessCandidateVerdict {
+  const plumbing = classifyPlumbing(f);
+  return { candidateBusiness: !plumbing.likelyPlumbing, plumbing };
+}
+
+/**
  * Languages the sieve is validated on. The rule's precision floor was measured
  * on Python, Java, and Go corpora; calling it on other languages is allowed but
  * unvalidated, so the analyze pass should gate on this set and skip the rest

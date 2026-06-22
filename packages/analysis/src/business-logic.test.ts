@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
+  classifyBusinessCandidate,
   classifyPlumbing,
   type PlumbingFeatures,
   SIEVE_VALIDATED_LANGUAGES,
@@ -97,4 +98,50 @@ test("validated-language set is exactly python/java/go", () => {
   assert.equal(SIEVE_VALIDATED_LANGUAGES.has("java"), true);
   assert.equal(SIEVE_VALIDATED_LANGUAGES.has("go"), true);
   assert.equal(SIEVE_VALIDATED_LANGUAGES.has("ruby"), false);
+});
+
+// ── candidate_business: the recall-first complement of the sieve ────────────
+
+test("candidate_business is the exact complement of likely_plumbing", () => {
+  // The core invariant: every symbol is either confident-plumbing or a
+  // candidate, never both, never neither. Spot-check across the rule surface.
+  for (const f of [
+    feat({}),
+    feat({ nSerializationCalls: 1 }),
+    feat({ nPlumbingSignals: 2 }),
+    feat({ nPlumbingSignals: 2, isOrmModel: true }),
+    feat({ nDomainSignals: 3, nPlumbingSignals: 1 }),
+  ]) {
+    const sieve = classifyPlumbing(f);
+    const cand = classifyBusinessCandidate(f);
+    assert.equal(cand.candidateBusiness, !sieve.likelyPlumbing);
+    assert.deepEqual(cand.plumbing, sieve); // carries the verdict through verbatim
+  }
+});
+
+test("recall-first: a bare domain conditional stays a candidate", () => {
+  // A symbol with a domain decision and no plumbing must be a candidate — this
+  // is the recall the tag is built to protect (don't drop domain logic).
+  const v = classifyBusinessCandidate(feat({ nDomainSignals: 1 }));
+  assert.equal(v.candidateBusiness, true);
+});
+
+test("recall-first: a symbol with NO signals at all is still a candidate", () => {
+  // The sieve only removes CONFIDENT plumbing. An empty/unknown symbol is kept
+  // as a candidate rather than silently excluded — high recall by construction.
+  const v = classifyBusinessCandidate(feat({}));
+  assert.equal(v.candidateBusiness, true);
+  assert.equal(v.plumbing.tier, "none");
+});
+
+test("confident plumbing is NOT a candidate", () => {
+  // A pure serializer is removed from the candidate set.
+  const v = classifyBusinessCandidate(feat({ nSerializationCalls: 1 }));
+  assert.equal(v.candidateBusiness, false);
+});
+
+test("regression: Batch.allocate is a business candidate, AbstractRepository is not", () => {
+  // The two pinned cases, viewed through the candidate tag.
+  assert.equal(classifyBusinessCandidate(feat({ nDomainSignals: 2 })).candidateBusiness, true);
+  assert.equal(classifyBusinessCandidate(feat({ nPlumbingSignals: 1 })).candidateBusiness, false);
 });
