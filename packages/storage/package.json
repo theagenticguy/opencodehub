@@ -24,6 +24,10 @@
     "./test-utils": {
       "types": "./dist/test-utils/index.d.ts",
       "import": "./dist/test-utils/index.js"
+    },
+    "./sqlite-runtime": {
+      "types": "./dist/sqlite-runtime.d.ts",
+      "import": "./dist/sqlite-runtime.js"
     }
   },
   "files": [

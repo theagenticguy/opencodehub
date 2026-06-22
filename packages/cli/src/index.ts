@@ -13,6 +13,12 @@ import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
+// Silence the one-shot node:sqlite ExperimentalWarning before any subcommand
+// lazily loads the storage layer. This module is dependency-free (no native
+// binding), so importing it eagerly does not regress `--help` startup cost.
+import { installSqliteRuntimeGuard } from "@opencodehub/storage/sqlite-runtime";
+
+installSqliteRuntimeGuard();
 
 // Read the CLI's own version from its package.json. The bin entry is always
 // emitted at <pkg-root>/dist/index.js in every layout (the tsup collapse keeps

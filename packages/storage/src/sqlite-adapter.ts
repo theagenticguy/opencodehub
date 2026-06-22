@@ -34,6 +34,9 @@
  * artifacts (per the spike brief).
  */
 
+// Install the experimental-warning guard BEFORE the node:sqlite binding loads.
+import "./sqlite-runtime.js";
+
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import type { GraphNode, KnowledgeGraph, NodeId } from "@opencodehub/core-types";

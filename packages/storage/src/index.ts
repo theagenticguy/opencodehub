@@ -49,6 +49,8 @@ export type {
   VectorResult,
 } from "./interface.js";
 export { readStoreMeta, writeStoreMeta } from "./meta.js";
+export { installSqliteRuntimeGuard } from "./sqlite-runtime.js";
+export { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 export {
   describeArtifacts,
   META_DIR_NAME,
