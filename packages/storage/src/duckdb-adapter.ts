@@ -688,46 +688,6 @@ function isSafeAbsolutePath(p: string): boolean {
   return /^[A-Za-z0-9/\\:_\-.~]+$/.test(p);
 }
 
-/**
- * Classify a SPDX-ish license string into one of the five
- * license-tier buckets. Used by graph-side `listDependencies` finders;
- * kept here as a free helper for cross-adapter symmetry.
- */
-export function classifyLicenseTier(
-  license: string | undefined,
-): "permissive" | "weak-copyleft" | "strong-copyleft" | "proprietary" | "unknown" {
-  if (!license || license.trim().length === 0) return "unknown";
-  const lower = license.trim().toLowerCase();
-  // Strong copyleft — GPL/AGPL family.
-  if (/(^|\b|-)agpl(-|$)/i.test(lower) || /(^|\b|-)gpl(-|$)/i.test(lower)) {
-    return "strong-copyleft";
-  }
-  // Weak copyleft — LGPL, MPL, EPL, CDDL, CC-BY-SA.
-  if (
-    /(^|\b|-)lgpl(-|$)/i.test(lower) ||
-    /(^|\b)mpl(-|$)/i.test(lower) ||
-    /(^|\b)epl(-|$)/i.test(lower) ||
-    /(^|\b)cddl(-|$)/i.test(lower) ||
-    /(^|\b)cc-by-sa(-|$)/i.test(lower)
-  ) {
-    return "weak-copyleft";
-  }
-  // Permissive — MIT/Apache/BSD/ISC/0BSD/Unlicense/CC0/Zlib.
-  if (
-    /(^|\b)mit(\b|-|$)/.test(lower) ||
-    /(^|\b)apache(-|$)/i.test(lower) ||
-    /(^|\b)bsd(-|$)/i.test(lower) ||
-    /(^|\b)isc(\b|-|$)/.test(lower) ||
-    /(^|\b)0bsd(\b|$)/.test(lower) ||
-    /(^|\b)unlicense(\b|$)/.test(lower) ||
-    /(^|\b)cc0(\b|-|$)/.test(lower) ||
-    /(^|\b)zlib(\b|$)/.test(lower)
-  ) {
-    return "permissive";
-  }
-  // Proprietary markers.
-  if (/(^|\b)(proprietary|commercial|see license)(\b|$)/i.test(lower)) {
-    return "proprietary";
-  }
-  return "unknown";
-}
+// `classifyLicenseTier` moved to `./license.ts` (a pure, binding-free module)
+// in the single-file migration so consumers can use it without transitively
+// importing `@duckdb/node-api` from this file's top-level binding import.

@@ -51,8 +51,8 @@ import {
   type RouteNode,
 } from "@opencodehub/core-types";
 
-import { classifyLicenseTier } from "./duckdb-adapter.js";
-import { getAllRelationTypes } from "./graphdb-schema.js";
+import { classifyLicenseTier } from "./license.js";
+import { getAllRelationTypes } from "./relations.js";
 import { stepZeroSentinel } from "./column-encode.js";
 import { assertReadOnlySql } from "./sql-guard.js";
 import type {

@@ -22,7 +22,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { mergeSarif } from "@opencodehub/sarif";
 import { BANDIT_SPEC } from "@opencodehub/scanners";
 import { hostedScipBinDirs } from "@opencodehub/scip-ingest";
-import { GRAPH_BINDING_SUPPORTED_PLATFORMS, graphBindingPlatformNote } from "@opencodehub/storage";
 import Table from "cli-table3";
 
 export type CheckStatus = "ok" | "warn" | "fail";
@@ -61,13 +60,6 @@ export interface DoctorOptions {
    * Defaults to the real {@link runCommand}. Same signature.
    */
   readonly runCommand?: RunCommandFn;
-  /**
-   * Injectable npm-package resolver for the native-binding checks. Lets a
-   * test simulate an absent `@ladybugdb/core` (the mandatory graph binding
-   * is installed in every dev/CI checkout, so the only way to exercise the
-   * hard-fail path is to stub resolution). Defaults to {@link resolveFromRoot}.
-   */
-  readonly resolveBinding?: (root: string, pkg: string) => string | null;
   /**
    * Injectable loader for the `onnxruntime-node` binding probe. The real
    * loader is a dynamic `import("onnxruntime-node")` — an OPTIONAL dependency
@@ -138,11 +130,10 @@ export function buildChecks(opts: DoctorOptions = {}): readonly Check[] {
   const list: Check[] = [nodeVersionCheck(), pnpmInstalledCheck(run)];
   if (opts.skipNative !== true) {
     list.push(duckdbWorksCheck(repoRoot));
-    list.push(
-      opts.resolveBinding !== undefined
-        ? lbugWorksCheck(repoRoot, opts.resolveBinding)
-        : lbugWorksCheck(repoRoot),
-    );
+    // node:sqlite is the mandatory single-file store. It is a Node builtin, so
+    // it has no resolve seam (it can't be "absent" the way a node_modules
+    // package can) — the check just imports it and exercises a WAL round-trip.
+    list.push(nodeSqliteCheck());
   }
   // Vendored parse grammars: a shipped artifact, so absence/corruption is
   // always a hard fail. One row covering all 16 blobs + the manifest pin.
@@ -246,8 +237,8 @@ function duckdbWorksCheck(repoRoot: string): Check {
         if (!duckPath) {
           return {
             status: "warn",
-            message: "@duckdb/node-api not installed",
-            hint: "run `pnpm install` at the repo root",
+            message: "@duckdb/node-api not installed (optional — embeddings Parquet sidecar only)",
+            hint: "only needed for the embeddings Parquet sidecar; run `pnpm install` at the repo root to enable it",
           };
         }
         // The @duckdb/node-api 1.x surface exposes Sync teardown helpers
@@ -278,9 +269,12 @@ function duckdbWorksCheck(repoRoot: string): Check {
         return { status: "ok", message: "duckdb open/close OK" };
       } catch (err) {
         return {
-          status: "fail",
-          message: `duckdb failed to open: ${err instanceof Error ? err.message : String(err)}`,
-          hint: "check platform support — pnpm only prebuilds linux-x64/arm64, darwin-arm64/x64, win32-x64",
+          // DuckDB is now OPTIONAL — it backs only the embeddings Parquet
+          // sidecar, not the core store. A broken/absent binding degrades that
+          // one feature, so it is a soft `warn`, never a blocking `fail`.
+          status: "warn",
+          message: `duckdb unavailable (optional — embeddings Parquet sidecar only): ${err instanceof Error ? err.message : String(err)}`,
+          hint: "only needed for the embeddings Parquet sidecar; pnpm prebuilds linux-x64/arm64, darwin-arm64/x64, win32-x64",
         };
       }
     },
@@ -288,53 +282,71 @@ function duckdbWorksCheck(repoRoot: string): Check {
 }
 
 /**
- * Mirror of {@link duckdbWorksCheck} for the `@ladybugdb/core` graph
- * binding. The graph tier is mandatory and always-on: there is no
- * selector env var, no probe, and no fallback — a failed binding throws
- * `GraphDbBindingError` and aborts every graph operation. So a
- * missing/broken binding is a hard `fail` here, exactly like a missing
+ * The single-file SQLite store ({@link SqliteStore}) is the mandatory storage
+ * backend: there is no selector env var, no probe, and no fallback — every
+ * graph/temporal operation opens one `node:sqlite` database in WAL mode. So a
+ * non-importable `node:sqlite` is a hard `fail` here, exactly like a missing
  * shipped artifact (see {@link vendoredWasmsCheck}) — never a soft `warn`.
  *
- * `resolve` is injectable so tests can simulate an absent binding without
- * uninstalling the real dependency; production passes {@link resolveFromRoot}.
+ * Unlike the duckdb probe, there is nothing to resolve from `node_modules`:
+ * `node:sqlite` is a Node builtin (stable on Node >= 24.15, our engines floor),
+ * so the probe is a plain `import("node:sqlite")` with no `resolve` injection.
+ * We still exercise the real load-and-use cycle — confirm `DatabaseSync` is a
+ * function, open an in-memory db, request WAL, and run a CREATE/INSERT/SELECT
+ * round-trip — so a builtin that loaded but is unusable still fails loudly.
  */
-function lbugWorksCheck(
-  repoRoot: string,
-  resolve: (root: string, pkg: string) => string | null = resolveFromRoot,
-): Check {
+function nodeSqliteCheck(): Check {
   return {
-    name: "graph-db native binding",
+    name: "node:sqlite built-in",
     async run() {
       try {
-        const lbugPath = resolve(repoRoot, "@ladybugdb/core");
-        if (!lbugPath) {
+        // `node:sqlite` is a builtin; a bare static-string specifier resolves
+        // it without touching `node_modules`. Older Node (< 24.15, below our
+        // engines floor) lacks the module entirely → the import throws.
+        const mod = (await import("node:sqlite")) as {
+          DatabaseSync?: new (
+            path: string,
+          ) => {
+            exec(sql: string): void;
+            prepare(sql: string): { get(): unknown; run(): unknown };
+            close(): void;
+          };
+        };
+        const DatabaseSync = mod.DatabaseSync;
+        if (typeof DatabaseSync !== "function") {
           return {
             status: "fail",
-            message: "@ladybugdb/core not installed (required graph backend)",
-            hint: lbugFailureHint(),
+            message: "node:sqlite imported but exports no DatabaseSync constructor",
+            hint: nodeSqliteFailureHint(),
           };
         }
-        // The graph binding uses `@ladybugdb/core`'s `Database` entry. We
-        // exercise the load-and-close cycle the same way the duckdb check
-        // does — anything heavier would couple this probe to the adapter's
-        // evolving smoke-test surface. `lbugPath` is an absolute fs path;
-        // ESM import needs a `file://` URL on Windows (see duckdb check).
-        const mod = (await import(pathToFileURL(lbugPath).href)) as Record<string, unknown>;
-        const ctorRaw =
-          mod["Database"] ?? (mod["default"] as Record<string, unknown> | undefined)?.["Database"];
-        if (typeof ctorRaw !== "function") {
-          return {
-            status: "fail",
-            message: "@ladybugdb/core is installed but exports no Database constructor",
-            hint: lbugFailureHint(),
-          };
+        // In-memory database: never touches disk, never lingers. We request
+        // WAL (the mode the real SqliteStore opens with) and run a trivial
+        // round-trip to prove the binding is usable, not merely importable.
+        const db = new DatabaseSync(":memory:");
+        try {
+          db.exec("PRAGMA journal_mode=WAL");
+          db.exec("CREATE TABLE doctor_probe (n INTEGER)");
+          db.prepare("INSERT INTO doctor_probe (n) VALUES (1)").run();
+          const row = db.prepare("SELECT n FROM doctor_probe").get() as
+            | { n?: number }
+            | undefined;
+          if (row?.n !== 1) {
+            return {
+              status: "fail",
+              message: "node:sqlite round-trip returned an unexpected value",
+              hint: nodeSqliteFailureHint(),
+            };
+          }
+        } finally {
+          db.close();
         }
-        return { status: "ok", message: "@ladybugdb/core load OK" };
+        return { status: "ok", message: "node:sqlite (built-in) load + WAL OK" };
       } catch (err) {
         return {
           status: "fail",
-          message: `@ladybugdb/core failed to load: ${err instanceof Error ? err.message : String(err)}`,
-          hint: lbugFailureHint(),
+          message: `node:sqlite failed to load: ${err instanceof Error ? err.message : String(err)}`,
+          hint: nodeSqliteFailureHint(),
         };
       }
     },
@@ -342,22 +354,13 @@ function lbugWorksCheck(
 }
 
 /**
- * Hint for every `@ladybugdb/core` failure path. On a SUPPORTED platform a
- * reinstall can plausibly fix it (a pruned `--production` install, a partial
- * download), so we lead with that. On an UNSUPPORTED platform — win32-arm64
- * or musl/Alpine, where there is no prebuilt at all — `graphBindingPlatformNote`
- * names the gap so the user does not chase a futile reinstall. We reuse the
- * adapter's shared message (single source of truth) so doctor and the runtime
- * `GraphDbBindingError` never drift.
+ * Hint for every `node:sqlite` failure path. The module is a Node builtin, so
+ * there is nothing to install or reinstall — the only realistic cause is a Node
+ * older than our engines floor, where the builtin either does not exist or is
+ * behind an unsupported experimental gate. Point the user at the Node version.
  */
-function lbugFailureHint(): string {
-  const platformNote = graphBindingPlatformNote();
-  if (platformNote !== "") {
-    // Unsupported platform: a reinstall cannot produce a binding that does
-    // not ship. Name the gap + the realistic remedy.
-    return `${GRAPH_BINDING_SUPPORTED_PLATFORMS}${platformNote}`;
-  }
-  return `reinstall the graph backend binding (\`pnpm install\`, or \`npm i -g @opencodehub/cli\`). ${GRAPH_BINDING_SUPPORTED_PLATFORMS}`;
+function nodeSqliteFailureHint(): string {
+  return "node:sqlite is a built-in on Node >= 24.15 (our engines floor); upgrade Node with `mise use node@24` or `nvm install 24`";
 }
 
 /**
@@ -949,17 +952,16 @@ function resolveFromRoot(repoRoot: string, pkg: string): string | null {
   } catch {
     // fall through to per-package fallbacks
   }
-  // 3. Per-workspace fallback. Under pnpm strict isolation, native bindings
-  //    are direct deps of the package that uses them — `@duckdb/node-api`
-  //    and `@ladybugdb/core` both live in `packages/storage`. Probing that
-  //    package.json context lets `codehub doctor` resolve the bindings
-  //    even when neither the CLI nor the workspace root declare them as
-  //    direct deps. (The pure-JS `@sourcegraph/scip-*` indexers are NOT
+  // 3. Per-workspace fallback. Under pnpm strict isolation, the optional
+  //    `@duckdb/node-api` native binding is a direct dep of the package that
+  //    uses it (`packages/storage`, for the embeddings Parquet sidecar).
+  //    Probing that package.json context lets `codehub doctor` resolve the
+  //    binding even when neither the CLI nor the workspace root declare it as
+  //    a direct dep. (The pure-JS `@sourcegraph/scip-*` indexers are NOT
   //    resolved here — `scipIndexerCheck` checks them via
   //    `hostedScipBinDirs()`, the same resolver the analyze-time spawn PATH
   //    uses, which is the layout-correct authority for "will analyze find it".)
-  const owners =
-    pkg.startsWith("@duckdb/") || pkg.startsWith("@ladybugdb/") ? ["packages/storage"] : [];
+  const owners = pkg.startsWith("@duckdb/") ? ["packages/storage"] : [];
   for (const owner of owners) {
     try {
       const req = createRequire(join(repoRoot, owner, "package.json"));

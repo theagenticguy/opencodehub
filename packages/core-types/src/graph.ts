@@ -58,7 +58,23 @@ export class KnowledgeGraph {
     const key = edgeDedupKey(edge);
     const existing = this.edgeByKey.get(key);
     const id = makeEdgeId(edge.from, edge.type, edge.to, edge.step);
-    const candidate: CodeRelation = { ...edge, id };
+    // Canonicalize the step sentinel AT THE GRAPH BOUNDARY. `step: 0` and an
+    // absent step are already the same edge by identity — both `edgeDedupKey`
+    // and `makeEdgeId` collapse them via `step ?? 0`. But a candidate object
+    // that literally carries `step: 0` serializes as `"step":0` in graphHash,
+    // while every storage adapter's `listEdges` drops it via `stepZeroSentinel`
+    // — so a rebuilt graph would hash differently from the original. Strip a
+    // zero/non-finite step here so the in-memory canonical edge matches what
+    // round-trips through any IGraphStore. (Closes the latent parity gap the
+    // SQLite migration surfaced: the old graphdb-roundtrip test only passed
+    // because its test-local rebuild re-attached step:0.)
+    const { step: rawStep, ...edgeRest } = edge;
+    const normalizedStep =
+      typeof rawStep === "number" && Number.isFinite(rawStep) && rawStep !== 0
+        ? rawStep
+        : undefined;
+    const candidate: CodeRelation =
+      normalizedStep === undefined ? { ...edgeRest, id } : { ...edgeRest, step: normalizedStep, id };
     if (!existing) {
       this.edgeByKey.set(key, candidate);
       return;

@@ -1,18 +1,7 @@
 export { assertReadOnlyCypher, CypherGuardError } from "./cypher-guard.js";
-export { classifyLicenseTier, DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
-export {
-  GRAPH_BINDING_SUPPORTED_PLATFORMS,
-  GraphDbBindingError,
-  GraphDbStore,
-  type GraphDbStoreOptions,
-  graphBindingPlatformNote,
-  NotImplementedError,
-} from "./graphdb-adapter.js";
-export {
-  type GraphDbSchemaOptions,
-  generateSchemaDdl,
-  getAllRelationTypes,
-} from "./graphdb-schema.js";
+export { DuckDbStore, type DuckDbStoreOptions } from "./duckdb-adapter.js";
+export { classifyLicenseTier } from "./license.js";
+export { getAllRelationTypes } from "./relations.js";
 export type {
   AncestorTraversalOptions,
   BulkLoadOptions,
@@ -65,23 +54,16 @@ export { generateSchemaDDL, type SchemaOptions } from "./schema-ddl.js";
 export { assertReadOnlySql, SqlGuardError } from "./sql-guard.js";
 
 import { dirname, join } from "node:path";
-import type { DuckDbStoreOptions } from "./duckdb-adapter.js";
-import type { GraphDbStoreOptions } from "./graphdb-adapter.js";
 import type { OpenStoreOptions as ApiOpenStoreOptions, OpenStoreResult } from "./interface.js";
 import { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 
 /**
- * Combined options accepted by {@link openStore}. Superset of the
- * spec-level {@link ApiOpenStoreOptions}. The `duckOptions` / `graphDbOptions`
- * adapter bags are retained as accepted-but-ignored fields so the existing
- * 52 call sites compile unchanged through the single-file migration; they
- * are dead and removed in Phase 5 with the native adapters.
+ * Combined options accepted by {@link openStore}. Superset of the spec-level
+ * {@link ApiOpenStoreOptions} that adds the SQLite-adapter tuning bag. The
+ * single-file store replaced the lbug + DuckDB pair (ADR 0017), so the former
+ * `duckOptions` / `graphDbOptions` per-backend bags are gone.
  */
 export interface OpenStoreOptions extends ApiOpenStoreOptions {
-  /** @deprecated DuckDB temporal backend removed; ignored. Dropped in P5. */
-  readonly duckOptions?: DuckDbStoreOptions;
-  /** @deprecated lbug graph backend removed; ignored. Dropped in P5. */
-  readonly graphDbOptions?: GraphDbStoreOptions;
   /** SQLite-adapter tuning (journal mode, busy timeout). */
   readonly sqliteOptions?: SqliteStoreOptions;
 }

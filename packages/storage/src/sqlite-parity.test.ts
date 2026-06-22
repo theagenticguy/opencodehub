@@ -510,7 +510,7 @@ test("graphHash parity is deterministic across two independent stores", async ()
 // Belt-and-suspenders: every declared edge kind round-trips at least one row,
 // so a dropped type surfaces as a parity failure rather than a silent miss.
 test("graphHash parity: every declared edge kind round-trips", async () => {
-  const { getAllRelationTypes } = await import("./graphdb-schema.js");
+  const { getAllRelationTypes } = await import("./relations.js");
   const relationTypes = getAllRelationTypes();
   const g = new KnowledgeGraph();
   const nodes: NodeId[] = [];
@@ -532,6 +532,35 @@ test("graphHash parity: every declared edge kind round-trips", async () => {
   const store = await freshStore();
   try {
     await assertGraphParity(g, { stores: [store], label: "sqlite-all-kinds" });
+  } finally {
+    await store.close();
+  }
+});
+
+// STEP-ZERO CONTRACT regression. An edge built with an explicit `step: 0` must
+// round-trip byte-identically: KnowledgeGraph.addEdge normalizes step:0 → absent
+// at the graph boundary so graphHash and every adapter's listEdges agree. A
+// non-zero step must survive. This closes the latent parity gap the single-file
+// migration surfaced — the old graphdb-roundtrip test masked it by re-attaching
+// step:0 in a test-local rebuild helper instead of going through the public
+// rebuildFromStore harness.
+test("graphHash parity: explicit step:0 edge round-trips (sentinel at the graph boundary)", async () => {
+  const g = new KnowledgeGraph();
+  const a = makeNodeId("Function", "src/x.ts", "a");
+  const b = makeNodeId("Function", "src/x.ts", "b");
+  const c = makeNodeId("Function", "src/x.ts", "c");
+  for (const [id, name] of [
+    [a, "a"],
+    [b, "b"],
+    [c, "c"],
+  ] as const) {
+    g.addNode({ id, kind: "Function", name, filePath: "src/x.ts" });
+  }
+  g.addEdge({ from: a, to: b, type: "CALLS" as RelationType, confidence: 1, step: 0 }); // sentinel
+  g.addEdge({ from: b, to: c, type: "CALLS" as RelationType, confidence: 1, step: 3 }); // survives
+  const store = await freshStore();
+  try {
+    await assertGraphParity(g, { stores: [store], label: "sqlite-step-zero" });
   } finally {
     await store.close();
   }
