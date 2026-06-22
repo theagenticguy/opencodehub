@@ -506,30 +506,30 @@ test("node:sqlite check message names the built-in load + WAL on success", async
 });
 
 // ---------------------------------------------------------------------------
-// Embedder native binding (onnxruntime-node) — OPTIONAL, so absence is a
+// Embedder runtime (onnxruntime-web, WASM) — OPTIONAL, so absence is a
 // NON-FATAL warn that degrades retrieval to BM25, never a hard fail.
 // ---------------------------------------------------------------------------
 
-// onnxruntime-node ships prebuilds for only ~5 targets (no Intel-mac, no musl).
-// The real failure mode is a silent degrade to BM25 — the embedder open path
-// catches the native-load error — so doctor must surface a `warn`, not a fail.
-// Inject a loader that throws to exercise the absent-binding branch.
-test("embedder binding check warns (not fails) when onnxruntime-node fails to load", async () => {
+// onnxruntime-web is prebuilt WASM with no platform matrix — if it imports it
+// runs everywhere. The failure mode is simply "not installed", a silent degrade
+// to BM25 (the embedder open path catches the load error), so doctor surfaces a
+// `warn`, not a fail. Inject a loader that throws to exercise the absent branch.
+test("embedder runtime check warns (not fails) when onnxruntime-web fails to load", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-miss-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => {
-        throw new Error("Cannot find module 'onnxruntime-node'");
+        throw new Error("Cannot find module 'onnxruntime-web'");
       },
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
-    assert.ok(emb, "embedder binding check must be registered when skipNative is false");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
+    assert.ok(emb, "embedder runtime check must be registered when skipNative is false");
     const result = await emb.run();
     assert.equal(
       result.status,
       "warn",
-      `an absent OPTIONAL embedder binding is a soft warn; got ${result.status}: ${result.message}`,
+      `an absent OPTIONAL embedder runtime is a soft warn; got ${result.status}: ${result.message}`,
     );
     assert.match(result.message, /BM25/);
     // The hint must point at the remote-embedder escape hatch.
@@ -539,15 +539,15 @@ test("embedder binding check warns (not fails) when onnxruntime-node fails to lo
   }
 });
 
-// A successful binding load (exports an InferenceSession constructor) is `ok`.
-test("embedder binding check reports ok when onnxruntime-node loads with InferenceSession", async () => {
+// A successful runtime load (exports an InferenceSession constructor) is `ok`.
+test("embedder runtime check reports ok when onnxruntime-web loads with InferenceSession", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-ok-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => ({ InferenceSession: function fake() {} }),
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
     assert.ok(emb);
     const result = await emb.run();
     assert.equal(result.status, "ok", `expected ok; got ${result.status}: ${result.message}`);
@@ -558,14 +558,14 @@ test("embedder binding check reports ok when onnxruntime-node loads with Inferen
 
 // A module that loads but exports no InferenceSession is a `warn` (degrade),
 // never a crash — the embedder is optional.
-test("embedder binding check warns when the module loads but exports no InferenceSession", async () => {
+test("embedder runtime check warns when the module loads but exports no InferenceSession", async () => {
   const home = await mkdtemp(join(tmpdir(), "codehub-doctor-onnx-noctor-"));
   try {
     const checks = buildChecks({
       home,
       loadOnnxBinding: async () => ({}),
     });
-    const emb = checks.find((c) => c.name === "embedder native binding");
+    const emb = checks.find((c) => c.name === "embedder runtime (onnxruntime-web, WASM)");
     assert.ok(emb);
     const result = await emb.run();
     assert.equal(result.status, "warn", `expected warn; got ${result.status}: ${result.message}`);
@@ -594,8 +594,8 @@ test("embedder binding failure does not block the doctor exit (exit <= 1)", asyn
     process.exitCode = prev;
     const names = report.rows.map((r) => r.name);
     assert.ok(
-      !names.includes("embedder native binding"),
-      "embedder binding probe is a native check — skipNative must drop it",
+      !names.includes("embedder runtime (onnxruntime-web, WASM)"),
+      "embedder runtime probe is gated behind skipNative — skipNative must drop it",
     );
   } finally {
     await rm(home, { recursive: true, force: true });

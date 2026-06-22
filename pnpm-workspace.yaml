@@ -73,20 +73,18 @@ minimumReleaseAge: 0
 # Packages not listed here are blocked from running scripts by default
 # (strictDepBuilds: true is the v11 default).
 allowBuilds:
-  # DuckDB native bindings
-  "@duckdb/node-api": true
-  "@duckdb/node-bindings-darwin-arm64": true
-  "@duckdb/node-bindings-darwin-x64": true
-  "@duckdb/node-bindings-linux-arm64": true
-  "@duckdb/node-bindings-linux-x64": true
-  "@duckdb/node-bindings-win32-x64": true
-  # LadybugDB native binding — copies lbugjs.node from the platform sub-package
-  "@ladybugdb/core": true
-  # Misc native addons
+  # Toolchain native addons (dev-time only — not shipped in the CLI bundle).
   esbuild: true
   lefthook: true
-  onnxruntime-node: true
   sharp: true
+  # protobufjs is a transitive dep of onnxruntime-web. Its install script only
+  # regenerates a bundled .js descriptor that already ships in the tarball, so
+  # it is NOT needed — keeping it off preserves the zero-native-build install.
+  protobufjs: false
+  # No storage native bindings: @ladybugdb/core and @duckdb/node-api were removed
+  # in the single-file SQLite migration (ADR 0019). onnxruntime-node was replaced
+  # by onnxruntime-web (prebuilt WASM, no build script). The embedder is now the
+  # ONLY optional native-free runtime, and it builds nothing at install.
   # No tree-sitter entries: native tree-sitter and grammar packages are not
   # workspace dependencies. WASMs are vendored at packages/ingestion/vendor/wasms/.
   # Re-vendor on demand via the workflow in scripts/build-vendor-wasms.sh.

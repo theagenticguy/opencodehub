@@ -604,61 +604,38 @@ function embedderWeightsCheck(home: string): Check {
 }
 
 /**
- * Default loader for the `onnxruntime-node` binding. The CLI lazy-imports the
- * runtime only when embeddings are enabled (see
- * `embedder/src/onnx-embedder.ts`), so this probe mirrors that exact dynamic
- * import. `onnxruntime-node` is an OPTIONAL dependency — production resolves it
- * from the CLI's own `node_modules`.
+ * Default loader for the `onnxruntime-web` runtime. The CLI lazy-imports it
+ * only when embeddings are enabled (see `embedder/src/onnx-embedder.ts`), so
+ * this probe mirrors that exact dynamic import. `onnxruntime-web` is an
+ * OPTIONAL dependency — production resolves it from the CLI's own
+ * `node_modules`. Unlike the old `onnxruntime-node`, it is prebuilt WebAssembly
+ * with NO native binding and NO platform matrix: if it imports, it runs
+ * everywhere Node ≥24 does.
  */
 function loadOnnxBinding(): Promise<unknown> {
   // A template-string specifier keeps tsup/esbuild from statically resolving
-  // (and force-bundling) the optional native module at build time — it must
-  // resolve from `node_modules` at runtime, exactly like the embedder's own
-  // lazy `import("onnxruntime-node")`.
-  const specifier = "onnxruntime-node";
+  // (and force-bundling) the optional module at build time — it must resolve
+  // from `node_modules` at runtime, exactly like the embedder's own lazy
+  // `import("onnxruntime-web")`.
+  const specifier = "onnxruntime-web";
   return import(specifier);
 }
 
 /**
- * Platform-specific guidance for a missing `onnxruntime-node` prebuilt.
- * onnxruntime-node 1.x ships prebuilt binaries for darwin-arm64, linux-x64,
- * linux-arm64 (glibc), win32-x64, and win32-arm64 — but NOT darwin-x64
- * (Intel Mac) and NOT musl/Alpine Linux. On those targets the optional binding
- * cannot load and retrieval silently degrades to BM25-only. Naming the gap
- * here stops the user chasing a futile reinstall.
- *
- * Returns an empty string when the platform is one onnxruntime ships a prebuilt
- * for (no extra note to add).
- */
-function onnxBindingPlatformNote(
-  platform: NodeJS.Platform = process.platform,
-  arch: string = process.arch,
-): string {
-  if (platform === "darwin" && arch === "x64") {
-    return " Intel macOS (darwin-x64) has no onnxruntime-node prebuilt; use an Apple-silicon mac or a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT).";
-  }
-  if (platform === "linux") {
-    return " Alpine / musl-libc Linux has no onnxruntime-node prebuilt; use a glibc-based image (node:* not node:*-alpine) or a remote embedder.";
-  }
-  return "";
-}
-
-/**
- * Probe the OPTIONAL `onnxruntime-node` binding the same way the embedder
- * does — a lazy dynamic import. This is deliberately NON-FATAL: the embedder
- * is an optional capability, and the real
- * failure mode is a SILENT degrade to BM25-only retrieval (the embedder open
- * path catches the native-load error and falls back). So an absent/broken
- * binding is a `warn`, never a `fail`. The warn message names the platform gap
- * (Intel mac / musl) so the user is not left wondering why search quality
- * dropped.
+ * Probe the OPTIONAL `onnxruntime-web` runtime the same way the embedder does —
+ * a lazy dynamic import. Deliberately NON-FATAL: the embedder is an optional
+ * capability and the real failure mode is a SILENT degrade to BM25-only
+ * retrieval (the embedder open path catches the load error and falls back). So
+ * an absent runtime is a `warn`, never a `fail`. Because onnxruntime-web is
+ * prebuilt WASM with no platform matrix, there is no platform-specific gap to
+ * name — if the import fails the package simply isn't installed.
  *
  * `load` is injectable so tests can drive both branches without depending on
- * whatever prebuild coverage the host happens to have.
+ * whether the optional package is present on the host.
  */
 function embedderBindingCheck(load: () => Promise<unknown> = loadOnnxBinding): Check {
   return {
-    name: "embedder native binding",
+    name: "embedder runtime (onnxruntime-web, WASM)",
     async run() {
       try {
         const mod = (await load()) as Record<string, unknown> | undefined;
@@ -669,17 +646,17 @@ function embedderBindingCheck(load: () => Promise<unknown> = loadOnnxBinding): C
           return {
             status: "warn",
             message:
-              "onnxruntime-node loaded but exports no InferenceSession — retrieval will use BM25 only",
-            hint: `the local embedder is unavailable; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) or reinstall onnxruntime-node.${onnxBindingPlatformNote()}`,
+              "onnxruntime-web loaded but exports no InferenceSession — retrieval will use BM25 only",
+            hint: "the local embedder is unavailable; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) or reinstall onnxruntime-web.",
           };
         }
-        return { status: "ok", message: "onnxruntime-node load OK" };
+        return { status: "ok", message: "onnxruntime-web (WASM) load OK" };
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         return {
           status: "warn",
-          message: `embedder unavailable on this platform → retrieval will use BM25 only (${detail})`,
-          hint: `the local ONNX embedder is optional; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to embed off-box.${onnxBindingPlatformNote()}`,
+          message: `embedder runtime not installed → retrieval will use BM25 only (${detail})`,
+          hint: "the local WASM embedder is optional; configure a remote embedder (CODEHUB_EMBEDDING_URL / CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to embed off-box.",
         };
       }
     },

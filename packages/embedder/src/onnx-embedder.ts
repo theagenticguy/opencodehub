@@ -17,12 +17,14 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { Tokenizer } from "@huggingface/tokenizers";
-// `onnxruntime-node` is an `optionalDependency`: it ships a ~254 MB native
-// binary that a BM25-only install can prune. Import only its TYPES at the top
-// level (erased at compile time — no runtime resolution), and load the actual
-// module via a dynamic `import()` inside `openOnnxEmbedder`. That keeps the
-// native binding off the import graph until embeddings are actually opened.
-import type { InferenceSession, Tensor } from "onnxruntime-node";
+// `onnxruntime-web` ships prebuilt WebAssembly (no native binding, no node-gyp,
+// no install step) and runs the ONNX runtime in pure WASM under Node. Import
+// only its TYPES at the top level (erased at compile time), and load the actual
+// module via a dynamic `import()` inside `openOnnxEmbedder` so a BM25-only
+// install never pays the WASM-load cost. The Node path is single-threaded WASM,
+// which is exactly the determinism-friendly configuration the graphHash gate
+// needs — verified byte-identical across repeat + fresh-session runs.
+import type { InferenceSession, Tensor } from "onnxruntime-web";
 
 import { embedderModelId } from "./model-pins.js";
 import { modelFileName, resolveModelDir, TOKENIZER_FILES } from "./paths.js";
@@ -91,24 +93,17 @@ async function loadTokenizer(tokenizerDir: string): Promise<Tokenizer> {
 function buildSessionOptions(): InferenceSession.SessionOptions {
   return {
     // Graph opts above `disabled` can reorder kernel fusion → float32 sum
-    // ordering changes → embeddings drift in the last ~2 decimals.
+    // ordering changes → embeddings drift in the last ~2 decimals. The WASM
+    // EP honours this option (verified byte-identical with it set).
     graphOptimizationLevel: "disabled",
     executionMode: "sequential",
     intraOpNumThreads: 1,
     interOpNumThreads: 1,
-    // Arena allocs can vary in layout and introduce timing jitter that
-    // doesn't affect correctness but slows down determinism verification.
-    enableCpuMemArena: false,
-    // The string-keyed config entry mirrors SetDeterministicCompute() in
-    // the ORT C++ API; honours CPU EP kernels with a det-vs-perf branch.
-    extra: {
-      session: {
-        set_deterministic_compute: "1",
-      },
-    },
-    // Force CPU EP only — even if NAPI probes find CoreML, we don't want
-    // its nondeterministic MPS kernels participating.
-    executionProviders: ["cpu"],
+    // The WASM execution provider — the only EP onnxruntime-web exposes under
+    // Node, and single-threaded by construction there (see env.wasm.numThreads
+    // in openOnnxEmbedder). That single-threaded WASM kernel path is what makes
+    // the embedding output deterministic across runs, sessions, and machines.
+    executionProviders: ["wasm"],
   };
 }
 
@@ -351,27 +346,42 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
 
   const { modelPath, tokenizerDir } = await assertModelFiles(modelDir, variant);
 
-  // Resolve the native runtime lazily. `onnxruntime-node` is an optional
-  // dependency; a BM25-only install may not have it on disk. assertModelFiles
-  // already passed (weights are present), so reaching here means the user ran
-  // `codehub setup --embeddings` and expects the binding — surface a clear
-  // error if it is somehow absent rather than a raw MODULE_NOT_FOUND.
-  let InferenceSession: typeof import("onnxruntime-node").InferenceSession;
-  let Tensor: typeof import("onnxruntime-node").Tensor;
+  // Load the WASM runtime lazily. `onnxruntime-web` ships prebuilt WebAssembly
+  // — no native binding, no install step — so a BM25-only install simply never
+  // imports it. assertModelFiles already passed (weights are present), so
+  // reaching here means the user ran `codehub setup --embeddings`; surface a
+  // clear error if the module is somehow absent rather than a raw
+  // MODULE_NOT_FOUND.
+  let ort: typeof import("onnxruntime-web");
   try {
-    ({ InferenceSession, Tensor } = await import("onnxruntime-node"));
+    ort = await import("onnxruntime-web");
   } catch (cause) {
     throw new EmbedderNotSetupError(
-      "onnxruntime-node is not installed. It is an optional dependency that " +
-        "ships the local ONNX runtime; reinstall with onnxruntime-node " +
+      "onnxruntime-web is not installed. It is an optional dependency that " +
+        "ships the WASM ONNX runtime; reinstall with onnxruntime-web " +
         "available, or configure a remote embedder (CODEHUB_EMBEDDING_URL / " +
         "CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT) to avoid the local runtime.",
       { cause },
     );
   }
 
+  // Single-threaded WASM is the deterministic path (ORT: "Node.js only support
+  // single-threaded wasm EP"). Forcing numThreads=1 also avoids spawning worker
+  // threads the headless CLI doesn't want. When the caller resolved a wasmDir
+  // (the bundled CLI, whose tsup output is relocated away from the package's
+  // sibling .wasm files), point the loader at it; otherwise let onnxruntime-web
+  // find its own bundled artifacts next to its module entry.
+  ort.env.wasm.numThreads = 1;
+  if (cfg.wasmDir !== undefined) {
+    // Trailing separator required: ORT concatenates the artifact filename.
+    ort.env.wasm.wasmPaths = cfg.wasmDir.endsWith("/") ? cfg.wasmDir : `${cfg.wasmDir}/`;
+  }
+
   const tokenizer = await loadTokenizer(tokenizerDir);
-  const session = await InferenceSession.create(modelPath, buildSessionOptions());
+  // onnxruntime-web's InferenceSession.create takes model BYTES (Uint8Array) in
+  // Node, not a filesystem path the way onnxruntime-node did.
+  const modelBytes = await readFile(modelPath);
+  const session = await ort.InferenceSession.create(modelBytes, buildSessionOptions());
 
   return new OnnxEmbedder({
     session,
@@ -379,6 +389,6 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
     variant,
     normalize,
     maxModelLength,
-    Tensor,
+    Tensor: ort.Tensor,
   });
 }
