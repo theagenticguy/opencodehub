@@ -92,6 +92,13 @@ export default defineConfig({
   // Force-bundle every internal workspace package into this one tarball.
   noExternal: [/^@opencodehub\//],
   external: EXTERNAL,
+  // tsup defaults `removeNodeProtocol: true`, which strips the `node:` prefix
+  // from every builtin specifier. Its strip list predates `node:sqlite`, so it
+  // rewrites the externalized `node:sqlite` import to a bare `sqlite` — which
+  // Node cannot resolve (the builtin exists ONLY as `node:sqlite`; there is no
+  // `sqlite` package). Keep the prefix: our Node >=24.15 floor wants the
+  // `node:`-qualified form anyway, and it is correct for every other builtin too.
+  removeNodeProtocol: false,
   async onSuccess() {
     // Grammar WASMs (16 blobs, ~25 MB) — resolved by walk-up to `vendor/wasms`.
     await copyTree(

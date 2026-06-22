@@ -223,18 +223,19 @@ test("GraphDbBindingError message embeds the shared support matrix", () => {
 // Factory
 // ---------------------------------------------------------------------------
 
-test("openStore composes GraphDbStore + DuckDbStore pair", async () => {
-  // The graph file is canonicalized to `graph.lbug` and the temporal file
-  // is its sibling `temporal.duckdb` inside the same directory. Build the
-  // input + expectations with `join` so the assertion uses the platform's
-  // own separator — a hardcoded forward-slash literal diverges from the
-  // impl's `join(dirname(path), …)` output on Windows (backslashes).
+test("openStore returns one SqliteStore as both graph + temporal views", async () => {
+  // Single-file migration (spike/sqlite-single-file): openStore no longer
+  // composes a GraphDbStore + DuckDbStore pair. It returns ONE SqliteStore
+  // satisfying both IGraphStore and ITemporalStore, over one `store.sqlite`
+  // file. Both views are the SAME instance, and both file fields point at the
+  // single artifact. `join` keeps the separator platform-correct.
   const metaDir = join(tmpdir(), "och-test", ".codehub");
-  const store = await openStore({ path: join(metaDir, "graph.lbug") });
-  assert.equal(store.graph.constructor.name, "GraphDbStore");
-  assert.equal(store.temporal.constructor.name, "DuckDbStore");
-  assert.equal(store.graphFile, join(metaDir, "graph.lbug"));
-  assert.equal(store.temporalFile, join(metaDir, "temporal.duckdb"));
+  const store = await openStore({ path: join(metaDir, "graph") });
+  assert.equal(store.graph.constructor.name, "SqliteStore");
+  assert.equal(store.temporal.constructor.name, "SqliteStore");
+  assert.equal(store.graph, store.temporal, "graph and temporal are the same instance");
+  assert.equal(store.graphFile, join(metaDir, "store.sqlite"));
+  assert.equal(store.temporalFile, join(metaDir, "store.sqlite"));
   assert.equal(typeof store.close, "function");
 });
 

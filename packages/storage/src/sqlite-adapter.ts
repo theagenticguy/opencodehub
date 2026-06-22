@@ -328,18 +328,29 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     const insFts = db.prepare(
       `INSERT INTO nodes_fts (node_id,name,signature,description) VALUES (?,?,?,?)`,
     );
+    // FTS5 has no UPSERT; in upsert mode we delete the per-node FTS row before
+    // re-inserting so a re-loaded node does not duplicate its search entry.
+    const delFtsForNode = db.prepare(`DELETE FROM nodes_fts WHERE node_id = ?`);
+    // "replace" (default) truncates and reloads the whole graph. "upsert" MERGES
+    // the supplied nodes/edges into the existing graph WITHOUT wiping — this is
+    // the contract ingest-sarif relies on (it adds Finding nodes + FOUND_IN
+    // edges to an already-loaded graph; a wipe here would destroy the index, as
+    // it did before this fix). INSERT OR REPLACE handles the per-row upsert.
+    const mode = _opts?.mode ?? "replace";
     // One transaction for the whole load — WAL turns this into a single fsync.
     db.exec("BEGIN");
     try {
-      // Full-replace semantics (matches the default bulkLoad("replace") mode).
-      db.exec("DELETE FROM nodes");
-      db.exec("DELETE FROM edges");
-      db.exec("DELETE FROM nodes_fts");
+      if (mode === "replace") {
+        db.exec("DELETE FROM nodes");
+        db.exec("DELETE FROM edges");
+        db.exec("DELETE FROM nodes_fts");
+      }
       for (const n of nodes) {
         this.writeNode(insNode, n);
         const anyNode = n as unknown as Record<string, unknown>;
         const sig = anyNode["signature"];
         const desc = anyNode["description"];
+        if (mode === "upsert") delFtsForNode.run(String(n.id));
         insFts.run(
           String(n.id),
           String(n.name),
@@ -355,12 +366,22 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       db.exec("ROLLBACK");
       throw err;
     }
+    // Stamp store_meta from the ACTUAL post-write table counts, so an upsert
+    // batch (which carries only the added rows) does not clobber the meta with
+    // a partial count. Callers that own richer meta (analyze) overwrite this
+    // with a full setMeta() afterward; this keeps a freshly-bulk-loaded store
+    // self-consistent on its own.
+    const totalNodes = (db.prepare("SELECT count(*) c FROM nodes").get() as { c: number }).c;
+    const totalEdges = (db.prepare("SELECT count(*) c FROM edges").get() as { c: number }).c;
+    const existing = await this.getMeta();
     await this.setMeta({
-      schemaVersion: SCHEMA_VERSION,
-      indexedAt: "spike", // deterministic placeholder; real adapter stamps ISO time
-      nodeCount: nodes.length,
-      edgeCount: edges.length,
+      ...(existing ?? {}),
+      schemaVersion: existing?.schemaVersion ?? SCHEMA_VERSION,
+      indexedAt: existing?.indexedAt ?? new Date().toISOString(),
+      nodeCount: totalNodes,
+      edgeCount: totalEdges,
     });
+    // bulkLoad reports the rows IT loaded (the batch), not the table total.
     return {
       nodeCount: nodes.length,
       edgeCount: edges.length,
