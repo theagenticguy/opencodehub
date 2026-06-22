@@ -115,13 +115,20 @@ test("SqliteStore: graph + embeddings round-trip from ONE file across reopen", a
     const got = new Map<string, Float32Array>();
     for await (const row of r.listEmbeddings()) got.set(row.nodeId, row.vector);
     assert.equal(got.size, 3);
-    assert.deepEqual(Array.from(got.get(ids.a)!), Array.from(vec(0.0)), "f32 bytes identical");
+    const aVec = got.get(ids.a);
+    assert.ok(aVec, "embedding for node a round-tripped");
+    assert.deepEqual(Array.from(aVec), Array.from(vec(0.0)), "f32 bytes identical");
 
     // cosine KNN: query == a's vector → a ranks first with distance ~0
     const hits = await r.vectorSearch({ vector: vec(0.0), limit: 3 });
-    assert.equal(hits[0]?.nodeId, ids.a, "self is nearest");
-    assert.ok(hits[0]!.distance < 1e-6, "distance to self ~0");
-    assert.ok(hits[0]!.distance <= hits[1]!.distance, "ordered by ascending distance");
+    assert.ok(hits.length >= 2, "expected at least two ranked hits");
+    const [first, second] = hits;
+    assert.equal(first?.nodeId, ids.a, "self is nearest");
+    assert.ok((first?.distance ?? Number.POSITIVE_INFINITY) < 1e-6, "distance to self ~0");
+    assert.ok(
+      (first?.distance ?? 0) <= (second?.distance ?? Number.POSITIVE_INFINITY),
+      "ordered by ascending distance",
+    );
 
     await r.close();
     await rm(dir, { recursive: true, force: true });

@@ -1,6 +1,4 @@
 export { assertReadOnlyCypher, CypherGuardError } from "./cypher-guard.js";
-export { classifyLicenseTier } from "./license.js";
-export { getAllRelationTypes } from "./relations.js";
 export type {
   AncestorTraversalOptions,
   BulkLoadOptions,
@@ -36,9 +34,8 @@ export type {
   VectorQuery,
   VectorResult,
 } from "./interface.js";
+export { classifyLicenseTier } from "./license.js";
 export { readStoreMeta, writeStoreMeta } from "./meta.js";
-export { installSqliteRuntimeGuard } from "./sqlite-runtime.js";
-export { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 export {
   describeArtifacts,
   META_DIR_NAME,
@@ -49,8 +46,11 @@ export {
   resolveRegistryPath,
   resolveRepoMetaDir,
 } from "./paths.js";
+export { getAllRelationTypes } from "./relations.js";
 export { generateSchemaDDL, type SchemaOptions } from "./schema-ddl.js";
 export { assertReadOnlySql, SqlGuardError } from "./sql-guard.js";
+export { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
+export { installSqliteRuntimeGuard } from "./sqlite-runtime.js";
 
 import { dirname, join } from "node:path";
 import type { OpenStoreOptions as ApiOpenStoreOptions, OpenStoreResult } from "./interface.js";

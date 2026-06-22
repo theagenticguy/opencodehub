@@ -36,24 +36,20 @@ import "./sqlite-runtime.js";
 
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
-import {
-  type CodeRelation,
-  type DependencyNode,
-  type FindingNode,
-  type GraphNode,
-  type KnowledgeGraph,
-  type NodeId,
-  type NodeKind,
-  type NodeOfKind,
-  type RelationType,
-  type RepoNode,
-  type RouteNode,
+import type {
+  CodeRelation,
+  DependencyNode,
+  FindingNode,
+  GraphNode,
+  KnowledgeGraph,
+  NodeId,
+  NodeKind,
+  NodeOfKind,
+  RelationType,
+  RepoNode,
+  RouteNode,
 } from "@opencodehub/core-types";
-
-import { classifyLicenseTier } from "./license.js";
-import { getAllRelationTypes } from "./relations.js";
 import { stepZeroSentinel } from "./column-encode.js";
-import { assertReadOnlySql } from "./sql-guard.js";
 import type {
   AncestorTraversalOptions,
   BulkLoadOptions,
@@ -85,6 +81,9 @@ import type {
   VectorQuery,
   VectorResult,
 } from "./interface.js";
+import { classifyLicenseTier } from "./license.js";
+import { getAllRelationTypes } from "./relations.js";
+import { assertReadOnlySql } from "./sql-guard.js";
 
 export interface SqliteStoreOptions {
   /** Open the file read-only. Query commands pass true; ingestion false. */
@@ -443,12 +442,10 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       wheres.push("file_path = ?");
       params.push(opts.filePath);
     }
-    const sql =
-      "SELECT * FROM nodes" +
-      whereClause(wheres) +
-      " ORDER BY id ASC" +
-      pageClause(limit, offset);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+    const sql = `SELECT * FROM nodes${whereClause(wheres)} ORDER BY id ASC${pageClause(limit, offset)}`;
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     return sortById(rows.map(rehydrateNode));
   }
 
@@ -470,12 +467,10 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       wheres.push("file_path LIKE '%' || ? || '%'");
       params.push(opts.filePathLike);
     }
-    const sql =
-      "SELECT * FROM nodes" +
-      whereClause(wheres) +
-      " ORDER BY id ASC" +
-      pageClause(limit, offset);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+    const sql = `SELECT * FROM nodes${whereClause(wheres)} ORDER BY id ASC${pageClause(limit, offset)}`;
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     return sortById(rows.map(rehydrateNode)) as unknown as readonly NodeOfKind<K>[];
   }
 
@@ -501,8 +496,13 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     const limit = clampNonNegativeInt(opts.limit);
     const sql =
-      "SELECT * FROM nodes" + whereClause(wheres) + " ORDER BY id ASC" + pageClause(limit, undefined);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+      "SELECT * FROM nodes" +
+      whereClause(wheres) +
+      " ORDER BY id ASC" +
+      pageClause(limit, undefined);
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     const out: FindingNode[] = [];
     for (const r of rows) {
       const node = rehydrateNode(r);
@@ -520,8 +520,13 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     const limit = clampNonNegativeInt(opts.limit);
     const sql =
-      "SELECT * FROM nodes" + whereClause(wheres) + " ORDER BY id ASC" + pageClause(limit, undefined);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+      "SELECT * FROM nodes" +
+      whereClause(wheres) +
+      " ORDER BY id ASC" +
+      pageClause(limit, undefined);
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     // licenseTier is a JS-side post-filter via classifyLicenseTier, NOT SQL —
     // the LIMIT above applies BEFORE the tier filter, matching the reference.
     const tierSet =
@@ -552,8 +557,13 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     const limit = clampNonNegativeInt(opts.limit);
     const sql =
-      "SELECT * FROM nodes" + whereClause(wheres) + " ORDER BY id ASC" + pageClause(limit, undefined);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+      "SELECT * FROM nodes" +
+      whereClause(wheres) +
+      " ORDER BY id ASC" +
+      pageClause(limit, undefined);
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     const out: RouteNode[] = [];
     for (const r of rows) {
       const node = rehydrateNode(r);
@@ -599,8 +609,13 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     const limit = clampNonNegativeInt(opts.limit);
     const sql =
-      "SELECT * FROM nodes" + whereClause(wheres) + " ORDER BY id ASC" + pageClause(limit, undefined);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as NodeRow[];
+      "SELECT * FROM nodes" +
+      whereClause(wheres) +
+      " ORDER BY id ASC" +
+      pageClause(limit, undefined);
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as NodeRow[];
     return sortById(rows.map(rehydrateNode));
   }
 
@@ -615,7 +630,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       for (const k of kinds) params.push(k);
     }
     sql += " GROUP BY kind ORDER BY kind ASC";
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as {
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as {
       kind: string;
       n: number | bigint;
     }[];
@@ -642,7 +659,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       for (const t of types) params.push(t);
     }
     sql += " GROUP BY type";
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as {
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as {
       type: string;
       n: number | bigint;
     }[];
@@ -680,9 +699,10 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       wheres.push("confidence >= ?");
       params.push(opts.minConfidence);
     }
-    const sql =
-      "SELECT id, src, dst, type, confidence, step, reason FROM edges" + whereClause(wheres);
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as EdgeRow[];
+    const sql = `SELECT id, src, dst, type, confidence, step, reason FROM edges${whereClause(wheres)}`;
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as EdgeRow[];
 
     const collected: CodeRelation[] = [];
     for (const row of rows) {
@@ -690,8 +710,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       const step = stepZeroSentinel(row.step);
       // reason: non-empty string kept; null OR "" → drop the key (.length > 0).
       const reasonVal = row.reason;
-      const reason =
-        typeof reasonVal === "string" && reasonVal.length > 0 ? reasonVal : undefined;
+      const reason = typeof reasonVal === "string" && reasonVal.length > 0 ? reasonVal : undefined;
       collected.push({
         id: String(row.id ?? "") as CodeRelation["id"],
         from: String(row.src ?? "") as CodeRelation["from"],
@@ -766,10 +785,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       repoPredicate +
       " ORDER BY consumer_repo_uri ASC, producer_repo_uri ASC, " +
       "http_method ASC, http_path ASC, r_id ASC";
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as Record<
-      string,
-      unknown
-    >[];
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as Record<string, unknown>[];
     // SQL ORDER BY is authoritative here — NO JS re-sort.
     const out: ConsumerProducerEdge[] = [];
     for (const row of rows) {
@@ -862,7 +880,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     sql += " ORDER BY e.node_id ASC, e.granularity ASC, e.chunk_index ASC";
     if (limit !== undefined) sql += ` LIMIT ${limit}`;
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as EmbRow[];
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as EmbRow[];
     for (const r of rows) {
       // exactOptionalPropertyTypes: spread optional fields conditionally
       // rather than assigning undefined.
@@ -886,15 +906,14 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
    */
   async vectorSearch(q: VectorQuery): Promise<readonly VectorResult[]> {
     if (q.vector.length !== this.dim) {
-      throw new Error(
-        `Vector dimension mismatch: got ${q.vector.length}, expected ${this.dim}`,
-      );
+      throw new Error(`Vector dimension mismatch: got ${q.vector.length}, expected ${this.dim}`);
     }
     const limit = q.limit ?? 10;
     const query = q.vector;
-    const rows = this.conn()
-      .prepare("SELECT node_id, vector FROM embeddings")
-      .all() as unknown as { node_id: string; vector: Uint8Array }[];
+    const rows = this.conn().prepare("SELECT node_id, vector FROM embeddings").all() as unknown as {
+      node_id: string;
+      vector: Uint8Array;
+    }[];
     // VectorResult.distance is a DISTANCE (lower = closer). Cosine distance
     // = 1 - cosine similarity, so ranking ascending matches the lbug HNSW
     // contract (ORDER BY distance ASC).
@@ -929,10 +948,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       "WHERE nodes_fts MATCH ?" +
       kindPredicate +
       ` ORDER BY rank ASC, n.id ASC, n.file_path ASC, n.name ASC LIMIT ${Number(limit)}`;
-    const rows = this.conn().prepare(sql).all(...(params as SqliteParam[])) as unknown as Record<
-      string,
-      unknown
-    >[];
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(params as SqliteParam[])) as unknown as Record<string, unknown>[];
     const out: SearchResult[] = [];
     for (const row of rows) {
       // The storage-layer search() NEVER fills summary/signatureSummary —
@@ -963,8 +981,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     if (maxDepth === 0) return [];
     const minConf = q.minConfidence ?? 0;
     // relationTypes empty/undefined → all types (no type predicate).
-    const relTypes =
-      q.relationTypes && q.relationTypes.length > 0 ? q.relationTypes : undefined;
+    const relTypes = q.relationTypes && q.relationTypes.length > 0 ? q.relationTypes : undefined;
     const typeParams: SqlParam[] = [];
     let typePredDown = "";
     let typePredUp = "";
@@ -1016,7 +1033,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       String(q.startId),
     ];
     void typeParams;
-    const rows = this.conn().prepare(sql).all(...(allParams as SqliteParam[])) as unknown as {
+    const rows = this.conn()
+      .prepare(sql)
+      .all(...(allParams as SqliteParam[])) as unknown as {
       node_id: string;
       depth: number;
       path: string;
@@ -1055,9 +1074,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
   // ── Meta ─────────────────────────────────────────────────────────────────────
 
   async getMeta(): Promise<StoreMeta | undefined> {
-    const row = this.conn()
-      .prepare("SELECT * FROM store_meta WHERE id = 1")
-      .get() as unknown as MetaRow | undefined;
+    const row = this.conn().prepare("SELECT * FROM store_meta WHERE id = 1").get() as unknown as
+      | MetaRow
+      | undefined;
     if (!row) return undefined;
     const stats =
       typeof row.stats_json === "string" && row.stats_json.length > 0
@@ -1295,8 +1314,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     // ORDER BY (node_id, prompt_version, content_hash) — prompt_version
     // BEFORE content_hash (differs from the bulkLoad sort) so callers pick
     // the newest prompt deterministically.
-    const sql =
-      `SELECT node_id, content_hash, prompt_version, model_id,
+    const sql = `SELECT node_id, content_hash, prompt_version, model_id,
               summary_text, signature_summary, returns_type_summary,
               structured_json, created_at
          FROM symbol_summaries

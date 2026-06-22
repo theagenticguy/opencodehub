@@ -12,11 +12,11 @@ import { readFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command } from "commander";
 // Silence the one-shot node:sqlite ExperimentalWarning before any subcommand
 // lazily loads the storage layer. This module is dependency-free (no native
 // binding), so importing it eagerly does not regress `--help` startup cost.
 import { installSqliteRuntimeGuard } from "@opencodehub/storage/sqlite-runtime";
+import { Command } from "commander";
 
 installSqliteRuntimeGuard();
 
@@ -700,7 +700,10 @@ program
   .description(
     "Probe the local environment (node/pnpm/native bindings/vendored grammars/scip indexers/scanners/registry) and print actionable hints",
   )
-  .option("--skip-native", "Skip checks that require native bindings (no longer any; retained for compat)")
+  .option(
+    "--skip-native",
+    "Skip checks that require native bindings (no longer any; retained for compat)",
+  )
   .option(
     "--strict",
     "Treat a missing SCIP indexer as a failure (exit 2), not a warning — for release/CI gates",
