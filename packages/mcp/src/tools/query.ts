@@ -2,7 +2,7 @@
  * `query` — true hybrid retrieval over the indexed graph.
  *
  * Two ranked runs, fused with Reciprocal Rank Fusion (k=60):
- *   1. BM25 (DuckDB FTS) over `nodes.name` + `nodes.signature` +
+ *   1. BM25 (SQLite FTS5) over `nodes.name` + `nodes.signature` +
  *      `nodes.description`. If a `symbol_summaries` table is present the
  *      corpus extends transparently (see {@link bm25CorpusHasSummaries}) so
  *      summarized prose participates as soon as the ingestion phase lands.
@@ -239,18 +239,20 @@ async function lookupSummariesForHits(
 /**
  * Extensibility hook: return true iff the `symbol_summaries` table exists
  * and is non-empty. When it does, future BM25 upgrades can JOIN it into
- * the FTS corpus. Today this is informational — the DuckDB FTS index is
+ * the FTS corpus. Today this is informational — the SQLite FTS5 index is
  * built at ingestion time against `nodes` columns only — but the probe
  * lives here so the sibling summarizer work can light up a corpus
  * extension without re-threading the tool.
  */
 async function bm25CorpusHasSummaries(temporal: ITemporalStore): Promise<boolean> {
-  // information_schema introspection is DuckDB-specific; route via the
-  // temporal-tier `exec` escape hatch so a future graph-only adapter
-  // pairing with a non-DuckDB temporal store can override this probe.
+  // Table-existence introspection via SQLite's `sqlite_master` catalog,
+  // routed through the temporal-tier `exec` escape hatch. (Pre-ADR-0019
+  // this probed DuckDB's `information_schema.tables`, which node:sqlite does
+  // not expose.) A future graph-only adapter pairing with a non-SQLite
+  // temporal store can override this probe.
   try {
     const rows = await temporal.exec(
-      "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'symbol_summaries'",
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'symbol_summaries'",
     );
     const first = rows[0];
     if (!first) return false;

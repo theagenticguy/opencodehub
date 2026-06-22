@@ -4,7 +4,7 @@
  *
  * Design notes:
  *
- * - Pure function: no I/O, no DuckDB, no globals. Callers (currently
+ * - Pure function: no I/O, no native storage engine, no globals. Callers (currently
  *   `codehub verdict`) pre-compute the context from their existing
  *   license audit, blast-radius tier, and ownership graph.
  *

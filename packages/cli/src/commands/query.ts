@@ -50,7 +50,7 @@ const INCLUDE_CONTENT_CHAR_CAP = 2000;
 const SUMMARY_COLUMN_CHAR_CAP = 120;
 
 /**
- * Hook for tests to inject a pre-built store without touching DuckDB. The
+ * Hook for tests to inject a pre-built store without touching SQLite. The
  * default implementation delegates to {@link openStoreForCommand}. Kept
  * separate from the public `QueryOptions` interface so end-user CLI callers
  * aren't tempted to pass an in-process store.

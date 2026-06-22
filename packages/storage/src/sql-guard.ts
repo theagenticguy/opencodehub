@@ -1,11 +1,11 @@
 /**
  * Lightweight read-only SQL guard.
  *
- * The primary safety mechanism for user-supplied queries is opening the DuckDB
+ * The primary safety mechanism for user-supplied queries is opening the SQLite
  * connection in `READ_ONLY` access mode — the engine itself rejects mutating
  * statements with a clear error. This guard is belt-and-braces: it catches
  * obviously-bad inputs before they hit the engine, and blocks extension /
- * configuration commands (INSTALL / LOAD / ATTACH / PRAGMA) that DuckDB does
+ * configuration commands (INSTALL / LOAD / ATTACH / PRAGMA) that SQLite does
  * permit in read-only mode and that would let a caller reach outside the
  * sandbox.
  */
@@ -19,7 +19,7 @@ export class SqlGuardError extends Error {
 
 /**
  * Tokens that must never appear as a statement-leading keyword. The list covers
- * every DDL/DML verb DuckDB knows about, plus ATTACH/COPY/INSTALL/LOAD which
+ * every DDL/DML verb SQLite knows about, plus ATTACH/COPY/INSTALL/LOAD which
  * could exfiltrate data or load arbitrary code even on a read-only connection.
  * PRAGMA is also blocked — the one read-only PRAGMA a user might want
  * (`EXPLAIN`) is reachable via the `EXPLAIN` keyword directly.
@@ -62,7 +62,7 @@ const ALLOWED_LEADING_KEYWORDS: ReadonlySet<string> = new Set([
   "SHOW",
   "SUMMARIZE",
   "VALUES",
-  "FROM", // DuckDB FROM-first SELECT shorthand.
+  "FROM", // FROM-first SELECT shorthand (tolerated; harmless under node:sqlite).
   "TABLE", // shorthand for SELECT * FROM table.
 ]);
 
@@ -130,7 +130,7 @@ function hasNonWhitespace(s: string): boolean {
 
 /**
  * Reject any SQL that is not a single read-only statement. Call this before
- * handing `sql` to DuckDB on a read-only connection.
+ * handing `sql` to SQLite on a read-only connection.
  */
 export function assertReadOnlySql(sql: string): void {
   if (typeof sql !== "string" || sql.trim().length === 0) {

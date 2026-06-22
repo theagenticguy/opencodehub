@@ -10,16 +10,18 @@
  *      adapters target.
  *   2. {@link ITemporalStore} — tabular-tier, SQL-only operations:
  *      cochanges, symbol summaries, the `codehub query --sql` escape hatch,
- *      and any future temporal-analytics query. Today always DuckDB-backed.
- *      Community adapters can implement other SQL-shaped stores (SQLite,
- *      Postgres) without affecting graph adapters.
+ *      and any future temporal-analytics query. Community adapters can
+ *      implement other SQL-shaped stores (Postgres, …) without affecting
+ *      graph adapters.
  *
  * Callers that need both surfaces use {@link openStore} and consume the
  * resulting {@link OpenStoreResult} `{graph, temporal, close, ...}`.
  *
- * The graph-db adapter (via `@ladybugdb/core`) is graph-only and pairs
- * with a DuckDB temporal store. The DuckDB adapter is temporal-only —
- * cochanges, symbol summaries, and the `--sql` escape hatch.
+ * Post-ADR 0019 one `SqliteStore` implements BOTH interfaces over a single
+ * `store.sqlite` file, and `openStore` returns that one instance as both
+ * the `graph` and `temporal` views. The split is retained as a contract so
+ * a community fork can still pair a graph-only adapter (AGE / Memgraph /
+ * Neo4j / Neptune) with a separate SQL-shaped temporal store.
  *
  * ## Sentinel rules
  *
@@ -31,10 +33,10 @@
  *
  *   1. **Step-zero drop** ({@link stepZeroSentinel}). The canonical edge
  *      shape distinguishes "no step" (field absent) from "step is N ≥ 1".
- *      DuckDB stores `relations.step` as `INTEGER NOT NULL DEFAULT 0`; the
+ *      SQLite stores `relations.step` as `INTEGER NOT NULL DEFAULT 0`; the
  *      graph-db backend stores the column as nullable `INT32`. Both
  *      backends therefore disagree on read-back when the source edge
- *      carries an explicit `step: 0` (DuckDB returns `0`, graph-db
+ *      carries an explicit `step: 0` (SQLite returns `0`, graph-db
  *      returns `null`). The convention is "drop step when it reads back
  *      as 0/null", which is what `stepZeroSentinel` enforces.
  *
@@ -97,7 +99,7 @@ export type GraphDialect = "cypher";
  *
  * Community adapters (AGE / Memgraph / Neo4j / Neptune) implement THIS
  * interface only. They pair with an {@link ITemporalStore} (always
- * DuckDB-backed by default) for tabular concerns.
+ * SQLite-backed by default) for tabular concerns.
  *
  * ## v1.0 conformance contract
  *
@@ -383,11 +385,12 @@ export interface IGraphStore {
 /**
  * Tabular/temporal interface. Cochanges, symbol summaries, time-travel
  * queries, and the `codehub query --sql` escape hatch all live here.
- * Today always DuckDB-backed; future SQLite or Parquet-sidecar adapters
- * fit the same surface.
+ * Post-ADR 0019 the in-tree `SqliteStore` implements this alongside
+ * {@link IGraphStore} over one `store.sqlite`; a community fork can back it
+ * with any other SQL-shaped store (Postgres, …) on the same surface.
  *
  * Graph-only community backends (AGE / Memgraph / Neo4j / Neptune)
- * NEVER implement this interface — they pair with a DuckDB-backed
+ * NEVER implement this interface — they pair with a SQL-shaped
  * temporal store via {@link openStore}.
  */
 export interface ITemporalStore {
@@ -465,21 +468,22 @@ export interface ITemporalStore {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Composed result of {@link openStore}. The caller closes both views via
- * the deterministic {@link OpenStoreResult.close} method (graph closes
- * first, then temporal — graph adapters tend to hold native pool
- * handles that benefit from prompt release).
+ * Composed result of {@link openStore}. The caller closes the store via the
+ * idempotent {@link OpenStoreResult.close} method. Post-ADR 0019 `graph` and
+ * `temporal` are one `SqliteStore` over a single file, so close releases one
+ * handle; a community fork that splits the two adapters closes graph first,
+ * then temporal.
  */
 export interface OpenStoreResult {
-  /** Graph-tier view (always lbug). */
+  /** Graph-tier view. Post-ADR 0019 this is the shared `SqliteStore`. */
   readonly graph: IGraphStore;
-  /** Tabular-tier view (always DuckDB). */
+  /** Tabular-tier view — the SAME `SqliteStore` instance as `graph`. */
   readonly temporal: ITemporalStore;
-  /** Absolute path to the on-disk graph artifact (`graph.lbug`). */
+  /** Absolute path to the on-disk index (`store.sqlite`). */
   readonly graphFile: string;
-  /** Absolute path to the on-disk temporal artifact (`temporal.duckdb`). */
+  /** Same single-file path as `graphFile` (both views share one file). */
   readonly temporalFile: string;
-  /** Closes both views in deterministic order. Idempotent. */
+  /** Closes the shared store handle. Idempotent. */
   close(): Promise<void>;
 }
 
@@ -590,7 +594,7 @@ export interface SymbolSummaryRow {
 // Shared options + result types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** JS types that can safely round-trip as DuckDB query parameters at MVP. */
+/** JS types that can safely round-trip as SQLite query parameters at MVP. */
 export type SqlParam = string | number | bigint | boolean | null;
 
 /**
@@ -833,7 +837,7 @@ export interface EmbeddingRow {
   /**
    * Tier the row belongs to. Optional on the TypeScript interface so legacy
    * callers that build rows without explicitly setting it still compile; the
-   * DuckDB DDL defaults NULL inputs to `'symbol'` so the on-disk row always
+   * SQLite DDL defaults NULL inputs to `'symbol'` so the on-disk row always
    * carries a value. Writers produced by P03 always set this explicitly.
    */
   readonly granularity?: EmbeddingGranularity;

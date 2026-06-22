@@ -1,7 +1,7 @@
 /**
  * Embeddings phase — generates 768-dim vectors across one or more
  * hierarchical tiers and materialises them into the phase output as an
- * array of `EmbeddingRow`s the CLI upserts into DuckDB.
+ * array of `EmbeddingRow`s the CLI upserts into the SQLite store.
  *
  * Granularity tiers (P03):
  *   - `"symbol"` — one vector per callable/declaration symbol. When a

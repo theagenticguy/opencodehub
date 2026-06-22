@@ -5,7 +5,7 @@
  * Flow:
  *   1. Read + parse + validate the SARIF file via `@opencodehub/sarif`.
  *   2. Resolve the target repo (either `--repo <name>` or CWD).
- *   3. Open the DuckDB store and pull a per-file, line-sorted symbol
+ *   3. Open the SQLite store and pull a per-file, line-sorted symbol
  *      index over the SARIF's referenced URIs (used to resolve Finding
  *      → Symbol edges).
  *   4. For every Result across every Run, build a Finding node keyed by
@@ -15,7 +15,7 @@
  *      enclosing symbol at `(uri, startLine)` when the graph contains
  *      one. A scanner-provided `opencodehub.symbolId` hint wins over the
  *      enclosing lookup when set.
- *   5. UPSERT into DuckDB via `store.bulkLoad({ mode: "upsert" })`.
+ *   5. UPSERT into the SQLite store via `store.bulkLoad({ mode: "upsert" })`.
  *
  * The command is idempotent — re-running with the same SARIF produces
  * the same nodes and edges. Results without a parsable location (no
@@ -140,7 +140,7 @@ interface BuildSummary {
 
 /**
  * Pure builder over SARIF runs. Exposed for unit tests so we can exercise
- * the node/edge emission logic without touching DuckDB.
+ * the node/edge emission logic without touching SQLite.
  *
  * `nodesByFile` is the per-file, line-sorted symbol index (produced by
  * {@link indexNodesByFile}) used to resolve each SARIF result back to the

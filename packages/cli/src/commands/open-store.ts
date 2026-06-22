@@ -6,9 +6,9 @@
  * Returns the canonical {@link Store} envelope from `@opencodehub/storage`
  * so callers can route graph-tier queries through `store.graph` and
  * temporal-tier queries (cochanges, summaries, `--sql` escape hatch)
- * through `store.temporal`. Storage is always graph.lbug + temporal.duckdb;
- * the legacy backend selector was removed when the DuckDB graph backend
- * was ripped out (see ADR 0016).
+ * through `store.temporal`. Post-ADR 0019 both views are one `SqliteStore`
+ * over a single `<repo>/.codehub/store.sqlite`; the legacy backend selector
+ * was removed when the lbug + DuckDB pair was replaced (see ADR 0019).
  */
 
 import { resolve } from "node:path";
@@ -33,7 +33,7 @@ export async function openStoreForCommand(opts: OpenStoreOptions): Promise<OpenS
     path: dbPath,
     readOnly: opts.readOnly ?? true,
   });
-  // The legacy CLI entry point opened the DuckDB connection eagerly and
+  // The legacy CLI entry point opened the store connection eagerly and
   // every command consumed an already-open store. The `openStore` factory
   // only constructs adapters; opening is the lifecycle owner's job. Keep
   // that contract by opening both views here so command handlers stay a

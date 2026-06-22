@@ -34,8 +34,8 @@ type Health = "ok" | "path-missing" | "graph-missing";
 
 function classifyHealth(entry: RepoEntry): Health {
   if (!existsSync(entry.path)) return "path-missing";
-  // Indexed probe: presence of `meta.json` / `graph.lbug` under `.codehub/`
-  // counts as "indexed" (lbug is the only graph backend post-ADR 0016).
+  // Indexed probe: presence of `meta.json` / `store.sqlite` under `.codehub/`
+  // counts as "indexed" (the single-file store is the only backend, ADR 0019).
   if (!codehubIsIndexed(entry.path)) return "graph-missing";
   return "ok";
 }

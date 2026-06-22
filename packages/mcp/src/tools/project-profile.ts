@@ -2,7 +2,7 @@
  * `project_profile` — return the ProjectProfile node for a repo.
  *
  * Profile is a singleton per repo, emitted by the ingestion `profile` phase.
- * Each array field is stored in DuckDB as a JSON-encoded TEXT column
+ * Each array field is stored in SQLite as a JSON-encoded TEXT column
  * (`languages_json`, `frameworks_json`, etc.) so we decode every column
  * back into a `string[]` before returning. If the repo was indexed before
  * the profile phase shipped (or the phase failed to write the node), we

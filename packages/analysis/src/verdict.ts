@@ -15,7 +15,7 @@
  *     Contributors) never crashes the verdict; it simply drops the missing
  *     signal.
  *   - **Zero `any`**: the only loose type surface is `Record<string,unknown>`
- *     for raw DuckDB rows, each of which we narrow with explicit casts.
+ *     for raw SQLite rows, each of which we narrow with explicit casts.
  */
 
 import { execFile } from "node:child_process";

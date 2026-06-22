@@ -382,39 +382,42 @@ test("sql: cypher timeout_ms is forwarded to store.query opts", async () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Schema-hint correctness (finding R2): the tool description must map SQL
-// mode to the DuckDB temporal tables and Cypher mode to the lbug graph
-// labels — NOT advertise `nodes`/`relations`/etc. as SQL tables. One
-// structural check covers both sections so the assertions can't drift.
+// Schema-hint correctness (ADR 0019): the whole index is one `store.sqlite`,
+// so `nodes` / `edges` / `embeddings` ARE directly SQL-queryable. The tool
+// description must advertise them as SQL tables under `sql:` and mark
+// `cypher:` as the community-fork-only escape hatch. (This inverts the prior
+// finding-R2 contract, which assumed a Cypher-only lbug graph tier.)
 // ---------------------------------------------------------------------------
 
-test("sql: tool description splits SQL temporal tables from Cypher graph labels", async () => {
+test("sql: tool description advertises the graph tables as SQL-queryable and marks cypher fork-only", async () => {
   await withHarness({ rows: [] }, async ({ ctx, server }) => {
     registerSqlTool(server, ctx);
     // biome-ignore lint/suspicious/noExplicitAny: reach into the SDK's tool registry for the description
     const registered = (server as any)._registeredTools as Record<string, { description?: string }>;
     const desc = registered["sql"]?.description ?? "";
 
-    // SQL section: the two tables that actually exist in the DuckDB
-    // temporal tier (per packages/storage/src/schema-ddl.ts).
+    // SQL section: every table in the single-file store is directly queryable.
     assert.match(desc, /SQL mode/, "description must label a SQL-mode section");
+    assert.match(desc, /\bnodes\b/, "SQL section must list the nodes table");
+    assert.match(desc, /\bedges\b/, "SQL section must list the edges table");
     assert.match(desc, /\bcochanges\b/, "SQL section must list cochanges");
     assert.match(desc, /\bsymbol_summaries\b/, "SQL section must list symbol_summaries");
+    assert.match(desc, /payload->>/, "SQL section must show the JSON1 payload extract idiom");
 
-    // Cypher section: graph labels reached via Cypher, plus an explicit
-    // statement that the graph entities are NOT SQL tables.
+    // Cypher section: reserved for community-fork adapters; the default
+    // SQLite backend does not support it.
     assert.match(desc, /Cypher mode/, "description must label a Cypher-mode section");
     assert.match(
       desc,
-      /not SQL-queryable|never `SELECT/i,
-      "description must state the graph is not SQL-queryable",
+      /community-fork|use `sql:` instead/i,
+      "description must mark cypher as the community-fork-only path",
     );
 
-    // The bug being fixed: the old hint advertised `nodes(...)` as a SQL
-    // table via a "Tables: nodes(" preamble. That phrasing must be gone.
+    // The inverted bug: the description must NOT claim the graph is
+    // unqueryable by SQL — that was true only under the old lbug backend.
     assert.ok(
-      !desc.includes("Tables: nodes("),
-      "description must NOT advertise `nodes` as a SQL table (finding R2)",
+      !/not SQL-queryable/i.test(desc),
+      "description must NOT claim the graph is non-SQL-queryable (ADR 0019)",
     );
   });
 });

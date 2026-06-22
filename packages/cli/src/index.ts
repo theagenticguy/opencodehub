@@ -3,7 +3,7 @@
  * `codehub` CLI entrypoint.
  *
  * Every subcommand is loaded lazily via `await import(...)` so that
- * `codehub --help` (and `codehub <command> --help`) stays fast: no DuckDB
+ * `codehub --help` (and `codehub <command> --help`) stays fast: no native storage engine
  * native binding, no pipeline, no MCP SDK unless we are actually going to
  * run that subcommand.
  */

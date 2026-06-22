@@ -1,5 +1,5 @@
 /**
- * DDL emitter for the DuckDB-backed temporal store.
+ * DDL emitter for the SQLite-backed temporal store.
  *
  * Two tables only:
  *   - `cochanges` — file-level association statistics from git history.

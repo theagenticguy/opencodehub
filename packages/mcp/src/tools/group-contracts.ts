@@ -218,7 +218,7 @@ export async function runGroupContracts(
     const persisted = await loadPersistedRegistry(group.name, ctx.home);
     const crossLinks = persisted?.crossLinks ?? [];
 
-    const header = `Cross-repo contracts for group ${group.name}: ${contracts.length} DuckDB-backed HTTP edge(s), ${crossLinks.length} registry cross-link(s).`;
+    const header = `Cross-repo contracts for group ${group.name}: ${contracts.length} graph-derived HTTP edge(s), ${crossLinks.length} registry cross-link(s).`;
     const body =
       contracts.length === 0
         ? "(no FETCH-derived contracts — verify consumer repos ran the `fetches` phase and producer repos registered Route nodes)"
@@ -282,8 +282,8 @@ export async function runGroupContracts(
 /**
  * Load `<home>/.codehub/groups/<name>/contracts.json`. Returns `null`
  * when the file does not exist or fails to parse — the tool still
- * succeeds on the DuckDB-backed surface when the persisted file is
- * missing.
+ * succeeds on the graph-derived FETCHES↔Route surface when the persisted
+ * file is missing.
  */
 async function loadPersistedRegistry(
   groupName: string,
@@ -305,7 +305,7 @@ export function registerGroupContractsTool(server: McpServer, ctx: ToolContext):
     {
       title: "Cross-repo HTTP contracts + cross-links",
       description:
-        "Two-part surface for cross-repo contract discovery. (1) Match unresolved FETCHES edges (consumer) against Route nodes (producer) across every repo in the group — this is the DuckDB-backed HTTP surface. (2) When `group_sync` has written a contracts.json under `<home>/.codehub/groups/<name>/`, surface its cross-links with signature + file + line for HTTP, gRPC, and topic pairings. Use this to audit cross-repo coupling after a schema change in a shared API or proto.",
+        "Two-part surface for cross-repo contract discovery. (1) Match unresolved FETCHES edges (consumer) against Route nodes (producer) across every repo in the group — this is the graph-derived HTTP surface. (2) When `group_sync` has written a contracts.json under `<home>/.codehub/groups/<name>/`, surface its cross-links with signature + file + line for HTTP, gRPC, and topic pairings. Use this to audit cross-repo coupling after a schema change in a shared API or proto.",
       inputSchema: GroupContractsInput,
       annotations: {
         readOnlyHint: true,

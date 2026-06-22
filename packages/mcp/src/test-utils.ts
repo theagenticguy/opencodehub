@@ -70,15 +70,16 @@ import { ConnectionPool } from "./connection-pool.js";
 /**
  * Wrap an in-memory IGraphStore-shaped fake as the composed `Store`
  * (`OpenStoreResult`) that the connection pool returns. The same fake
- * instance backs both `graph` and `temporal` views — tests don't care
- * about the production split between lbug graph + DuckDB temporal.
+ * instance backs both `graph` and `temporal` views — which mirrors
+ * production, where one `SqliteStore` serves both over a single
+ * `store.sqlite` (ADR 0019).
  */
 export function wrapAsStore(fake: unknown): Store {
   return {
     graph: fake as IGraphStore,
     temporal: fake as ITemporalStore,
-    graphFile: "/in-memory/graph.lbug",
-    temporalFile: "/in-memory/temporal.duckdb",
+    graphFile: "/in-memory/store.sqlite",
+    temporalFile: "/in-memory/store.sqlite",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);

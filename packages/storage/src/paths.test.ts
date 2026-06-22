@@ -18,7 +18,7 @@ test("resolveRepoMetaDir: joins repo path with .codehub", () => {
   assert.equal(actual, resolve("/tmp/demo-repo", META_DIR_NAME));
 });
 
-test("resolveGraphPath: drops the lbug graph file inside the meta dir", () => {
+test("resolveGraphPath: drops the store.sqlite file inside the meta dir", () => {
   const actual = resolveGraphPath("/tmp/demo-repo");
   assert.equal(actual, resolve("/tmp/demo-repo", META_DIR_NAME, describeArtifacts().graphFile));
 });
@@ -48,9 +48,9 @@ test("resolveRepoMetaDir: resolves relative paths", () => {
   assert.equal(actual, resolve(process.cwd(), "demo-repo", META_DIR_NAME));
 });
 
-test("describeArtifacts: returns lbug + duckdb temporal pair", () => {
+test("describeArtifacts: returns the single store.sqlite for both views (ADR 0019)", () => {
   const actual = describeArtifacts();
-  assert.equal(actual.graphFile, "graph.lbug");
-  assert.equal(actual.temporalFile, "temporal.duckdb");
+  assert.equal(actual.graphFile, "store.sqlite");
+  assert.equal(actual.temporalFile, "store.sqlite");
   assert.equal(actual.schemaName, "main");
 });

@@ -201,7 +201,7 @@ async function fetchProcessEntryPointIds(store: SkillsGenStore): Promise<Readonl
  * Fetch the top-K members of a community by outgoing CALLS degree. Used as a
  * fallback when no community members are process heads. Computes the
  * `GROUP BY from_id COUNT(*)` aggregate in TS over the typed-finder edges
- * — the legacy SQL pushed it down to DuckDB, but `listEdgesByType` already
+ * — the legacy SQL pushed it down to SQLite, but `listEdgesByType` already
  * narrows to one type so the reduction is bounded by community size.
  */
 async function fetchTopCallersByOutDegree(

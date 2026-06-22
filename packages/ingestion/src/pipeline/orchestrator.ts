@@ -3,7 +3,7 @@
  * configured phase set, and returns a summary plus the hashed graph.
  *
  * The orchestrator does not touch storage — the returned
- * `KnowledgeGraph` is in-memory only. Persisting it (DuckDB / embeddings)
+ * `KnowledgeGraph` is in-memory only. Persisting it (SQLite / embeddings)
  * is a CLI concern (see `codehub analyze`, which opens a writable store
  * and calls `bulkLoad`).
  */
@@ -133,7 +133,7 @@ export interface RunIngestionOptions extends PipelineOptions {
   readonly onProgress?: (ev: ProgressEvent) => void;
   /**
    * Optional adapter the summarize phase probes before issuing work.
-   * Production wires this to the DuckDB store's `lookupSymbolSummary`
+   * Production wires this to the SQLite store's `lookupSymbolSummary`
    * implementation so re-indexes become free when source hasn't drifted.
    * Tests inject an in-memory fake. Absent by default — the phase degrades
    * to "every candidate is a miss" which is still correct, just more
@@ -142,7 +142,7 @@ export interface RunIngestionOptions extends PipelineOptions {
   readonly summaryCacheAdapter?: SummaryCacheAdapter;
   /**
    * Optional adapter the embeddings phase probes before issuing embedder
-   * calls. Production wires this to the DuckDB store's
+   * calls. Production wires this to the SQLite store's
    * `listEmbeddingHashes` implementation so re-analyze runs skip chunks
    * whose `content_hash` matches a prior row. Absent by default —
    * the phase degrades to "every chunk is new" which is still correct,

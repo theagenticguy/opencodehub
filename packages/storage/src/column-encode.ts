@@ -18,7 +18,7 @@
  * Three sentinel rules also live here, promoted from
  * `graph-hash-parity.test.ts`:
  *
- *   - {@link stepZeroSentinel}: the DuckDB `relations.step` column is
+ *   - {@link stepZeroSentinel}: the SQLite `relations.step` column is
  *     `INTEGER NOT NULL DEFAULT 0`; the graph-db column is nullable `INT32`.
  *     Both backends agree on dropping `step` when the stored value reads back
  *     as zero/null so the round-trip is byte-identical.
@@ -47,14 +47,14 @@
  *     whether lbug stored it as SQL NULL (≤ v0.16.1, where a 0-length
  *     `STRING[]` collapsed to NULL on write) or as a typed empty `STRING[]`
  *     (≥ v0.17.0, PR #471, where empty lists round-trip).
- * A SQL-backed community adapter with a native array column (e.g. DuckDB
+ * A SQL-backed community adapter with a native array column (e.g. SQLite
  * `TEXT[]`) can instead store the 0-length literal directly; either scheme
  * satisfies the contract. Net effect: `{keywords: []}` round-trips
  * byte-identically to itself instead of collapsing to `{}` (canonical-JSON /
  * graphHash distinction preserved on every backend). Enforced end-to-end by
  * `graph-hash-parity.test.ts`.
  *
- * **`frameworks_json` unification** — before the hoist, the DuckDB
+ * **`frameworks_json` unification** — before the hoist, the SQLite
  * adapter wrote the v2.0 polymorphic shape via `frameworksJsonOrNull`
  * while the graph-db adapter wrote the legacy flat shape via
  * `jsonArrayOrNull`. Both adapters' readers already support both shapes
@@ -70,21 +70,25 @@
 import { canonicalJson, type GraphNode } from "@opencodehub/core-types";
 
 /**
- * Canonical column ordering for the polymorphic `nodes` / `CodeNode` table.
- * Both DuckDB and the graph-db backends consume this list — the type-name
- * mapping (`TEXT[]` vs `STRING[]`, etc.) lives in each adapter's CREATE
- * TABLE DDL, but the column ORDER is canonical and shared.
+ * Canonical field ordering for the polymorphic `nodes` table. Retained as
+ * the shared reference a community-fork adapter (AGE / Memgraph / Neo4j /
+ * Neptune) consumes when it stores the universal base as typed columns.
  *
- * Rules for adding a column (must hold across both adapters):
+ * The in-tree `SqliteStore` (ADR 0019) stores only the universal base
+ * (`id, kind, name, file_path, start_line, end_line`) as typed columns and
+ * folds every remaining kind-specific field into a single canonical-JSON
+ * `payload` column (`sqlite-adapter.ts`), so adding a kind-specific field
+ * needs NO schema change there — it round-trips through `payload`
+ * automatically. The `[]`-vs-absent and `{}`-vs-absent distinctions are
+ * preserved by `canonicalJson` over `payload`, not by per-column encoding.
+ *
+ * Rules for a fork that DOES store a new field as a typed column:
  *   1. Append to the END of this list — reordering rewrites every prepared
  *      statement parameter slot and breaks already-persisted graphs.
  *   2. Append the writer in {@link nodeToColumns}.
- *   3. Append the reader in each adapter's row decoder (`rowToGraphNode`
- *      for DuckDB, `applyNodeColumns` + `ROUND_TRIP_COLUMN_MAP` for
- *      graph-db).
- *   4. Update the CREATE TABLE DDL in `schema-ddl.ts` (DuckDB) and
- *      `graphdb-schema.ts` (graph-db) to keep the on-disk schema in lock
- *      step with this list.
+ *   3. Append the reader in the adapter's row decoder.
+ *   4. Update that adapter's CREATE TABLE DDL to keep the on-disk schema in
+ *      lock step with this list.
  */
 export const NODE_COLUMNS: readonly string[] = [
   "id",
@@ -173,7 +177,7 @@ export const NODE_COLUMNS: readonly string[] = [
 /**
  * Encode a GraphNode into a `column → value` map indexed by the canonical
  * {@link NODE_COLUMNS} keys. Each adapter consumes this map and projects to
- * its own native binding (DuckDB row tuple / graph-db parameter list).
+ * its own native binding (SQLite row tuple / graph-db parameter list).
  *
  * Field/column aliasing:
  *   - `OperationNode.method` → `http_method` column (not `method`, which is
@@ -285,7 +289,7 @@ export function nodeToColumns(node: GraphNode): Record<string, unknown> {
 /**
  * Dedupe by the caller-provided id extractor, keeping the LAST occurrence.
  *
- * Protects against DuckDB UPSERT issue 8147 (two rows with the same primary
+ * Protects against SQLite UPSERT issue 8147 (two rows with the same primary
  * key in one INSERT cannot both fire ON CONFLICT). The caller-driven id
  * function also lets us reuse this for nodes (id) and edges (id).
  */
@@ -329,7 +333,7 @@ export function booleanOrNull(v: unknown): boolean | null {
  *
  * **Preserve `[]` distinct from absent.** Returning a typed `[]` on an
  * empty-array input (rather than `null`) carries the "explicit empty"
- * signal into each adapter's writer. DuckDB `TEXT[]` stores a 0-length
+ * signal into each adapter's writer. SQLite `TEXT[]` stores a 0-length
  * literal natively; lbug `STRING[]` cannot (it collapses `[]` to NULL on
  * write), so the graph-db adapter substitutes an empty-array marker on the
  * way in and decodes it back on the way out — see `encodeNodeCol` +
@@ -486,10 +490,10 @@ export function frameworksJsonOrNull(flat: unknown, detected: unknown): string |
 // ---------------------------------------------------------------------------
 
 /**
- * Step-zero sentinel. The DuckDB `relations.step` column is
+ * Step-zero sentinel. The SQLite `relations.step` column is
  * `INTEGER NOT NULL DEFAULT 0`; the graph-db column is nullable `INT32`.
  * Both backends therefore disagree on read-back when the source edge
- * carries an explicit `step: 0` (DuckDB returns `0`, graph-db returns
+ * carries an explicit `step: 0` (SQLite returns `0`, graph-db returns
  * `null`). The convention is "drop step when it reads back as zero/null"
  * — this helper formalises that on the read side so canonical-JSON parity
  * holds across backends.

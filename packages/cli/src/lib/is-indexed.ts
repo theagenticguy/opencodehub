@@ -3,7 +3,7 @@
  * either signal exists under `<repoPath>/.codehub`:
  *
  *   - `meta.json` — written by every successful analyze run.
- *   - `graph.lbug` — the lbug graph artifact (post-M7 the only graph backend).
+ *   - `store.sqlite` — the single-file index (ADR 0019; the only backend).
  *
  * Returns a plain boolean — UI surfaces (e.g. `codehub list`) want a single
  * column rendering.

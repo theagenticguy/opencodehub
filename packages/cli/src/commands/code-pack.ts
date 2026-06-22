@@ -61,7 +61,7 @@ export interface CodePackArgs {
   readonly engine?: "pack" | "repomix";
   /**
    * Test seam — inject a custom `generatePack` so unit tests don't need
-   * to load native DuckDB bindings. Production callers leave this
+   * to load native storage bindings. Production callers leave this
    * unset.
    */
   readonly _generatePack?: typeof generatePack;

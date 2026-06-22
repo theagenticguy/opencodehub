@@ -32,7 +32,7 @@ export interface PipelineContext {
  * Minimal projection of a prior-run graph sufficient for the incremental-scope
  * phase to compute the import-closure walk. We intentionally keep this
  * narrower than a full {@link KnowledgeGraph} so callers can materialise
- * it cheaply from persisted storage (DuckDB rows, sidecar JSON, etc.) without
+ * it cheaply from persisted storage (SQLite rows, sidecar JSON, etc.) without
  * hydrating every node/edge kind in the graph.
  *
  * All arrays carry repo-relative posix paths (matching `ScannedFile.relPath`).

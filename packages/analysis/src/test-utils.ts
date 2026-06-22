@@ -11,7 +11,7 @@
  * `traverseDescendants`, `traverse`, plus the ITemporalStore-compat noops.
  *
  * Per-test fixtures populate the store via `addNode` / `addEdge`; the test
- * then exercises the production code through the same finders the DuckDb
+ * then exercises the production code through the same finders the SQLite store
  * and GraphDb adapters expose. No raw SQL crosses the test boundary.
  */
 

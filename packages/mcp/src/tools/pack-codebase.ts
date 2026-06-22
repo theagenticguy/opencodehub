@@ -267,7 +267,7 @@ async function callRealPackEngine(args: {
 }): Promise<{ outDir: string; packHash: string; bomItemCount: number }> {
   // Inline the same wiring as `runCodePack` rather than importing
   // `@opencodehub/cli` (which would create a cycle, MCP <- CLI <- MCP).
-  // Open the DuckStore directly, call generatePack, rename into place.
+  // Open the store directly, call generatePack, rename into place.
   const { mkdtemp, rename, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join, resolve } = await import("node:path");
@@ -275,7 +275,7 @@ async function callRealPackEngine(args: {
   const dbPath = resolveGraphPath(args.repo);
   if (!existsSync(dbPath)) {
     throw new Error(
-      `pack_codebase: no graph index at ${dbPath} (expected .codehub/graph.lbug). ` +
+      `pack_codebase: no index at ${dbPath} (expected .codehub/store.sqlite). ` +
         "Run `codehub analyze` first to populate the store.",
     );
   }

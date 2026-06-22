@@ -3,9 +3,9 @@
  *
  * These helpers are pure — they never touch the filesystem — so they are
  * trivially testable. Resolution rules:
- *   - Per-repo: `<repo>/.codehub/` holds `graph.lbug` (graph artifact)
- *     and `temporal.duckdb` (cochange + symbol-summary sidecar) plus the
- *     meta sidecar `meta.json`.
+ *   - Per-repo: `<repo>/.codehub/` holds the single `store.sqlite` index
+ *     (graph nodes/edges, embeddings, and the temporal cochange +
+ *     symbol-summary tables — ADR 0019) plus the meta sidecar `meta.json`.
  *   - Global : `~/.codehub/registry.json` holds the cross-repo registry.
  */
 
@@ -17,24 +17,26 @@ export const META_FILE_NAME = "meta.json";
 export const REGISTRY_FILE_NAME = "registry.json";
 
 /**
- * Canonical artifact filenames. Used by:
+ * Canonical artifact filename. Used by:
  *
- *   - The `openStore` factory to construct the graph + temporal file
- *     paths from a single `<dir>/.codehub/` parent.
  *   - The `codehub list` indexed-status probe to decide whether a repo
  *     has any artifact on disk.
- *   - The MCP error envelope to enumerate candidate paths in the
+ *   - The MCP error envelope to name the candidate path in the
  *     "store unreadable" message.
  *
- * `schemaName` is the namespace used inside the graph artifact when the
- * backend supports schemas; lbug emits into the default `main` schema.
+ * Post-ADR 0019 the entire index is one `<repo>/.codehub/store.sqlite`
+ * file (node:sqlite, WAL) — there is no separate graph / temporal file.
+ * `graphFile` and `temporalFile` both resolve to that single store so the
+ * historical two-field shape keeps callers (and the conformance harness)
+ * compiling without a churned signature. `schemaName` stays `main` — the
+ * default SQLite schema the tables live in.
  */
 export function describeArtifacts(): {
   readonly graphFile: string;
   readonly temporalFile: string;
   readonly schemaName: string;
 } {
-  return { graphFile: "graph.lbug", temporalFile: "temporal.duckdb", schemaName: "main" };
+  return { graphFile: "store.sqlite", temporalFile: "store.sqlite", schemaName: "main" };
 }
 
 /** Resolve the `<repo>/.codehub` directory (repo path may be relative). */
@@ -43,9 +45,9 @@ export function resolveRepoMetaDir(repoPath: string): string {
 }
 
 /**
- * Resolve the canonical graph artifact path
- * (`<repo>/.codehub/graph.lbug`). The {@link openStore} factory derives
- * the sibling temporal artifact path automatically.
+ * Resolve the canonical store path (`<repo>/.codehub/store.sqlite`).
+ * Post-ADR 0019 this single file is the whole index; {@link openStore}
+ * takes this path and serves both the graph and temporal views from it.
  */
 export function resolveGraphPath(repoPath: string): string {
   return resolve(repoPath, META_DIR_NAME, describeArtifacts().graphFile);

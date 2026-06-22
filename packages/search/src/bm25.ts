@@ -1,7 +1,7 @@
 /**
  * BM25 keyword search — thin wrapper around `IGraphStore.search(...)`.
  *
- * The underlying store already exposes a DuckDB FTS-backed ranking function;
+ * The underlying store already exposes a SQLite FTS5-backed ranking function;
  * this module only exists so hybrid callers can depend on `@opencodehub/search`
  * without taking a direct dependency on `@opencodehub/storage` types beyond
  * the store interface they already hold.

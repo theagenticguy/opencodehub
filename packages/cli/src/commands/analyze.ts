@@ -56,7 +56,7 @@ export interface AnalyzeOptions {
   readonly force?: boolean;
   /**
    * When true, the embeddings phase embeds every callable/declaration symbol
-   * and the result is upserted into the DuckDB `embeddings` table. Requires
+   * and the result is upserted into the `embeddings` table. Requires
    * `codehub setup --embeddings` to have installed weights; if weights are
    * missing the phase logs a warning and skips — analyze never aborts.
    */
@@ -222,7 +222,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
   // Load a prior graph projection for the incremental-scope phase when the
   // CLI was not invoked with --force. The projection is a thin wrapper
-  // around the prior DuckDB index (File nodes + IMPORTS / EXTENDS /
+  // around the prior SQLite index (File nodes + IMPORTS / EXTENDS /
   // IMPLEMENTS edges). `loadPreviousGraph` silently returns undefined if
   // the store does not exist or cannot be opened; incremental-scope then
   // reports mode="full" with reason="no-prior-graph".
@@ -333,10 +333,9 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     );
   }
 
-  // Persist to the composed graph + temporal store. Storage is always
-  // graph.lbug (graph-tier) + temporal.duckdb sidecar (cochanges, summary
-  // cache); the temporal-tier writes (`bulkLoadCochanges`,
-  // `bulkLoadSymbolSummaries`) route through `store.temporal`.
+  // Persist to the composed graph + temporal store. Post-ADR 0019 both views
+  // are one `store.sqlite`; the temporal-tier writes (`bulkLoadCochanges`,
+  // `bulkLoadSymbolSummaries`) still route through `store.temporal`.
   await mkdir(resolveRepoMetaDir(repoPath), { recursive: true });
   const dbPath = resolveGraphPath(repoPath);
   const store: Store = await openStore({ path: dbPath });
@@ -423,7 +422,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
     // Persist the scan-state sidecar so the next analyze invocation can feed
     // the incremental-scope phase via loadPreviousGraph(). We write this
-    // alongside the DuckDB file under `<repo>/.codehub` so a clean of the
+    // alongside the store.sqlite file under `<repo>/.codehub` so a clean of the
     // meta dir invalidates both the index and the incremental state together.
     if (result.scan !== undefined) {
       await writeScanState(
@@ -434,7 +433,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
     // Opt-in skill generation. Walk Community nodes just persisted above and
     // emit one SKILL.md per cluster under `<repo>/.codehub/skills/`. Runs
-    // against the still-open DuckDB handle so there's no re-open cost, and
+    // against the still-open SQLite handle so there's no re-open cost, and
     // any per-skill failure (read-only dir, permission denied, disk full)
     // logs-and-continues — analyze never aborts because of a skill write.
     if (opts.skills === true) {
@@ -579,7 +578,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
 
 /**
  * Build the {@link pipeline.PreviousGraph} projection expected by the
- * incremental-scope phase from the prior DuckDB index + scan-state sidecar.
+ * incremental-scope phase from the prior SQLite index + scan-state sidecar.
  *
  * The projection carries:
  *   - file paths + scan-time content hashes, read from
@@ -827,7 +826,7 @@ export async function resolveCoverageEnabled(
  * compute that before the pipeline runs (LSP phases haven't yielded
  * yet), so we use the prior run's stored counts when available:
  *
- *   - If a DuckDB store is readable at the expected path, count nodes
+ *   - If a SQLite store is readable at the expected path, count nodes
  *     whose kind is Function/Method/Class. That count is the best proxy
  *     for "SCIP-confirmed callables" we can get before the parse phase.
  *   - If no prior store exists (fresh clone, first analyze), fall back
@@ -863,7 +862,7 @@ export async function resolveMaxSummariesCap(
 
 /**
  * Count callable symbols (Function / Method / Class) recorded by the
- * prior run. Returns `undefined` when no prior DuckDB index exists or
+ * prior run. Returns `undefined` when no prior SQLite index exists or
  * the count query fails — callers treat that as "no prior run" and fall
  * back to the first-run heuristic.
  */
@@ -893,7 +892,7 @@ async function countPriorCallableSymbols(repoPath: string): Promise<number | und
 }
 
 /**
- * Open a read-only DuckDB store scoped to the `symbol_summaries` cache
+ * Open a read-only SQLite store scoped to the `symbol_summaries` cache
  * probe. The returned object carries a cache adapter the `summarize`
  * phase uses to short-circuit candidates whose content hash already has
  * a row on disk, plus a `close()` the caller invokes to release the
@@ -927,7 +926,7 @@ async function openSummaryCacheAdapter(
 }
 
 /**
- * Open a read-only DuckDB store scoped to the `embeddings` content-hash
+ * Open a read-only SQLite store scoped to the `embeddings` content-hash
  * probe. The returned adapter's `list()` loads every prior
  * `(granularity, nodeId, chunkIndex) → content_hash` row in a single
  * round-trip so the embeddings phase can skip chunks whose source text is
@@ -992,7 +991,7 @@ function fileFromNodeId(id: string): string | undefined {
 // returns rehydrated `GraphNode` objects, so the constant is no longer
 // load-bearing here. The `rowToGraphNode` / `rowToCodeRelation` adapters
 // below remain exported for external consumers that hand-roll over the
-// DuckDB wide-column shape.
+// SQLite wide-column shape.
 
 const NODE_KIND_SET: ReadonlySet<string> = new Set<string>(NODE_KINDS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set<string>(RELATION_TYPES);
@@ -1015,7 +1014,7 @@ function boolField(r: Record<string, unknown>, col: string): boolean | undefined
 }
 
 function stringArrayField(r: Record<string, unknown>, col: string): readonly string[] | undefined {
-  // Preserve `[]` distinct from absent. The DuckDB TEXT[] binder returns
+  // Preserve `[]` distinct from absent. The SQLite TEXT[] binder returns
   // a 0-length JS array for an empty SQL array literal and `null` for
   // SQL NULL; mirror the storage adapter's `setStringArrayField` and
   // return the array verbatim so a Community / Route node written as

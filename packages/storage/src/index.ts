@@ -59,7 +59,7 @@ import { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 /**
  * Combined options accepted by {@link openStore}. Superset of the spec-level
  * {@link ApiOpenStoreOptions} that adds the SQLite-adapter tuning bag. The
- * single-file store replaced the lbug + DuckDB pair (ADR 0017), so the former
+ * single-file store replaced the lbug + DuckDB pair (ADR 0019), so the former
  * `duckOptions` / `graphDbOptions` per-backend bags are gone.
  */
 export interface OpenStoreOptions extends ApiOpenStoreOptions {
