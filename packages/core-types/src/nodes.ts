@@ -138,6 +138,23 @@ interface CallableShape {
    * supplied; absent otherwise.
    */
   readonly coveredLinesJson?: string;
+  /**
+   * Advisory concern tag from the `business-logic` phase. `true` when the
+   * deterministic sieve is confident the symbol is plumbing (serialization,
+   * DTO mapping, transport, DI wiring). Absent when the language is outside
+   * the validated set (python/java/go) or the phase did not run. Measured
+   * plumbing precision ~0.94. See `@opencodehub/analysis` `classifyPlumbing`.
+   */
+  readonly likelyPlumbing?: boolean;
+  /**
+   * Advisory concern tag from the `business-logic` phase — the recall-first
+   * complement of {@link likelyPlumbing}. `true` when the symbol is a
+   * business-logic candidate (everything the sieve did NOT classify as
+   * plumbing). High recall (~0.93), low precision by design: a "look here for
+   * domain logic" hint, not a confirmed classification. Absent when the phase
+   * did not run for this symbol's language.
+   */
+  readonly candidateBusiness?: boolean;
 }
 
 interface TypeDeclShape {

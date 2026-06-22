@@ -23,6 +23,7 @@
 import type { PipelinePhase } from "../types.js";
 import { accessesPhase } from "./accesses.js";
 import { annotatePhase } from "./annotate.js";
+import { businessLogicPhase } from "./business-logic.js";
 import { cochangePhase } from "./cochange.js";
 import { communitiesPhase } from "./communities.js";
 import { complexityPhase } from "./complexity.js";
@@ -76,6 +77,13 @@ export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   // learn to honour it. It has no downstream dependents today.
   incrementalScopePhase,
   complexityPhase,
+  // `business-logic` runs after complexity (it reuses the same callable +
+  // class definition walk) and tags Function/Method/Class nodes with the
+  // deterministic `likelyPlumbing` / `candidateBusiness` advisory concern
+  // tags. Python/Java/Go only (the sieve's validated set); no-op for other
+  // languages. No downstream dependents — the tags are read from the graph by
+  // MCP tools / `payload->>'$.candidateBusiness'` at query time.
+  businessLogicPhase,
   routesPhase,
   openapiPhase,
   toolsPhase,
