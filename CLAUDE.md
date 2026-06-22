@@ -10,7 +10,7 @@ tiers.
 - `context` — inbound/outbound refs and participating flows for one symbol.
 - `impact` — dependents of a target up to a configurable depth, with a risk tier.
 - `detect_changes` — map an uncommitted or committed diff to affected symbols.
-- `sql` — read-only SQL against the local temporal store (the `cochanges` and `symbol_summaries` tables), 5 s timeout. The node/edge graph lives in `graph.lbug` (ADR 0016) and is reached via the typed tools (`query`/`context`/`impact`) or Cypher via the MCP `sql` tool's `cypher` arg — NOT via this SQL path.
+- `sql` — read-only SQL against the single-file `store.sqlite` index (ADR 0019). `nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, and `store_meta` are all directly SQL-queryable (e.g. `SELECT id, name FROM nodes WHERE kind = 'Function'`; reach kind-specific fields via SQLite JSON1, `payload->>'$.field'`). 5 s timeout. The typed tools (`query`/`context`/`impact`) remain the high-level path; the `cypher` arg is reserved for community-fork graph adapters and is not supported by the default backend.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
 with the working tree. `codehub status` reports staleness.
