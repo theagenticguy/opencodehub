@@ -1,10 +1,10 @@
 # Spike: single-file SQLite storage — GOAL
 
 **Branch:** `spike/sqlite-single-file`
-**Status:** ✅ COMPLETE — P0→P6 done. `@ladybugdb/core` removed; one `store.sqlite` per repo; clean-room one-command install proven (ADR 0019). Not merged to main yet — awaiting Laith's review of the branch.
-**Author:** overnight + next-day autonomous run for Laith, 2026-06-22.
+**Status:** ✅ COMPLETE — and then some. P0→P6 done, plus DuckDB and onnxruntime-node both removed. OpenCodeHub now has **LITERALLY zero native dependencies**: one `store.sqlite` per repo (node:sqlite), and the embedder runs in pure WebAssembly (onnxruntime-web). Not merged to main yet — awaiting Laith's review.
+**Author:** autonomous run for Laith, 2026-06-22.
 
-> Done means: monorepo tsc clean; storage 89/0, core-types 83/0, pack 105/0, mcp 209/0, cli 345/0; live `analyze`→`query`→`impact` on a pristine repo writes one `store.sqlite` (no `.lbug`/`.duckdb`) with `@ladybugdb/core` unresolvable. DuckDB remains only as a lazy pack-time import for the Parquet sidecar (pure-JS Parquet is the documented fast-follow).
+> Done means: monorepo tsc clean; storage/core-types/pack/mcp/cli/ingestion/search suites all green; live `analyze`→`query`→`impact` on a pristine repo writes one `store.sqlite` (no `.lbug`/`.duckdb`/`.parquet`); `analyze --embeddings` runs the WASM embedder and populates the embeddings table. ALL THREE former native bindings (`@ladybugdb/core`, `@duckdb/node-api`, `onnxruntime-node`) are 0 refs in the lockfile and unresolvable at runtime. No package.json lists any native binding. The Parquet sidecar was dropped (write-only, no reader); embeddings live queryable in `store.sqlite`.
 
 ## The goal in one sentence
 
