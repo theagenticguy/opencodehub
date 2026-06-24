@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.1...root-v0.9.2) (2026-06-24)
+
+
+### Features
+
+* **analysis:** plumbing sieve + candidate_business tag (deterministic, advisory) ([#248](https://github.com/theagenticguy/opencodehub/issues/248)) ([383b719](https://github.com/theagenticguy/opencodehub/commit/383b71928143825ebbef37686604540f69e71163))
+* **ingestion:** business-logic analyze phase — populate likely_plumbing + candidate_business ([#249](https://github.com/theagenticguy/opencodehub/issues/249)) ([a3d44ad](https://github.com/theagenticguy/opencodehub/commit/a3d44adc9c1b63fcc1f9ea09278aff584d3619e0))
+* **storage:** single-file SQLite + WASM embedder — zero native dependencies ([#245](https://github.com/theagenticguy/opencodehub/issues/245)) ([c72c84f](https://github.com/theagenticguy/opencodehub/commit/c72c84fe810884fb4287ff0c519707cf4b23fa7c))
+
+
+### Bug Fixes
+
+* **storage:** purge stale lbug/DuckDB refs after ADR 0019; fix 2 latent bugs ([#247](https://github.com/theagenticguy/opencodehub/issues/247)) ([90f40a2](https://github.com/theagenticguy/opencodehub/commit/90f40a2b313a8021f72063d858e91ba25c0421b9))
+
 ## [0.9.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.0...root-v0.9.1) (2026-06-14)
 
 
