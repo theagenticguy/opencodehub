@@ -38,7 +38,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@chonkiejs/core": "^0.0.10",
+    "@chonkiejs/core": "^0.0.11",
     "@opencodehub/analysis": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/ingestion": "workspace:*",
