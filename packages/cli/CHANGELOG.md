@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.9.1...cli-v0.9.2) (2026-06-24)
+
+
+### Features
+
+* **storage:** single-file SQLite + WASM embedder — zero native dependencies ([#245](https://github.com/theagenticguy/opencodehub/issues/245)) ([c72c84f](https://github.com/theagenticguy/opencodehub/commit/c72c84fe810884fb4287ff0c519707cf4b23fa7c))
+
+
+### Bug Fixes
+
+* **storage:** purge stale lbug/DuckDB refs after ADR 0019; fix 2 latent bugs ([#247](https://github.com/theagenticguy/opencodehub/issues/247)) ([90f40a2](https://github.com/theagenticguy/opencodehub/commit/90f40a2b313a8021f72063d858e91ba25c0421b9))
+
 ## [0.9.1](https://github.com/theagenticguy/opencodehub/compare/cli-v0.9.0...cli-v0.9.1) (2026-06-14)
 
 
