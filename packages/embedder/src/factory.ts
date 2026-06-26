@@ -6,7 +6,7 @@
  *   1. {@link tryOpenHttpEmbedder} reads SageMaker / OpenAI-HTTP env vars
  *      first and returns a remote-backed embedder when configured.
  *   2. Otherwise — and only when `allowOnnxFallback === true` (the default) —
- *      fall back to {@link openOnnxEmbedder}, which loads gte-modernbert-base
+ *      fall back to {@link openOnnxEmbedder}, which loads F2LLM-v2-80m
  *      weights from disk (the lazy-load side effect).
  *   3. With `allowOnnxFallback: false` and no HTTP/SageMaker env, throw
  *      {@link EmbedderNotSetupError} — the ONNX binding is never loaded.

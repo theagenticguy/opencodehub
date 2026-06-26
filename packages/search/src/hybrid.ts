@@ -79,7 +79,9 @@ export async function hybridSearch(
     }));
   }
 
-  const vector = await embedder.embed(q.text);
+  // Query text — embed via embedQuery so asymmetric models (F2LLM) apply
+  // their `Instruct:` query prefix. Documents were indexed raw via embed().
+  const vector = await embedder.embedQuery(q.text);
 
   let annHits: readonly { readonly nodeId: string; readonly distance: number }[];
   if (q.mode === "zoom") {

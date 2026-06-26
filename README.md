@@ -78,31 +78,31 @@ flowchart LR
 | **Local-first, offline-capable** | `codehub analyze --offline` opens zero sockets. Your code never leaves your machine. No telemetry. |
 | **Deterministic indexing** | Identical inputs produce a byte-identical graph hash. Reproducible. Auditable. Cacheable in CI. |
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
-| **Embedded storage, two-tier** | `@ladybugdb/core` holds the structural store: symbols, edges, embeddings, BM25 + HNSW. A dedicated DuckDB sibling holds the temporal views: cochanges and summaries. Embedded files. No daemon. No database to operate. Both tiers are always present, with no backend knob (ADR 0016). |
+| **Single-file embedded storage** | One `store.sqlite` file holds everything — symbols, edges, embeddings, BM25 (FTS5) + HNSW traversal, and the temporal views (cochanges, summaries) — via Node's built-in `node:sqlite`. No daemon, no database to operate, and **zero native storage bindings** (ADR 0019 removed both `@ladybugdb/core` and `@duckdb/node-api`). |
 | **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
-| **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`, so parsing does **zero grammar/native builds and zero GitHub fetches** at install time — there is no native parser opt-in. Storage and embeddings still load prebuilt native bindings (see Platform support). |
+| **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`, so parsing does **zero grammar/native builds and zero GitHub fetches** at install time — there is no native parser opt-in. Storage is pure `node:sqlite`; the only optional native dep is the local embedder (see Platform support). |
 
 ## Platform support
 
-Parsing is WASM and runs anywhere Node does. The storage and embedding
-tiers, however, depend on **prebuilt native bindings** — `@ladybugdb/core`
-(graph store), `@duckdb/node-api` (temporal store), and `onnxruntime-node`
-(local embeddings) — so OpenCodeHub runs on the platforms those bindings
-ship a prebuild for:
+Parsing is WASM and storage is pure `node:sqlite`, so the core runs anywhere
+Node ≥ 24.15 does — no prebuilt native storage bindings, no Docker, no
+postinstall compile (ADR 0019). There is exactly **one** optional native
+dependency: `onnxruntime-web`, the WASM ONNX runtime that powers
+`--embeddings`. It ships prebuilt WebAssembly (no node-gyp, no native
+binding) and runs single-threaded under Node, so it too is platform-agnostic;
+a BM25-only install never loads it.
 
 | Platform | Supported |
 |---|---|
-| `darwin-arm64`, `darwin-x64` | ✅ prebuilt |
-| `linux-x64`, `linux-arm64` (glibc) | ✅ prebuilt |
-| `win32-x64` | ✅ prebuilt |
-| `win32-arm64` | ❌ no prebuild — `codehub analyze` fails at store open |
-| Alpine / musl, 32-bit Linux ARM | ❌ no prebuild — needs a source build of `@ladybugdb/core` |
+| `darwin-arm64`, `darwin-x64` | ✅ |
+| `linux-x64`, `linux-arm64` (glibc **and** musl/Alpine) | ✅ |
+| `win32-x64`, `win32-arm64` | ✅ |
+| anywhere else Node ≥ 24.15 runs | ✅ |
 
-On an unsupported platform the lbug binding fails to load and `open()`
-throws `GraphDbBindingError` (there is no DuckDB-graph fallback — see
-[ADR 0016](./docs/adr/0016-duckdb-graph-rip.md)). The five-target prebuilt
-matrix mirrors `@ladybugdb/core`'s release artifacts; track its upstream
-for musl / `win32-arm64` coverage.
+Because storage no longer depends on a platform-specific prebuild, the
+earlier `GraphDbBindingError` / unsupported-platform failure mode is gone —
+see [ADR 0019](./docs/adr/0019-single-file-sqlite-storage.md) (which
+superseded the native-binding storage of [ADR 0016](./docs/adr/0016-duckdb-graph-rip.md)).
 
 ## Quick start
 
@@ -187,7 +187,7 @@ The monorepo is organised as 18 workspace packages under `packages/`:
 | `scanners` | Subprocess wrappers for 19 scanners — OSV, Semgrep, hadolint, tflint, betterleaks, and the rest |
 | `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) — emits CALLS, REFERENCES, IMPLEMENTS, TYPE_OF |
 | `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
-| `storage` | `IGraphStore` (`@ladybugdb/core`) + `ITemporalStore` (DuckDB) adapters; deterministic `graphHash` |
+| `storage` | One `SqliteStore` (`node:sqlite`) implementing both `IGraphStore` + `ITemporalStore` over a single `store.sqlite`; deterministic `graphHash` |
 | `summarizer` | Process + cluster summaries for MCP responses |
 | `wiki` | LLM-narrated module pages emitted by `codehub wiki --llm` |
 
@@ -199,12 +199,13 @@ production package set ships free of test-time dependencies.
 ## Embedding backends
 
 OpenCodeHub ships with three embedding backends — all serve the same
-`gte-modernbert-base` 768-dim space, all use CLS pooling + L2 norm — and
-picks one at runtime based on environment variables:
+`codefuse-ai/F2LLM-v2-80M` 320-dim space (last-token pooling + L2 norm
+baked into the ONNX graph) — and picks one at runtime based on
+environment variables:
 
 | Precedence | Env | Backend |
 |---|---|---|
-| 1 | `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | **SageMaker** — invokes an AWS SageMaker Runtime endpoint (e.g. a TEI-served `gte-modernbert-embed`). Auth via the default AWS credential chain (profile, env vars, IMDS). No local weights needed. |
+| 1 | `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | **SageMaker** — invokes an AWS SageMaker Runtime endpoint (e.g. a TEI-served `F2LLM-v2-80M`). Auth via the default AWS credential chain (profile, env vars, IMDS). No local weights needed. |
 | 2 | `CODEHUB_EMBEDDING_URL` + `CODEHUB_EMBEDDING_MODEL` | **HTTP (OpenAI-compatible)** — POSTs to a `/v1/embeddings` server (Infinity, vLLM, TEI, Ollama, LM Studio, OpenAI). Bearer auth optional via `CODEHUB_EMBEDDING_API_KEY`. |
 | 3 | *(nothing set)* | **Local ONNX** — deterministic, offline-safe. Requires `codehub setup --embeddings` to download the weights. |
 
@@ -212,13 +213,13 @@ picks one at runtime based on environment variables:
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | *(required to select)* | Endpoint name (e.g. `gte-modernbert-embed`). |
+| `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` | *(required to select)* | Endpoint name (e.g. `F2LLM-v2-80M`). |
 | `CODEHUB_EMBEDDING_SAGEMAKER_REGION` | `us-east-1` | AWS region. |
-| `CODEHUB_EMBEDDING_DIMS` | `768` | Expected vector dimension — asserted on every response to catch model-swap drift. |
-| `CODEHUB_EMBEDDING_MODEL` | `gte-modernbert-base/sagemaker:<endpoint-name>` | Stable modelId stamp recorded in index metadata. Override only when bridging a non-gte endpoint. |
+| `CODEHUB_EMBEDDING_DIMS` | `320` | Expected vector dimension — asserted on every response to catch model-swap drift. |
+| `CODEHUB_EMBEDDING_MODEL` | `F2LLM-v2-80M/sagemaker:<endpoint-name>` | Stable modelId stamp recorded in index metadata. Override only when bridging a non-F2LLM endpoint. |
 
 IAM: the caller needs `sagemaker:InvokeEndpoint` on the endpoint ARN —
-e.g. `arn:aws:sagemaker:us-east-1:<account>:endpoint/gte-modernbert-embed`.
+e.g. `arn:aws:sagemaker:us-east-1:<account>:endpoint/F2LLM-v2-80M`.
 
 **Do not mix backends against the same index.** Backends are pinned to a
 single model identity via the `modelId` stamp in the `embeddings` table;
@@ -226,27 +227,29 @@ switching mid-project requires `codehub analyze --rebuild-embeddings`.
 `--offline` refuses SageMaker and HTTP backends, so offline mode is
 compatible only with the local ONNX path.
 
-## Storage backend — lbug graph + DuckDB temporal
+## Storage backend — single-file SQLite
 
-The graph tier is always `@ladybugdb/core` (`<repo>/.codehub/graph.lbug`);
-the temporal tier — cochanges, structured symbol summaries, and the
-`codehub query --sql` escape hatch — is always DuckDB
-(`<repo>/.codehub/temporal.duckdb`). Both files are written on every
-`analyze`. There is no `CODEHUB_STORE` env var, no backend probe, no
-single-file `graph.duckdb` layout, and no mtime arbitration; if the lbug
-binding fails to load, `open()` throws `GraphDbBindingError` and the
-operation aborts.
+The entire index lives in ONE `<repo>/.codehub/store.sqlite` file (WAL),
+via Node's built-in `node:sqlite` — graph nodes, edges, embeddings, the
+FTS5 BM25 table, and the temporal tables (cochanges, symbol summaries, the
+`codehub query --sql` escape hatch). One `SqliteStore` class implements
+**both** `IGraphStore` and `ITemporalStore`; `openStore()` returns that
+single instance as both the `graph` and `temporal` views, so call sites use
+`store.graph.X()` / `store.temporal.Y()` unchanged. **Zero native storage
+bindings** — `@ladybugdb/core` and `@duckdb/node-api` are both gone, so
+there is no `GraphDbBindingError`, no backend probe, and no platform-prebuild
+matrix.
 
-`IGraphStore` lives only on `GraphDbStore`; `DuckDbStore` implements
-`ITemporalStore` only. The segregated interfaces stay because they are
-the v1.0 contract for community-fork adapters (AGE / Memgraph / Neo4j /
-Neptune target `IGraphStore`; DuckDB owns `ITemporalStore`). Embeddings
-live in `graph.lbug` and stream into a per-call DuckDB temp table at
-pack time so the byte-identical Parquet sidecar still works.
+The segregated `IGraphStore` / `ITemporalStore` interfaces stay as the
+community-fork escape hatch (AGE / Memgraph / Neo4j / Neptune) — a fork
+implements both, on one class or split. Install is zero-native-dep:
+`npm i -g @opencodehub/cli` + Node ≥ 24.15, no Docker, no postinstall
+compile. (`onnxruntime-web`, the optional WASM embedder, is the only native
+dependency — lazy-loaded under `--embeddings`.)
 
-See [`docs/adr/0016-duckdb-graph-rip.md`](./docs/adr/0016-duckdb-graph-rip.md)
-for the rationale behind ripping out the DuckDB graph backend; it
-supersedes ADR 0013 and the DuckDB-as-graph passages of ADR 0011.
+See [`docs/adr/0019-single-file-sqlite-storage.md`](./docs/adr/0019-single-file-sqlite-storage.md)
+for the rationale; it supersedes [ADR 0016](./docs/adr/0016-duckdb-graph-rip.md)
+(and, transitively, the native-binding storage of ADRs 0011 / 0013 / 0001).
 
 ## Parse runtime — WASM-only, vendored grammars
 
@@ -254,8 +257,9 @@ supersedes ADR 0013 and the DuckDB-as-graph passages of ADR 0011.
 runtime on the supported Node range (22 and 24). There is no native opt-in:
 the native `tree-sitter` N-API addon and all 14 `tree-sitter-<lang>` npm
 packages are gone from the install graph, so parsing pulls **zero native
-builds and zero GitHub fetches** at install time. (Storage and embeddings
-load prebuilt native bindings — see Platform support.)
+builds and zero GitHub fetches** at install time. (Storage is pure
+`node:sqlite`; the only optional native dep is the WASM embedder — see
+Platform support.)
 
 All 15 grammar `.wasm` blobs are vendored at
 `packages/ingestion/vendor/wasms/`, built from the grammar sources

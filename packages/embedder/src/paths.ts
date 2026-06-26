@@ -1,13 +1,11 @@
 /**
- * Resolves the on-disk location of gte-modernbert-base weight files.
+ * Resolves the on-disk location of F2LLM-v2-80M weight files.
  *
  * Layout convention:
- *   ${CODEHUB_HOME:-~/.codehub}/models/gte-modernbert-base/${variant}/
+ *   ${CODEHUB_HOME:-~/.codehub}/models/f2llm-v2-80m/${variant}/
  *     ├── model.onnx          (or model_int8.onnx)
  *     ├── tokenizer.json
- *     ├── tokenizer_config.json
- *     ├── config.json
- *     └── special_tokens_map.json
+ *     └── tokenizer_config.json
  *
  * `codehub setup --embeddings` is the code path that populates this
  * directory; this module just resolves paths and never touches the network.
@@ -16,7 +14,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const MODEL_SUBDIR = "models/gte-modernbert-base";
+const MODEL_SUBDIR = "models/f2llm-v2-80m";
 
 /**
  * Root directory that holds every OpenCodeHub-managed artefact (model weights,
@@ -49,10 +47,10 @@ export function modelFileName(variant: "fp32" | "int8"): string {
   return variant === "fp32" ? "model.onnx" : "model_int8.onnx";
 }
 
-/** All tokenizer-related files we require alongside the ONNX weights. */
-export const TOKENIZER_FILES = [
-  "tokenizer.json",
-  "tokenizer_config.json",
-  "config.json",
-  "special_tokens_map.json",
-] as const;
+/**
+ * All tokenizer-related files we require alongside the ONNX weights. The
+ * F2LLM ONNX export ships only these two — pooling + normalization are
+ * baked into the graph, so there is no separate `config.json` /
+ * `special_tokens_map.json` to fetch.
+ */
+export const TOKENIZER_FILES = ["tokenizer.json", "tokenizer_config.json"] as const;

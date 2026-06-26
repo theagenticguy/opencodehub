@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/storage-v0.3.0...storage-v0.4.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** embedding dimension changed to 320 (`codefuse-ai/F2LLM-v2-80M`, was gte-modernbert-base 768-dim). The `embeddingDim` store option defaults to 320; existing stores must be rebuilt with `codehub analyze --embeddings`.
+
 ## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/storage-v0.2.3...storage-v0.3.0) (2026-06-01)
 
 

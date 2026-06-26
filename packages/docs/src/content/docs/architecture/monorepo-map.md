@@ -19,7 +19,7 @@ package is a library imported by `cli`, `mcp`, `ingestion`, or
 | `@opencodehub/cli` | `packages/cli` | The `codehub` binary (analyze, setup, mcp, query, context, impact, sql, group, scan, verdict, code-pack, ...). |
 | `@opencodehub/cobol-proleap` | `packages/cobol-proleap` | Optional JVM ProLeap deep-parse bridge for COBOL — gated behind `--allow-build-scripts=proleap`. |
 | `@opencodehub/core-types` | `packages/core-types` | Shared graph schema, `LanguageId`, `RelationType`, determinism primitives. |
-| `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`gte-modernbert-base`), modelId fingerprint, three-backend cascade. |
+| `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`F2LLM-v2-80M`, 320-dim), modelId fingerprint, three-backend cascade. |
 | `@opencodehub/frameworks` | `packages/frameworks` | Five-stage framework detector (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry. |
 | `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, summaries, ...). |
 | `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 28 tool registrations (all read-only with respect to user source), 7 resources, the error envelope, the staleness `_meta` block. |

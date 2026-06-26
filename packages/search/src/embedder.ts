@@ -13,7 +13,7 @@
 
 import type { Embedder } from "./types.js";
 
-export const DEFAULT_EMBEDDER_DIM = 768;
+export const DEFAULT_EMBEDDER_DIM = 320;
 
 /** Whether the deprecation warning has already fired in this process. */
 let warnedOnce = false;
@@ -43,5 +43,10 @@ export class NullEmbedder implements Embedder {
       );
     }
     return new Float32Array(this.dim);
+  }
+
+  /** Query path mirrors {@link embed} — the stand-in has no model prefix. */
+  async embedQuery(text: string): Promise<Float32Array> {
+    return this.embed(text);
   }
 }

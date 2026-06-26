@@ -9,7 +9,7 @@
  *     that POSTs to an OpenAI-compatible `/v1/embeddings` server (Infinity,
  *     vLLM, TEI, Ollama, LM Studio, OpenAI).
  *   - When neither is set, {@link openEmbedder} falls back to the local
- *     ONNX gte-modernbert-base path (deterministic embedder).
+ *     ONNX F2LLM-v2-80M path (deterministic embedder).
  *
  * Offline invariant: when `offline === true` and any remote option
  * (SageMaker or `endpointUrl`) is set, {@link openEmbedder} throws. Remote
@@ -47,8 +47,8 @@ export {
 } from "./http-embedder.js";
 export {
   embedderModelId,
-  GTE_MODERNBERT_BASE_PINS,
-  GTE_MODERNBERT_BASE_REPO,
+  F2LLM_V2_80M_PINS,
+  F2LLM_V2_80M_REPO,
   type PinnedFile,
   type VariantPins,
 } from "./model-pins.js";
@@ -59,6 +59,7 @@ export {
   resolveModelDir,
   TOKENIZER_FILES,
 } from "./paths.js";
+export { buildQueryText, F2LLM_QUERY_INSTRUCTION } from "./query-prefix.js";
 export {
   openSagemakerEmbedder,
   readSagemakerEmbedderConfigFromEnv,
@@ -103,7 +104,7 @@ export interface OpenEmbedderOptions {
   readonly modelId?: string;
   /** Bearer token for the HTTP request. Optional; sent as `unused` when absent. */
   readonly apiKey?: string;
-  /** Expected response-vector dimension. Defaults to 768 for HTTP/SageMaker. */
+  /** Expected response-vector dimension. Defaults to 320 for HTTP/SageMaker. */
   readonly dims?: number;
   /**
    * Pass-through options for the ONNX backend when a remote backend is

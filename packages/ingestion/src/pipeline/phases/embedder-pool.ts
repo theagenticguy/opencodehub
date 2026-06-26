@@ -53,7 +53,7 @@ export function openOnnxEmbedderPool(opts: EmbedderPoolOptions): Embedder {
   });
 
   let closed = false;
-  const dim = 768; // gte-modernbert-base — matches OnnxEmbedder's EMBED_DIM.
+  const dim = 320; // F2LLM-v2-80M — matches OnnxEmbedder's EMBED_DIM.
 
   async function embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
     if (closed) throw new Error("Embedder pool is closed");
@@ -74,6 +74,13 @@ export function openOnnxEmbedderPool(opts: EmbedderPoolOptions): Embedder {
     dim,
     modelId: embedderModelId(opts.variant),
     async embed(text: string): Promise<Float32Array> {
+      const [vec] = await embedBatch([text]);
+      if (vec === undefined) throw new Error("embedBatch returned empty result");
+      return vec;
+    },
+    // Ingestion only embeds documents; the pool never embeds queries. Alias
+    // to embed() to satisfy the Embedder interface (no query prefix applied).
+    async embedQuery(text: string): Promise<Float32Array> {
       const [vec] = await embedBatch([text]);
       if (vec === undefined) throw new Error("embedBatch returned empty result");
       return vec;

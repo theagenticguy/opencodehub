@@ -9,9 +9,12 @@
  *     `CODEHUB_HOME`. Weight-missing is detected lazily — `openOnnxEmbedder`
  *     throws `EmbedderNotSetupError` and we skip the rest of the suite.
  *
- * Acceptance threshold: per-pair cosine similarity ≥ 0.99. Both backends
- * use CLS pooling + L2 normalization, so cosine should be ≳ 0.999 on the
- * happy path — the 0.99 floor absorbs fp16-vs-fp32 drift on the GPU side.
+ * Acceptance threshold: per-pair cosine similarity ≥ 0.99. Both backends are
+ * F2LLM-v2-80M (last-token pooling + L2 normalization baked into the graph),
+ * so cosine should be ≳ 0.999 on the happy path — the 0.99 floor absorbs
+ * fp16-vs-fp32 drift on the GPU side. The SageMaker endpoint pointed at by
+ * `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` must serve the same F2LLM model for
+ * the parity assertion to hold.
  */
 
 import { ok } from "node:assert/strict";

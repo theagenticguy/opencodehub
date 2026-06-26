@@ -2,7 +2,7 @@
  * Happy-path test for `codehub setup --embeddings` wiring.
  *
  * Uses the public `runSetupEmbeddings` entry and a stub fetch + an override
- * pin manifest so we never hit the real HuggingFace CDN.
+ * pin manifest so we never hit the real GitHub release-asset CDN.
  */
 
 import { strict as assert } from "node:assert";
@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { ReadableStream } from "node:stream/web";
 import { describe, it } from "node:test";
 
-import { GTE_MODERNBERT_BASE_PINS } from "@opencodehub/embedder";
+import { F2LLM_V2_80M_PINS } from "@opencodehub/embedder";
 
 import { runSetupEmbeddings } from "./setup.js";
 
@@ -49,7 +49,7 @@ describe("runSetupEmbeddings", { skip: platformSkip }, () => {
       // Build a tiny per-file body keyed by pin name; substitute our SHAs into
       // the manifest so the downloader's verification passes.
       const bodies = new Map<string, Uint8Array>();
-      const originals = GTE_MODERNBERT_BASE_PINS.fp32.files;
+      const originals = F2LLM_V2_80M_PINS.fp32.files;
       const replaced = originals.map((f, idx) => {
         const body = new TextEncoder().encode(`pin-${idx}-${f.name}`);
         bodies.set(f.url, body);
@@ -61,7 +61,7 @@ describe("runSetupEmbeddings", { skip: platformSkip }, () => {
         };
       });
 
-      const mutable = GTE_MODERNBERT_BASE_PINS as unknown as {
+      const mutable = F2LLM_V2_80M_PINS as unknown as {
         fp32: { variant: "fp32"; files: readonly (typeof replaced)[number][] };
       };
       const saved = mutable.fp32;

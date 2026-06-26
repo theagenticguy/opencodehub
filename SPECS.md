@@ -17,7 +17,7 @@ first 14 plus a regex provider for fixed-format COBOL, runs SCIP indexers
 for TypeScript/JavaScript, Python, Go, Rust, and Java to upgrade tree-sitter
 heuristic edges to compiler-grade edges, clusters the graph into
 Communities and Processes, and optionally populates embeddings from a
-pinned gte-modernbert-base ONNX model (fp32 ~596 MB or int8 ~150 MB) or
+pinned F2LLM-v2-80M ONNX model (320-dim; fp32 ~321 MB or int8 ~81 MB) or
 an OpenAI-compatible HTTP endpoint.
 
 At query time it exposes an MCP server with 28 tools (`query`, `context`,
@@ -171,7 +171,7 @@ last-analyzed commit) atomically and expose it via `getMeta`.
 BM25 + ANN search, fuse results with reciprocal rank fusion (`DEFAULT_RRF_K`),
 and return symbols grouped by their participating `Process`.
 
-4.2 Where gte-modernbert-base weights are absent and no HTTP embedder is
+4.2 Where F2LLM-v2-80M weights are absent and no HTTP embedder is
 configured, the system shall fall back to BM25-only search and log a
 one-shot `[mcp] hybrid:` warning to stderr.
 
@@ -264,8 +264,9 @@ and `sql`.
 claude-code, cursor, codex, windsurf, and opencode; pass `--undo` to
 restore the most recent `.bak`.
 
-7.4 The `setup --embeddings` command shall download gte-modernbert-base
-weights (fp32 or int8) with SHA256 pins validated against
+7.4 The `setup --embeddings` command shall download the F2LLM-v2-80M
+ONNX export (fp32 or int8) — a custom-exported artifact hosted as a
+GitHub release asset — with SHA256 pins validated against
 `model-pins.ts`.
 
 7.5 The `setup --plugin` command shall copy the bundled plugin into

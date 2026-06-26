@@ -88,8 +88,8 @@ codehub setup
 | `--editors <list>` | all | `claude-code,cursor,codex,windsurf,opencode`. |
 | `--force` | off | Overwrite existing entries; re-download weights. |
 | `--undo` | off | Restore the most recent `.bak` next to each config. |
-| `--embeddings` | off | Download `gte-modernbert-base` ONNX weights (SHA256-pinned). |
-| `--int8` | off | Use the int8 weight variant (~150 MB) instead of fp32 (~596 MB). |
+| `--embeddings` | off | Download `F2LLM-v2-80M` ONNX weights (SHA256-pinned GitHub release asset). |
+| `--int8` | off | Use the int8 weight variant (~81 MB) instead of fp32 (~321 MB). |
 | `--model-dir <path>` | — | Override the target directory for embedder weights. |
 | `--plugin` | off | Install the Claude Code plugin to `~/.claude/plugins/opencodehub/`. |
 

@@ -1,8 +1,8 @@
 /**
- * SHA256-pinned downloader for gte-modernbert-base weights.
+ * SHA256-pinned downloader for F2LLM-v2-80M weights.
  *
  * Resolves the target directory via {@link resolveModelDir}, then for each
- * pinned file in {@link GTE_MODERNBERT_BASE_PINS}:
+ * pinned file in {@link F2LLM_V2_80M_PINS}:
  *   1. Skip when the file already exists and its SHA256 matches the pin.
  *   2. Otherwise stream-download to `<target>.tmp`, hash during write, verify
  *      hash, and atomically rename to the final path.
@@ -12,7 +12,7 @@
  * error — the `.tmp` file is deleted and the error thrown. We never ship
  * weights that don't match the pin.
  *
- * All disk access is streaming; we never buffer a 596 MB file in memory.
+ * All disk access is streaming; we never buffer a 321 MB file in memory.
  */
 
 import { createHash } from "node:crypto";
@@ -24,7 +24,7 @@ import { pipeline as streamPipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { GTE_MODERNBERT_BASE_PINS, type PinnedFile, resolveModelDir } from "@opencodehub/embedder";
+import { F2LLM_V2_80M_PINS, type PinnedFile, resolveModelDir } from "@opencodehub/embedder";
 
 /** Fetch function signature for dependency injection (tests mock this). */
 export type FetchFn = typeof fetch;
@@ -311,7 +311,7 @@ export async function downloadEmbedderWeights(
   const modelDir = resolveModelDir(opts.modelDir, opts.variant);
   await mkdir(modelDir, { recursive: true });
 
-  const files = GTE_MODERNBERT_BASE_PINS[opts.variant].files;
+  const files = F2LLM_V2_80M_PINS[opts.variant].files;
   let downloaded = 0;
   let skipped = 0;
   let totalBytes = 0;

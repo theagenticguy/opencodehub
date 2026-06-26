@@ -583,7 +583,9 @@ function embedderWeightsCheck(home: string): Check {
       // NOT hyphen). A historical hyphenated path name lingered here and
       // caused false-negative `warn`s for users who had int8 weights on
       // disk.
-      const base = join(home, ".codehub", "models", "gte-modernbert-base");
+      // Subdir must match `embedder/src/paths.ts:MODEL_SUBDIR`
+      // (`models/f2llm-v2-80m`); a mismatch silently always-warns.
+      const base = join(home, ".codehub", "models", "f2llm-v2-80m");
       const fp32 = join(base, "fp32", "model.onnx");
       const int8 = join(base, "int8", "model_int8.onnx");
       const fp32Ok = await fileExists(fp32);

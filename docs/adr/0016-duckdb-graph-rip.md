@@ -1,6 +1,16 @@
 # ADR 0016 — Rip out the DuckDB graph backend; lbug-only graph, DuckDB temporal-only
 
-- Status: **Accepted** — 2026-05-16.
+- Status: **Superseded** by [ADR 0019 — Single-file SQLite storage](./0019-single-file-sqlite-storage.md)
+  on 2026-06-22, **in its entirety**. ADR 0019 removed BOTH native bindings
+  this ADR settled on (`@ladybugdb/core` for the graph tier and
+  `@duckdb/node-api` for the temporal tier) and replaced the pair with one
+  `store.sqlite` file via Node's built-in `node:sqlite`. The segregated
+  `IGraphStore` / `ITemporalStore` interfaces this ADR preserved for
+  community forks survive — both are now implemented by a single
+  `SqliteStore` class. Read this ADR only for the historical rationale of
+  the lbug-graph / DuckDB-temporal split; **do not** treat its decision as
+  current.
+- Was: **Accepted** — 2026-05-16.
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/duckdb-graph-rip`.
 - Supersedes: [ADR 0013 — M7 default flip and storage abstraction](./0013-m7-default-flip-and-abstraction.md)

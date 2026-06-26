@@ -1,8 +1,8 @@
 {
   "name": "@opencodehub/embedder",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
-  "description": "OpenCodeHub — ONNX-based deterministic text embedder (gte-modernbert-base)",
+  "description": "OpenCodeHub — ONNX-based deterministic text embedder (F2LLM-v2-80M)",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -63,7 +63,7 @@
     "embeddings",
     "onnx",
     "sagemaker",
-    "gte-modernbert",
+    "f2llm",
     "semantic-search"
   ],
   "engines": {

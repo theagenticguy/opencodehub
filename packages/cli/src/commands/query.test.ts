@@ -201,6 +201,11 @@ class FakeEmbedder implements Embedder {
   async embed(_text: string): Promise<Float32Array> {
     return new Float32Array([0.1, 0.2, 0.3, 0.4]);
   }
+  // F2LLM gained a query-only `embedQuery` path; the fake aliases it to
+  // `embed` since the hybrid path only needs a stable Float32Array back.
+  async embedQuery(text: string): Promise<Float32Array> {
+    return this.embed(text);
+  }
   async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
     return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
   }
@@ -457,7 +462,7 @@ test("cli query: embeddings populated + embedder fails → warn + BM25 fallback,
           ...hooksFor(handle, "/tmp/fake"),
           openEmbedder: async () => {
             const err = new Error(
-              "gte-modernbert-base weights not found. Run `codehub setup --embeddings`.",
+              "F2LLM-v2-80M weights not found. Run `codehub setup --embeddings`.",
             );
             (err as unknown as { code: string }).code = "EMBEDDER_NOT_SETUP";
             throw err;
@@ -665,7 +670,7 @@ test("cli query: embedder mismatch sets exit code 2 and still closes embedder + 
     ],
     vectorRows: [{ nodeId: "F:foo", distance: 0.1 }],
     // Persisted model id differs from the active embedder's "fake-embedder/test".
-    metaModelId: "gte-modernbert-base/fp32",
+    metaModelId: "f2llm-v2-80m/fp32",
   });
   const fake = new FakeEmbedder();
   const prevExitCode = process.exitCode;
@@ -707,7 +712,7 @@ test("cli query: --force-backend-mismatch bypasses the refusal and runs hybrid",
     ],
     vectorRows: [{ nodeId: "F:foo", distance: 0.1 }],
     nodes,
-    metaModelId: "gte-modernbert-base/fp32",
+    metaModelId: "f2llm-v2-80m/fp32",
   });
   const fake = new FakeEmbedder();
   const prevExitCode = process.exitCode;

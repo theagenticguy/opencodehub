@@ -73,6 +73,7 @@ pre-push:
     # Guard the verdict gate on a present index so the hook degrades
     # gracefully on dev boxes that haven't run `codehub analyze` yet —
     # mirrors the SKIP behaviour of scripts/pack-determinism-audit.sh.
+    # Index path is the single-file `store.sqlite` (ADR 0019).
     #
     # The verdict CLI exit ladder is 0=auto_merge, 1=single_review,
     # 2=dual_review/expert_review, 3=block. Those tiers are review-routing
@@ -82,8 +83,8 @@ pre-push:
     # surface the verdict output and gate solely on exit code 3.
     - name: verdict
       run: |
-        if [ ! -f .codehub/graph.lbug ]; then
-          echo "verdict skipped: no .codehub/graph.lbug (run 'mise run och:self-analyze' first)"
+        if [ ! -f .codehub/store.sqlite ]; then
+          echo "verdict skipped: no .codehub/store.sqlite (run 'mise run och:self-analyze' first)"
           exit 0
         fi
         set +e

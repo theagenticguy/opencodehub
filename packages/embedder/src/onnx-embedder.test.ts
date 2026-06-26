@@ -6,11 +6,17 @@
  *      `code` literal. Guarantees the CLI and search layer can pattern-match
  *      the error to degrade to BM25-only.
  *   2. Real weights present → byte-identical output across three repeat
- *      calls + L2 norm ≈ 1 + dim === 768. Only runs when the cache dir is
- *      populated. CI does NOT populate this dir.
+ *      calls + dim === 320. Only runs when the cache dir is populated. CI
+ *      does NOT populate this dir.
+ *
+ * F2LLM-v2-80M's ONNX graph bakes last-token pooling + L2 normalization in,
+ * emitting a single 320-dim output named `embedding` already unit-length —
+ * so the embedder does NO JS-side pooling or normalization (unlike the prior
+ * gte-modernbert CLS-pool path). The unit-norm assertion below therefore
+ * checks the model contract, not a JS post-step.
  *
  * When weights are absent we also run a mock-based check of the Embedder
- * contract (dim=768, embedBatch preserves input order, close() is
+ * contract (dim=320, embedBatch preserves input order, close() is
  * idempotent) so the interface is covered unconditionally.
  */
 
@@ -74,11 +80,13 @@ describe("openOnnxEmbedder: missing weights", () => {
 /**
  * A hand-rolled `Embedder` used when real weights are unavailable. Its
  * `embed` produces a deterministic fake vector (index-based) so we can still
- * exercise the downstream contract: L2 norm ≈ 1, dim=768, embedBatch
- * preserves order, close() is idempotent.
+ * exercise the downstream contract: dim=320, embedBatch preserves order,
+ * close() is idempotent, repeat calls are byte-identical. The fake happens to
+ * return unit vectors, but that is a property of the mock — the real embedder
+ * gets unit length from the in-graph L2 norm, not from any JS step.
  */
 class MockEmbedder implements Embedder {
-  readonly dim = 768;
+  readonly dim = 320;
   readonly modelId = embedderModelId("fp32");
   #closed = false;
 
@@ -107,6 +115,12 @@ class MockEmbedder implements Embedder {
     return vec;
   }
 
+  // F2LLM is asymmetric (query gets an Instruct: prefix) but the mock has no
+  // real model, so it aliases the query path to the document path.
+  async embedQuery(text: string): Promise<Float32Array> {
+    return this.embed(text);
+  }
+
   async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
     return Promise.all(texts.map((t) => this.embed(t)));
   }
@@ -130,17 +144,18 @@ describe("Embedder contract (mocked)", () => {
     const m = new MockEmbedder();
     // Static type check: `m satisfies Embedder` is enforced by the class
     // declaration. Here we re-check at runtime.
-    equal(m.dim, 768);
-    equal(m.modelId, "gte-modernbert-base/fp32");
+    equal(m.dim, 320);
+    equal(m.modelId, "f2llm-v2-80m/fp32");
     equal(typeof m.embed, "function");
+    equal(typeof m.embedQuery, "function");
     equal(typeof m.embedBatch, "function");
     equal(typeof m.close, "function");
   });
 
-  it("dim === 768", async () => {
+  it("dim === 320", async () => {
     const m = new MockEmbedder();
     const v = await m.embed("hello world");
-    equal(v.length, 768);
+    equal(v.length, 320);
   });
 
   it("L2 norm is ~1 (within 1e-6)", async () => {
@@ -199,9 +214,9 @@ async function hasRealWeights(): Promise<boolean> {
 }
 
 describe("OnnxEmbedder: real weights (optional)", () => {
-  it("produces byte-identical vectors across 3 calls and has dim=768", async (t) => {
+  it("produces byte-identical vectors across 3 calls and has dim=320", async (t) => {
     if (!(await hasRealWeights())) {
-      t.skip("gte-modernbert-base weights not installed — run `codehub setup --embeddings`");
+      t.skip("f2llm-v2-80m weights not installed — run `codehub setup --embeddings`");
       return;
     }
     let embedder: Embedder | undefined;
@@ -211,12 +226,14 @@ describe("OnnxEmbedder: real weights (optional)", () => {
       const a = await embedder.embed(text);
       const b = await embedder.embed(text);
       const c = await embedder.embed(text);
-      equal(a.length, 768);
-      equal(embedder.dim, 768);
-      equal(embedder.modelId, "gte-modernbert-base/fp32");
+      equal(a.length, 320);
+      equal(embedder.dim, 320);
+      equal(embedder.modelId, "f2llm-v2-80m/fp32");
       deepEqual(new Uint8Array(a.buffer), new Uint8Array(b.buffer));
       deepEqual(new Uint8Array(a.buffer), new Uint8Array(c.buffer));
 
+      // F2LLM's graph L2-normalizes its output, so the vector is unit-length
+      // straight from `embedding` — no JS normalize step is involved.
       const n = l2Norm(a);
       ok(Math.abs(n - 1) < 1e-4, `expected unit norm, got ${n}`);
     } finally {

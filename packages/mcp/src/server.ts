@@ -84,7 +84,7 @@ export interface StartServerOptions {
 }
 
 /**
- * Probe for gte-modernbert-base weights on disk. Runs once at server startup
+ * Probe for F2LLM-v2-80M weights on disk. Runs once at server startup
  * and logs a single structured warning when the weights are absent so
  * agents see the BM25-only fallback reason. Never throws: a missing or
  * unreadable model directory is a supported deployment mode.
@@ -105,7 +105,7 @@ async function probeEmbedderWeights(silent: boolean): Promise<void> {
     }
     const root = getDefaultModelRoot();
     console.warn(
-      `[mcp] hybrid: embeddings weights not found at ${root}/models/gte-modernbert-base/; run \`codehub setup --embeddings\`. Falling back to BM25-only.`,
+      `[mcp] hybrid: embeddings weights not found at ${root}/models/f2llm-v2-80m/; run \`codehub setup --embeddings\`. Falling back to BM25-only.`,
     );
   } catch (err) {
     // Probe failure is non-fatal; surface the reason but keep going.

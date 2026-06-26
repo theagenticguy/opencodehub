@@ -66,6 +66,12 @@ export interface FusedHit {
  * zero-vector in production and throws in tests.
  */
 export interface Embedder {
+  /** Embed a DOCUMENT (no query prefix). */
   embed(text: string): Promise<Float32Array>;
+  /**
+   * Embed a QUERY. For asymmetric models (F2LLM) this applies the model's
+   * query instruction prefix; documents are embedded raw via {@link embed}.
+   */
+  embedQuery(text: string): Promise<Float32Array>;
   readonly dim: number;
 }

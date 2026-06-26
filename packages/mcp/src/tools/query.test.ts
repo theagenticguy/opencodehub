@@ -387,6 +387,11 @@ class FakeEmbedder implements Embedder {
   async embed(_text: string): Promise<Float32Array> {
     return new Float32Array([0.1, 0.2, 0.3, 0.4]);
   }
+  // F2LLM gained a query-only `embedQuery` path; the fake aliases it to
+  // `embed` since the query tool only needs a stable Float32Array back.
+  async embedQuery(text: string): Promise<Float32Array> {
+    return this.embed(text);
+  }
   async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
     return texts.map(() => new Float32Array([0.1, 0.2, 0.3, 0.4]));
   }
@@ -576,9 +581,7 @@ test("query: populated embeddings + EMBEDDER_NOT_SETUP → warn + BM25 fallback"
   };
   try {
     const opener: EmbedderFactory = async () => {
-      const err = new Error(
-        "gte-modernbert-base weights not found. Run `codehub setup --embeddings`.",
-      );
+      const err = new Error("F2LLM-v2-80M weights not found. Run `codehub setup --embeddings`.");
       // Shape matches EmbedderNotSetupError.code.
       (err as unknown as { code: string }).code = "EMBEDDER_NOT_SETUP";
       throw err;
