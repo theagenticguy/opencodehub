@@ -56,9 +56,6 @@ packageExtensions:
 # from .npmrc; non-auth settings belong here or in ~/.config/pnpm/config.yaml.
 # User-specific settings (store-dir, package-import-method) stay in
 # ~/.config/pnpm/config.yaml.
-# NOTE: onnxruntime_node_install_cuda=skip must remain in ~/.npmrc (or be set
-# as npm_config_onnxruntime_node_install_cuda=skip in CI) so the onnxruntime
-# install script skips the ~400MB CUDA EP download on CPU-only environments.
 autoInstallPeers: true
 resolutionMode: time-based
 engineStrict: true
