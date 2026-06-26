@@ -67,6 +67,18 @@ jobs:
   resolve:
     name: Resolve release tag + SHA
     runs-on: ubuntu-latest
+    # Only run the package-release pipeline for version-shaped tags. The
+    # `release: published` event also fires for non-package releases that
+    # merely HOST assets — e.g. the `embed-v1` embedder-weights release
+    # (see packages/embedder/src/model-pins.ts) — which must NOT build,
+    # sign, or npm-publish anything. release-please tags are `root-v*`,
+    # `cli-v*`, or a bare `v*`; `workflow_call`/`workflow_dispatch` pass an
+    # explicit tag input and are always allowed.
+    if: >-
+      github.event_name != 'release'
+      || startsWith(github.event.release.tag_name, 'root-v')
+      || startsWith(github.event.release.tag_name, 'cli-v')
+      || startsWith(github.event.release.tag_name, 'v')
     outputs:
       tag: ${{ steps.t.outputs.tag }}
       sha: ${{ steps.t.outputs.sha }}
