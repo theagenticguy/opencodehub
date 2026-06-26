@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.0...root-v0.10.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* **ingestion:** exclude venv/node_modules/cache dirs from analyze + all retrieval APIs ([#255](https://github.com/theagenticguy/opencodehub/issues/255)) ([881d925](https://github.com/theagenticguy/opencodehub/commit/881d925626b3034f20643a296a3dc495e574920f))
+
 ## [0.10.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.2...root-v0.10.0) (2026-06-26)
 
 
