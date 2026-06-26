@@ -7,6 +7,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { promisify } from "node:util";
 import { KnowledgeGraph } from "@opencodehub/core-types";
+import { HARDCODED_IGNORES } from "../gitignore.js";
 import type { PipelineContext } from "../types.js";
 import { scanPhase } from "./scan.js";
 
@@ -57,6 +58,114 @@ describe("scanPhase", () => {
     assert.ok(!rels.includes("ignored/hidden.ts"), "ignored/ dir must be skipped");
     assert.ok(!rels.some((r) => r.startsWith("node_modules")), "node_modules must be skipped");
     assert.ok(!rels.includes("blob.bin"), "binary files must be skipped");
+  });
+
+  it("skips every HARDCODED_IGNORES directory at the repo root and nested", async () => {
+    // Build a repo where each hardcoded-ignore name appears both at the root
+    // and one level deep, each holding a source file the scan would otherwise
+    // pick up. None of those files may appear in the scan output.
+    const fixture = await mkdtemp(path.join(tmpdir(), "och-scan-hardcoded-"));
+    try {
+      await fs.writeFile(path.join(fixture, "real.ts"), "export const R = 1;\n");
+      for (const name of HARDCODED_IGNORES) {
+        // Root-level: <name>/leaf.ts
+        const rootDir = path.join(fixture, name);
+        await fs.mkdir(rootDir, { recursive: true });
+        await fs.writeFile(path.join(rootDir, "leaf.ts"), "export const X = 1;\n");
+        // Nested: src/<name>/leaf.ts — proves per-segment matching at depth.
+        const nestedDir = path.join(fixture, "src", name);
+        await fs.mkdir(nestedDir, { recursive: true });
+        await fs.writeFile(path.join(nestedDir, "leaf.ts"), "export const Y = 2;\n");
+      }
+      const ctx: PipelineContext = {
+        repoPath: fixture,
+        options: { skipGit: true },
+        graph: new KnowledgeGraph(),
+        phaseOutputs: new Map(),
+      };
+      const out = await scanPhase.run(ctx, new Map());
+      const rels = out.files.map((f) => f.relPath);
+      // The one legitimate source file survives.
+      assert.ok(rels.includes("real.ts"), "first-party source must be kept");
+      // No kept path may traverse any hardcoded-ignore directory, at any depth.
+      for (const name of HARDCODED_IGNORES) {
+        const offenders = rels.filter((r) => r.split("/").includes(name));
+        assert.deepEqual(
+          offenders,
+          [],
+          `no scanned path may pass through "${name}/" — found: ${offenders.join(", ")}`,
+        );
+      }
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes venv/ and node_modules/ specifically, at root and nested", async () => {
+    // Regression guard for the operator requirement: virtualenvs (.venv AND
+    // the bare `venv` name) and node_modules must never enter the index.
+    const fixture = await mkdtemp(path.join(tmpdir(), "och-scan-venv-"));
+    try {
+      const layouts = [
+        "venv/lib/site.py",
+        ".venv/lib/site.py",
+        "node_modules/pkg/index.js",
+        "backend/venv/lib/dep.py",
+        "frontend/node_modules/pkg/index.js",
+      ];
+      for (const rel of layouts) {
+        const abs = path.join(fixture, rel);
+        await fs.mkdir(path.dirname(abs), { recursive: true });
+        await fs.writeFile(abs, "x\n");
+      }
+      await fs.writeFile(path.join(fixture, "app.py"), "print('hi')\n");
+      const ctx: PipelineContext = {
+        repoPath: fixture,
+        options: { skipGit: true },
+        graph: new KnowledgeGraph(),
+        phaseOutputs: new Map(),
+      };
+      const out = await scanPhase.run(ctx, new Map());
+      const rels = out.files.map((f) => f.relPath);
+      assert.ok(rels.includes("app.py"), "first-party source must be kept");
+      for (const seg of ["venv", ".venv", "node_modules"]) {
+        assert.ok(
+          !rels.some((r) => r.split("/").includes(seg)),
+          `"${seg}/" content must never appear in scan output`,
+        );
+      }
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes a user-.gitignore'd directory end-to-end through the scan phase", async () => {
+    // .gitignore honoring on analyze: a directory the repo's own .gitignore
+    // excludes must not be scanned, even though it is not a hardcoded ignore.
+    const fixture = await mkdtemp(path.join(tmpdir(), "och-scan-gitignore-"));
+    try {
+      await fs.writeFile(path.join(fixture, ".gitignore"), "generated/\nsecret.key\n");
+      await fs.writeFile(path.join(fixture, "main.ts"), "export const M = 1;\n");
+      await fs.writeFile(path.join(fixture, "secret.key"), "shh\n");
+      await fs.mkdir(path.join(fixture, "generated", "deep"), { recursive: true });
+      await fs.writeFile(path.join(fixture, "generated", "deep", "g.ts"), "export const G = 1;\n");
+      const ctx: PipelineContext = {
+        repoPath: fixture,
+        options: { skipGit: true },
+        graph: new KnowledgeGraph(),
+        phaseOutputs: new Map(),
+      };
+      const out = await scanPhase.run(ctx, new Map());
+      const rels = out.files.map((f) => f.relPath);
+      assert.ok(rels.includes("main.ts"), "tracked source must be kept");
+      assert.ok(!rels.includes("secret.key"), ".gitignore file pattern must be honored");
+      assert.ok(
+        !rels.some((r) => r.startsWith("generated/")),
+        ".gitignore directory pattern must be honored at scan time",
+      );
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   it("emits deterministic sha256 for each file", async () => {
