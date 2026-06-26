@@ -11,7 +11,7 @@
  *   AWS_PROFILE=lalsaado-handson \
  *   AWS_REGION=us-east-1 \
  *   CODEHUB_INTEGRATION=1 \
- *   CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT=gte-modernbert-embed \
+ *   CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT=f2llm-embed \
  *   pnpm --filter @opencodehub/embedder test
  */
 
@@ -33,7 +33,7 @@ const skipReason = !INTEGRATION_GATE
 describe("openSagemakerEmbedder — live SageMaker endpoint", {
   skip: skipReason ?? undefined,
 }, () => {
-  it("single text returns a 768-d Float32Array with unit L2 norm (≈1.0)", async () => {
+  it("single text returns a 320-d Float32Array with unit L2 norm (≈1.0)", async () => {
     const embedder = await openSagemakerEmbedder({
       endpointName: ENDPOINT as string,
       region: REGION,
@@ -42,9 +42,9 @@ describe("openSagemakerEmbedder — live SageMaker endpoint", {
       const vec = await embedder.embed(
         "function add(a: number, b: number): number { return a + b; }",
       );
-      equal(vec.length, 768);
-      // TEI with the gte-modernbert-base bundled Normalize module returns
-      // L2-normalized vectors; assert norm is close to 1.
+      equal(vec.length, 320);
+      // F2LLM bakes last-token pooling + L2 normalization into its graph, so
+      // the endpoint returns L2-normalized vectors; assert norm is close to 1.
       let norm = 0;
       for (let i = 0; i < vec.length; i++) {
         const v = vec[i] ?? 0;
@@ -66,7 +66,7 @@ describe("openSagemakerEmbedder — live SageMaker endpoint", {
       const texts = Array.from({ length: 64 }, (_, i) => `const value${i} = ${i};`);
       const out = await embedder.embedBatch(texts);
       equal(out.length, 64);
-      for (const v of out) equal(v.length, 768);
+      for (const v of out) equal(v.length, 320);
     } finally {
       await embedder.close();
     }
@@ -81,7 +81,7 @@ describe("openSagemakerEmbedder — live SageMaker endpoint", {
       const texts = Array.from({ length: 100 }, (_, i) => `let x${i} = ${i};`);
       const out = await embedder.embedBatch(texts);
       equal(out.length, 100);
-      for (const v of out) equal(v.length, 768);
+      for (const v of out) equal(v.length, 320);
     } finally {
       await embedder.close();
     }

@@ -1,6 +1,17 @@
 # ADR 0001 — Storage backend selection
 
-Status: **Accepted (superseded prior SQLite recommendation)** — 2026-04-18
+Status: **Superseded** — current storage is [ADR 0019 — Single-file SQLite
+storage](./0019-single-file-sqlite-storage.md) (2026-06-22). This ADR
+selected **DuckDB** as the embedded backend; that decision was unwound over
+[ADR 0011](./0011-graph-db-backend.md) → [ADR 0013-m7](./0013-m7-default-flip-and-abstraction.md)
+→ [ADR 0016](./0016-duckdb-graph-rip.md) → ADR 0019, which lands on one
+`store.sqlite` file (Node built-in `node:sqlite`, **zero** native storage
+bindings — DuckDB included). Ironically ADR 0019 returns to the SQLite
+recommendation this ADR originally rejected. Read this ADR for the original
+license/determinism/binding-availability criteria only; the chosen engine is
+obsolete.
+
+> Originally: **Accepted (superseded prior SQLite recommendation)** — 2026-04-18
 
 ## Context
 

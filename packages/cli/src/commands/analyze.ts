@@ -31,6 +31,7 @@ import {
   type RelationType,
   SCHEMA_VERSION,
 } from "@opencodehub/core-types";
+import { embedderModelId } from "@opencodehub/embedder";
 import { pipeline } from "@opencodehub/ingestion";
 import {
   type BulkLoadProgressEvent,
@@ -260,9 +261,20 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // re-embeds everything, so the adapter would do no useful work. When the
   // prior DB is absent the adapter returns undefined and the phase
   // degrades to "every chunk is new".
+  //
+  // Migration safety: the content-hash skip keys on TEXT only, so swapping
+  // the embedder (e.g. gte-modernbert-base/768-dim → f2llm-v2-80m/320-dim)
+  // would otherwise skip every unchanged node and leave stale-dimension
+  // vectors mixed with the new ones. Gate the cache on a model-id match —
+  // when the prior store's `embedderModelId` differs from the active
+  // embedder, the adapter is suppressed (full re-embed; INSERT OR REPLACE
+  // overwrites every row at the new dim).
+  const activeEmbedderModelId = embedderModelId(
+    opts.embeddingsVariant === "int8" ? "int8" : "fp32",
+  );
   const embeddingHashAdapter =
     opts.embeddings === true && opts.force !== true
-      ? await openEmbeddingHashCacheAdapter(repoPath)
+      ? await openEmbeddingHashCacheAdapter(repoPath, activeEmbedderModelId)
       : undefined;
 
   // Resolve `--max-summaries auto` against the prior run's callable count,
@@ -936,6 +948,7 @@ async function openSummaryCacheAdapter(
  */
 async function openEmbeddingHashCacheAdapter(
   repoPath: string,
+  activeModelId: string,
 ): Promise<
   { adapter: pipeline.EmbeddingHashCacheAdapter; close: () => Promise<void> } | undefined
 > {
@@ -947,6 +960,25 @@ async function openEmbeddingHashCacheAdapter(
   } catch {
     await store.close().catch(() => {});
     return undefined;
+  }
+  // Migration guard: if the prior index was built by a different embedder,
+  // its content_hashes describe vectors of the wrong model/dimension.
+  // Suppress the cache so every node is re-embedded (full overwrite) rather
+  // than skipped — preventing a silent mixed-dimension store.
+  try {
+    const meta = await store.graph.getMeta();
+    const priorModelId = meta?.embedderModelId;
+    if (priorModelId !== undefined && priorModelId !== activeModelId) {
+      log(
+        `codehub analyze: embedder changed (${priorModelId} → ${activeModelId}); ` +
+          "re-embedding all symbols (content-hash cache suppressed).",
+      );
+      await store.close().catch(() => {});
+      return undefined;
+    }
+  } catch {
+    // Meta unreadable (fresh/legacy store) — fall through; the cache list()
+    // below already tolerates an empty/erroring store.
   }
   return {
     adapter: {

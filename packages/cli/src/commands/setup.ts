@@ -246,9 +246,9 @@ async function writeSingle(
  * allows the CLI `log`/`warn` sinks to be overridden for tests.
  */
 export interface SetupEmbeddingsOptions {
-  /** Variant to install. Defaults to `fp32` (~596 MB). */
+  /** Variant to install. Defaults to `fp32` (~332 MB). */
   readonly variant?: "fp32" | "int8";
-  /** Custom model directory. Defaults to `~/.codehub/models/gte-modernbert-base/<variant>/`. */
+  /** Custom model directory. Defaults to `~/.codehub/models/f2llm-v2-80m/<variant>/`. */
   readonly modelDir?: string;
   /** Re-download even if files already match their SHA256 pin. */
   readonly force?: boolean;
@@ -264,7 +264,8 @@ export interface SetupEmbeddingsOptions {
 /**
  * Public entry point for `codehub setup --embeddings`.
  *
- * Downloads the five pinned gte-modernbert-base files into the target dir with
+ * Downloads the three pinned F2LLM-v2-80M files (ONNX weights +
+ * tokenizer.json + tokenizer_config.json) into the target dir with
  * streaming SHA256 verification and atomic rename. Returns the downloader
  * summary so programmatic callers can assert on byte counts and locations.
  */
@@ -277,7 +278,7 @@ export async function runSetupEmbeddings(
 
   log(
     `codehub setup --embeddings: starting ${variant} download ` +
-      `(${variant === "fp32" ? "~90 MB" : "~23 MB"})`,
+      `(${variant === "fp32" ? "~332 MB" : "~92 MB"})`,
   );
 
   const downloaderOpts: DownloadEmbedderOptions = {

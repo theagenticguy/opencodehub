@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/theagenticguy/opencodehub/compare/search-v0.3.0...search-v0.4.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** local embedding model swapped to `codefuse-ai/F2LLM-v2-80M` (320-dim, was gte-modernbert-base 768-dim). Hybrid search now embeds queries through `embedQuery()` (Instruct/Query prefix) while documents stay raw; existing stores must be rebuilt with `codehub analyze --embeddings`.
+
 ## [0.3.0](https://github.com/theagenticguy/opencodehub/compare/search-v0.2.3...search-v0.3.0) (2026-06-01)
 
 

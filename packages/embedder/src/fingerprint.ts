@@ -3,10 +3,10 @@
  *
  * The `embeddings` table on disk was populated by ONE specific embedder
  * — usually identified by its {@link Embedder.modelId} (e.g.
- * `gte-modernbert-base/fp32`, `sagemaker:gte-modernbert-base@<endpoint>`).
+ * `f2llm-v2-80m/fp32`, `f2llm-v2-80m/sagemaker:<endpoint>`).
  * If the operator switches the active embedder between index runs (ONNX
- * → SageMaker, fp32 → int8) the dim might still match by coincidence
- * (768 = 768) but the vector subspace is different — hybrid search
+ * → SageMaker, fp32 → int8, or a different model entirely) the vector
+ * subspace differs even when the dim coincides — hybrid search
  * silently corrupts ranking with no error.
  *
  * `assertEmbedderCompatible` makes the mismatch loud:

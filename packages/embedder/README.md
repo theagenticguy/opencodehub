@@ -1,8 +1,8 @@
 # @opencodehub/embedder
 
 Deterministic text embedder for OpenCodeHub. Uses the
-`gte-modernbert-base` model via ONNX Runtime (CPU) locally or
-Amazon SageMaker for larger deployments.
+`codefuse-ai/F2LLM-v2-80M` model (320-dim) via ONNX Runtime (WASM, CPU)
+locally or Amazon SageMaker for larger deployments.
 
 ## Surface
 
@@ -16,8 +16,9 @@ const vectors = await embed(["function foo(): void {}", "class Bar {}"]);
 const vectors = await embed(texts, { backend: EmbedderBackend.SageMaker });
 ```
 
-- **Local backend** — runs `gte-modernbert-base` via `onnxruntime-node`
-  (CPU only; CUDA postinstall is suppressed via `.npmrc`).
+- **Local backend** — runs `F2LLM-v2-80M` via `onnxruntime-web`
+  (WASM, single-threaded, deterministic; no native bindings). Last-token
+  pooling + L2 normalization are baked into the ONNX graph.
 - **SageMaker backend** — sends batches to an endpoint via
   `@aws-sdk/client-sagemaker-runtime`; endpoint URL read from
   `OCH_SAGEMAKER_ENDPOINT`.
@@ -30,7 +31,7 @@ const vectors = await embed(texts, { backend: EmbedderBackend.SageMaker });
 |---|---|---|
 | `OCH_EMBED_BACKEND` | `onnx` | `onnx` or `sagemaker` |
 | `OCH_SAGEMAKER_ENDPOINT` | — | SageMaker real-time endpoint URL |
-| `OCH_EMBED_DIM` | `768` | Expected embedding dimension (validation) |
+| `OCH_EMBED_DIM` | `320` | Expected embedding dimension (validation) |
 
 ## Design
 
@@ -39,5 +40,5 @@ const vectors = await embed(texts, { backend: EmbedderBackend.SageMaker });
   fully offline.
 - The SageMaker path is the recommended backend for CI and cloud
   deployments; the ONNX path is the default for local dev.
-- `onnxruntime_node_install_cuda=skip` in `.npmrc` prevents the ~400 MB
-  CUDA EP postinstall download.
+- `onnxruntime-web` runs the model as WASM with no native postinstall —
+  the local backend ships zero native bindings.

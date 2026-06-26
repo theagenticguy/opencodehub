@@ -157,7 +157,7 @@ describe("embeddingsPhase", () => {
 // across runs produce identical embeddings.
 // ---------------------------------------------------------------------------
 
-const HTTP_DIM = 768;
+const HTTP_DIM = 320;
 
 /**
  * Hash-derived deterministic embedding. Stable across runs given the same

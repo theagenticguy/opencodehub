@@ -1,11 +1,24 @@
 /**
- * Deterministic ONNX-based embedder for Alibaba gte-modernbert-base.
+ * Deterministic ONNX-based embedder for codefuse-ai F2LLM-v2-80M.
  *
  * Loads weights from disk (populated by `codehub setup --embeddings`), runs
- * inference with every nondeterminism knob disabled, and emits a 768-dim
+ * inference with every nondeterminism knob disabled, and emits a 320-dim
  * Float32Array per input. The same input MUST produce byte-identical output
  * across repeat calls; this is the contract the graphHash CI gate relies
  * on.
+ *
+ * F2LLM-v2-80M is a Qwen3-0.6B-Base derivative (8 layers, hidden 320, 16
+ * heads / 8 KV heads). The ONNX export bakes last-token pooling
+ * (`attention_mask.sum()-1`) AND L2 normalization INTO the graph, emitting
+ * a single output named `embedding` of shape `[batch, 320]` already
+ * unit-length — so this module does NO JS-side pooling or normalization,
+ * unlike the previous gte-modernbert (CLS-pool) path.
+ *
+ * Query/document asymmetry: F2LLM expects an `Instruct:`-wrapped prefix on
+ * QUERY text only; documents are embedded raw. {@link OnnxEmbedder.embed}
+ * /`embedBatch` embed raw text (the document path); {@link
+ * OnnxEmbedder.embedQuery} applies the prefix (the query path). See
+ * {@link buildQueryText}.
  *
  * The weights themselves are NOT downloaded here — `codehub setup
  * --embeddings` owns that code path. If the weights are absent we throw
@@ -28,13 +41,17 @@ import type { InferenceSession, Tensor } from "onnxruntime-web";
 
 import { embedderModelId } from "./model-pins.js";
 import { modelFileName, resolveModelDir, TOKENIZER_FILES } from "./paths.js";
+import { buildQueryText } from "./query-prefix.js";
 import { type Embedder, type EmbedderConfig, EmbedderNotSetupError } from "./types.js";
 
-// gte-modernbert-base is a ModernBERT-base encoder (22 layers, 12 heads,
-// 768 hidden). These numbers are part of the model contract, not a config
-// knob — do not expose to callers.
-const EMBED_DIM = 768;
-const MODEL_MAX_POSITION = 8192; // ModernBERT's position embedding table
+// F2LLM-v2-80M emits a single graph output named `embedding`, shape
+// `[batch, 320]`, already L2-normalized. These numbers are part of the
+// model contract, not a config knob — do not expose to callers.
+const EMBED_DIM = 320;
+// Practical truncation cap in tokens. F2LLM's model_max_length is 131072,
+// but code symbols are short and a large cap wastes memory/latency; 8192 is
+// the operative ceiling.
+const MODEL_MAX_LENGTH = 8192;
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -61,7 +78,7 @@ async function assertModelFiles(
   }
   if (missing.length > 0) {
     throw new EmbedderNotSetupError(
-      `gte-modernbert-base weights not found in ${modelDir}: ` +
+      `F2LLM-v2-80M weights not found in ${modelDir}: ` +
         `missing ${missing.join(", ")}. ` +
         `Run \`codehub setup --embeddings\` while online.`,
     );
@@ -110,7 +127,10 @@ function buildSessionOptions(): InferenceSession.SessionOptions {
 /**
  * Encode `text` using the supplied Tokenizer and produce padded/truncated
  * input_ids and attention_mask arrays. BigInt64Array matches the model's
- * int64 input type. ModernBERT has no token_type_ids input.
+ * int64 input type. Qwen3/F2LLM has no token_type_ids input.
+ *
+ * `add_special_tokens: true` is REQUIRED — the tokenizer's TemplateProcessing
+ * appends the EOS (`<|im_end|>`) that the in-graph last-token pooling reads.
  */
 function encodeForModel(
   tokenizer: Tokenizer,
@@ -124,7 +144,9 @@ function encodeForModel(
   const enc = tokenizer.encode(text, {
     add_special_tokens: true,
   });
-  // Truncate to the model's max_position_embeddings.
+  // Truncate to the practical max length. On truncation the trailing EOS is
+  // dropped and last-token pooling reads the final retained token — a valid
+  // (if degraded) representation of the truncated prefix.
   const ids = enc.ids.slice(0, maxModelLength);
   const mask = enc.attention_mask.slice(0, maxModelLength);
 
@@ -139,11 +161,12 @@ function encodeForModel(
 }
 
 /**
- * Pad two parallel BigInt64Arrays (ids, mask) up to `padTo`. ModernBERT's
- * pad_token_id is 50283 (not 0 as in BERT); the attention mask is 0 for
- * padding positions so the model ignores them regardless.
+ * Pad two parallel BigInt64Arrays (ids, mask) up to `padTo`. F2LLM's
+ * tokenizer pad_token is `<|endoftext|>` (id 151643); the attention mask is
+ * 0 for padding positions so the in-graph last-token pooling
+ * (`attention_mask.sum()-1`) skips them regardless of the pad id used.
  */
-const MODERNBERT_PAD_ID = 50283n;
+const F2LLM_PAD_ID = 151643n;
 
 function padToLength(
   ids: BigInt64Array,
@@ -156,55 +179,11 @@ function padToLength(
   if (ids.length === padTo) {
     return { ids, mask };
   }
-  const outIds = new BigInt64Array(padTo).fill(MODERNBERT_PAD_ID);
+  const outIds = new BigInt64Array(padTo).fill(F2LLM_PAD_ID);
   const outMask = new BigInt64Array(padTo);
   outIds.set(ids);
   outMask.set(mask);
   return { ids: outIds, mask: outMask };
-}
-
-/**
- * Extract the [CLS] vector (index 0 of last_hidden_state) for batch item
- * `rowIdx`. gte-modernbert-base ships `1_Pooling/config.json` with
- * `pooling_mode_cls_token: true`, so we grab the first-token hidden state and
- * L2-normalize it downstream.
- */
-function clsPool(
-  lastHidden: Float32Array,
-  rowIdx: number,
-  seqLen: number,
-  hiddenSize: number,
-): Float32Array {
-  const rowStart = rowIdx * seqLen * hiddenSize;
-  const out = new Float32Array(hiddenSize);
-  for (let i = 0; i < hiddenSize; i++) {
-    out[i] = lastHidden[rowStart + i] ?? 0;
-  }
-  return out;
-}
-
-/**
- * In-place L2 normalization with Kahan-summed squared norm for 2-ULP tighter
- * precision than naive sum. Single division by `sqrt(norm)` keeps the op
- * deterministic across x86_64 + aarch64 (IEEE-754 round-to-nearest-even).
- */
-function l2NormalizeInPlace(vec: Float32Array): void {
-  let sum = 0;
-  let comp = 0; // Kahan compensator
-  for (let i = 0; i < vec.length; i++) {
-    const v = vec[i] ?? 0;
-    const term = v * v - comp;
-    const t = sum + term;
-    comp = t - sum - term;
-    sum = t;
-  }
-  if (sum <= 0) {
-    return;
-  }
-  const inv = 1 / Math.sqrt(sum);
-  for (let i = 0; i < vec.length; i++) {
-    vec[i] = (vec[i] ?? 0) * inv;
-  }
 }
 
 /** Internal implementation — exported only via the {@link Embedder} seam. */
@@ -214,10 +193,9 @@ class OnnxEmbedder implements Embedder {
 
   readonly #session: InferenceSession;
   readonly #tokenizer: Tokenizer;
-  readonly #normalize: boolean;
   readonly #maxModelLength: number;
   // Runtime `Tensor` constructor, threaded in from the dynamic
-  // `import("onnxruntime-node")` so this module never statically loads the
+  // `import("onnxruntime-web")` so this module never statically loads the
   // native binding.
   readonly #Tensor: typeof Tensor;
   #closed = false;
@@ -226,18 +204,17 @@ class OnnxEmbedder implements Embedder {
     readonly session: InferenceSession;
     readonly tokenizer: Tokenizer;
     readonly variant: "fp32" | "int8";
-    readonly normalize: boolean;
     readonly maxModelLength: number;
     readonly Tensor: typeof Tensor;
   }) {
     this.#session = params.session;
     this.#tokenizer = params.tokenizer;
     this.modelId = embedderModelId(params.variant);
-    this.#normalize = params.normalize;
     this.#maxModelLength = params.maxModelLength;
     this.#Tensor = params.Tensor;
   }
 
+  /** Embed a single DOCUMENT (no query prefix). */
   async embed(text: string): Promise<Float32Array> {
     this.#ensureOpen();
     const [vec] = await this.embedBatch([text]);
@@ -245,6 +222,17 @@ class OnnxEmbedder implements Embedder {
       throw new Error("embedBatch returned empty result for single input");
     }
     return vec;
+  }
+
+  /**
+   * Embed a QUERY. F2LLM expects the `Instruct:`-wrapped prefix on query
+   * text only; documents (`embed`/`embedBatch`) get none. Keeping this on
+   * the embedder localizes the model-specific instruction string and keeps
+   * the asymmetry explicit + unit-testable.
+   */
+  async embedQuery(text: string): Promise<Float32Array> {
+    this.#ensureOpen();
+    return this.embed(buildQueryText(text));
   }
 
   async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
@@ -263,13 +251,13 @@ class OnnxEmbedder implements Embedder {
     }
     if (batchMax === 0) {
       // Degenerate case: every input tokenized to zero tokens. Return zero
-      // vectors (still dim=768) so callers downstream get a stable shape.
+      // vectors (still dim=320) so callers downstream get a stable shape.
       return texts.map(() => new Float32Array(EMBED_DIM));
     }
 
     // Build flat [B, seqLen] buffers.
     const batchSize = encoded.length;
-    const flatIds = new BigInt64Array(batchSize * batchMax).fill(MODERNBERT_PAD_ID);
+    const flatIds = new BigInt64Array(batchSize * batchMax).fill(F2LLM_PAD_ID);
     const flatMask = new BigInt64Array(batchSize * batchMax);
     for (let b = 0; b < batchSize; b++) {
       const e = encoded[b];
@@ -285,29 +273,30 @@ class OnnxEmbedder implements Embedder {
       input_ids: new Tensor("int64", flatIds, dims),
       attention_mask: new Tensor("int64", flatMask, dims),
     };
-    const results = await this.#session.run(feeds, ["last_hidden_state"]);
-    const hidden = results["last_hidden_state"];
-    if (hidden === undefined || hidden.type !== "float32") {
+    // F2LLM's graph pools (last-token) + L2-normalizes internally and emits a
+    // single output named `embedding`, shape [B, EMBED_DIM] — already
+    // unit-length. We do NO JS-side pooling/normalization here.
+    const results = await this.#session.run(feeds, ["embedding"]);
+    const embedding = results["embedding"];
+    if (embedding === undefined || embedding.type !== "float32") {
       throw new Error(
-        `ONNX session did not return float32 last_hidden_state (got ${String(hidden?.type)})`,
+        `ONNX session did not return a float32 'embedding' tensor (got ${String(embedding?.type)})`,
       );
     }
-    // Shape is [B, seqLen, hiddenSize]. hiddenSize derived from data length
-    // so we don't hard-fail if a checkpoint ever surprises us with a
-    // different dim — we just assert it matches EMBED_DIM at the boundary.
-    const data = hidden.data as Float32Array;
-    const hiddenSize = data.length / (batchSize * batchMax);
-    if (hiddenSize !== EMBED_DIM) {
-      throw new Error(`Expected hidden size ${EMBED_DIM}, got ${hiddenSize}. Wrong model loaded?`);
+    // Shape is [B, EMBED_DIM] (NOT [B, seqLen, H]). Derive the per-row width
+    // from the flat buffer length and assert it matches EMBED_DIM at the
+    // boundary so a wrong model loaded surfaces loudly.
+    const data = embedding.data as Float32Array;
+    const rowDim = data.length / batchSize;
+    if (rowDim !== EMBED_DIM) {
+      throw new Error(`Expected embedding dim ${EMBED_DIM}, got ${rowDim}. Wrong model loaded?`);
     }
 
     const out: Float32Array[] = [];
     for (let b = 0; b < batchSize; b++) {
-      const vec = clsPool(data, b, batchMax, hiddenSize);
-      if (this.#normalize) {
-        l2NormalizeInPlace(vec);
-      }
-      out.push(vec);
+      // Copy each row out of the shared buffer so callers own an independent
+      // Float32Array (the graph already normalized it).
+      out.push(data.slice(b * EMBED_DIM, (b + 1) * EMBED_DIM));
     }
     return out;
   }
@@ -328,7 +317,7 @@ class OnnxEmbedder implements Embedder {
 }
 
 /**
- * Open a deterministic gte-modernbert-base embedder.
+ * Open a deterministic F2LLM-v2-80M embedder.
  *
  * Throws {@link EmbedderNotSetupError} if the weight files are not present —
  * callers in the CLI use this to surface `codehub setup --embeddings`
@@ -337,12 +326,11 @@ class OnnxEmbedder implements Embedder {
 export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedder> {
   const variant = cfg.variant ?? "fp32";
   const modelDir = resolveModelDir(cfg.modelDir, variant);
-  const normalize = cfg.normalize ?? true;
   // `maxSequenceLength` is the caller-facing budget in user tokens; the
-  // actual model input adds 2 slots for [CLS]/[SEP], capped at
-  // MODEL_MAX_POSITION (8192) to fit the position embedding table.
-  const userMax = cfg.maxSequenceLength ?? MODEL_MAX_POSITION - 2;
-  const maxModelLength = Math.min(userMax + 2, MODEL_MAX_POSITION);
+  // tokenizer appends a single EOS token, so the model input is at most
+  // userMax + 1, capped at MODEL_MAX_LENGTH.
+  const userMax = cfg.maxSequenceLength ?? MODEL_MAX_LENGTH - 1;
+  const maxModelLength = Math.min(userMax + 1, MODEL_MAX_LENGTH);
 
   const { modelPath, tokenizerDir } = await assertModelFiles(modelDir, variant);
 
@@ -387,7 +375,6 @@ export async function openOnnxEmbedder(cfg: EmbedderConfig = {}): Promise<Embedd
     session,
     tokenizer,
     variant,
-    normalize,
     maxModelLength,
     Tensor: ort.Tensor,
   });

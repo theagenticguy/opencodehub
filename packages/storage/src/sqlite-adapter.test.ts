@@ -74,7 +74,7 @@ test("SqliteStore: graph + embeddings round-trip from ONE file across reopen", a
   try {
     const { graph, ids } = fixtureGraph();
 
-    // ── Write phase ── (8-dim embeddings for a readable test; real default 768)
+    // ── Write phase ── (8-dim embeddings for a readable test; real default 320)
     const w = new SqliteStore(dbPath, { embeddingDim: 8 });
     await w.open();
     await w.createSchema();
@@ -82,7 +82,7 @@ test("SqliteStore: graph + embeddings round-trip from ONE file across reopen", a
     assert.equal(stats.nodeCount, 5, "5 nodes loaded");
     assert.equal(stats.edgeCount, 3, "3 edges loaded");
 
-    // 8-dim embeddings so the test is readable; real default is 768.
+    // 8-dim embeddings so the test is readable; real default is 320.
     const vec = (seed: number): Float32Array =>
       Float32Array.from({ length: 8 }, (_, i) => Math.sin(seed + i));
     await w.upsertEmbeddings([

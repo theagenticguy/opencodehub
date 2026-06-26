@@ -2,7 +2,7 @@
  * Tests for the SageMaker embedder backend.
  *
  * Coverage:
- *   - happy path: single input + small batch returns 768-d Float32Array
+ *   - happy path: single input + small batch returns 320-d Float32Array
  *   - large batch (>64) splits into multiple InvokeEndpointCommand calls
  *   - dim mismatch throws with clear message
  *   - row-count mismatch (endpoint returned fewer rows than inputs) throws
@@ -96,10 +96,10 @@ describe("readSagemakerEmbedderConfigFromEnv", () => {
   });
 
   it("reads the endpoint name when set", () => {
-    process.env["CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT"] = "gte-modernbert-embed";
+    process.env["CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT"] = "f2llm-embed";
     const cfg = readSagemakerEmbedderConfigFromEnv();
     ok(cfg !== null);
-    equal(cfg.endpointName, "gte-modernbert-embed");
+    equal(cfg.endpointName, "f2llm-embed");
     equal(cfg.region, undefined); // default applied at factory
   });
 
@@ -130,8 +130,8 @@ describe("readSagemakerEmbedderConfigFromEnv", () => {
 });
 
 describe("openSagemakerEmbedder — happy path", () => {
-  it("embeds a single text and returns a 768-d Float32Array", async () => {
-    const row = vec(768, 0.1);
+  it("embeds a single text and returns a 320-d Float32Array", async () => {
+    const row = vec(320, 0.1);
     const { runtime, calls, lastBatch } = makeRuntime(() => [row]);
 
     const embedder = await openSagemakerEmbedder({
@@ -140,7 +140,7 @@ describe("openSagemakerEmbedder — happy path", () => {
     });
 
     const out = await embedder.embed("hello");
-    equal(out.length, 768);
+    equal(out.length, 320);
     equal(out[0], Math.fround(0.1));
     equal(calls(), 1);
     equal(lastBatch(), 1);
@@ -148,18 +148,18 @@ describe("openSagemakerEmbedder — happy path", () => {
   });
 
   it("reports modelId with endpoint-name stamp by default", async () => {
-    const { runtime } = makeRuntime(() => [vec(768, 0)]);
+    const { runtime } = makeRuntime(() => [vec(320, 0)]);
     const embedder = await openSagemakerEmbedder({
-      endpointName: "gte-modernbert-embed",
+      endpointName: "f2llm-embed",
       runtime,
     });
-    equal(embedder.dim, 768);
-    match(embedder.modelId, /^gte-modernbert-base\/sagemaker:gte-modernbert-embed$/);
+    equal(embedder.dim, 320);
+    match(embedder.modelId, /^f2llm-v2-80m\/sagemaker:f2llm-embed$/);
     await embedder.close();
   });
 
   it("honors an explicit modelId override", async () => {
-    const { runtime } = makeRuntime(() => [vec(768, 0)]);
+    const { runtime } = makeRuntime(() => [vec(320, 0)]);
     const embedder = await openSagemakerEmbedder({
       endpointName: "anything",
       modelId: "custom/model:v1",
@@ -171,7 +171,7 @@ describe("openSagemakerEmbedder — happy path", () => {
 
   it("batches ≤64 inputs in a single InvokeEndpoint call", async () => {
     const { runtime, calls, lastBatch } = makeRuntime((n) =>
-      Array.from({ length: n }, (_, i) => vec(768, i * 0.01)),
+      Array.from({ length: n }, (_, i) => vec(320, i * 0.01)),
     );
 
     const embedder = await openSagemakerEmbedder({
@@ -196,7 +196,7 @@ describe("openSagemakerEmbedder — happy path", () => {
         };
         sizes.push(parsed.inputs.length);
         return {
-          Body: responseBody(parsed.inputs.map((_, i) => vec(768, i * 0.001))),
+          Body: responseBody(parsed.inputs.map((_, i) => vec(320, i * 0.001))),
         };
       },
     };
@@ -215,7 +215,7 @@ describe("openSagemakerEmbedder — happy path", () => {
   });
 
   it("returns an empty array for an empty batch without calling the endpoint", async () => {
-    const { runtime, calls } = makeRuntime(() => [vec(768, 0)]);
+    const { runtime, calls } = makeRuntime(() => [vec(320, 0)]);
     const embedder = await openSagemakerEmbedder({
       endpointName: "test-endpoint",
       runtime,
@@ -234,14 +234,14 @@ describe("openSagemakerEmbedder — error cases", () => {
       endpointName: "test-endpoint",
       runtime,
     });
-    await rejects(embedder.embed("hello"), /512d vector at row 0, expected 768d/);
+    await rejects(embedder.embed("hello"), /512d vector at row 0, expected 320d/);
   });
 
   it("throws on row-count mismatch (endpoint returned too few rows)", async () => {
     const runtime: SagemakerRuntimeLike = {
       async send(_command: SendCmd) {
         // Return 1 row for any number of inputs.
-        return { Body: responseBody([vec(768, 0)]) };
+        return { Body: responseBody([vec(320, 0)]) };
       },
     };
     const embedder = await openSagemakerEmbedder({
@@ -290,7 +290,7 @@ describe("openSagemakerEmbedder — error cases", () => {
           (err as { name: string }).name = "ValidationException";
           throw err;
         }
-        return { Body: responseBody([vec(768, parsed.inputs[0] === "a" ? 0.1 : 0.2)]) };
+        return { Body: responseBody([vec(320, parsed.inputs[0] === "a" ? 0.1 : 0.2)]) };
       },
     };
     const embedder = await openSagemakerEmbedder({
@@ -348,7 +348,7 @@ describe("tryOpenHttpEmbedder — SageMaker precedence", () => {
   });
 
   it("throws when offline AND SageMaker env is configured", () => {
-    process.env["CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT"] = "gte-modernbert-embed";
+    process.env["CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT"] = "f2llm-embed";
     throws(
       () => tryOpenHttpEmbedder({ offline: true }),
       /SageMaker embeddings are disabled in offline mode/,

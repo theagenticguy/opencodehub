@@ -7,8 +7,9 @@
  *      corpus extends transparently (see {@link bm25CorpusHasSummaries}) so
  *      summarized prose participates as soon as the ingestion phase lands.
  *   2. HNSW vector search over the `embeddings` table. The query text is
- *      embedded with the same gte-modernbert-base ONNX model the ingestion
- *      pipeline uses, so the vectors live in the same space.
+ *      embedded with the same F2LLM-v2-80M ONNX model the ingestion
+ *      pipeline uses, so the vectors live in the same space. (Queries get
+ *      the F2LLM `Instruct:` prefix; documents are embedded raw.)
  *
  * Graceful fallback:
  *   - If the `embeddings` table is empty, skip the vector leg entirely.
@@ -814,7 +815,7 @@ export function registerQueryTool(server: McpServer, ctx: ToolContext): void {
       description: [
         "True hybrid retrieval over the indexed code graph: BM25 keyword search",
         "(over symbol name + signature + description) fused with HNSW vector",
-        "search (gte-modernbert-base, 768-dim) via Reciprocal Rank Fusion (k=60).",
+        "search (F2LLM-v2-80M, 320-dim) via Reciprocal Rank Fusion (k=60).",
         "Each result carries `rank`, `nodeId`, `name`, `kind`, `filePath`,",
         "`startLine`/`endLine`, a capped `snippet` (~200 chars), the fused",
         "`score`, and `sources` indicating which ranker(s) contributed (`bm25`",

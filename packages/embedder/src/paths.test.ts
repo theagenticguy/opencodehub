@@ -38,12 +38,12 @@ describe("paths", () => {
 
   it("resolveModelDir builds fp32 path by default", () => {
     const dir = resolveModelDir();
-    equal(dir, join(homedir(), ".codehub", "models", "gte-modernbert-base", "fp32"));
+    equal(dir, join(homedir(), ".codehub", "models", "f2llm-v2-80m", "fp32"));
   });
 
   it("resolveModelDir respects int8 variant", () => {
     const dir = resolveModelDir(undefined, "int8");
-    equal(dir, join(homedir(), ".codehub", "models", "gte-modernbert-base", "int8"));
+    equal(dir, join(homedir(), ".codehub", "models", "f2llm-v2-80m", "int8"));
   });
 
   it("resolveModelDir returns override unchanged when provided", () => {
@@ -59,11 +59,8 @@ describe("paths", () => {
     equal(modelFileName("int8"), "model_int8.onnx");
   });
 
-  it("TOKENIZER_FILES enumerates the four required JSON files", () => {
-    deepEqual(
-      [...TOKENIZER_FILES],
-      ["tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json"],
-    );
-    ok(TOKENIZER_FILES.length === 4);
+  it("TOKENIZER_FILES enumerates the two required JSON files", () => {
+    deepEqual([...TOKENIZER_FILES], ["tokenizer.json", "tokenizer_config.json"]);
+    ok(TOKENIZER_FILES.length === 2);
   });
 });

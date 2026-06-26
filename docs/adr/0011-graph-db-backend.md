@@ -1,10 +1,13 @@
 # ADR 0011 — Graph-DB backend (LadybugDB phase-1)
 
-- Status: **Partially superseded** by [ADR 0016](./0016-duckdb-graph-rip.md)
-  on 2026-05-16. The "DuckDB-default plus LadybugDB opt-in" framing is
-  obsolete; lbug is the unconditional graph backend after the rip. The
-  LadybugDB integration shape and `IGraphStore` design introduced here
-  are unchanged.
+- Status: **Superseded** — current storage is [ADR 0019 — Single-file
+  SQLite storage](./0019-single-file-sqlite-storage.md) (2026-06-22).
+  Chain: this ADR (LadybugDB phase-1) → [ADR 0016](./0016-duckdb-graph-rip.md)
+  (lbug-only graph, made the "DuckDB-default + LadybugDB opt-in" framing
+  obsolete, 2026-05-16) → ADR 0019 (one `store.sqlite`, NO native bindings —
+  `@ladybugdb/core` itself is now gone). The `IGraphStore` design introduced
+  here survives ADR 0019 as a community-fork escape hatch; the LadybugDB
+  binding does not. Read this ADR for historical rationale only.
 - Was: **Accepted** on 2026-05-05 and flipped on the M3 merge.
 - Authors: Laith Al-Saadoon + Claude.
 - Branch: `feat/v1-m3-m4`.

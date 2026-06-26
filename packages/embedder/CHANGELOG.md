@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/theagenticguy/opencodehub/compare/embedder-v0.1.3...embedder-v0.2.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** swap the local ONNX model from `gte-modernbert-base` (768-dim) to `codefuse-ai/F2LLM-v2-80M` (320-dim). The dimension change is incompatible with existing stores — re-index with `codehub analyze --embeddings`. The fingerprint guard already refuses queries against a stale store on a `modelId` mismatch.
+
+
+### Features
+
+* **embedder:** replace gte-modernbert-base with `codefuse-ai/F2LLM-v2-80M` (Qwen3-0.6B-Base derivative, 80.1M params, 320-dim). Last-token pooling + L2 normalization are baked into the ONNX graph — the graph emits a single already-unit-length `embedding` output of shape `[B, 320]`.
+* **embedder:** add `embedQuery()` to the Embedder interface for query/document asymmetry — queries get an `Instruct: {instruction}\nQuery: {query}` prefix (instruction: "Given a code search query, retrieve the most relevant code snippet."), documents are embedded raw. Applied only at the hybrid-search query seam.
+* **embedder:** ship the model as a custom ONNX export hosted as a GitHub release asset (`github.com/theagenticguy/opencodehub/releases/download/embed-v1/...`), SHA256-pinned in `model-pins.ts` (`F2LLM_V2_80M_PINS`, renamed from `GTE_MODERNBERT_BASE_PINS`). fp32 ~321 MB / int8 ~81 MB. Tokenizer is Qwen2 BPE (`tokenizer.json` + `tokenizer_config.json`). Runtime unchanged: `onnxruntime-web` (WASM), single-threaded deterministic. License: Apache-2.0.
+
 ## [0.1.3](https://github.com/theagenticguy/opencodehub/compare/embedder-v0.1.2...embedder-v0.1.3) (2026-06-01)
 
 

@@ -1,18 +1,23 @@
 /**
- * SHA256 and source-URL pins for every gte-modernbert-base weight file we ship.
+ * SHA256 and source-URL pins for every F2LLM-v2-80M weight file we ship.
  *
  * These pins are the authoritative contract consumed by `codehub setup
  * --embeddings` and by `codehub doctor` at runtime. SHA256 values were
- * computed locally against the Hugging Face model repo at commit
- * `e7f32e3c00f91d699e8c43b53106206bcc72bb22` on 2026-04-25.
+ * computed locally against the ONNX export produced from
+ * `codefuse-ai/F2LLM-v2-80M` (a Qwen3-0.6B-Base derivative) — the export
+ * bakes last-token pooling + L2 normalization into the graph, so it is NOT
+ * the upstream Hugging Face repo's own files. We host the exported
+ * artifacts as a GitHub release asset and pin them by URL + SHA256.
  *
  * This module does NOT download anything on its own. It is pure data.
  */
 
-/** HF repo + commit the pins are anchored to. */
-export const GTE_MODERNBERT_BASE_REPO = {
-  hfRepo: "Alibaba-NLP/gte-modernbert-base",
-  commit: "e7f32e3c00f91d699e8c43b53106206bcc72bb22",
+/** Source repo + release the pins are anchored to. */
+export const F2LLM_V2_80M_REPO = {
+  /** Upstream model the ONNX export is derived from (attribution). */
+  upstream: "codefuse-ai/F2LLM-v2-80M",
+  /** GitHub release tag hosting the exported ONNX + tokenizer artifacts. */
+  release: "embed-v1",
   license: "Apache-2.0",
 } as const;
 
@@ -30,46 +35,44 @@ export interface VariantPins {
   readonly files: readonly PinnedFile[];
 }
 
-function hfUrl(path: string): string {
-  return `https://huggingface.co/${GTE_MODERNBERT_BASE_REPO.hfRepo}/resolve/${GTE_MODERNBERT_BASE_REPO.commit}/${path}`;
+/**
+ * Build the download URL for a release asset. The exported ONNX files do
+ * not exist upstream on Hugging Face — they are attached to a GitHub
+ * release on the opencodehub repo. Asset names are flat (no directory),
+ * so the int8 weights are uploaded as `model_int8.onnx` etc.
+ */
+function releaseUrl(asset: string): string {
+  return `https://github.com/theagenticguy/opencodehub/releases/download/${F2LLM_V2_80M_REPO.release}/${asset}`;
 }
 
 // Tokenizer + config files are identical across variants — hashes computed
-// once from the model repo.
+// once from the exported artifacts.
 const TOKENIZER_JSON: PinnedFile = {
   name: "tokenizer.json",
-  url: hfUrl("tokenizer.json"),
-  sizeBytes: 3583228,
-  sha256: "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+  url: releaseUrl("tokenizer.json"),
+  sizeBytes: 11423359,
+  sha256: "7dd49a6a008054ecbf11f1568ea9244e99ca8a44fe47e883d1bb9915c3042705",
 };
 
 const TOKENIZER_CONFIG_JSON: PinnedFile = {
   name: "tokenizer_config.json",
-  url: hfUrl("tokenizer_config.json"),
-  sizeBytes: 20867,
-  sha256: "9654072f7c873161814043cf08cb5ed72f71d0b935abcd4e267935cb34352c21",
-};
-
-const CONFIG_JSON: PinnedFile = {
-  name: "config.json",
-  url: hfUrl("config.json"),
-  sizeBytes: 1184,
-  sha256: "8ba54dc3d35d7194f5178a4194b649f146753e02dabd22bdca5c5cbac15069ed",
-};
-
-const SPECIAL_TOKENS_MAP_JSON: PinnedFile = {
-  name: "special_tokens_map.json",
-  url: hfUrl("special_tokens_map.json"),
-  sizeBytes: 694,
-  sha256: "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049",
+  url: releaseUrl("tokenizer_config.json"),
+  sizeBytes: 378,
+  sha256: "3dbc087db36f09c0c359618cbfcebb4b3aed6d8438951c037789b5a0fdc099af",
 };
 
 /**
- * Per-variant manifests. The fp32 variant is the default (596 MB, highest
- * precision); int8 is 4× smaller (150 MB) with near-identical retrieval
- * quality for size-constrained installs.
+ * Per-variant manifests. The fp32 variant is the default (321 MB,
+ * cosine-exact 1.0 vs the PyTorch reference, byte-deterministic under the
+ * single-thread WASM gate); int8 is 4× smaller (81 MB) with 4/4 top-1
+ * ranking agreement for size-constrained installs.
+ *
+ * F2LLM emits a single graph output named `embedding` of shape
+ * `[batch, 320]` — pooling + L2 norm are in-graph, so only the ONNX file
+ * + the two tokenizer files are required (no config.json /
+ * special_tokens_map.json, which the export omits).
  */
-export const GTE_MODERNBERT_BASE_PINS: {
+export const F2LLM_V2_80M_PINS: {
   readonly fp32: VariantPins;
   readonly int8: VariantPins;
 } = {
@@ -78,14 +81,12 @@ export const GTE_MODERNBERT_BASE_PINS: {
     files: [
       {
         name: "model.onnx",
-        url: hfUrl("onnx/model.onnx"),
-        sizeBytes: 596392315,
-        sha256: "947f31df7effaeec4edb57c50e4ed7e0f2034d9336063f92615b92e3e0d24d78",
+        url: releaseUrl("model.onnx"),
+        sizeBytes: 320708733,
+        sha256: "9347f761e1420e61c477b56616b3b4f2d2ee80d94747fd6cdde9a03b4c9176bc",
       },
       TOKENIZER_JSON,
       TOKENIZER_CONFIG_JSON,
-      CONFIG_JSON,
-      SPECIAL_TOKENS_MAP_JSON,
     ],
   },
   int8: {
@@ -93,19 +94,17 @@ export const GTE_MODERNBERT_BASE_PINS: {
     files: [
       {
         name: "model_int8.onnx",
-        url: hfUrl("onnx/model_int8.onnx"),
-        sizeBytes: 150218016,
-        sha256: "bae96b276d342bf86eeee07c1bdbc0c75bb82bf4033941aab7fabc1e33ee3b44",
+        url: releaseUrl("model_int8.onnx"),
+        sizeBytes: 80699171,
+        sha256: "302845905e9273a1dd0fb4c670dcd12d16ad35e9522f518aa45a74da4d6ec5b8",
       },
       TOKENIZER_JSON,
       TOKENIZER_CONFIG_JSON,
-      CONFIG_JSON,
-      SPECIAL_TOKENS_MAP_JSON,
     ],
   },
 } as const;
 
-/** Model id tag written into `embeddings.model` (keeps HNSW indexes separable). */
+/** Model id tag written into `embeddings.model` (keeps vector indexes separable). */
 export function embedderModelId(variant: "fp32" | "int8"): string {
-  return `gte-modernbert-base/${variant}`;
+  return `f2llm-v2-80m/${variant}`;
 }

@@ -51,11 +51,11 @@ that resolves wins; the others are ignored.
 | `CODEHUB_EMBEDDING_SAGEMAKER_REGION` | Override the AWS region for the SageMaker call. |
 | `CODEHUB_EMBEDDING_URL` | Base URL for an OpenAI-compatible HTTP endpoint (Infinity, vLLM, TEI, Ollama, LM Studio, OpenAI). `/embeddings` is appended. |
 | `CODEHUB_EMBEDDING_MODEL` | Model id passed through to the HTTP endpoint verbatim. |
-| `CODEHUB_EMBEDDING_DIMS` | Dimensionality of the embedding model. Default 768. |
+| `CODEHUB_EMBEDDING_DIMS` | Dimensionality of the embedding model. Default 320. |
 | `CODEHUB_EMBEDDING_API_KEY` | Bearer token sent as `Authorization: Bearer ...`. |
 
 When none of the above are set, the local ONNX backend
-(`gte-modernbert-base`, deterministic, offline-safe) is used.
+(`F2LLM-v2-80M`, 320-dim, deterministic, offline-safe) is used.
 
 ### Other toggles
 

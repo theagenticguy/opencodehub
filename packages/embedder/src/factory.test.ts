@@ -24,10 +24,11 @@ import { type Embedder, EmbedderNotSetupError } from "./types.js";
 /** Build a sentinel Embedder whose identity we can assert against. */
 function makeSentinelEmbedder(modelId: string): Embedder {
   return {
-    dim: 768,
+    dim: 320,
     modelId,
-    embed: async () => new Float32Array(768),
-    embedBatch: async (texts) => texts.map(() => new Float32Array(768)),
+    embed: async () => new Float32Array(320),
+    embedQuery: async () => new Float32Array(320),
+    embedBatch: async (texts) => texts.map(() => new Float32Array(320)),
     close: async () => {},
   };
 }
@@ -49,7 +50,7 @@ describe("openDefaultEmbedder", () => {
   });
 
   it("falls back to ONNX when no HTTP env vars and allowOnnxFallback defaults to true", async () => {
-    const onnxSentinel = makeSentinelEmbedder("gte-modernbert-base/fp32");
+    const onnxSentinel = makeSentinelEmbedder("f2llm-v2-80m/fp32");
     const result = await openDefaultEmbedder(
       {},
       {
@@ -58,7 +59,7 @@ describe("openDefaultEmbedder", () => {
       },
     );
     strictEqual(result, onnxSentinel, "factory should return the ONNX embedder reference");
-    equal(result.modelId, "gte-modernbert-base/fp32");
+    equal(result.modelId, "f2llm-v2-80m/fp32");
   });
 
   it("throws EmbedderNotSetupError when HTTP env vars absent and allowOnnxFallback=false", async () => {
@@ -90,7 +91,7 @@ describe("openDefaultEmbedder", () => {
 
   it("propagates the underlying error when ONNX setup fails", async () => {
     const onnxFailure = new EmbedderNotSetupError(
-      "Run `codehub setup --embeddings` to install gte-modernbert-base",
+      "Run `codehub setup --embeddings` to install f2llm-v2-80m",
     );
     await rejects(
       openDefaultEmbedder(

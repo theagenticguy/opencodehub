@@ -1,5 +1,5 @@
 /**
- * Embeddings phase — generates 768-dim vectors across one or more
+ * Embeddings phase — generates 320-dim vectors across one or more
  * hierarchical tiers and materialises them into the phase output as an
  * array of `EmbeddingRow`s the CLI upserts into the SQLite store.
  *
@@ -188,7 +188,7 @@ export interface EmbedderPhaseOutput {
   readonly chunksTotal: number;
   /**
    * Stable id tag for the embedder that produced these rows — e.g.
-   * `gte-modernbert-base/fp32`. Empty string when the phase was a
+   * `f2llm-v2-80m/fp32`. Empty string when the phase was a
    * no-op (flag off or weights missing).
    */
   readonly embeddingsModelId: string;
@@ -580,8 +580,9 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
     const priorHashes: Map<string, string> =
       forceFlag || hashCache === undefined ? new Map() : await hashCache.list();
 
-    // Max tokens includes [CLS]/[SEP]; the embedder caps input at 510 user
-    // tokens by default. Keep the chunker slightly conservative.
+    // Per-chunk token budget. F2LLM accepts up to 8192 tokens, but smaller
+    // chunks keep last-token-pooled vectors focused on a single unit of
+    // meaning; 500 mirrors the long-standing chunking granularity.
     const maxUserTokens = 500;
 
     // Lookup summaries by nodeId (the newest `createdAt` wins when multiple

@@ -5,12 +5,14 @@
 > in-tree because they were authored in parallel branches and accepted
 > on the same release. The next ADR uses 0014.
 
-- Status: **Superseded** by [ADR 0016](./0016-duckdb-graph-rip.md)
-  on 2026-05-16. The auto-probe, dual-artifact arbitration, and
-  `CODEHUB_STORE` resolver introduced here are gone. lbug is the only
-  graph backend; DuckDB serves the temporal tier. The
-  IGraphStore/ITemporalStore segregation survives because community
-  adapters (AGE, Memgraph, Neo4j, Neptune) target it.
+- Status: **Superseded** — current storage is [ADR 0019 — Single-file
+  SQLite storage](./0019-single-file-sqlite-storage.md) (2026-06-22).
+  Chain: this ADR → [ADR 0016](./0016-duckdb-graph-rip.md) (2026-05-16,
+  removed the auto-probe / dual-artifact arbitration / `CODEHUB_STORE`
+  resolver introduced here) → ADR 0019 (one `store.sqlite`, no native
+  bindings). The IGraphStore/ITemporalStore segregation introduced here
+  survives all the way to ADR 0019 as the community-fork escape hatch
+  (AGE, Memgraph, Neo4j, Neptune); everything else here is historical.
 - Was: **Accepted** on 2026-05-09 and flipped on the
   `feat/v1-finalize-track-a` merge (PR #71).
 - Authors: Laith Al-Saadoon + Claude.

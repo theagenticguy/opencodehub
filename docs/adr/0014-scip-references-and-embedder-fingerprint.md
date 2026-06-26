@@ -1,9 +1,20 @@
 # ADR 0014 — SCIP REFERENCES + TYPE_OF emission and embedder-fingerprint refusal
 
-**Status**: Accepted
+**Status**: Accepted (still in force)
 **Date**: 2026-05-09
 **Supersedes**: none
 **Superseded by**: none
+
+> Note (2026-06-26): the embedder-fingerprint mechanism this ADR introduced
+> — persist `embedder_model_id`, refuse mismatched queries via
+> `assertEmbedderCompatible` — is unchanged and is precisely what guards the
+> later embedding-model swap from `gte-modernbert-base` (768-dim) to
+> `F2LLM-v2-80M` (320-dim). The `gte-modernbert-base` / `768` references
+> below are the contemporaneous examples; the dim/model are now 320 /
+> `f2llm-v2-80m/*` but the decision and the comparator are identical. The
+> `store_meta` storage substrate referenced here (DuckDB) was later replaced
+> per [ADR 0019](./0019-single-file-sqlite-storage.md); the column and
+> semantics carried over to `store.sqlite` verbatim.
 
 ## Context
 

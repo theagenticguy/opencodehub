@@ -409,11 +409,11 @@ test("buildStoreMeta: stamps embedderModelId when the embedder ran with a model 
     edgeCount: 200,
     stats: {},
     cacheSizeBytes: 0,
-    embeddings: { ranEmbedder: true, embeddingsModelId: "gte-modernbert-base/fp32" },
+    embeddings: { ranEmbedder: true, embeddingsModelId: "f2llm-v2-80m/fp32" },
   });
   assert.equal(
     meta.embedderModelId,
-    "gte-modernbert-base/fp32",
+    "f2llm-v2-80m/fp32",
     "the embedder tag must round-trip into StoreMeta so the fingerprint guard can fire",
   );
 });

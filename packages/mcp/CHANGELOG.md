@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.5.0...mcp-v0.6.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** local embedding model swapped to `codefuse-ai/F2LLM-v2-80M` (320-dim, was gte-modernbert-base 768-dim). Existing stores must be rebuilt with `codehub analyze --embeddings`; queries against a stale-dim store are refused by the fingerprint guard.
+
 ## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/mcp-v0.4.5...mcp-v0.5.0) (2026-06-01)
 
 

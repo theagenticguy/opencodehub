@@ -49,7 +49,7 @@ program
   .description("Index a repository at [path] (default: current directory)")
   .option("--force", "Ignore registry cache and re-run the pipeline")
   .option("--embeddings", "Embed symbols and populate the embeddings table in store.sqlite")
-  .option("--embeddings-int8", "Use the int8 embedder variant (~23 MB) instead of fp32")
+  .option("--embeddings-int8", "Use the int8 embedder variant (~81 MB) instead of fp32 (~321 MB)")
   .option(
     "--granularity <csv>",
     "Hierarchical embedding tiers to emit, comma-separated. Values: symbol, file, community. Default: symbol. Example: --granularity symbol,file,community",
@@ -241,8 +241,8 @@ program
   )
   .option("--force", "Overwrite an existing codehub entry without prompting; re-download weights")
   .option("--undo", "Restore the most recent .bak next to each config")
-  .option("--embeddings", "Download gte-modernbert-base ONNX weights (SHA256-pinned)")
-  .option("--int8", "Use the int8 weight variant (~150 MB) instead of fp32 (~596 MB)")
+  .option("--embeddings", "Download F2LLM-v2-80M ONNX weights (SHA256-pinned)")
+  .option("--int8", "Use the int8 weight variant (~92 MB) instead of fp32 (~332 MB)")
   .option("--model-dir <path>", "Override the target directory for embedder weights")
   .option("--plugin", "Install the Claude Code plugin to ~/.claude/plugins/opencodehub/")
   .option(

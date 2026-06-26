@@ -56,10 +56,20 @@ flowchart LR
 
 ### ONNX local
 
-The default. Deterministic 768-dim embeddings from
-`Alibaba-NLP/gte-modernbert-base`. Weights live in the directory
-managed by `@opencodehub/embedder/paths`; missing weights throw
+The default. Deterministic 320-dim embeddings from
+`codefuse-ai/F2LLM-v2-80M` (a Qwen3-0.6B-Base derivative, 80.1M params).
+Last-token pooling and L2 normalization are baked into the ONNX graph,
+which emits a single already-unit-length output `embedding` of shape
+`[B, 320]`. The custom ONNX export is hosted as a SHA256-pinned GitHub
+release asset; weights live in the directory managed by
+`@opencodehub/embedder/paths`; missing weights throw
 `EmbedderNotSetupError`, which `codehub setup --embeddings` fixes.
+
+**Query/document asymmetry.** Documents are embedded raw. Queries get an
+`Instruct: {instruction}\nQuery: {query}` prefix (instruction: "Given a
+code search query, retrieve the most relevant code snippet.") via the
+`embedQuery()` method on the Embedder interface, applied only at the
+hybrid-search query seam.
 
 A Piscina worker pool (`embedder-pool.ts`) spins up when
 `embeddingsWorkers >= 2`, running ONNX inference across worker
@@ -73,7 +83,7 @@ wire format:
 
 - `CODEHUB_EMBEDDING_URL` — base URL (`/embeddings` is appended).
 - `CODEHUB_EMBEDDING_MODEL` — model id passed through verbatim.
-- `CODEHUB_EMBEDDING_DIMS` — dimensions (default 768).
+- `CODEHUB_EMBEDDING_DIMS` — dimensions (default 320).
 - `CODEHUB_EMBEDDING_API_KEY` — bearer token.
 
 30 s timeout, 2 retries with 1 s backoff.
@@ -89,8 +99,8 @@ carries on.
 
 ModelId stamping is explicit to prevent silent cross-backend
 pollution of the `embeddings.model` column: SageMaker rows carry
-`gte-modernbert-base/sagemaker:<endpointName>`, ONNX rows carry
-`gte-modernbert-base/fp32`, HTTP rows pass the configured model id
+`F2LLM-v2-80M/sagemaker:<endpointName>`, ONNX rows carry
+`F2LLM-v2-80M/fp32`, HTTP rows pass the configured model id
 through. See the durable lesson linked below for the full pattern
 (dynamic import, structural-typing seam, 413 split-retry).
 
@@ -156,7 +166,7 @@ enabling `hnsw_acorn` enables it.
   `["symbol"]`).
 - `PipelineOptions.embeddingsWorkers` — Piscina pool size for ONNX.
 - `PipelineOptions.embeddingsBatchSize` — default 32.
-- `DuckDbStoreOptions.embeddingDim` — default 768.
+- `SqliteStoreOptions.embeddingDim` — default 320.
 - Env vars: `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` / `_REGION` /
   `_MODEL` / `_DIMS`; `CODEHUB_EMBEDDING_URL` / `_MODEL` / `_DIMS` /
   `_API_KEY`.

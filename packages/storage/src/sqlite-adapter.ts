@@ -89,7 +89,7 @@ import { assertReadOnlySql } from "./sql-guard.js";
 export interface SqliteStoreOptions {
   /** Open the file read-only. Query commands pass true; ingestion false. */
   readonly readOnly?: boolean;
-  /** Embedding dimensionality. Defaults to 768 (Bedrock Titan / Cohere tier). */
+  /** Embedding dimensionality. Defaults to 320 (F2LLM-v2-80M, the local ONNX tier). */
   readonly embeddingDim?: number;
   /**
    * Journal mode. Defaults to WAL — the whole point of the spike. Overridable
@@ -100,7 +100,7 @@ export interface SqliteStoreOptions {
   readonly timeoutMs?: number;
 }
 
-const DEFAULT_DIM = 768;
+const DEFAULT_DIM = 320;
 const SCHEMA_VERSION = "spike-sqlite-1";
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_COCHANGE_LOOKUP_LIMIT = 10;

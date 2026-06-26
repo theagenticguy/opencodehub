@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.5.0...ingestion-v0.6.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** local embedding model swapped to `codefuse-ai/F2LLM-v2-80M` (320-dim, was gte-modernbert-base 768-dim). The analyze path now suppresses the content-hash cache on a model change so all symbols re-embed (no mixed-dim store); existing stores must be rebuilt with `codehub analyze --embeddings`.
+
 ## [0.5.0](https://github.com/theagenticguy/opencodehub/compare/ingestion-v0.4.5...ingestion-v0.5.0) (2026-06-01)
 
 

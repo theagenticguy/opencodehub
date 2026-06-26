@@ -149,6 +149,11 @@ class FakeEmbedder implements Embedder {
   async embed(): Promise<Float32Array> {
     return new Float32Array([0.1, 0.2, 0.3, 0.4]);
   }
+  // Symmetric stand-in: the query path mirrors the document path (no prefix).
+  // The fake ignores its input, so delegate to the no-arg `embed`.
+  async embedQuery(_text: string): Promise<Float32Array> {
+    return this.embed();
+  }
 }
 
 describe("hybridSearch", () => {

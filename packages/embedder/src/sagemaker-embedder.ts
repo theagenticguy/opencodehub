@@ -1,8 +1,9 @@
 /**
  * SageMaker embedder backend. Invokes a TEI (Text Embeddings Inference)
- * SageMaker endpoint — e.g. the `embed-serve` stack at
- * `/efs/lalsaado/workplace/embed-serve/` which serves
- * `Alibaba-NLP/gte-modernbert-base` as `gte-modernbert-embed` in us-east-1.
+ * SageMaker endpoint. NOTE: the local F2LLM query-prefix asymmetry is NOT
+ * applied here — a remote endpoint must handle query/document pooling +
+ * prefixing server-side. The default `dims` (320) matches F2LLM, but the
+ * caller's endpoint determines the actual model.
  *
  * Selection: {@link readSagemakerEmbedderConfigFromEnv} returns a config
  * when `CODEHUB_EMBEDDING_SAGEMAKER_ENDPOINT` is set; otherwise `null` so
@@ -24,14 +25,14 @@
  *   - SDK retry (`maxAttempts: 5`) handles throttling + 5xx.
  *   - Dims asserted on every response so a remote model swap cannot
  *     silently pollute downstream HNSW indexes.
- *   - `modelId` is stamped as `gte-modernbert-base/sagemaker:<endpoint>`
+ *   - `modelId` is stamped as `f2llm-v2-80m/sagemaker:<endpoint>`
  *     so an index built with this backend is visibly distinct from a
  *     local ONNX index.
  */
 
 import { type Embedder, EmbedderNotSetupError } from "./types.js";
 
-const DEFAULT_DIMS = 768;
+const DEFAULT_DIMS = 320;
 const DEFAULT_REGION = "us-east-1";
 const MAX_BATCH = 64;
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -55,17 +56,17 @@ export interface SagemakerRuntimeLike {
 
 /** Configuration for {@link openSagemakerEmbedder}. */
 export interface SagemakerEmbedderConfig {
-  /** Name of the SageMaker endpoint (e.g. `gte-modernbert-embed`). */
+  /** Name of the SageMaker endpoint (e.g. `f2llm-embed`). */
   readonly endpointName: string;
   /** AWS region of the endpoint. Defaults to `us-east-1`. */
   readonly region?: string;
   /**
    * Stable model id reported to the index layer. Defaults to
-   * `gte-modernbert-base/sagemaker:<endpointName>` so index metadata
+   * `f2llm-v2-80m/sagemaker:<endpointName>` so index metadata
    * distinguishes this backend from local ONNX.
    */
   readonly modelId?: string;
-  /** Expected response-vector dimension. Defaults to 768. */
+  /** Expected response-vector dimension. Defaults to 320. */
   readonly dims?: number;
   /** SDK `maxAttempts`. Defaults to 5. */
   readonly maxAttempts?: number;
@@ -162,7 +163,7 @@ export async function openSagemakerEmbedder(cfg: SagemakerEmbedderConfig): Promi
   const region = cfg.region ?? DEFAULT_REGION;
   const dims = cfg.dims ?? DEFAULT_DIMS;
   const endpointName = cfg.endpointName;
-  const modelId = cfg.modelId ?? `gte-modernbert-base/sagemaker:${endpointName}`;
+  const modelId = cfg.modelId ?? `f2llm-v2-80m/sagemaker:${endpointName}`;
   const maxAttempts = cfg.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
   let runtime: SagemakerRuntimeLike;
@@ -312,6 +313,8 @@ export async function openSagemakerEmbedder(cfg: SagemakerEmbedderConfig): Promi
     dim: dims,
     modelId,
     embed: embedOne,
+    // Remote endpoint owns pooling/prefix server-side; alias query→document.
+    embedQuery: embedOne,
     embedBatch,
     async close(): Promise<void> {
       // SageMakerRuntimeClient keeps an HTTP agent alive; destroy when

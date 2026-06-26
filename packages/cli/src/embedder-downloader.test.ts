@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { ReadableStream } from "node:stream/web";
 import { describe, it } from "node:test";
 
-import { GTE_MODERNBERT_BASE_PINS } from "@opencodehub/embedder";
+import { F2LLM_V2_80M_PINS } from "@opencodehub/embedder";
 
 import {
   downloadEmbedderWeights,
@@ -98,7 +98,7 @@ function makeFetchWith(
 }
 
 /**
- * Monkeypatch GTE_MODERNBERT_BASE_PINS[variant] for a single test. Because the
+ * Monkeypatch F2LLM_V2_80M_PINS[variant] for a single test. Because the
  * pins are `readonly`, we rebuild the structure by casting into a mutable
  * shape. The test restores on completion.
  */
@@ -107,8 +107,8 @@ function withOverridePins<T>(
   newFiles: readonly { name: string; url: string; sizeBytes: number; sha256: string }[],
   fn: () => Promise<T>,
 ): Promise<T> {
-  const original = GTE_MODERNBERT_BASE_PINS[variant];
-  const mutable = GTE_MODERNBERT_BASE_PINS as unknown as {
+  const original = F2LLM_V2_80M_PINS[variant];
+  const mutable = F2LLM_V2_80M_PINS as unknown as {
     [k in "fp32" | "int8"]: {
       variant: "fp32" | "int8";
       files: readonly { name: string; url: string; sizeBytes: number; sha256: string }[];

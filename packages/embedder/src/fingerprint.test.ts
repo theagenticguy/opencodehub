@@ -8,23 +8,19 @@ import { assertEmbedderCompatible, EMBEDDER_MISMATCH_HINT } from "./fingerprint.
 
 describe("assertEmbedderCompatible", () => {
   test("ok when persisted is undefined (legacy store, never tagged)", () => {
-    const result = assertEmbedderCompatible(undefined, "gte-modernbert-base/fp32", false);
+    const result = assertEmbedderCompatible(undefined, "f2llm-v2-80m/fp32", false);
     ok(result.ok);
   });
 
   test("ok when persisted equals current", () => {
-    const result = assertEmbedderCompatible(
-      "gte-modernbert-base/fp32",
-      "gte-modernbert-base/fp32",
-      false,
-    );
+    const result = assertEmbedderCompatible("f2llm-v2-80m/fp32", "f2llm-v2-80m/fp32", false);
     ok(result.ok);
   });
 
   test("ok when persisted differs from current but force is true", () => {
     const result = assertEmbedderCompatible(
-      "gte-modernbert-base/fp32",
-      "sagemaker:gte-modernbert-base@my-endpoint",
+      "f2llm-v2-80m/fp32",
+      "f2llm-v2-80m/sagemaker:my-endpoint",
       true,
     );
     ok(result.ok);
@@ -32,14 +28,14 @@ describe("assertEmbedderCompatible", () => {
 
   test("not ok when persisted differs from current and force is false", () => {
     const result = assertEmbedderCompatible(
-      "gte-modernbert-base/fp32",
-      "sagemaker:gte-modernbert-base@my-endpoint",
+      "f2llm-v2-80m/fp32",
+      "f2llm-v2-80m/sagemaker:my-endpoint",
       false,
     );
     ok(!result.ok);
     if (!result.ok) {
-      equal(result.persistedModelId, "gte-modernbert-base/fp32");
-      equal(result.currentModelId, "sagemaker:gte-modernbert-base@my-endpoint");
+      equal(result.persistedModelId, "f2llm-v2-80m/fp32");
+      equal(result.currentModelId, "f2llm-v2-80m/sagemaker:my-endpoint");
       equal(result.hint, EMBEDDER_MISMATCH_HINT);
     }
   });

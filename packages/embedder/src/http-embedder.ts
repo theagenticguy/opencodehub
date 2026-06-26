@@ -42,7 +42,7 @@ export interface HttpEmbedderConfig {
   /** Model id sent in the `model` field of the request body. */
   readonly modelId: string;
   /**
-   * Expected response-vector dimension. Defaults to 768 (gte-modernbert-base).
+   * Expected response-vector dimension. Defaults to 320 (F2LLM-v2-80M).
    * Every response is asserted against this so a remote model swap can
    * never silently pollute downstream vector indexes.
    */
@@ -60,8 +60,8 @@ export interface HttpEmbedderConfig {
   readonly fetchImpl?: typeof fetch;
 }
 
-/** Default dim for gte-modernbert-base (the fallback when env doesn't set it). */
-const DEFAULT_DIMS = 768;
+/** Default dim for F2LLM-v2-80M (the fallback when env doesn't set it). */
+const DEFAULT_DIMS = 320;
 
 /**
  * Read HTTP embedder config from the process environment. Returns `null`
@@ -228,6 +228,11 @@ export function openHttpEmbedder(cfg: HttpEmbedderConfig): Embedder {
     dim: dims,
     modelId,
     embed: embedOne,
+    // Remote backends are text-in/vector-out and own their pooling/prefix
+    // server-side; the local F2LLM query-prefix asymmetry is not applied
+    // here (a remote F2LLM endpoint must handle it itself). Alias query to
+    // document so the interface contract holds.
+    embedQuery: embedOne,
     async embedBatch(texts: readonly string[]): Promise<readonly Float32Array[]> {
       if (texts.length === 0) return [];
       // One request per text. The HTTP surface supports batched `input`, but
