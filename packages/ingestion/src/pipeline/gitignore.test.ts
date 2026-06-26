@@ -12,7 +12,53 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { loadGitignoreChain, parseGitignore, shouldIgnore } from "./gitignore.js";
+import {
+  HARDCODED_IGNORES,
+  loadGitignoreChain,
+  parseGitignore,
+  shouldIgnore,
+} from "./gitignore.js";
+
+test("HARDCODED_IGNORES covers the well-known dependency/virtualenv/build/cache dirs", () => {
+  // Operator contract: venv + node_modules + similar are always excluded,
+  // even with no .gitignore present. Guards against silent regression of the
+  // list. Plain `venv` is as load-bearing as `.venv` (both are real
+  // virtualenv layouts).
+  const required = [
+    "node_modules",
+    "bower_components",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    "coverage",
+    ".git",
+  ];
+  const set = new Set(HARDCODED_IGNORES);
+  for (const name of required) {
+    assert.ok(set.has(name), `HARDCODED_IGNORES must contain "${name}"`);
+  }
+  // `vendor` is intentionally NOT hardcoded — it is ambiguous (real vendored
+  // first-party source lives under a vendor/ path in this very repo). A
+  // hardcoded ignore cannot be re-included via .gitignore !negation, so we
+  // leave vendor exclusion to the repo's own .gitignore.
+  assert.ok(!set.has("vendor"), "vendor must NOT be hardcoded (left to .gitignore)");
+  // The list is exact path segments — no globs, no slashes, no duplicates.
+  assert.equal(set.size, HARDCODED_IGNORES.length, "HARDCODED_IGNORES must not contain duplicates");
+  for (const name of HARDCODED_IGNORES) {
+    assert.ok(!name.includes("/"), `"${name}" must be a bare directory segment, not a path`);
+    assert.ok(!name.includes("*"), `"${name}" must be a literal name, not a glob`);
+  }
+});
 
 test("loadGitignoreChain: root file only — returns a single-entry map", async () => {
   const repo = await mkdtemp(path.join(tmpdir(), "och-gi-root-"));

@@ -221,20 +221,59 @@ async function loadDir(
   }
 }
 
-/** Hardcoded directory names we always skip, even absent a `.gitignore`. */
+/**
+ * Hardcoded directory names we always skip, even absent a `.gitignore`.
+ *
+ * The scan walker tests each directory entry's *name* against this set
+ * (see `phases/scan.ts` — `hardcoded.has(name)`), so a bare name like
+ * `node_modules` or `venv` excludes that directory at ANY depth, not just
+ * the repo root. Entries are exact path segments, not globs.
+ *
+ * Scope: dependency installs, language/tool virtualenvs, build output, and
+ * tool caches — directories that never hold first-party source. We
+ * deliberately exclude ambiguous names that are commonly real source/config
+ * directories: `env` (often a config module, not only a virtualenv),
+ * `out`/`bin`/`obj` (frequently first-party), and `vendor` (Go/PHP/Ruby use
+ * it for third-party deps, but it is also a common name for vendored
+ * first-party source — this repo keeps source at
+ * `packages/ingestion/src/pipeline/phases/vendor/`). Those are left to a
+ * repo's own `.gitignore`, which supports `!negation` for re-inclusion; a
+ * hardcoded ignore cannot be overridden.
+ */
 export const HARDCODED_IGNORES: readonly string[] = [
-  "node_modules",
+  // Version-control metadata.
   ".git",
   ".svn",
   ".hg",
+  // OpenCodeHub's own index / meta directory.
+  META_DIR_NAME,
+  // JavaScript / TypeScript dependencies, package-manager stores, and caches.
+  "node_modules",
+  "bower_components",
+  ".pnpm-store",
+  ".yarn",
+  // Python virtualenvs, bytecode caches, and tool caches.
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".tox",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  // Build / compiler output.
   "dist",
   "build",
   "target",
-  META_DIR_NAME,
-  ".venv",
-  "__pycache__",
+  // Framework build output, bundler + build-tool caches.
   ".next",
   ".nuxt",
   ".turbo",
+  ".gradle",
+  ".parcel-cache",
+  ".cache",
+  // Test / coverage output.
   "coverage",
+  // Editor / IDE settings (no first-party source).
+  ".idea",
+  ".vscode",
 ];
