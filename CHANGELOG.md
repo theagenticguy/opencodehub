@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.2...root-v0.10.0) (2026-06-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **embedder:** existing indexes must be rebuilt with `codehub analyze --embeddings`; the embedder-fingerprint guard refuses queries against a stale-dim store, and the analyze path suppresses the content-hash cache on a model-id change to prevent a mixed-dimension store.
+
+### Features
+
+* **embedder:** swap embedding model gte-modernbert-base → F2LLM-v2-80M (320-dim) ([#252](https://github.com/theagenticguy/opencodehub/issues/252)) ([789d0da](https://github.com/theagenticguy/opencodehub/commit/789d0dade5733f3b8d3aef480e7cc9eacad1163d))
+
 ## [0.9.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.9.1...root-v0.9.2) (2026-06-24)
 
 
