@@ -21,10 +21,11 @@ function runGit(cwd: string, args: readonly string[]): Promise<RunResult> {
   return new Promise((resolve) => {
     execFile("git", [...args], { cwd, maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
       if (err) {
-        const code =
-          typeof (err as NodeJS.ErrnoException & { code?: unknown }).code === "number"
-            ? (err as NodeJS.ErrnoException & { code: number }).code
-            : 1;
+        // `ExecException.code` is `string | number | undefined` (a signal
+        // name or exit status), so read it once and keep only the numeric
+        // exit code; anything else (a signal, or undefined) fails open as 1.
+        const rawCode = (err as { code?: unknown }).code;
+        const code = typeof rawCode === "number" ? rawCode : 1;
         resolve({ stdout: String(stdout ?? ""), code });
         return;
       }
