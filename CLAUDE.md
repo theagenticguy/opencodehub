@@ -92,8 +92,11 @@ storage bindings:** `@ladybugdb/core` AND `@duckdb/node-api` are both
 removed (ADR 0019 supersedes ADR 0016). The write-only Parquet embeddings
 sidecar (BOM item #7) was dropped with DuckDB — nothing ever read it back;
 embeddings live in the `embeddings` table in `store.sqlite`. The code-pack
-is now an 8-item BOM. (`onnxruntime-node`, the embedder, is the only
-remaining native dep — optional, lazy under `--embeddings`.)
+is now an 8-item BOM. **Zero native bindings, full stop:** the embedder is
+`onnxruntime-web` (prebuilt WASM, in `optionalDependencies`, lazy under
+`--embeddings`) — there is no `onnxruntime-node` and nothing compiles at
+install. Parsing is WASM (`web-tree-sitter`) and the store is the built-in
+`node:sqlite`, so the entire install is pure JS + WASM.
 
 Schema: one generic `nodes` table (typed base columns +
 `payload` JSON overflow for the 37 kind-specific shapes), one polymorphic
