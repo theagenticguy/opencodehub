@@ -123,10 +123,30 @@ async function runScipIndex(
     };
   }
 
+  // Build-script opt-ins come from the analyze pipeline options; fall back to
+  // the legacy env var so an explicit `CODEHUB_ALLOW_BUILD_SCRIPTS=1` keeps
+  // working. `allowedBuildScripts` is the fine-grained whitelist; the boolean
+  // `allowBuildScripts` is what the rust/java indexers gate on.
+  const optedBuildScripts = ctx.options.allowBuildScripts ?? [];
+  const allowBuildScripts =
+    optedBuildScripts.length > 0 || process.env["CODEHUB_ALLOW_BUILD_SCRIPTS"] === "1";
+  const allowedBuildScripts = optedBuildScripts;
+
   const projectLanguages = new Set(profileNode.languages);
   const candidates = detectLanguages(ctx.repoPath).filter((k: IndexerKind) =>
     projectLanguages.has(scipLangToOchLang(k)),
   );
+  // The detector never infers the proleap kind (it has no on-disk signature
+  // distinct from regex COBOL). When the operator opts into proleap AND the
+  // project has COBOL, append the deep-parse indexer to the detected set —
+  // `runIndexer` still gates it on `allowedBuildScripts.includes("proleap")`.
+  if (
+    allowedBuildScripts.includes("proleap") &&
+    projectLanguages.has(scipLangToOchLang("cobol-proleap")) &&
+    !candidates.includes("cobol-proleap")
+  ) {
+    candidates.push("cobol-proleap");
+  }
 
   if (candidates.length === 0) {
     return {
@@ -141,7 +161,6 @@ async function runScipIndex(
 
   const outputDir = join(ctx.repoPath, META_DIR_NAME, "scip");
   const offline = Boolean(ctx.options.offline);
-  const allowBuildScripts = process.env["CODEHUB_ALLOW_BUILD_SCRIPTS"] === "1";
 
   const perLang: ScipIndexPerLanguage[] = [];
   const nodesByFile = indexNodesByFile(ctx);
@@ -176,6 +195,7 @@ async function runScipIndex(
             projectRoot: ctx.repoPath,
             outputDir,
             allowBuildScripts,
+            allowedBuildScripts,
           });
         } catch (err) {
           ctx.onProgress?.({
@@ -310,13 +330,15 @@ interface ProfileNodeLike {
  * extension. C++-specific consumers see `clang` under the indexer name
  * in provenance reasons.
  *
- * `cobol-proleap` has `provenance: null`: COBOL relations are emitted by
- * the in-process tree-sitter/regex bridge during the parse phase, not via
- * SCIP derivation, and `detectLanguages` never yields the proleap kind as
- * a scip-index candidate — so `result.kind` at the `lookupProvenance`
- * call site can never be `cobol-proleap`. The `null` states that honestly
- * instead of the prior `scip-typescript` placeholder that only existed to
- * satisfy switch exhaustiveness.
+ * `cobol-proleap` has `provenance: null`: the proleap deep-parse emits its
+ * relations through its own bridge, not via the generic SCIP-derivation path
+ * `lookupProvenance` serves. `detectLanguages` never *infers* the proleap kind
+ * (it has no on-disk signature beyond regex COBOL); it only enters the
+ * candidate set when the operator opts in via `--allow-build-scripts proleap`
+ * on a COBOL project, and even then `runIndexer` re-gates it on
+ * `allowedBuildScripts.includes("proleap")`. The `null` states the absent
+ * SCIP provenance honestly instead of a placeholder kept only for switch
+ * exhaustiveness.
  *
  * `Record<IndexerKind, LangEntry>` keeps the same compile-time
  * exhaustiveness the per-kind switches got from
