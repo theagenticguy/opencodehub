@@ -13,6 +13,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { sha256Hex } from "@opencodehub/core-types";
 import type { PackManifest } from "@opencodehub/pack";
 import type { IGraphStore } from "@opencodehub/storage";
 import {
@@ -100,6 +101,75 @@ test("runCodePack defaults to engine=pack and dispatches to generatePack", async
     // The manifest file we staged should now live at finalOutDir.
     const onDisk = await readFile(join(result.outDir, "manifest.json"), "utf8");
     assert.equal(onDisk, "{}");
+  } finally {
+    await rm(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("runCodePack derives commit, origin, hash-verified files, and grammar pins", async () => {
+  const repoPath = await mkdtemp(join(tmpdir(), "codehub-codepack-prov-"));
+  try {
+    // Two real source files on disk; the graph records one with a MATCHING
+    // contentHash and one with a DRIFTED hash. The drifted file must be
+    // dropped from chunkerFiles so the pack never chunks stale bytes.
+    const liveBytes = new TextEncoder().encode("export const x = 1;\n");
+    await mkdir(join(repoPath, "src"), { recursive: true });
+    await writeFile(join(repoPath, "src", "live.ts"), liveBytes);
+    await writeFile(join(repoPath, "src", "drift.ts"), "export const y = 2;\n");
+    const liveHash = sha256Hex(liveBytes);
+
+    const store = {
+      listNodes: async (opts: { kinds?: readonly string[] } = {}) => {
+        const kinds = opts.kinds;
+        const repo = {
+          kind: "Repo",
+          filePath: ".",
+          commitSha: "f".repeat(40),
+          originUrl: "https://github.com/example/demo.git",
+        };
+        const files = [
+          { kind: "File", filePath: "src/live.ts", contentHash: liveHash, language: "typescript" },
+          {
+            kind: "File",
+            filePath: "src/drift.ts",
+            contentHash: "0".repeat(64), // deliberately wrong → must be skipped
+            language: "typescript",
+          },
+        ];
+        if (kinds?.includes("Repo")) return [repo];
+        if (kinds?.includes("File")) return files;
+        return [];
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: minimal graph stub for the provenance read
+    } as any;
+
+    let internal: {
+      commit?: string;
+      repoOriginUrl?: string | null;
+      chunkerFiles?: ReadonlyArray<{ path: string }>;
+      grammarCommits?: Record<string, string>;
+    } = {};
+    const fakeGenerate = (async (
+      opts: { repoPath: string; outDir: string; budgetTokens: number; tokenizerId: string },
+      internalArg: typeof internal,
+    ) => {
+      internal = internalArg;
+      await mkdir(opts.outDir, { recursive: true });
+      await writeFile(join(opts.outDir, "manifest.json"), "{}");
+      return makeFakeManifest({ packHash: "prov123" });
+      // biome-ignore lint/suspicious/noExplicitAny: cross-package generic narrowing in test injection
+    }) as any;
+
+    await runCodePack({ repo: repoPath, _generatePack: fakeGenerate, _store: store });
+
+    assert.equal(internal.commit, "f".repeat(40));
+    assert.equal(internal.repoOriginUrl, "https://github.com/example/demo.git");
+    const chunkPaths = (internal.chunkerFiles ?? []).map((f) => f.path);
+    assert.deepEqual(chunkPaths, ["src/live.ts"], "drifted file must be skipped");
+    assert.ok(
+      internal.grammarCommits !== undefined && Object.keys(internal.grammarCommits).length > 0,
+      "grammar pins should be populated from the vendored manifest",
+    );
   } finally {
     await rm(repoPath, { recursive: true, force: true });
   }
