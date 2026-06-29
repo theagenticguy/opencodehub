@@ -7,7 +7,7 @@
  * in-place.
  */
 
-/** A single item in the 8-item BOM. */
+/** A single item in the 9-item BOM. */
 export interface BomItem {
   readonly kind:
     | "manifest"
@@ -17,7 +17,8 @@ export interface BomItem {
     | "ast-chunks"
     | "xrefs"
     | "findings"
-    | "licenses";
+    | "licenses"
+    | "context-bom";
   readonly path: string; // relative to pack output dir
   readonly fileHash: string; // sha256 hex of the file's raw bytes
 }
@@ -44,8 +45,13 @@ export interface PackManifest {
   readonly budgetTokens: number;
   readonly pins: PackPins;
   readonly files: readonly BomItem[];
+  // sha256 hex of the canonical context-bom.json (the read-receipt over the
+  // source files the pack indexed). Surfaced as a named field so an auditor
+  // reads the receipt digest directly; also bound transitively into packHash
+  // because the context-bom is one of the `files` BOM items.
+  readonly contextBomHash: string;
   readonly packHash: string; // sha256 over canonicalJson of all other fields
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
 }
 
 export interface PackOpts {

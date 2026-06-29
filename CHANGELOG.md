@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.1...root-v0.10.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* **ingestion:** parse npm/pnpm lockfiles natively, drop snyk-nodejs-lockfile-parser ([#259](https://github.com/theagenticguy/opencodehub/issues/259)) ([738511b](https://github.com/theagenticguy/opencodehub/commit/738511b4b7264c2dd554a0e04bdd8470b8a9dbd7))
+
 ## [0.10.1](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.0...root-v0.10.1) (2026-06-26)
 
 

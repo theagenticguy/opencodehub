@@ -5,29 +5,32 @@ sidebar:
   order: 90
 ---
 
-## Native build failures
+## Install / `node-gyp` build failures
 
-Symptoms: `pnpm install` fails while building `@duckdb/node-api`. Error
-mentions `node-gyp`, `python`, a C/C++ compiler, or `Visual Studio
-Build Tools`.
+Symptoms: `npm install -g @opencodehub/cli` (or `pnpm install` from a
+checkout) fails with `node-gyp`, `python`, a C/C++ compiler, or `Visual
+Studio Build Tools` in the error.
 
-Fix:
+OpenCodeHub installs with **zero native bindings**, so it never compiles
+anything at install time. Every runtime component is pure JS or WASM:
 
-```bash title="probe the native toolchain"
+- Parsing is `web-tree-sitter` (WASM), with grammars vendored as `.wasm`
+  blobs — no native tree-sitter build.
+- The store is a single-file SQLite index via the built-in `node:sqlite`
+  (Node ≥ 24.15) — no native database binding.
+- The optional embedder is `onnxruntime-web` (prebuilt WASM), loaded lazily
+  only under `--embeddings` — no `onnxruntime-node`, no native ONNX build.
+
+So a `node-gyp` error almost always comes from an unrelated package in your
+own project's tree, not from OpenCodeHub. Confirm with:
+
+```bash title="probe the environment"
 codehub doctor
 ```
 
-`doctor` checks Node version, the platform's C/C++ toolchain, and
-whether each native module can load. Follow the remediation hints it
-prints.
-
-The parse runtime is `web-tree-sitter` (WASM) on every supported Node
-version, so a missing C/C++ toolchain does not break parsing. The only
-native bindings OpenCodeHub loads are `@duckdb/node-api` (temporal store)
-and `onnxruntime-node` (the local embedder) — both ship platform
-prebuilds, so a normal install does not compile anything. If a prebuild
-is missing for your platform, `codehub doctor` reports which module
-failed to load and prints the remediation steps.
+`doctor` checks the Node version and that each WASM/JS component loads. If
+it reports green but your install still fails, the failing module belongs to
+something else you are installing alongside the CLI.
 
 ## Stale index
 
@@ -62,23 +65,14 @@ for the exact shape.
 
 ## Windows quirks
 
-Parsing is WASM, so the parser needs no native toolchain on Windows. The
-native bindings (`@duckdb/node-api`, `onnxruntime-node`) ship `win32-x64`
-prebuilds, so a standard install pulls a binary rather than compiling.
-If a prebuild is unavailable and a module has to build from source, you
-need the Microsoft C++ Build Tools plus a matching Python for
-`node-gyp`. In practice the fastest fix is to run everything under WSL2 —
-WSL2 ships with a working toolchain out of the box and avoids path
-separator issues.
+OpenCodeHub has no native bindings, so a standard install never compiles
+on Windows — parsing is WASM (`web-tree-sitter`), the store is the built-in
+`node:sqlite`, and the optional embedder is `onnxruntime-web` (prebuilt
+WASM). There is no C/C++ toolchain requirement.
 
-If you must stay on native Windows and a source build is forced:
-
-1. Install Visual Studio Build Tools with the "Desktop development
-   with C++" workload.
-2. Install Python from the Microsoft Store (Python 3.12).
-3. `npm config set msvs_version 2022` and `npm config set python
-   python3.12`.
-4. Re-run `pnpm install --frozen-lockfile`.
+The remaining Windows friction is path-separator and shell quirks rather
+than builds. If you hit those, the smoothest environment is WSL2, which
+matches the POSIX paths the rest of the toolchain assumes.
 
 ## The index is missing a language I expected
 
@@ -87,6 +81,26 @@ default WASM runtime should produce results for every registered
 language without a native toolchain. If the language is not listed,
 it is not yet registered — see
 [adding a language provider](/opencodehub/contributing/adding-a-language-provider/).
+
+## Deprecation warnings during `npm install -g @opencodehub/cli`
+
+Symptoms: `npm install -g @opencodehub/cli` prints `npm warn deprecated`
+lines for transitive packages such as `glob@7.2.3` and `inflight@1.0.6`.
+
+These are cosmetic. They are deprecation notices npm emits for indirect
+dependencies pulled in by a SCIP indexer the CLI ships
+(`@sourcegraph/scip-python` → `glob` → `inflight`). They are not security
+advisories: every published OpenCodeHub release passes osv-scanner, grype,
+semgrep, and npm-audit in CI, and pinned `overrides` hold transitive
+packages at patched versions. Nothing about the warnings affects install
+correctness or runtime behaviour, and there is no action for you to take.
+
+The lockfile-parser warnings (`lodash.clone`, `lodash.isequal`, `uuid@8`)
+that earlier releases also emitted are gone as of the native lockfile
+parser — the CLI no longer bundles a third-party resolver for dependency
+ingestion. The remaining `glob`/`inflight` pair originates inside the
+upstream indexer and is tracked for removal once that package updates its
+own dependencies.
 
 ## More help
 

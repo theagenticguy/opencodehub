@@ -201,6 +201,15 @@ export interface PipelineOptions {
    * ts-morph. Exposed by the `codehub analyze --strict-detectors` flag.
    */
   readonly strictDetectors?: boolean;
+  /**
+   * Opt-ins that enable build-script-driven SCIP indexers. Current surface:
+   * `"proleap"` wakes the JVM COBOL deep-parse bridge (`@opencodehub/cobol-proleap`).
+   * Unset → the COBOL hot path stays regex-only and the proleap indexer is
+   * never appended to the detected set. Surfaced by `codehub analyze
+   * --allow-build-scripts`; the `scip-index` phase reads this and falls back
+   * to the `CODEHUB_ALLOW_BUILD_SCRIPTS=1` env var when unset.
+   */
+  readonly allowBuildScripts?: readonly "proleap"[];
 }
 
 /** Lightweight progress event emitted during pipeline execution. */

@@ -12,7 +12,7 @@
  *          `best_effort`.
  *   E2E-C. The chunker's degraded fallback flips `determinism_class` to
  *          `degraded` even when the tokenizer is non-Anthropic.
- *   E2E-D. The expected 9 files (7 BOM bodies + manifest + readme) appear
+ *   E2E-D. The expected 10 files (8 BOM bodies + manifest + readme) appear
  *          on disk after a successful run.
  *   E2E-E. The on-disk manifest's `files[]` lists every BOM item we
  *          wrote (excluding the manifest itself + readme).
@@ -268,7 +268,7 @@ test("E2E-C. chunker degraded fallback flips determinism_class to degraded", asy
   }
 });
 
-test("E2E-D. expected 9 files appear on disk after a run", async () => {
+test("E2E-D. expected 10 files appear on disk after a run", async () => {
   const dir = await tempDir();
   try {
     await runFixture(dir);
@@ -282,6 +282,7 @@ test("E2E-D. expected 9 files appear on disk after a run", async () => {
       "xrefs.jsonl",
       "findings.jsonl",
       "licenses.md",
+      "context-bom.json",
       "readme.md",
       "manifest.json",
     ]) {
@@ -307,6 +308,7 @@ test("E2E-E. on-disk manifest.files[] lists every body BOM item, excluding manif
     const paths = onDisk.files.map((f) => f.path).sort();
     assert.deepEqual(paths, [
       "ast-chunks.jsonl",
+      "context-bom.json",
       "deps.jsonl",
       "file-tree.jsonl",
       "findings.jsonl",
@@ -345,7 +347,7 @@ test("E2E-F. production store path throws cleanly when no internal store provide
 // ---------------------------------------------------------------------------
 // The Parquet embeddings sidecar was dropped (ADR 0019): embeddings live in
 // store.sqlite and there is no longer a write-only Parquet export. The pack
-// is a fixed 8-item BOM (manifest + 7 bodies) plus a consumer-facing readme;
+// is a fixed 9-item BOM (manifest + 8 bodies) plus a consumer-facing readme;
 // no .parquet file is ever produced. The on-disk invariant is covered by
 // E2E-D's `.parquet`-absence assertion above.
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@
  * Plus:
  *   E. Serializer emits snake_case keys in canonical order.
  *   F. `files` array preserves insertion order.
- *   G. schemaVersion is pinned to 1.
+ *   G. schemaVersion is pinned to 2.
  */
 
 import { strict as assert } from "node:assert";
@@ -41,6 +41,7 @@ function fixtureOpts() {
     budgetTokens: 100_000,
     pins: FIXTURE_PINS,
     files: FIXTURE_FILES,
+    contextBomHash: "a".repeat(64),
   };
 }
 
@@ -112,6 +113,12 @@ test("B. changing determinismClass changes packHash", () => {
   assert.notEqual(base.packHash, alt.packHash);
 });
 
+test("B. changing contextBomHash changes packHash", () => {
+  const base = buildManifest(fixtureOpts());
+  const alt = buildManifest({ ...fixtureOpts(), contextBomHash: "b".repeat(64) });
+  assert.notEqual(base.packHash, alt.packHash);
+});
+
 test("C. packHash is not part of its own preimage (round-trip)", () => {
   const m = buildManifest(fixtureOpts());
   // Rebuild the exact preimage the builder saw: same manifest shape but with
@@ -119,6 +126,7 @@ test("C. packHash is not part of its own preimage (round-trip)", () => {
   const preimagePayload = {
     budget_tokens: m.budgetTokens,
     commit: m.commit,
+    context_bom_hash: m.contextBomHash,
     determinism_class: m.determinismClass,
     files: m.files.map((f) => ({
       file_hash: f.fileHash,
@@ -161,7 +169,8 @@ test("E. serializeManifest emits snake_case keys in canonical order", () => {
   assert.ok(s.includes('"repo_origin_url"'));
   assert.ok(s.includes('"tokenizer_id"'));
   assert.ok(s.includes('"pack_hash"'));
-  assert.ok(s.includes('"schema_version":1'));
+  assert.ok(s.includes('"context_bom_hash"'));
+  assert.ok(s.includes('"schema_version":2'));
   assert.ok(s.includes('"pins"'));
   assert.ok(s.includes('"chonkie_version"'));
   assert.ok(s.includes('"grammar_commits"'));
@@ -179,9 +188,9 @@ test("F. files array preserves insertion order on the wire", () => {
   assert.ok(fileTreeIdx < depsIdx, "files[1] should serialize before files[2]");
 });
 
-test("G. schemaVersion is pinned to 1 regardless of opts", () => {
+test("G. schemaVersion is pinned to 2 regardless of opts", () => {
   const m = buildManifest(fixtureOpts());
-  assert.equal(m.schemaVersion, 1);
+  assert.equal(m.schemaVersion, 2);
 });
 
 test("empty files array still produces a valid manifest", () => {

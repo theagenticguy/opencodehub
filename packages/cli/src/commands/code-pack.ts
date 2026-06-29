@@ -35,6 +35,9 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { FileNode, GraphNode, RepoNode } from "@opencodehub/core-types";
+import { sha256Hex } from "@opencodehub/core-types";
+import { parse as ingestionParse } from "@opencodehub/ingestion";
 import { generatePack, type PackManifest } from "@opencodehub/pack";
 import { type IGraphStore, openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
 import { runPack } from "./pack.js";
@@ -156,6 +159,16 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
   const stagingDir = await mkdtemp(join(tmpdir(), "codehub-code-pack-"));
 
   try {
+    // Resolve the production provenance the pack manifest records — commit,
+    // origin, the source files to chunk, and grammar pins — from the indexed
+    // graph + the vendored grammar manifest. `generatePack`'s `internal` seam
+    // accepts all of these; the CLI is the documented integration layer that
+    // populates them (without this, every real pack ships commit="", empty
+    // ast-chunks, and unknown pins). Derivation reads the graph the command
+    // already opened — no second store open, no git spawn.
+    const graphForProvenance: IGraphStore | undefined = composedStore?.graph ?? graphOnlyStub;
+    const provenance = await resolvePackProvenance(graphForProvenance, repoPath);
+
     const manifest = await generate(
       {
         repoPath,
@@ -164,8 +177,8 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         tokenizerId: tokenizer,
       },
       composedStore !== undefined
-        ? { store: composedStore }
-        : { graphOnly: graphOnlyStub as IGraphStore },
+        ? { store: composedStore, ...provenance }
+        : { graphOnly: graphOnlyStub as IGraphStore, ...provenance },
     );
 
     const finalOutDir =
@@ -216,7 +229,7 @@ async function runRepomixEngine(repoPath: string, args: CodePackArgs): Promise<C
   // either engine uniformly. `packHash` is a sha256 over the file's bytes,
   // which gives operators a deterministic identifier even though repomix
   // does not emit a manifest. `bomItemCount` is 1 — repomix is a
-  // single-file snapshot, not the 8-item BOM.
+  // single-file snapshot, not the 9-item BOM.
   const bytes = await readFile(result.outputPath);
   const packHash = createHash("sha256").update(bytes).digest("hex");
   return {
@@ -230,6 +243,110 @@ async function runRepomixEngine(repoPath: string, args: CodePackArgs): Promise<C
 }
 
 /**
+ * Production provenance the pack manifest records, derived from the indexed
+ * graph + the working tree. Each field maps to a `generatePack` `internal`
+ * input. Every field is best-effort: a graph missing the data (or a stubbed
+ * store in tests) yields safe empties, never a throw, so packing never fails
+ * on absent provenance.
+ */
+interface PackProvenance {
+  readonly commit: string;
+  readonly repoOriginUrl: string | null;
+  readonly chunkerFiles: ReadonlyArray<{
+    readonly path: string;
+    readonly bytes: Uint8Array;
+    readonly language?: string;
+  }>;
+  readonly grammarCommits: Readonly<Record<string, string>>;
+}
+
+/**
+ * Derive {@link PackProvenance} from the opened graph and the repo working
+ * tree.
+ *
+ *   - commit / repoOriginUrl: read from the singleton `Repo` node, so the
+ *     pack stays a pure read of the indexed state (no `git` spawn here).
+ *   - chunkerFiles: every indexed `File` node's bytes, read from disk and
+ *     **hash-verified against the node's `contentHash`**. A file whose
+ *     working-tree bytes drifted from the index is skipped, so the pack never
+ *     chunks content that disagrees with what was analyzed — preserving the
+ *     "pack reflects the indexed commit" contract.
+ *   - grammarCommits: the vendored grammar version pins.
+ *
+ * A `graph` of `undefined` (no store) or one lacking `listNodes` (a bare test
+ * stub) yields empty file/commit provenance but still returns grammar pins.
+ */
+async function resolvePackProvenance(
+  graph: IGraphStore | undefined,
+  repoPath: string,
+): Promise<PackProvenance> {
+  const grammarCommits = await loadGrammarCommits();
+
+  const canList = typeof graph?.listNodes === "function";
+  if (graph === undefined || !canList) {
+    return { commit: "", repoOriginUrl: null, chunkerFiles: [], grammarCommits };
+  }
+
+  const [repoNodes, fileNodes] = await Promise.all([
+    graph.listNodes({ kinds: ["Repo"] }),
+    graph.listNodes({ kinds: ["File"] }),
+  ]);
+
+  const repo = repoNodes.find((n): n is RepoNode => n.kind === "Repo");
+  const commit = repo?.commitSha ?? "";
+  const repoOriginUrl = repo?.originUrl ?? null;
+
+  const chunkerFiles = await collectChunkerFiles(fileNodes, repoPath);
+  return { commit, repoOriginUrl, chunkerFiles, grammarCommits };
+}
+
+/**
+ * Read + hash-verify the bytes of every indexed `File` node. Only files whose
+ * on-disk sha256 matches the indexed `contentHash` are returned, so a pack run
+ * against a dirty working tree silently drops drifted files rather than
+ * chunking stale bytes. Files with no recorded `contentHash` are read as-is
+ * (the index never claimed a hash to verify against).
+ */
+async function collectChunkerFiles(
+  fileNodes: readonly GraphNode[],
+  repoPath: string,
+): Promise<PackProvenance["chunkerFiles"]> {
+  const out: Array<{ path: string; bytes: Uint8Array; language?: string }> = [];
+  for (const node of fileNodes) {
+    if (node.kind !== "File") continue;
+    const file = node as FileNode;
+    let buf: Buffer;
+    try {
+      buf = await readFile(resolve(repoPath, file.filePath));
+    } catch {
+      continue; // file vanished from the tree since indexing — skip it
+    }
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    if (file.contentHash !== undefined && sha256Hex(bytes) !== file.contentHash) {
+      continue; // working-tree bytes drifted from the indexed state — skip
+    }
+    out.push({
+      path: file.filePath,
+      bytes,
+      ...(file.language !== undefined ? { language: file.language } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Load the vendored grammar version pins for the manifest. Best-effort: an
+ * unreadable manifest yields `{}` rather than failing the pack.
+ */
+async function loadGrammarCommits(): Promise<Readonly<Record<string, string>>> {
+  try {
+    return await ingestionParse.grammarVersions();
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Read the on-disk size of `path`. Exported so the CLI's user-facing
  * recap can format byte counts without re-walking the dir tree.
  */
@@ -239,6 +356,99 @@ export function statSizeOrZero(path: string): number {
   } catch {
     return 0;
   }
+}
+
+/** Summary of a pack's context read-receipt, derived from context-bom.json. */
+export interface ContextSummary {
+  /** Number of source files recorded in the receipt. */
+  readonly fileCount: number;
+  /** Files carrying a SHA-256 content hash (provenance coverage). */
+  readonly filesWithHash: number;
+  /** Sum of recorded line counts across files. */
+  readonly totalLines: number;
+  /** File count per language id, sorted by language for stable output. */
+  readonly byLanguage: ReadonlyArray<{ readonly language: string; readonly files: number }>;
+}
+
+/** Minimal shape of the CycloneDX components we read back. */
+interface ReadComponent {
+  readonly name?: string;
+  readonly hashes?: ReadonlyArray<{ readonly alg?: string; readonly content?: string }>;
+  readonly properties?: ReadonlyArray<{ readonly name?: string; readonly value?: string }>;
+}
+
+/**
+ * Read `context-bom.json` from a finished pack directory and summarize it.
+ * Pure read — does not re-run the pack. Throws a clear error when the file
+ * is absent (e.g. a schema-1 pack predating the context receipt).
+ */
+export async function explainContextBom(outDir: string): Promise<ContextSummary> {
+  const file = join(outDir, "context-bom.json");
+  let raw: string;
+  try {
+    raw = await readFile(file, "utf8");
+  } catch {
+    throw new Error(
+      `codehub code-pack: no context-bom.json at ${file}. ` +
+        "This pack predates the context read-receipt; re-run `codehub code-pack`.",
+    );
+  }
+  const doc = JSON.parse(raw) as { components?: readonly ReadComponent[] };
+  const components = doc.components ?? [];
+
+  let filesWithHash = 0;
+  let totalLines = 0;
+  const langCounts = new Map<string, number>();
+  for (const c of components) {
+    if ((c.hashes ?? []).some((h) => h.alg === "SHA-256" && typeof h.content === "string")) {
+      filesWithHash++;
+    }
+    const props = c.properties ?? [];
+    const lineProp = props.find((p) => p.name === "opencodehub:lineCount");
+    if (lineProp?.value !== undefined) {
+      const n = Number.parseInt(lineProp.value, 10);
+      if (Number.isFinite(n)) totalLines += n;
+    }
+    const langProp = props.find((p) => p.name === "opencodehub:language");
+    const lang = langProp?.value ?? "(unknown)";
+    langCounts.set(lang, (langCounts.get(lang) ?? 0) + 1);
+  }
+
+  const byLanguage = [...langCounts.entries()]
+    .map(([language, files]) => ({ language, files }))
+    .sort((a, b) => (a.language < b.language ? -1 : a.language > b.language ? 1 : 0));
+
+  return { fileCount: components.length, filesWithHash, totalLines, byLanguage };
+}
+
+/**
+ * Print a {@link ContextSummary} to the user. JSON goes to stdout (machine
+ * consumers / `--json`); the human block goes to stderr so it never pollutes
+ * a piped stdout. Lives in the command module because `console.log` to stdout
+ * is sanctioned here (see biome.json override), not in the CLI entrypoint.
+ */
+export function printContextSummary(summary: ContextSummary, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.warn(formatContextSummary(summary));
+  }
+}
+
+/** Render a {@link ContextSummary} as a short human-readable block. */
+export function formatContextSummary(s: ContextSummary): string {
+  const lines: string[] = [];
+  lines.push("Context read-receipt:");
+  lines.push(`  files indexed:   ${s.fileCount}`);
+  lines.push(`  with SHA-256:    ${s.filesWithHash}/${s.fileCount}`);
+  lines.push(`  total lines:     ${s.totalLines}`);
+  if (s.byLanguage.length > 0) {
+    lines.push("  by language:");
+    for (const row of s.byLanguage) {
+      lines.push(`    ${row.language}: ${row.files}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /**

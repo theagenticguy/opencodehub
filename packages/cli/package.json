@@ -1,6 +1,6 @@
 {
   "name": "@opencodehub/cli",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "OpenCodeHub — codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
   "license": "Apache-2.0",
   "repository": {
@@ -58,7 +58,6 @@
     "listr2": "10.2.1",
     "lru-cache": "11.5.1",
     "piscina": "5.2.0",
-    "snyk-nodejs-lockfile-parser": "2.8.1",
     "web-tree-sitter": "0.26.9",
     "write-file-atomic": "8.0.0",
     "yaml": "2.9.0",

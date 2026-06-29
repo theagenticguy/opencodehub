@@ -17,6 +17,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { detectFrameworksStructured } from "./detector.js";
+import { CONFIG_AST_FILES } from "./stages/config-ast.js";
 import { indexResolutions, KNOWN_LOCKFILES, parseLockfile } from "./stages/lockfile.js";
 
 /**
@@ -109,6 +110,29 @@ async function preReadLockfiles(
   return indexResolutions(all);
 }
 
+/**
+ * Stage 3 — pre-read every framework config file present at the repo root
+ * (`next.config.*`, `astro.config.*`, `vite.config.*`,
+ * `META-INF/spring.factories`). Returns a relPath → text map; unreadable /
+ * missing files are simply absent (FRM-UN-002 log-and-continue).
+ */
+async function preReadConfigFiles(
+  repoRoot: string,
+  relPaths: ReadonlySet<string>,
+): Promise<ReadonlyMap<string, string>> {
+  const out = new Map<string, string>();
+  for (const name of CONFIG_AST_FILES) {
+    if (!relPaths.has(name)) continue;
+    try {
+      const text = await fs.readFile(path.join(repoRoot, name), "utf8");
+      out.set(name, text);
+    } catch {
+      // Malformed / unreadable — skip.
+    }
+  }
+  return out;
+}
+
 const ALL_ECOSYSTEM_LANGUAGES: readonly string[] = [
   "javascript",
   "typescript",
@@ -128,14 +152,16 @@ const ALL_ECOSYSTEM_LANGUAGES: readonly string[] = [
  */
 export async function detectFrameworks(input: FrameworkDetectionInput): Promise<readonly string[]> {
   const relPaths = new Set(input.files.map((f) => f.relPath));
-  const [manifestText, lockfileVersions] = await Promise.all([
+  const [manifestText, lockfileVersions, configText] = await Promise.all([
     preReadManifests(input.repoRoot, relPaths),
     preReadLockfiles(input.repoRoot, relPaths),
+    preReadConfigFiles(input.repoRoot, relPaths),
   ]);
   const detections = detectFrameworksStructured({
     relPaths,
     manifestText,
     lockfileVersions,
+    configText,
     detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
   });
   return detections.map((d) => d.name);
@@ -151,14 +177,16 @@ export async function detectFrameworksDetailed(
   input: FrameworkDetectionInput,
 ): Promise<ReturnType<typeof detectFrameworksStructured>> {
   const relPaths = new Set(input.files.map((f) => f.relPath));
-  const [manifestText, lockfileVersions] = await Promise.all([
+  const [manifestText, lockfileVersions, configText] = await Promise.all([
     preReadManifests(input.repoRoot, relPaths),
     preReadLockfiles(input.repoRoot, relPaths),
+    preReadConfigFiles(input.repoRoot, relPaths),
   ]);
   return detectFrameworksStructured({
     relPaths,
     manifestText,
     lockfileVersions,
+    configText,
     detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
   });
 }
