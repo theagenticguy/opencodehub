@@ -38,11 +38,11 @@ import {
 } from "@opencodehub/sarif";
 import {
   ALL_SPECS,
+  buildScannerFileContext,
   CHECKOV_SPEC,
   createDefaultWrappers,
   type DefaultWrapperContext,
   filterSpecsByProfile,
-  HADOLINT_SPEC,
   P1_SPECS,
   PIP_AUDIT_SPEC,
   type ProjectProfileGate,
@@ -50,7 +50,6 @@ import {
   runScanners,
   type ScannerSpec,
   type ScannerStatus,
-  SPECTRAL_SPEC,
   TY_SPEC,
   VULTURE_SPEC,
 } from "@opencodehub/scanners";
@@ -367,17 +366,15 @@ async function buildWrapperContext(
   specs: readonly ScannerSpec[],
 ): Promise<DefaultWrapperContext> {
   const ids = new Set(specs.map((s) => s.id));
+  // Spectral contract files + hadolint Dockerfiles come from the shared
+  // discoverer so the CLI and MCP `scan` tool can never drift on what they
+  // hand those wrappers (the MCP path previously omitted it entirely).
+  const fileCtx = await buildScannerFileContext(repoPath, specs);
   const ctx: {
     -readonly [K in keyof DefaultWrapperContext]?: DefaultWrapperContext[K];
-  } = {};
+  } = { ...fileCtx };
   if (ids.has(CHECKOV_SPEC.id)) {
     ctx.checkov = { frameworks: profile.iacTypes ?? [] };
-  }
-  if (ids.has(HADOLINT_SPEC.id)) {
-    ctx.hadolint = { dockerfiles: await findDockerfiles(repoPath) };
-  }
-  if (ids.has(SPECTRAL_SPEC.id)) {
-    ctx.spectral = { contractFiles: await findOpenApiFiles(repoPath) };
   }
   if (ids.has(PIP_AUDIT_SPEC.id)) {
     // The wrapper auto-detects: a real requirements.txt is audited directly;
@@ -400,79 +397,6 @@ async function buildWrapperContext(
     ctx.ty = { excludeGlobs: ignoreDirs };
   }
   return ctx;
-}
-
-/**
- * Walk the repo for Dockerfile* files. Bounded to one breadth-first pass
- * with a per-directory file cap so huge repos don't explode; the typical
- * case has ≤5 Dockerfiles.
- */
-async function findDockerfiles(repoPath: string): Promise<readonly string[]> {
-  const { readdir } = await import("node:fs/promises");
-  const { join, relative } = await import("node:path");
-  type DirEntry = import("node:fs").Dirent;
-  const MAX_FILES = 256;
-  const out: string[] = [];
-  const queue: string[] = [repoPath];
-  while (queue.length > 0 && out.length < MAX_FILES) {
-    const dir = queue.shift();
-    if (dir === undefined) break;
-    let entries: DirEntry[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entries) {
-      if (e.name === "node_modules" || e.name === ".git" || e.name.startsWith(".codehub")) {
-        continue;
-      }
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) {
-        queue.push(abs);
-      } else if (e.isFile() && /^Dockerfile(\..+)?$/.test(e.name)) {
-        out.push(relative(repoPath, abs));
-      }
-    }
-  }
-  return out;
-}
-
-/**
- * Locate OpenAPI / Swagger / AsyncAPI / Arazzo contracts. Mirrors the
- * ProjectProfile API-contract detector's matching rules but just pulls
- * the paths (no content sniff — good enough for Spectral invocation).
- */
-async function findOpenApiFiles(repoPath: string): Promise<readonly string[]> {
-  const { readdir } = await import("node:fs/promises");
-  const { join, relative } = await import("node:path");
-  type DirEntry = import("node:fs").Dirent;
-  const MAX_FILES = 64;
-  const RE = /^(openapi|swagger|asyncapi|arazzo)\.(ya?ml|json)$/i;
-  const out: string[] = [];
-  const queue: string[] = [repoPath];
-  while (queue.length > 0 && out.length < MAX_FILES) {
-    const dir = queue.shift();
-    if (dir === undefined) break;
-    let entries: DirEntry[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entries) {
-      if (e.name === "node_modules" || e.name === ".git" || e.name.startsWith(".codehub")) {
-        continue;
-      }
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) {
-        queue.push(abs);
-      } else if (e.isFile() && RE.test(e.name)) {
-        out.push(relative(repoPath, abs));
-      }
-    }
-  }
-  return out;
 }
 
 function resolveSeverityThreshold(input: readonly string[] | undefined): ReadonlySet<string> {

@@ -51,6 +51,11 @@ export {
 } from "./catalog.js";
 export type { NpmAuditConvertOptions } from "./converters/npm-audit-to-sarif.js";
 export { npmAuditJsonToSarif } from "./converters/npm-audit-to-sarif.js";
+export {
+  buildScannerFileContext,
+  findDockerfiles,
+  findOpenApiFiles,
+} from "./file-context.js";
 export type { PipAuditConvertOptions } from "./converters/pip-audit-to-sarif.js";
 export { pipAuditJsonToSarif } from "./converters/pip-audit-to-sarif.js";
 export { runBinary, tryParseJson, which } from "./exec.js";

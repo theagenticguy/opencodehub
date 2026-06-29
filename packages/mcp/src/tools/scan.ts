@@ -20,7 +20,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SarifLog } from "@opencodehub/sarif";
 import {
   ALL_SPECS,
+  buildScannerFileContext,
+  CHECKOV_SPEC,
   createDefaultWrappers,
+  type DefaultWrapperContext,
   filterSpecsByProfile,
   type ProjectProfileGate,
   runScanners,
@@ -85,7 +88,12 @@ export async function runScan(ctx: ToolContext, args: ScanArgs): Promise<ToolRes
           stalenessFromMeta(resolved.meta),
         );
       }
-      const wrappers = createDefaultWrappers(specs);
+      // Build the per-scanner wrapper context so Spectral/hadolint receive
+      // their file lists (without it they default to empty and silently lint
+      // nothing) and checkov gets its IaC frameworks. The CLI path does the
+      // same via the shared `buildScannerFileContext` discoverer.
+      const wrapperContext = await buildWrapperContext(store.graph, resolved.repoPath, specs);
+      const wrappers = createDefaultWrappers(specs, undefined, wrapperContext);
       const runnerOpts = args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {};
       const result = await runScanners(resolved.repoPath, wrappers, runnerOpts);
 
@@ -155,6 +163,27 @@ async function selectScanners(
   }
   const profile = await readProfile(graph);
   return filterSpecsByProfile(ALL_SPECS, profile);
+}
+
+/**
+ * Build the per-scanner wrapper context for the MCP `scan` tool. Mirrors the
+ * CLI: file-discovery (Spectral contract files, hadolint Dockerfiles) via the
+ * shared `buildScannerFileContext`, plus checkov's IaC frameworks read from
+ * the ProjectProfile. Without this the wrappers default to empty file lists
+ * and silently scan nothing.
+ */
+async function buildWrapperContext(
+  graph: import("@opencodehub/storage").IGraphStore,
+  repoPath: string,
+  specs: readonly ScannerSpec[],
+): Promise<DefaultWrapperContext> {
+  const fileCtx = await buildScannerFileContext(repoPath, specs);
+  const ctx: DefaultWrapperContext = { ...fileCtx };
+  if (specs.some((s) => s.id === CHECKOV_SPEC.id)) {
+    const profile = await readProfile(graph);
+    return { ...ctx, checkov: { frameworks: profile.iacTypes ?? [] } };
+  }
+  return ctx;
 }
 
 async function readProfile(
