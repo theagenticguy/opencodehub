@@ -97,7 +97,6 @@ export type {
 export { classifyDependencies } from "./license-classify.js";
 export type { OwnerRow } from "./owners.js";
 export { collectOwnersByPath, listOwners } from "./owners.js";
-export { buildScanEnrichment } from "./scan-enrich.js";
 export type { Adjacency, EdgeLike } from "./page-rank.js";
 export { buildAdjacency, pageRank } from "./page-rank.js";
 export type { OrphanGrade } from "./risk.js";
@@ -128,6 +127,7 @@ export {
 } from "./risk-snapshot.js";
 export type { RouteMapFilter, RouteMapRow } from "./route-map.js";
 export { listRouteMap } from "./route-map.js";
+export { buildScanEnrichment } from "./scan-enrich.js";
 export type { ShapeStatus } from "./shape.js";
 export { classifyShape } from "./shape.js";
 export { computeStaleness } from "./staleness.js";
