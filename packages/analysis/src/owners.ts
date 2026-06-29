@@ -51,3 +51,65 @@ export async function listOwners(
   }
   return owners;
 }
+
+/**
+ * Map each repo-relative path to its `OWNED_BY` contributor identifiers, for
+ * the policy engine's `ownership_required` rule. One batched edge query over
+ * every File node, grouped by source file — so a verdict over N changed files
+ * is a single graph round-trip, not N calls to {@link listOwners}.
+ *
+ * Owner identity is the contributor's plain email when present (what an
+ * operator writes in `require_approval_from`), falling back to the email hash.
+ * Identifiers per path are deduped and sorted for deterministic output. Paths
+ * with no owner edges are omitted (the policy engine treats a missing entry as
+ * "no graph owners"). An empty `files` list returns an empty map.
+ */
+export async function collectOwnersByPath(
+  graph: IGraphStore,
+  files: readonly string[],
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  const out = new Map<string, readonly string[]>();
+  if (files.length === 0) return out;
+  // Defensive: legacy / minimal test fakes implement only part of IGraphStore.
+  // A store without the edge/node readers yields an empty map rather than
+  // throwing — the policy engine then treats every path as "no graph owners",
+  // exactly as before this wiring existed.
+  if (typeof graph.listEdgesByType !== "function" || typeof graph.listNodesByKind !== "function") {
+    return out;
+  }
+
+  const fileNodeIds = files.map((f) => `File:${f}:${f}`);
+  const edges = await graph.listEdgesByType("OWNED_BY", { fromIds: fileNodeIds });
+  if (edges.length === 0) return out;
+
+  const contributors = await graph.listNodesByKind("Contributor");
+  const contribById = new Map<string, (typeof contributors)[number]>();
+  for (const c of contributors) contribById.set(c.id, c);
+
+  // File node id back to its repo-relative path (id form is `File:<path>:<path>`).
+  const pathByNodeId = new Map<string, string>();
+  for (let i = 0; i < files.length; i += 1) {
+    const path = files[i];
+    const id = fileNodeIds[i];
+    if (path !== undefined && id !== undefined) pathByNodeId.set(id, path);
+  }
+
+  const idsByPath = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    const path = pathByNodeId.get(edge.from);
+    if (path === undefined) continue;
+    const c = contribById.get(edge.to);
+    if (c === undefined) continue;
+    const plain = typeof c.emailPlain === "string" ? c.emailPlain : "";
+    const identifier = plain.length > 0 ? plain : c.emailHash;
+    if (identifier.length === 0) continue;
+    const set = idsByPath.get(path) ?? new Set<string>();
+    set.add(identifier);
+    idsByPath.set(path, set);
+  }
+
+  for (const [path, set] of idsByPath) {
+    out.set(path, [...set].sort());
+  }
+  return out;
+}

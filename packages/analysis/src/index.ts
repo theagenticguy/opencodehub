@@ -96,7 +96,7 @@ export type {
 } from "./license-classify.js";
 export { classifyDependencies } from "./license-classify.js";
 export type { OwnerRow } from "./owners.js";
-export { listOwners } from "./owners.js";
+export { collectOwnersByPath, listOwners } from "./owners.js";
 export type { Adjacency, EdgeLike } from "./page-rank.js";
 export { buildAdjacency, pageRank } from "./page-rank.js";
 export type { OrphanGrade } from "./risk.js";
