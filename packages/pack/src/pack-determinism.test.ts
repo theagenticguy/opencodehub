@@ -14,8 +14,8 @@
  *      `Buffer.compare(readFile(outA/f), readFile(outB/f)) === 0`
  *
  * Variant matrix:
- *   V1. Baseline — manifest.files[] lists 7 BOM bodies (excluding
- *       manifest+readme). 9 files on disk: 7 bodies + readme.md + manifest.json.
+ *   V1. Baseline — manifest.files[] lists 8 BOM bodies (excluding
+ *       manifest+readme). 10 files on disk: 8 bodies + readme.md + manifest.json.
  *       (The Parquet embeddings sidecar was dropped in ADR 0019; no .parquet
  *       file is ever produced.)
  *   V3. Mixed framework labels — ProjectProfile.frameworks is a duplicated,
@@ -383,7 +383,7 @@ async function assertByteIdentical(label: string, knobs: FixtureKnobs): Promise<
 // Variant tests — 4 distinct shapes covering the determinism matrix.
 // ---------------------------------------------------------------------------
 
-test("V1. baseline — 9 files on disk, no .parquet, byte-identical", async () => {
+test("V1. baseline — 10 files on disk, no .parquet, byte-identical", async () => {
   await assertByteIdentical("v1-baseline", {
     withMixedFrameworks: false,
     withGroupedFindings: false,
@@ -400,6 +400,7 @@ test("V1. baseline — 9 files on disk, no .parquet, byte-identical", async () =
     const entries = (await readdir(outDir)).sort();
     assert.deepEqual(entries, [
       "ast-chunks.jsonl",
+      "context-bom.json",
       "deps.jsonl",
       "file-tree.jsonl",
       "findings.jsonl",

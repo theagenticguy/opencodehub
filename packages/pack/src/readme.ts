@@ -32,7 +32,7 @@ export function buildReadme(opts: ReadmeOpts): string {
   const lines: string[] = [];
   lines.push("# OpenCodeHub Code-Pack");
   lines.push("");
-  lines.push("Deterministic 8-item code-pack BOM produced by `@opencodehub/pack`.");
+  lines.push("Deterministic 9-item code-pack BOM produced by `@opencodehub/pack`.");
   lines.push("");
 
   lines.push("## Manifest");
@@ -43,6 +43,7 @@ export function buildReadme(opts: ReadmeOpts): string {
   lines.push(`- determinism_class: \`${manifest.determinismClass}\``);
   lines.push(`- budget_tokens: ${manifest.budgetTokens}`);
   lines.push(`- pack_hash: \`${manifest.packHash}\``);
+  lines.push(`- context_bom_hash: \`${manifest.contextBomHash}\``);
   lines.push(`- schema_version: ${manifest.schemaVersion}`);
   lines.push("");
 

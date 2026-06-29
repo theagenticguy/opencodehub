@@ -19,6 +19,8 @@ import {
   DEFAULT_BUDGET_TOKENS,
   DEFAULT_ENGINE,
   DEFAULT_TOKENIZER_ID,
+  explainContextBom,
+  formatContextSummary,
   runCodePack,
 } from "./code-pack.js";
 
@@ -38,9 +40,11 @@ function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
       { kind: "xrefs", path: "xrefs.jsonl", fileHash: "e".repeat(64) },
       { kind: "findings", path: "findings.jsonl", fileHash: "f".repeat(64) },
       { kind: "licenses", path: "licenses.md", fileHash: "1".repeat(64) },
+      { kind: "context-bom", path: "context-bom.json", fileHash: "2".repeat(64) },
     ],
+    contextBomHash: "3".repeat(64),
     packHash: "deadbeef".repeat(8),
-    schemaVersion: 1,
+    schemaVersion: 2,
     ...overrides,
   };
 }
@@ -88,7 +92,7 @@ test("runCodePack defaults to engine=pack and dispatches to generatePack", async
 
     assert.equal(result.engine, "pack");
     assert.equal(result.packHash, "abc123");
-    assert.equal(result.bomItemCount, 8); // 7 mandatory items + manifest
+    assert.equal(result.bomItemCount, 9); // 8 mandatory items + manifest
     assert.equal(captured.repoPath, repoPath);
     assert.equal(captured.budget, DEFAULT_BUDGET_TOKENS);
     assert.equal(captured.tokenizer, DEFAULT_TOKENIZER_ID);
@@ -256,5 +260,56 @@ test("runCodePack engine='pack' raises when the graph index is missing and no _s
     );
   } finally {
     await rm(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("explainContextBom summarizes a context-bom.json on disk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-explain-"));
+  try {
+    const doc = {
+      bomFormat: "CycloneDX",
+      specVersion: "1.6",
+      version: 1,
+      components: [
+        {
+          type: "file",
+          name: "src/a.ts",
+          hashes: [{ alg: "SHA-256", content: "a".repeat(64) }],
+          properties: [
+            { name: "opencodehub:lineCount", value: "10" },
+            { name: "opencodehub:language", value: "typescript" },
+          ],
+        },
+        {
+          type: "file",
+          name: "README.md",
+          properties: [{ name: "opencodehub:lineCount", value: "5" }],
+        },
+      ],
+    };
+    await writeFile(join(dir, "context-bom.json"), JSON.stringify(doc));
+    const summary = await explainContextBom(dir);
+    assert.equal(summary.fileCount, 2);
+    assert.equal(summary.filesWithHash, 1);
+    assert.equal(summary.totalLines, 15);
+    assert.deepEqual(summary.byLanguage, [
+      { language: "(unknown)", files: 1 },
+      { language: "typescript", files: 1 },
+    ]);
+    // The formatted block names the headline counts.
+    const text = formatContextSummary(summary);
+    assert.match(text, /files indexed:\s+2/);
+    assert.match(text, /with SHA-256:\s+1\/2/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("explainContextBom throws a clear error when context-bom.json is absent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-explain-missing-"));
+  try {
+    await assert.rejects(explainContextBom(dir), /no context-bom\.json|predates/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

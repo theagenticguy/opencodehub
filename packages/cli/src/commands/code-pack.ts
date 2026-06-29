@@ -241,6 +241,85 @@ export function statSizeOrZero(path: string): number {
   }
 }
 
+/** Summary of a pack's context read-receipt, derived from context-bom.json. */
+export interface ContextSummary {
+  /** Number of source files recorded in the receipt. */
+  readonly fileCount: number;
+  /** Files carrying a SHA-256 content hash (provenance coverage). */
+  readonly filesWithHash: number;
+  /** Sum of recorded line counts across files. */
+  readonly totalLines: number;
+  /** File count per language id, sorted by language for stable output. */
+  readonly byLanguage: ReadonlyArray<{ readonly language: string; readonly files: number }>;
+}
+
+/** Minimal shape of the CycloneDX components we read back. */
+interface ReadComponent {
+  readonly name?: string;
+  readonly hashes?: ReadonlyArray<{ readonly alg?: string; readonly content?: string }>;
+  readonly properties?: ReadonlyArray<{ readonly name?: string; readonly value?: string }>;
+}
+
+/**
+ * Read `context-bom.json` from a finished pack directory and summarize it.
+ * Pure read — does not re-run the pack. Throws a clear error when the file
+ * is absent (e.g. a schema-1 pack predating the context receipt).
+ */
+export async function explainContextBom(outDir: string): Promise<ContextSummary> {
+  const file = join(outDir, "context-bom.json");
+  let raw: string;
+  try {
+    raw = await readFile(file, "utf8");
+  } catch {
+    throw new Error(
+      `codehub code-pack: no context-bom.json at ${file}. ` +
+        "This pack predates the context read-receipt; re-run `codehub code-pack`.",
+    );
+  }
+  const doc = JSON.parse(raw) as { components?: readonly ReadComponent[] };
+  const components = doc.components ?? [];
+
+  let filesWithHash = 0;
+  let totalLines = 0;
+  const langCounts = new Map<string, number>();
+  for (const c of components) {
+    if ((c.hashes ?? []).some((h) => h.alg === "SHA-256" && typeof h.content === "string")) {
+      filesWithHash++;
+    }
+    const props = c.properties ?? [];
+    const lineProp = props.find((p) => p.name === "opencodehub:lineCount");
+    if (lineProp?.value !== undefined) {
+      const n = Number.parseInt(lineProp.value, 10);
+      if (Number.isFinite(n)) totalLines += n;
+    }
+    const langProp = props.find((p) => p.name === "opencodehub:language");
+    const lang = langProp?.value ?? "(unknown)";
+    langCounts.set(lang, (langCounts.get(lang) ?? 0) + 1);
+  }
+
+  const byLanguage = [...langCounts.entries()]
+    .map(([language, files]) => ({ language, files }))
+    .sort((a, b) => (a.language < b.language ? -1 : a.language > b.language ? 1 : 0));
+
+  return { fileCount: components.length, filesWithHash, totalLines, byLanguage };
+}
+
+/** Render a {@link ContextSummary} as a short human-readable block. */
+export function formatContextSummary(s: ContextSummary): string {
+  const lines: string[] = [];
+  lines.push("Context read-receipt:");
+  lines.push(`  files indexed:   ${s.fileCount}`);
+  lines.push(`  with SHA-256:    ${s.filesWithHash}/${s.fileCount}`);
+  lines.push(`  total lines:     ${s.totalLines}`);
+  if (s.byLanguage.length > 0) {
+    lines.push("  by language:");
+    for (const row of s.byLanguage) {
+      lines.push(`    ${row.language}: ${row.files}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 /**
  * Discriminate between the composed {@link Store} and a bare
  * {@link IGraphStore} stub. Tests historically passed a flat IGraphStore
