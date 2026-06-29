@@ -311,6 +311,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     maxSummariesPerRun: resolvedMaxSummaries,
     ...(opts.summaryModel !== undefined ? { summaryModel: opts.summaryModel } : {}),
     ...(opts.strictDetectors !== undefined ? { strictDetectors: opts.strictDetectors } : {}),
+    ...(opts.allowBuildScripts !== undefined ? { allowBuildScripts: opts.allowBuildScripts } : {}),
     ...(summaryCacheAdapter !== undefined
       ? { summaryCacheAdapter: summaryCacheAdapter.adapter }
       : {}),

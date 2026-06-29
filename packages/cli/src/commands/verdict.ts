@@ -5,6 +5,7 @@
 import { join } from "node:path";
 import {
   classifyDependencies,
+  collectOwnersByPath,
   computeVerdict,
   type DependencyRef,
   type VerdictConfig,
@@ -125,11 +126,19 @@ export async function runVerdict(opts: VerdictCliOptions = {}): Promise<void> {
     // Only pay the dependency scan when a policy is actually loaded — the
     // starter (no-file) repo skips it entirely.
     const licenseViolations = policy !== undefined ? await collectLicenseViolations(store) : [];
+    // Map each changed path to its graph owners so `ownership_required` rules
+    // that rely on graph-derived owners (empty `require_approval_from`) can
+    // actually be satisfied. Only paid when a policy is loaded — the starter
+    // (no-policy) repo skips the graph walk entirely.
+    const ownersByPath =
+      policy !== undefined
+        ? await collectOwnersByPath(graph, verdict.changedFiles)
+        : new Map<string, readonly string[]>();
     const policyDecision =
       policy !== undefined
         ? evaluatePolicy(
             policy,
-            buildPolicyContext(verdict, opts.approvals ?? [], licenseViolations),
+            buildPolicyContext(verdict, opts.approvals ?? [], licenseViolations, ownersByPath),
           )
         : undefined;
 
@@ -162,6 +171,7 @@ function buildPolicyContext(
   verdict: VerdictResponse,
   approvals: readonly string[],
   licenseViolations: readonly LicenseViolationInput[],
+  ownersByPath: ReadonlyMap<string, readonly string[]>,
 ): PolicyContext {
   return {
     // License findings come from `classifyDependencies` over the indexed
@@ -174,11 +184,13 @@ function buildPolicyContext(
     // diff: the changed-file list `computeVerdict` already derived from
     // `detect_changes`, surfaced on the response.
     touchedPaths: verdict.changedFiles,
-    // ownersByPath stays empty: mapping each path to an approving owner
-    // needs a contributor-email -> team/handle reconciliation source that
-    // does not exist yet (separate design item). `require_approval_from`
-    // still works because the evaluator unions it with any path owners.
-    ownersByPath: new Map(),
+    // Each changed path's graph owners (OWNED_BY contributor emails), so an
+    // `ownership_required` rule that leans on graph owners — empty
+    // `require_approval_from` — can be satisfied instead of unconditionally
+    // blocking with "no owners". Owner identity is the contributor email;
+    // team/handle reconciliation (mapping an email to a GitHub team) remains
+    // a separate design item that operators bridge via `require_approval_from`.
+    ownersByPath,
     approvals,
   };
 }

@@ -140,6 +140,7 @@ describe("runIngestion option normalization", () => {
       maxSummariesPerRun: 7,
       summaryModel: "model-x",
       strictDetectors: true,
+      allowBuildScripts: ["proleap"],
     };
 
     await runIngestion(repo, { ...options, phases: [probe] });
@@ -161,6 +162,7 @@ describe("runIngestion option normalization", () => {
     assert.equal(seen.embeddingsBatchSize, 16);
     assert.equal(seen.coverage, true);
     assert.equal(seen.strictDetectors, true);
+    assert.deepEqual(seen.allowBuildScripts, ["proleap"]);
   });
 
   it("drops orchestrator-only keys from ctx.options", async () => {

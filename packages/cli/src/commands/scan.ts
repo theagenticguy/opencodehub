@@ -27,22 +27,24 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { buildScanEnrichment } from "@opencodehub/analysis";
 import { pipeline } from "@opencodehub/ingestion";
 import {
   applyBaselineState,
   applySuppressions,
   enrichWithFingerprints,
+  enrichWithProperties,
   loadSuppressions,
   type SarifLog,
   SarifLogSchema,
 } from "@opencodehub/sarif";
 import {
   ALL_SPECS,
+  buildScannerFileContext,
   CHECKOV_SPEC,
   createDefaultWrappers,
   type DefaultWrapperContext,
   filterSpecsByProfile,
-  HADOLINT_SPEC,
   P1_SPECS,
   PIP_AUDIT_SPEC,
   type ProjectProfileGate,
@@ -50,7 +52,6 @@ import {
   runScanners,
   type ScannerSpec,
   type ScannerStatus,
-  SPECTRAL_SPEC,
   TY_SPEC,
   VULTURE_SPEC,
 } from "@opencodehub/scanners";
@@ -150,7 +151,14 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
   // every result before anything else touches the log so downstream
   // consumers (baseline diff, ingest-sarif, `list_findings_delta`) all
   // read the same match keys.
-  const enriched = enrichWithFingerprints(result.sarif);
+  const withFingerprints = enrichWithFingerprints(result.sarif);
+
+  // Stamp graph-derived signals (bus factor, fix-follow-feat density,
+  // ownership drift) under `properties.opencodehub.*` on each result whose
+  // file the graph knows. Best-effort: a missing/empty graph leaves the SARIF
+  // unchanged, exactly like the ingest step below. Runs after fingerprinting
+  // because the enrichment is keyed by `primaryLocationLineHash`.
+  const enriched = await enrichWithGraphSignals(repoPath, withFingerprints, opts);
 
   // Optional baseline diff: tag every result with
   // `baselineState` so downstream consumers (scan output, ingest-sarif,
@@ -272,6 +280,35 @@ function applySuppressionsForRepo(repoPath: string, log: SarifLog): SarifLog {
 }
 
 /**
+ * Stamp graph-derived signals onto each result via `enrichWithProperties`.
+ * Best-effort: opens the scanned repo's graph read-only and reads the
+ * file-granular signals for each finding's file. A missing graph (no
+ * `codehub analyze` yet) or an empty signal set leaves the SARIF untouched —
+ * scanning a repo with no index must still succeed, so any failure here is
+ * swallowed with a warning rather than aborting the scan.
+ */
+async function enrichWithGraphSignals(
+  repoPath: string,
+  log: SarifLog,
+  opts: ScanOptions,
+): Promise<SarifLog> {
+  try {
+    const { store } = await openStoreForCommand({ repo: opts.repo ?? repoPath, readOnly: true });
+    try {
+      const graph = "graph" in store ? store.graph : store;
+      const enrichment = await buildScanEnrichment(graph, log, repoPath);
+      return enrichWithProperties(log, enrichment);
+    } finally {
+      await store.close();
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`codehub scan: graph-signal enrichment skipped: ${msg}`);
+    return log;
+  }
+}
+
+/**
  * Read the ProjectProfile node (if present) so we can gate scanners by
  * detected languages, IaC types, and API contracts. If the graph is
  * absent, every field is returned empty — falls back to the polyglot P1
@@ -367,17 +404,15 @@ async function buildWrapperContext(
   specs: readonly ScannerSpec[],
 ): Promise<DefaultWrapperContext> {
   const ids = new Set(specs.map((s) => s.id));
+  // Spectral contract files + hadolint Dockerfiles come from the shared
+  // discoverer so the CLI and MCP `scan` tool can never drift on what they
+  // hand those wrappers (the MCP path previously omitted it entirely).
+  const fileCtx = await buildScannerFileContext(repoPath, specs);
   const ctx: {
     -readonly [K in keyof DefaultWrapperContext]?: DefaultWrapperContext[K];
-  } = {};
+  } = { ...fileCtx };
   if (ids.has(CHECKOV_SPEC.id)) {
     ctx.checkov = { frameworks: profile.iacTypes ?? [] };
-  }
-  if (ids.has(HADOLINT_SPEC.id)) {
-    ctx.hadolint = { dockerfiles: await findDockerfiles(repoPath) };
-  }
-  if (ids.has(SPECTRAL_SPEC.id)) {
-    ctx.spectral = { contractFiles: await findOpenApiFiles(repoPath) };
   }
   if (ids.has(PIP_AUDIT_SPEC.id)) {
     // The wrapper auto-detects: a real requirements.txt is audited directly;
@@ -400,79 +435,6 @@ async function buildWrapperContext(
     ctx.ty = { excludeGlobs: ignoreDirs };
   }
   return ctx;
-}
-
-/**
- * Walk the repo for Dockerfile* files. Bounded to one breadth-first pass
- * with a per-directory file cap so huge repos don't explode; the typical
- * case has ≤5 Dockerfiles.
- */
-async function findDockerfiles(repoPath: string): Promise<readonly string[]> {
-  const { readdir } = await import("node:fs/promises");
-  const { join, relative } = await import("node:path");
-  type DirEntry = import("node:fs").Dirent;
-  const MAX_FILES = 256;
-  const out: string[] = [];
-  const queue: string[] = [repoPath];
-  while (queue.length > 0 && out.length < MAX_FILES) {
-    const dir = queue.shift();
-    if (dir === undefined) break;
-    let entries: DirEntry[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entries) {
-      if (e.name === "node_modules" || e.name === ".git" || e.name.startsWith(".codehub")) {
-        continue;
-      }
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) {
-        queue.push(abs);
-      } else if (e.isFile() && /^Dockerfile(\..+)?$/.test(e.name)) {
-        out.push(relative(repoPath, abs));
-      }
-    }
-  }
-  return out;
-}
-
-/**
- * Locate OpenAPI / Swagger / AsyncAPI / Arazzo contracts. Mirrors the
- * ProjectProfile API-contract detector's matching rules but just pulls
- * the paths (no content sniff — good enough for Spectral invocation).
- */
-async function findOpenApiFiles(repoPath: string): Promise<readonly string[]> {
-  const { readdir } = await import("node:fs/promises");
-  const { join, relative } = await import("node:path");
-  type DirEntry = import("node:fs").Dirent;
-  const MAX_FILES = 64;
-  const RE = /^(openapi|swagger|asyncapi|arazzo)\.(ya?ml|json)$/i;
-  const out: string[] = [];
-  const queue: string[] = [repoPath];
-  while (queue.length > 0 && out.length < MAX_FILES) {
-    const dir = queue.shift();
-    if (dir === undefined) break;
-    let entries: DirEntry[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entries) {
-      if (e.name === "node_modules" || e.name === ".git" || e.name.startsWith(".codehub")) {
-        continue;
-      }
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) {
-        queue.push(abs);
-      } else if (e.isFile() && RE.test(e.name)) {
-        out.push(relative(repoPath, abs));
-      }
-    }
-  }
-  return out;
 }
 
 function resolveSeverityThreshold(input: readonly string[] | undefined): ReadonlySet<string> {
