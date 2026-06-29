@@ -31,6 +31,7 @@ import {
   type FrameworkRule,
   type ManifestKey,
 } from "./catalog.js";
+import { type ConfigAstFinding, inspectConfigAst } from "./stages/config-ast.js";
 import {
   VARIANT_RESOLVERS,
   type VariantResolveInput,
@@ -56,6 +57,15 @@ export interface FrameworkDetectorInput {
    * substitutes the lockfile's pinned version. Absent for legacy callers.
    */
   readonly lockfileVersions?: ReadonlyMap<string, string>;
+  /**
+   * Stage 3 — raw text of framework config files (`next.config.*`,
+   * `astro.config.*`, `vite.config.*`, `META-INF/spring.factories`), keyed by
+   * relPath. When present, `inspectConfigAst` runs and its findings are merged
+   * as stage-3 evidence into the matching framework's detection (corroborating
+   * a manifest/layout hit; it never creates a detection on its own). Absent for
+   * legacy callers — stage 3 simply contributes no evidence.
+   */
+  readonly configText?: ReadonlyMap<string, string>;
 }
 
 /** Mapping language → ecosystem. Covers the tree-sitter languages OpenCodeHub indexes. */
@@ -85,11 +95,16 @@ export function detectFrameworksStructured(
     manifestJson,
     manifestText: input.manifestText,
   };
+  // Stage 3 — config-AST findings, grouped by the framework name they
+  // implicate. Computed once; merged into a detection's evidence when that
+  // framework already hit on a manifest/layout signal (stage 3 corroborates,
+  // never creates).
+  const configFindingsByFramework = groupConfigFindings(input.configText, input.relPaths);
 
   const out: FrameworkDetection[] = [];
   for (const rule of FRAMEWORK_CATALOG) {
     if (rule.ecosystem !== "any" && !activeEcosystems.has(rule.ecosystem)) continue;
-    const hit = evaluateRule(rule, input, manifestJson);
+    const hit = evaluateRule(rule, input, manifestJson, configFindingsByFramework.get(rule.name));
     if (hit === null) continue;
     const detection = buildDetection(
       rule,
@@ -102,6 +117,26 @@ export function detectFrameworksStructured(
   }
   out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return out;
+}
+
+/**
+ * Run stage 3 (config-AST) once and group its findings by the framework name
+ * they implicate, so `evaluateRule` can look up a rule's corroborating
+ * findings by `rule.name`. Returns an empty map when no config text was
+ * supplied (legacy callers) — stage 3 then contributes nothing.
+ */
+function groupConfigFindings(
+  configText: ReadonlyMap<string, string> | undefined,
+  relPaths: ReadonlySet<string>,
+): ReadonlyMap<string, readonly ConfigAstFinding[]> {
+  const grouped = new Map<string, ConfigAstFinding[]>();
+  if (configText === undefined || configText.size === 0) return grouped;
+  for (const finding of inspectConfigAst(configText, relPaths)) {
+    const list = grouped.get(finding.framework) ?? [];
+    list.push(finding);
+    grouped.set(finding.framework, list);
+  }
+  return grouped;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +163,7 @@ function evaluateRule(
   rule: FrameworkRule,
   input: FrameworkDetectorInput,
   manifestJson: ReadonlyMap<string, unknown>,
+  configFindings: readonly ConfigAstFinding[] | undefined,
 ): RuleHit | null {
   const evidenceSeen = new Map<string, Evidence>();
   let hasManifestHit = false;
@@ -170,6 +206,16 @@ function evaluateRule(
         push({ stage: 1, source: key.file, detail });
         hasManifestHit = true;
       }
+    }
+  }
+
+  // Stage 3 — config-AST corroboration. Only merged when a manifest/layout
+  // signal already fired: config text alone never creates a detection (a repo
+  // can carry a vendored config without using the framework). Stage-3 evidence
+  // sharpens an existing hit (e.g. Next.js App vs Pages router).
+  if ((hasManifestHit || hasFileHit) && configFindings !== undefined) {
+    for (const f of configFindings) {
+      push({ stage: 3, source: f.source, detail: f.detail });
     }
   }
 
