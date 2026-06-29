@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.3](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.2...cli-v0.10.3) (2026-06-29)
+
+
+### Features
+
+* **pack:** context-bom read-receipt (9th BOM item) + real production provenance ([#261](https://github.com/theagenticguy/opencodehub/issues/261)) ([b936af2](https://github.com/theagenticguy/opencodehub/commit/b936af25ec531fc021b6a54fc4c4419203e6a8e3))
+
+
+### Bug Fixes
+
+* wire four dropped injection seams (F1–F4 from the latent-bug sweep) ([#263](https://github.com/theagenticguy/opencodehub/issues/263)) ([dde590e](https://github.com/theagenticguy/opencodehub/commit/dde590ed32eac79a2121f2ba8341351b0c83d3ac))
+
 ## [0.10.2](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.1...cli-v0.10.2) (2026-06-28)
 
 
