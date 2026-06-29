@@ -40,3 +40,14 @@ the underlying tool directly (same lesson as running `tsc`/`node --test` via
 `console.log` → only in `packages/cli/src/commands/**`. In `index.ts` and
 elsewhere, only `console.warn` / `console.error` are allowed. Machine `--json`
 output therefore belongs in a command module helper.
+
+## Update (session-3b8ca0, F1-F4 PR): CI runs `biome ci`, not `biome check`
+
+The CI `lint` job is `pnpm exec biome ci .` (see .github/workflows/ci.yml). `biome ci`
+is STRICTER than `biome check`: it enforces the organize-imports/exports assist as an
+ERROR (barrel exports must be alphabetically sorted), which `biome check` only auto-fixes
+silently. A locally-clean `biome check .` still failed CI lint on export ordering.
+
+RULE: before push, run `pnpm exec biome ci .` (the exact CI command), not just
+`biome check .`. To fix ordering: `pnpm exec biome check --write --unsafe .` reorders
+exports (verify the diff is export-only — it is safe here, just reordering).

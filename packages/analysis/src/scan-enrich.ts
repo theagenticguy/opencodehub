@@ -40,8 +40,12 @@ function resultUri(result: unknown, repoPath: string): string | undefined {
 
 /** Strip a leading repoPath (and `file://`) so the uri matches the graph's relative key. */
 function toRepoRelative(uri: string, repoPath: string): string {
-  let path = uri.startsWith("file://") ? uri.slice("file://".length) : uri;
-  const prefix = repoPath.endsWith("/") ? repoPath : `${repoPath}/`;
+  // Normalize separators to POSIX first: File node ids are `/`-keyed, and on
+  // Windows the repoPath/uri carry backslashes, so a raw prefix compare would
+  // fail to strip and the lookup would never match.
+  let path = (uri.startsWith("file://") ? uri.slice("file://".length) : uri).split("\\").join("/");
+  const repo = repoPath.split("\\").join("/");
+  const prefix = repo.endsWith("/") ? repo : `${repo}/`;
   if (path.startsWith(prefix)) path = path.slice(prefix.length);
   return path;
 }

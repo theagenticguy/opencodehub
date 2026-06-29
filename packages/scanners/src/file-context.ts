@@ -35,7 +35,7 @@ interface WalkOpts {
  */
 async function walkForFiles(repoPath: string, opts: WalkOpts): Promise<readonly string[]> {
   const { readdir } = await import("node:fs/promises");
-  const { join, relative } = await import("node:path");
+  const { join, relative, sep } = await import("node:path");
   type DirEntry = import("node:fs").Dirent;
   const out: string[] = [];
   const queue: string[] = [repoPath];
@@ -54,7 +54,10 @@ async function walkForFiles(repoPath: string, opts: WalkOpts): Promise<readonly 
       if (e.isDirectory()) {
         queue.push(abs);
       } else if (e.isFile() && opts.match.test(e.name)) {
-        out.push(relative(repoPath, abs));
+        // Normalize to POSIX separators: the graph keys files by `/`-joined
+        // repo-relative paths, and the scanner wrappers expect the same. On
+        // Windows `path.relative` yields backslashes, which would never match.
+        out.push(relative(repoPath, abs).split(sep).join("/"));
       }
     }
   }
