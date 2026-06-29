@@ -166,8 +166,7 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
     // populates them (without this, every real pack ships commit="", empty
     // ast-chunks, and unknown pins). Derivation reads the graph the command
     // already opened — no second store open, no git spawn.
-    const graphForProvenance: IGraphStore | undefined =
-      composedStore?.graph ?? graphOnlyStub;
+    const graphForProvenance: IGraphStore | undefined = composedStore?.graph ?? graphOnlyStub;
     const provenance = await resolvePackProvenance(graphForProvenance, repoPath);
 
     const manifest = await generate(
@@ -420,6 +419,20 @@ export async function explainContextBom(outDir: string): Promise<ContextSummary>
     .sort((a, b) => (a.language < b.language ? -1 : a.language > b.language ? 1 : 0));
 
   return { fileCount: components.length, filesWithHash, totalLines, byLanguage };
+}
+
+/**
+ * Print a {@link ContextSummary} to the user. JSON goes to stdout (machine
+ * consumers / `--json`); the human block goes to stderr so it never pollutes
+ * a piped stdout. Lives in the command module because `console.log` to stdout
+ * is sanctioned here (see biome.json override), not in the CLI entrypoint.
+ */
+export function printContextSummary(summary: ContextSummary, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.warn(formatContextSummary(summary));
+  }
 }
 
 /** Render a {@link ContextSummary} as a short human-readable block. */

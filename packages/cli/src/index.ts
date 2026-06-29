@@ -402,11 +402,7 @@ program
       );
       if (opts["explainContext"] === true) {
         const summary = await mod.explainContextBom(result.outDir);
-        if (opts["json"] === true) {
-          console.log(JSON.stringify(summary, null, 2));
-        } else {
-          console.warn(mod.formatContextSummary(summary));
-        }
+        mod.printContextSummary(summary, opts["json"] === true);
       }
     } else {
       console.warn(

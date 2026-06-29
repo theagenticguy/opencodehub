@@ -109,9 +109,7 @@ const PROP_LANGUAGE = "opencodehub:language";
  * (if empty) receipt rather than a missing one.
  */
 export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
-  const sorted = [...opts.files].sort((a, b) =>
-    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
-  );
+  const sorted = [...opts.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
   const components: CdxComponent[] = [];
   for (const file of sorted) {
@@ -146,10 +144,7 @@ export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
  * every `value` to be a string, so numbers and span arrays are stringified.
  * Properties are omitted (not emitted empty) when their source is absent.
  */
-function buildProperties(
-  file: ContextFile,
-  spans: readonly ByteSpan[] | undefined,
-): CdxProperty[] {
+function buildProperties(file: ContextFile, spans: readonly ByteSpan[] | undefined): CdxProperty[] {
   const props: CdxProperty[] = [];
   if (file.lineCount !== undefined) {
     props.push({ name: PROP_LINE_COUNT, value: String(file.lineCount) });

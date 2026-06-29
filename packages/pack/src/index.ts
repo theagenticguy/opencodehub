@@ -309,9 +309,7 @@ async function collectContextFiles(graph: IGraphStore): Promise<ContextFile[]> {
  * file bytes are supplied only in tests) — the builder then omits the
  * `byteRanges` property rather than recording empty ranges.
  */
-function collectByteRanges(
-  chunks: AstChunkerResult["chunks"],
-): ReadonlyMap<string, ByteSpan[]> {
+function collectByteRanges(chunks: AstChunkerResult["chunks"]): ReadonlyMap<string, ByteSpan[]> {
   const byPath = new Map<string, ByteSpan[]>();
   for (const chunk of chunks) {
     const spans = byPath.get(chunk.path);

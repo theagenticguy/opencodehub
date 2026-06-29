@@ -13,12 +13,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { sha256Hex } from "@opencodehub/core-types";
-import {
-  type ByteSpan,
-  buildContextBom,
-  type ContextFile,
-  mergeSpans,
-} from "./context-bom.js";
+import { type ByteSpan, buildContextBom, type ContextFile, mergeSpans } from "./context-bom.js";
 
 const FILE_A: ContextFile = {
   path: "src/a.ts",
@@ -87,7 +82,14 @@ test("C. a file without contentHash omits the hashes array", () => {
 
 test("D. byte ranges are merged into sorted non-overlapping spans", () => {
   const ranges = new Map<string, readonly ByteSpan[]>([
-    ["src/a.ts", [{ start: 10, end: 20 }, { start: 0, end: 5 }, { start: 18, end: 30 }]],
+    [
+      "src/a.ts",
+      [
+        { start: 10, end: 20 },
+        { start: 0, end: 5 },
+        { start: 18, end: 30 },
+      ],
+    ],
   ]);
   const r = buildContextBom({ files: [FILE_A], byteRangesByPath: ranges });
   const prop = firstComponent(r).properties?.find((p) => p.name === "opencodehub:byteRanges");
@@ -140,7 +142,11 @@ test("F. input order does not affect output (components sorted by path)", () => 
 test("mergeSpans drops zero-length and inverted spans", () => {
   assert.deepEqual(mergeSpans([{ start: 5, end: 5 }]), []);
   assert.deepEqual(mergeSpans([{ start: 9, end: 3 }]), []);
-  assert.deepEqual(mergeSpans([{ start: 0, end: 4 }, { start: 4, end: 8 }]), [
-    { start: 0, end: 8 },
-  ]);
+  assert.deepEqual(
+    mergeSpans([
+      { start: 0, end: 4 },
+      { start: 4, end: 8 },
+    ]),
+    [{ start: 0, end: 8 }],
+  );
 });
