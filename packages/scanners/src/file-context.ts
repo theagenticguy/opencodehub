@@ -81,7 +81,10 @@ export function findDockerfiles(repoPath: string): Promise<readonly string[]> {
 export async function buildScannerFileContext(
   repoPath: string,
   specs: readonly ScannerSpec[],
-): Promise<{ spectral?: { contractFiles: readonly string[] }; hadolint?: { dockerfiles: readonly string[] } }> {
+): Promise<{
+  spectral?: { contractFiles: readonly string[] };
+  hadolint?: { dockerfiles: readonly string[] };
+}> {
   const ids = new Set(specs.map((s) => s.id));
   const ctx: {
     spectral?: { contractFiles: readonly string[] };

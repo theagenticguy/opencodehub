@@ -27,11 +27,13 @@
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { buildScanEnrichment } from "@opencodehub/analysis";
 import { pipeline } from "@opencodehub/ingestion";
 import {
   applyBaselineState,
   applySuppressions,
   enrichWithFingerprints,
+  enrichWithProperties,
   loadSuppressions,
   type SarifLog,
   SarifLogSchema,
@@ -149,7 +151,14 @@ export async function runScan(path: string, opts: ScanOptions = {}): Promise<Sca
   // every result before anything else touches the log so downstream
   // consumers (baseline diff, ingest-sarif, `list_findings_delta`) all
   // read the same match keys.
-  const enriched = enrichWithFingerprints(result.sarif);
+  const withFingerprints = enrichWithFingerprints(result.sarif);
+
+  // Stamp graph-derived signals (bus factor, fix-follow-feat density,
+  // ownership drift) under `properties.opencodehub.*` on each result whose
+  // file the graph knows. Best-effort: a missing/empty graph leaves the SARIF
+  // unchanged, exactly like the ingest step below. Runs after fingerprinting
+  // because the enrichment is keyed by `primaryLocationLineHash`.
+  const enriched = await enrichWithGraphSignals(repoPath, withFingerprints, opts);
 
   // Optional baseline diff: tag every result with
   // `baselineState` so downstream consumers (scan output, ingest-sarif,
@@ -268,6 +277,35 @@ function applySuppressionsForRepo(repoPath: string, log: SarifLog): SarifLog {
     return content;
   };
   return applySuppressions(log, loaded.rules, readSource);
+}
+
+/**
+ * Stamp graph-derived signals onto each result via `enrichWithProperties`.
+ * Best-effort: opens the scanned repo's graph read-only and reads the
+ * file-granular signals for each finding's file. A missing graph (no
+ * `codehub analyze` yet) or an empty signal set leaves the SARIF untouched —
+ * scanning a repo with no index must still succeed, so any failure here is
+ * swallowed with a warning rather than aborting the scan.
+ */
+async function enrichWithGraphSignals(
+  repoPath: string,
+  log: SarifLog,
+  opts: ScanOptions,
+): Promise<SarifLog> {
+  try {
+    const { store } = await openStoreForCommand({ repo: opts.repo ?? repoPath, readOnly: true });
+    try {
+      const graph = "graph" in store ? store.graph : store;
+      const enrichment = await buildScanEnrichment(graph, log, repoPath);
+      return enrichWithProperties(log, enrichment);
+    } finally {
+      await store.close();
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`codehub scan: graph-signal enrichment skipped: ${msg}`);
+    return log;
+  }
 }
 
 /**
