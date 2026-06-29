@@ -29,11 +29,13 @@ function mkInput(
   files: readonly string[],
   manifests: ReadonlyArray<readonly [string, string]>,
   detectedLanguages: readonly string[],
+  configText?: ReadonlyArray<readonly [string, string]>,
 ): FrameworkDetectorInput {
   return {
     relPaths: new Set(files),
     manifestText: new Map(manifests),
     detectedLanguages,
+    ...(configText !== undefined ? { configText: new Map(configText) } : {}),
   };
 }
 
@@ -797,5 +799,72 @@ describe("framework detection — version resolves from either dependency bucket
     const vite = findByName(out, "vite");
     assert.ok(vite, "vite detected");
     assert.equal(vite?.version, "5.4.0", "version read from devDependencies bucket");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 3 — config-AST evidence (wired via configText)
+// ---------------------------------------------------------------------------
+
+describe("stage 3 — config-AST evidence", () => {
+  it("merges next.config router evidence into the nextjs detection", () => {
+    const input = mkInput(
+      ["package.json", "next.config.js", "app/page.tsx"],
+      [["package.json", JSON.stringify({ dependencies: { next: "14.2.0" } })]],
+      ["typescript"],
+      [["next.config.js", "module.exports = { experimental: { appDir: true } };\n"]],
+    );
+    const out = detectFrameworksStructured(input);
+    const next = findByName(out, "nextjs");
+    assert.ok(next, "nextjs detected");
+    const stage3 = next?.evidence.filter((e) => e.stage === 3) ?? [];
+    assert.ok(stage3.length > 0, "expected stage-3 config-AST evidence on the nextjs detection");
+    assert.ok(
+      stage3.some((e) => e.source === "next.config.js"),
+      "stage-3 evidence should cite next.config.js",
+    );
+  });
+
+  it("does NOT create a detection from config text alone (corroborates only)", () => {
+    // spring.factories is a stage-3 config signal but NOT a catalog file/layout
+    // marker (spring-boot keys on pom.xml), so config text with no pom.xml and
+    // no Java layout must not conjure a spring-boot detection.
+    const input = mkInput(
+      ["META-INF/spring.factories"],
+      [],
+      ["java"],
+      [
+        [
+          "META-INF/spring.factories",
+          "org.springframework.boot.autoconfigure.EnableAutoConfiguration=com.example.MyAutoConfig\n",
+        ],
+      ],
+    );
+    const out = detectFrameworksStructured(input);
+    assert.equal(
+      findByName(out, "spring-boot"),
+      undefined,
+      "config text alone must not detect spring-boot",
+    );
+  });
+
+  it("is a no-op when configText is omitted (legacy callers unchanged)", () => {
+    const withCfg = mkInput(
+      ["package.json", "next.config.js", "app/page.tsx"],
+      [["package.json", JSON.stringify({ dependencies: { next: "14.2.0" } })]],
+      ["typescript"],
+      [["next.config.js", "module.exports = {};\n"]],
+    );
+    const withoutCfg = mkInput(
+      ["package.json", "next.config.js", "app/page.tsx"],
+      [["package.json", JSON.stringify({ dependencies: { next: "14.2.0" } })]],
+      ["typescript"],
+    );
+    const a = findByName(detectFrameworksStructured(withoutCfg), "nextjs");
+    const b = findByName(detectFrameworksStructured(withCfg), "nextjs");
+    assert.ok(a && b, "nextjs detected both ways");
+    // Without configText: no stage-3 evidence. With it: stage-3 present.
+    assert.equal((a?.evidence.filter((e) => e.stage === 3) ?? []).length, 0);
+    assert.ok((b?.evidence.filter((e) => e.stage === 3) ?? []).length > 0);
   });
 });
