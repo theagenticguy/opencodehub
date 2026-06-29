@@ -347,8 +347,8 @@ program
 program
   .command("code-pack [path]")
   .description(
-    "Produce the deterministic 8-item code-pack BOM (manifest + skeleton + file-tree + deps + " +
-      "ast-chunks + xrefs + findings + licenses) plus a readme at " +
+    "Produce the deterministic 9-item code-pack BOM (manifest + skeleton + file-tree + deps + " +
+      "ast-chunks + xrefs + findings + licenses + context-bom) plus a readme at " +
       "<repo>/.codehub/packs/<packHash>/. Default engine is the new @opencodehub/pack BOM; " +
       "--engine repomix opts into the legacy single-file snapshot (drop deferred to M7).",
   )
@@ -367,9 +367,15 @@ program
   )
   .option(
     "--engine <engine>",
-    "Engine: pack (default — 8-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
+    "Engine: pack (default — 9-item BOM via @opencodehub/pack) or repomix (legacy single-file)",
     "pack",
   )
+  .option(
+    "--explain-context",
+    "After packing, print a summary of the context read-receipt (files indexed, lines, " +
+      "hash coverage, per-language breakdown) read from the pack's context-bom.json",
+  )
+  .option("--json", "With --explain-context, emit the receipt summary as JSON on stdout")
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/code-pack.js");
     const rawEngine = typeof opts["engine"] === "string" ? opts["engine"] : "pack";
@@ -394,6 +400,10 @@ program
         `codehub code-pack: wrote ${result.bomItemCount} BOM items to ${result.outDir} ` +
           `(packHash=${result.packHash.slice(0, 12)})`,
       );
+      if (opts["explainContext"] === true) {
+        const summary = await mod.explainContextBom(result.outDir);
+        mod.printContextSummary(summary, opts["json"] === true);
+      }
     } else {
       console.warn(
         `codehub code-pack: wrote repomix snapshot to ${result.repomixOutputPath ?? result.outDir} ` +

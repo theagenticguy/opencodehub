@@ -2,9 +2,10 @@
  * @opencodehub/pack — deterministic code-pack BOM.
  *
  * Public surface:
- *   - generatePack(opts): assembles the 8-item BOM (manifest + skeleton +
- *     file-tree + deps + ast-chunks + xrefs + findings + licenses.md), plus
- *     a consumer-facing readme.md derived from the manifest.
+ *   - generatePack(opts): assembles the 9-item BOM (manifest + skeleton +
+ *     file-tree + deps + ast-chunks + xrefs + findings + licenses.md +
+ *     context-bom.json), plus a consumer-facing readme.md derived from the
+ *     manifest.
  *   - buildManifest / serializeManifest: BOM manifest + pack_hash.
  *   - Per-BOM-item builders re-exported for direct use (skeleton, file-tree,
  *     deps, ast-chunker, xrefs, findings, licenses, readme).
@@ -21,6 +22,7 @@ import {
   type AstChunkerResult,
   buildAstChunks,
 } from "./ast-chunker.js";
+import { type ByteSpan, buildContextBom, type ContextFile } from "./context-bom.js";
 import { buildDeps } from "./deps.js";
 import { buildFileTree } from "./file-tree.js";
 import { buildFindings } from "./findings.js";
@@ -33,6 +35,14 @@ import { buildXrefs } from "./xrefs.js";
 
 export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.js";
 export { buildAstChunks } from "./ast-chunker.js";
+export type {
+  ByteSpan,
+  ContextBomDocument,
+  ContextBomOpts,
+  ContextBomResult,
+  ContextFile,
+} from "./context-bom.js";
+export { buildContextBom, mergeSpans } from "./context-bom.js";
 export type { DepRow, DepsOpts } from "./deps.js";
 export { buildDeps } from "./deps.js";
 export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";
@@ -84,9 +94,9 @@ export interface GeneratePackInternalOpts {
 }
 
 /**
- * Generate the deterministic 8-item code-pack.
+ * Generate the deterministic 9-item code-pack.
  *
- * Writes the 7 BOM body files plus the manifest into `opts.outDir`, plus a
+ * Writes the 8 BOM body files plus the manifest into `opts.outDir`, plus a
  * consumer-facing readme.md derived from the manifest:
  *   - skeleton.jsonl
  *   - file-tree.jsonl
@@ -95,6 +105,7 @@ export interface GeneratePackInternalOpts {
  *   - xrefs.jsonl
  *   - findings.jsonl
  *   - licenses.md
+ *   - context-bom.json
  *   - manifest.json
  *   - readme.md (consumer-facing metadata; not a manifest BomItem)
  *
@@ -117,7 +128,7 @@ export async function generatePack(
   const commit = internal.commit ?? "";
   const repoOriginUrl = internal.repoOriginUrl !== undefined ? internal.repoOriginUrl : null;
 
-  // --- BOM bodies (5 in-graph + chunker on raw files). ---
+  // --- BOM bodies (5 in-graph + chunker on raw files; context-bom below). ---
   const [skeletonRows, fileTreeRows, depsRows, xrefRows, findingGroups, licensesContent] =
     await Promise.all([
       buildSkeleton({ store: graph }),
@@ -138,6 +149,15 @@ export async function generatePack(
     internal.chonkieLoader !== undefined ? { _loadChonkie: internal.chonkieLoader } : {},
   );
 
+  // --- Context read-receipt (item 9). Anchored on File nodes (populated by
+  //     analyze on every real pack) so the receipt is complete in production;
+  //     byte ranges layer on from the chunker when present (today only in
+  //     tests, where chunkerFiles is supplied). ---
+  const contextFiles = await collectContextFiles(graph);
+  const byteRangesByPath = collectByteRanges(astResult.chunks);
+  const contextBom = buildContextBom({ files: contextFiles, byteRangesByPath });
+  const contextBomBytes = encodeUtf8(contextBom.canonical);
+
   // --- Serialize bodies. ---
   const skeletonBytes = encodeJsonl(skeletonRows);
   const fileTreeBytes = encodeJsonl(fileTreeRows);
@@ -157,6 +177,7 @@ export async function generatePack(
     bomItem("xrefs", "xrefs.jsonl", xrefsBytes),
     bomItem("findings", "findings.jsonl", findingsBytes),
     bomItem("licenses", "licenses.md", licensesBytes),
+    bomItem("context-bom", "context-bom.json", contextBomBytes),
   ];
 
   await mkdir(opts.outDir, { recursive: true });
@@ -186,6 +207,7 @@ export async function generatePack(
     budgetTokens: opts.budgetTokens,
     pins,
     files: items,
+    contextBomHash: contextBom.contextBomHash,
   });
 
   const manifestJson = serializeManifest(manifest);
@@ -210,6 +232,7 @@ export async function generatePack(
     writeBytes(path.join(opts.outDir, "xrefs.jsonl"), xrefsBytes),
     writeBytes(path.join(opts.outDir, "findings.jsonl"), findingsBytes),
     writeBytes(path.join(opts.outDir, "licenses.md"), licensesBytes),
+    writeBytes(path.join(opts.outDir, "context-bom.json"), contextBomBytes),
     writeBytes(path.join(opts.outDir, "readme.md"), readmeBytes),
   ]);
   await writeBytes(path.join(opts.outDir, "manifest.json"), manifestBytes);
@@ -257,6 +280,44 @@ function resolveDeterminism(
   if (chunkerClass === "degraded") return "degraded";
   if (tokenizerId.startsWith("anthropic:")) return "best_effort";
   return "strict";
+}
+
+/**
+ * Project `File` graph nodes onto the context-receipt's `ContextFile` shape.
+ * Reads the same fields `file-tree` does (path, contentHash, lineCount,
+ * language). Folders are excluded — the receipt records files only. The
+ * builder sorts, so order here is irrelevant.
+ */
+async function collectContextFiles(graph: IGraphStore): Promise<ContextFile[]> {
+  const nodes = await graph.listNodes({ kinds: ["File"] });
+  const files: ContextFile[] = [];
+  for (const node of nodes) {
+    if (node.kind !== "File") continue;
+    files.push({
+      path: node.filePath,
+      ...(node.contentHash !== undefined ? { contentHash: node.contentHash } : {}),
+      ...(node.lineCount !== undefined ? { lineCount: node.lineCount } : {}),
+      ...(node.language !== undefined ? { language: node.language } : {}),
+    });
+  }
+  return files;
+}
+
+/**
+ * Group AST chunks into per-path byte spans for the context receipt. Empty
+ * when the chunker produced no chunks (the production default, since raw
+ * file bytes are supplied only in tests) — the builder then omits the
+ * `byteRanges` property rather than recording empty ranges.
+ */
+function collectByteRanges(chunks: AstChunkerResult["chunks"]): ReadonlyMap<string, ByteSpan[]> {
+  const byPath = new Map<string, ByteSpan[]>();
+  for (const chunk of chunks) {
+    const spans = byPath.get(chunk.path);
+    const span: ByteSpan = { start: chunk.startByte, end: chunk.endByte };
+    if (spans === undefined) byPath.set(chunk.path, [span]);
+    else spans.push(span);
+  }
+  return byPath;
 }
 
 /**

@@ -33,8 +33,9 @@ const FIXTURE_MANIFEST: PackManifest = {
     { kind: "skeleton", path: "skeleton.jsonl", fileHash: "c".repeat(64) },
     { kind: "manifest", path: "manifest.json", fileHash: "d".repeat(64) },
   ],
+  contextBomHash: "f".repeat(64),
   packHash: "e".repeat(64),
-  schemaVersion: 1,
+  schemaVersion: 2,
 };
 
 test("A. buildReadme is pure: same inputs produce byte-identical output", () => {

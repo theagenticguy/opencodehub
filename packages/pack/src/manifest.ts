@@ -30,6 +30,7 @@ export interface BuildManifestOpts {
   readonly budgetTokens: number;
   readonly pins: PackPins;
   readonly files: readonly BomItem[];
+  readonly contextBomHash: string;
 }
 
 /**
@@ -57,8 +58,9 @@ export function buildManifest(opts: BuildManifestOpts): PackManifest {
     budgetTokens: opts.budgetTokens,
     pins: opts.pins,
     files: opts.files,
+    contextBomHash: opts.contextBomHash,
     packHash: "",
-    schemaVersion: 1,
+    schemaVersion: 2,
   };
   const preimage = canonicalJson(toSnakeCaseManifest(withoutHash));
   const packHash = sha256Hex(preimage);
@@ -81,6 +83,7 @@ function toSnakeCaseManifest(m: PackManifest): Record<string, unknown> {
   return {
     budget_tokens: m.budgetTokens,
     commit: m.commit,
+    context_bom_hash: m.contextBomHash,
     determinism_class: m.determinismClass,
     files: m.files.map((f) => ({
       file_hash: f.fileHash,

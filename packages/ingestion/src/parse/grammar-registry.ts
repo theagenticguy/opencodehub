@@ -205,6 +205,19 @@ async function computeGrammarSha(pkgName: string): Promise<string | null> {
   return sha256Hex(JSON.stringify({ name: pkgName, version }));
 }
 
+/**
+ * The vendored grammar version pins, as `{ "<grammar-package>": "<version>" }`.
+ *
+ * Reads `vendor/wasms/manifest.json` (the same canonical pin
+ * {@link getGrammarSha} fingerprints) via the shared walk-up resolver, so it
+ * works from both the standalone build and the flat `@opencodehub/cli` bundle.
+ * Returns an empty object when the manifest cannot be read — callers treat the
+ * pins as best-effort provenance, never a hard dependency.
+ */
+export async function grammarVersions(): Promise<Readonly<Record<string, string>>> {
+  return (await loadManifestVersions()) ?? {};
+}
+
 /** For tests: drop the cache so the next load() re-imports fresh. */
 export function _resetGrammarCacheForTests(): void {
   grammarShaCache.clear();

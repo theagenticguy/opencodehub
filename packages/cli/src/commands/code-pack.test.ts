@@ -13,12 +13,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { sha256Hex } from "@opencodehub/core-types";
 import type { PackManifest } from "@opencodehub/pack";
 import type { IGraphStore } from "@opencodehub/storage";
 import {
   DEFAULT_BUDGET_TOKENS,
   DEFAULT_ENGINE,
   DEFAULT_TOKENIZER_ID,
+  explainContextBom,
+  formatContextSummary,
   runCodePack,
 } from "./code-pack.js";
 
@@ -38,9 +41,11 @@ function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
       { kind: "xrefs", path: "xrefs.jsonl", fileHash: "e".repeat(64) },
       { kind: "findings", path: "findings.jsonl", fileHash: "f".repeat(64) },
       { kind: "licenses", path: "licenses.md", fileHash: "1".repeat(64) },
+      { kind: "context-bom", path: "context-bom.json", fileHash: "2".repeat(64) },
     ],
+    contextBomHash: "3".repeat(64),
     packHash: "deadbeef".repeat(8),
-    schemaVersion: 1,
+    schemaVersion: 2,
     ...overrides,
   };
 }
@@ -88,7 +93,7 @@ test("runCodePack defaults to engine=pack and dispatches to generatePack", async
 
     assert.equal(result.engine, "pack");
     assert.equal(result.packHash, "abc123");
-    assert.equal(result.bomItemCount, 8); // 7 mandatory items + manifest
+    assert.equal(result.bomItemCount, 9); // 8 mandatory items + manifest
     assert.equal(captured.repoPath, repoPath);
     assert.equal(captured.budget, DEFAULT_BUDGET_TOKENS);
     assert.equal(captured.tokenizer, DEFAULT_TOKENIZER_ID);
@@ -96,6 +101,75 @@ test("runCodePack defaults to engine=pack and dispatches to generatePack", async
     // The manifest file we staged should now live at finalOutDir.
     const onDisk = await readFile(join(result.outDir, "manifest.json"), "utf8");
     assert.equal(onDisk, "{}");
+  } finally {
+    await rm(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("runCodePack derives commit, origin, hash-verified files, and grammar pins", async () => {
+  const repoPath = await mkdtemp(join(tmpdir(), "codehub-codepack-prov-"));
+  try {
+    // Two real source files on disk; the graph records one with a MATCHING
+    // contentHash and one with a DRIFTED hash. The drifted file must be
+    // dropped from chunkerFiles so the pack never chunks stale bytes.
+    const liveBytes = new TextEncoder().encode("export const x = 1;\n");
+    await mkdir(join(repoPath, "src"), { recursive: true });
+    await writeFile(join(repoPath, "src", "live.ts"), liveBytes);
+    await writeFile(join(repoPath, "src", "drift.ts"), "export const y = 2;\n");
+    const liveHash = sha256Hex(liveBytes);
+
+    const store = {
+      listNodes: async (opts: { kinds?: readonly string[] } = {}) => {
+        const kinds = opts.kinds;
+        const repo = {
+          kind: "Repo",
+          filePath: ".",
+          commitSha: "f".repeat(40),
+          originUrl: "https://github.com/example/demo.git",
+        };
+        const files = [
+          { kind: "File", filePath: "src/live.ts", contentHash: liveHash, language: "typescript" },
+          {
+            kind: "File",
+            filePath: "src/drift.ts",
+            contentHash: "0".repeat(64), // deliberately wrong → must be skipped
+            language: "typescript",
+          },
+        ];
+        if (kinds?.includes("Repo")) return [repo];
+        if (kinds?.includes("File")) return files;
+        return [];
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: minimal graph stub for the provenance read
+    } as any;
+
+    let internal: {
+      commit?: string;
+      repoOriginUrl?: string | null;
+      chunkerFiles?: ReadonlyArray<{ path: string }>;
+      grammarCommits?: Record<string, string>;
+    } = {};
+    const fakeGenerate = (async (
+      opts: { repoPath: string; outDir: string; budgetTokens: number; tokenizerId: string },
+      internalArg: typeof internal,
+    ) => {
+      internal = internalArg;
+      await mkdir(opts.outDir, { recursive: true });
+      await writeFile(join(opts.outDir, "manifest.json"), "{}");
+      return makeFakeManifest({ packHash: "prov123" });
+      // biome-ignore lint/suspicious/noExplicitAny: cross-package generic narrowing in test injection
+    }) as any;
+
+    await runCodePack({ repo: repoPath, _generatePack: fakeGenerate, _store: store });
+
+    assert.equal(internal.commit, "f".repeat(40));
+    assert.equal(internal.repoOriginUrl, "https://github.com/example/demo.git");
+    const chunkPaths = (internal.chunkerFiles ?? []).map((f) => f.path);
+    assert.deepEqual(chunkPaths, ["src/live.ts"], "drifted file must be skipped");
+    assert.ok(
+      internal.grammarCommits !== undefined && Object.keys(internal.grammarCommits).length > 0,
+      "grammar pins should be populated from the vendored manifest",
+    );
   } finally {
     await rm(repoPath, { recursive: true, force: true });
   }
@@ -256,5 +330,56 @@ test("runCodePack engine='pack' raises when the graph index is missing and no _s
     );
   } finally {
     await rm(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("explainContextBom summarizes a context-bom.json on disk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-explain-"));
+  try {
+    const doc = {
+      bomFormat: "CycloneDX",
+      specVersion: "1.6",
+      version: 1,
+      components: [
+        {
+          type: "file",
+          name: "src/a.ts",
+          hashes: [{ alg: "SHA-256", content: "a".repeat(64) }],
+          properties: [
+            { name: "opencodehub:lineCount", value: "10" },
+            { name: "opencodehub:language", value: "typescript" },
+          ],
+        },
+        {
+          type: "file",
+          name: "README.md",
+          properties: [{ name: "opencodehub:lineCount", value: "5" }],
+        },
+      ],
+    };
+    await writeFile(join(dir, "context-bom.json"), JSON.stringify(doc));
+    const summary = await explainContextBom(dir);
+    assert.equal(summary.fileCount, 2);
+    assert.equal(summary.filesWithHash, 1);
+    assert.equal(summary.totalLines, 15);
+    assert.deepEqual(summary.byLanguage, [
+      { language: "(unknown)", files: 1 },
+      { language: "typescript", files: 1 },
+    ]);
+    // The formatted block names the headline counts.
+    const text = formatContextSummary(summary);
+    assert.match(text, /files indexed:\s+2/);
+    assert.match(text, /with SHA-256:\s+1\/2/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("explainContextBom throws a clear error when context-bom.json is absent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-explain-missing-"));
+  try {
+    await assert.rejects(explainContextBom(dir), /no context-bom\.json|predates/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
