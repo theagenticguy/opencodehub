@@ -70,15 +70,17 @@ export function resolveHarnesses(task: Task, options: ProbeOptions): readonly Ha
 function sumTokens(outcomes: readonly RunOutcome[]): ArmReport["tokens"] {
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheTokens = 0;
   let costUsd = 0;
   let everyRunHadCost = true;
   for (const o of outcomes) {
     inputTokens += o.tokens.inputTokens;
     outputTokens += o.tokens.outputTokens;
+    cacheTokens += o.tokens.cacheTokens;
     if (o.tokens.costUsd === null) everyRunHadCost = false;
     else costUsd += o.tokens.costUsd;
   }
-  return { inputTokens, outputTokens, costUsd: everyRunHadCost ? costUsd : null };
+  return { inputTokens, outputTokens, cacheTokens, costUsd: everyRunHadCost ? costUsd : null };
 }
 
 /** Run one arm: N invocations of the agent, then score + total tokens. */

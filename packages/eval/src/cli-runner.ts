@@ -152,14 +152,23 @@ export function buildArgv(
 export function parseClaudeOutput(stdout: string): { finalText: string; tokens: RunTokens } {
   const doc = JSON.parse(stdout) as {
     result?: unknown;
-    usage?: { input_tokens?: unknown; output_tokens?: unknown };
+    usage?: {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      cache_creation_input_tokens?: unknown;
+      cache_read_input_tokens?: unknown;
+    };
     total_cost_usd?: unknown;
   };
   const finalText = typeof doc.result === "string" ? doc.result : "";
   const inputTokens = num(doc.usage?.input_tokens);
   const outputTokens = num(doc.usage?.output_tokens);
+  // Claude Code injects a large cached system prompt per call; both the
+  // creation and read halves are real token cost the overhead headline needs.
+  const cacheTokens =
+    num(doc.usage?.cache_creation_input_tokens) + num(doc.usage?.cache_read_input_tokens);
   const costUsd = typeof doc.total_cost_usd === "number" ? doc.total_cost_usd : null;
-  return { finalText, tokens: { inputTokens, outputTokens, costUsd } };
+  return { finalText, tokens: { inputTokens, outputTokens, cacheTokens, costUsd } };
 }
 
 /**
@@ -173,6 +182,7 @@ export function parseCodexOutput(stdout: string): { finalText: string; tokens: R
   let finalText = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheTokens = 0;
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
@@ -186,18 +196,19 @@ export function parseCodexOutput(stdout: string): { finalText: string; tokens: R
     const e = evt as {
       type?: unknown;
       item?: { type?: unknown; text?: unknown };
-      usage?: { input_tokens?: unknown; output_tokens?: unknown };
+      usage?: { input_tokens?: unknown; output_tokens?: unknown; cached_input_tokens?: unknown };
     };
     if (e.type === "item.completed" && e.item?.type === "agent_message") {
       if (typeof e.item.text === "string") finalText = e.item.text;
     } else if (e.type === "turn.completed" && e.usage !== undefined) {
       inputTokens = num(e.usage.input_tokens);
       outputTokens = num(e.usage.output_tokens);
+      cacheTokens = num(e.usage.cached_input_tokens);
     }
   }
   // Codex does not surface a per-invocation USD cost on the public event
   // schema, so cost is null (the report tolerates a null-cost arm).
-  return { finalText, tokens: { inputTokens, outputTokens, costUsd: null } };
+  return { finalText, tokens: { inputTokens, outputTokens, cacheTokens, costUsd: null } };
 }
 
 function num(v: unknown): number {
@@ -285,7 +296,7 @@ function erroredOutcome(checkoutPath: string, finalText: string): RunOutcome {
   return {
     finalText,
     diff: "",
-    tokens: { inputTokens: 0, outputTokens: 0, costUsd: null },
+    tokens: { inputTokens: 0, outputTokens: 0, cacheTokens: 0, costUsd: null },
     checkoutPath,
     errored: true,
   };

@@ -34,6 +34,7 @@ class FakeRunner implements AgentRunner {
       tokens: {
         inputTokens: request.withPack ? 1100 : 1000,
         outputTokens: 100,
+        cacheTokens: 0,
         costUsd: null,
       },
       errored: false,

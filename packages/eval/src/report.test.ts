@@ -17,9 +17,9 @@ const assertionDispersion = (passRate: number, stddev: number): ArmDispersion =>
   runs: 10,
 });
 
-const arm = (stddev: number, input: number, output: number): ArmReport => ({
+const arm = (stddev: number, input: number, output: number, cache = 0): ArmReport => ({
   dispersion: assertionDispersion(0.5, stddev),
-  tokens: { inputTokens: input, outputTokens: output, costUsd: null },
+  tokens: { inputTokens: input, outputTokens: output, cacheTokens: cache, costUsd: null },
 });
 
 describe("buildHarnessReport", () => {
@@ -44,6 +44,22 @@ describe("buildHarnessReport", () => {
     });
     assert.ok(Math.abs(report.tokenOverhead - 1.1) < 1e-9);
     assert.equal(report.tokenOverheadFlagged, false, "1.1× is under the 1.3× flag");
+  });
+
+  it("counts cache tokens in the overhead total (the Bug-1 fix)", () => {
+    // Without the cache fix, both arms would read 1000 vs 1100 → 1.1×. The
+    // with-pack arm's large cached system prompt (8000) is real token cost and
+    // must push the overhead up, not be silently dropped.
+    const report = buildHarnessReport({
+      harness: "claude",
+      runner: "cli:claude",
+      runs: 10,
+      without: arm(0.5, 1000, 0, 0),
+      with: arm(0.2, 1100, 0, 8000),
+    });
+    // total = (1100 + 8000) / 1000 = 9.1× — the cache tokens dominate.
+    assert.ok(Math.abs(report.tokenOverhead - 9.1) < 1e-9, "cache tokens included in overhead");
+    assert.equal(report.tokenOverheadFlagged, true);
   });
 
   it("flags when token overhead exceeds the guardrail", () => {

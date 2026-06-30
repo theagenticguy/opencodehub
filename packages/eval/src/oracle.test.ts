@@ -10,7 +10,7 @@ import type { AssertionOracle, JudgeOracle, OutputHashOracle } from "./task.js";
 const outcome = (over: Partial<RunOutcome>): RunOutcome => ({
   finalText: "",
   diff: "",
-  tokens: { inputTokens: 0, outputTokens: 0, costUsd: null },
+  tokens: { inputTokens: 0, outputTokens: 0, cacheTokens: 0, costUsd: null },
   errored: false,
   ...over,
 });

@@ -43,8 +43,14 @@ export interface VarianceProbeArgs {
   readonly harness?: Harness;
   /** AWS region for Bedrock inference; falls back to the inherited env. */
   readonly awsRegion?: string;
-  /** Bedrock model / inference profile override (applies to every harness). */
-  readonly model?: string;
+  /**
+   * Per-harness Bedrock model / inference-profile override. Claude and Codex
+   * take different model ids (a `us.`-prefixed Anthropic profile vs an
+   * `openai.*` Bedrock model), so one global value cannot serve both — each
+   * harness reads its own entry, falling back to the runner's per-harness
+   * default when absent.
+   */
+  readonly models?: Partial<Record<Harness, string>>;
   /**
    * Test seam — inject a fake pack-context assembler so unit tests don't need a
    * real analyzed repo + pack on disk.
@@ -96,12 +102,14 @@ export async function runVarianceProbe(args: VarianceProbeArgs): Promise<Varianc
   //    (spec 010 §4a). Tests inject a fake via `_runnerFor`.
   const runnerFor =
     args._runnerFor ??
-    ((harness: Harness) =>
-      new CliAgentRunner({
+    ((harness: Harness) => {
+      const model = args.models?.[harness];
+      return new CliAgentRunner({
         harness,
-        ...(args.model !== undefined ? { model: args.model } : {}),
+        ...(model !== undefined ? { model } : {}),
         ...(args.awsRegion !== undefined ? { awsRegion: args.awsRegion } : {}),
-      }));
+      });
+    });
 
   const options: ProbeOptions = {
     packContext,
