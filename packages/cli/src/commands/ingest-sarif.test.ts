@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { indexNodesByFile, type NodeRow } from "@opencodehub/analysis";
 import type { NodeId } from "@opencodehub/core-types";
 import type { SarifRun } from "@opencodehub/sarif";
-import { indexNodesByFile, type NodeRow } from "./find-enclosing-symbol.js";
 import { buildFindingsGraph } from "./ingest-sarif.js";
 
 function run(scanner: string, results: unknown): SarifRun {

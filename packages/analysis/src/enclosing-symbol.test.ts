@@ -6,7 +6,7 @@ import {
   findEnclosingSymbolId,
   indexNodesByFile,
   type NodeRow,
-} from "./find-enclosing-symbol.js";
+} from "./enclosing-symbol.js";
 
 function row(
   id: string,
