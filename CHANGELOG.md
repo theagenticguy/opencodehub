@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.4...root-v0.10.5) (2026-06-30)
+
+
+### Features
+
+* **eval:** pack --variance-probe — measure the variance an OCH pack removes (Move 2) ([#269](https://github.com/theagenticguy/opencodehub/issues/269)) ([278702a](https://github.com/theagenticguy/opencodehub/commit/278702a04fa20164be810e89f0e5d262613d582d))
+* **frameworks:** wire stage-5 import/SCIP detection into the profile phase ([#267](https://github.com/theagenticguy/opencodehub/issues/267)) ([6b4d122](https://github.com/theagenticguy/opencodehub/commit/6b4d12282e6047b4799cf4156fdb0744c0bc70fa))
+* **pack:** codehub replay — decision-equivalence structural check (Move 6) ([#270](https://github.com/theagenticguy/opencodehub/issues/270)) ([f97b417](https://github.com/theagenticguy/opencodehub/commit/f97b4173c19d75ce35a271976120c2d4d8eacef4))
+
 ## [0.10.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.3...root-v0.10.4) (2026-06-30)
 
 
