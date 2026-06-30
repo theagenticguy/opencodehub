@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.4](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.3...root-v0.10.4) (2026-06-30)
+
+
+### Features
+
+* **analysis:** symbol-level scan enrichment (blastRadius + community) + converge resolver ([#265](https://github.com/theagenticguy/opencodehub/issues/265)) ([817a54d](https://github.com/theagenticguy/opencodehub/commit/817a54d5a6708dd21be9b7779704c3ada78a926d))
+
 ## [0.10.3](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.2...root-v0.10.3) (2026-06-29)
 
 
