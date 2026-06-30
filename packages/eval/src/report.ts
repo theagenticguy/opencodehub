@@ -27,6 +27,12 @@ export const TOKEN_OVERHEAD_FLAG = 1.3;
 export interface ArmTokens {
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /**
+   * Cached input tokens (Claude Code's per-call cached system prompt, Codex's
+   * `cached_input_tokens`). Counted in the token-overhead total — omitting it
+   * undercounts the cost the variance claim trades against.
+   */
+  readonly cacheTokens: number;
   /** Sum of per-run cost when every run reported it; `null` otherwise. */
   readonly costUsd: number | null;
 }
@@ -69,7 +75,7 @@ export interface VarianceReport {
 
 /** Sum input+output tokens for an arm. */
 function totalTokens(t: ArmTokens): number {
-  return t.inputTokens + t.outputTokens;
+  return t.inputTokens + t.outputTokens + t.cacheTokens;
 }
 
 /**
@@ -129,8 +135,17 @@ export function formatReport(report: VarianceReport): string {
           ? `  [FLAG: > ${TOKEN_OVERHEAD_FLAG}× — stability bought expensively]`
           : ""),
     );
+    // Surface the in/out/cache split so the overhead is auditable — cached
+    // tokens (the per-call system prompt) are part of the total, not hidden.
+    lines.push(`    tokens without:          ${fmtTokens(h.without.tokens)}`);
+    lines.push(`    tokens with:             ${fmtTokens(h.with.tokens)}`);
   }
   return lines.join("\n");
+}
+
+/** Render an arm's token split: input + output + cache (the overhead inputs). */
+function fmtTokens(t: ArmTokens): string {
+  return `in ${t.inputTokens} + out ${t.outputTokens} + cache ${t.cacheTokens}`;
 }
 
 function fmtDispersion(d: ArmDispersion): string {

@@ -89,6 +89,15 @@ describe("buildArgv", () => {
       "PROMPT",
     ]);
   });
+
+  it("honors a per-harness model override (Bug-2 fix: codex gets a codex model)", () => {
+    // The bug was that one global --model handed Claude's id to Codex. Each
+    // harness must carry its own model into the argv.
+    const claude = buildArgv({ harness: "claude", model: "us.anthropic.claude-opus-4-8" }, "P");
+    assert.equal(claude.argv[claude.argv.indexOf("--model") + 1], "us.anthropic.claude-opus-4-8");
+    const codex = buildArgv({ harness: "codex", model: "openai.gpt-5.4" }, "P");
+    assert.equal(codex.argv[codex.argv.indexOf("-m") + 1], "openai.gpt-5.4");
+  });
 });
 
 describe("composePrompt", () => {
@@ -114,24 +123,32 @@ describe("composePrompt", () => {
 });
 
 describe("parseClaudeOutput", () => {
-  it("extracts result text + usage + cost from the JSON result object", () => {
+  it("extracts result text + usage + cache + cost from the JSON result object", () => {
     const stdout = JSON.stringify({
       type: "result",
       subtype: "success",
       result: "Done — added the flag.",
-      usage: { input_tokens: 1234, output_tokens: 56 },
+      usage: {
+        input_tokens: 1234,
+        output_tokens: 56,
+        cache_creation_input_tokens: 27406,
+        cache_read_input_tokens: 100,
+      },
       total_cost_usd: 0.0123,
     });
     const { finalText, tokens } = parseClaudeOutput(stdout);
     assert.equal(finalText, "Done — added the flag.");
     assert.equal(tokens.inputTokens, 1234);
     assert.equal(tokens.outputTokens, 56);
+    // cache = creation 27406 + read 100 (the Bug-1 fix — was silently dropped).
+    assert.equal(tokens.cacheTokens, 27506);
     assert.equal(tokens.costUsd, 0.0123);
   });
   it("tolerates a missing usage block (zeros, null cost)", () => {
     const { tokens, finalText } = parseClaudeOutput(JSON.stringify({ result: "x" }));
     assert.equal(finalText, "x");
     assert.equal(tokens.inputTokens, 0);
+    assert.equal(tokens.cacheTokens, 0);
     assert.equal(tokens.costUsd, null);
   });
   it("throws on unparseable stdout", () => {
@@ -168,6 +185,7 @@ describe("parseCodexOutput", () => {
     assert.equal(finalText, "Repo summary here.");
     assert.equal(tokens.inputTokens, 24763);
     assert.equal(tokens.outputTokens, 122);
+    assert.equal(tokens.cacheTokens, 24448, "codex cached_input_tokens captured (Bug-1 fix)");
     assert.equal(tokens.costUsd, null, "codex exposes no per-invocation USD cost");
   });
 

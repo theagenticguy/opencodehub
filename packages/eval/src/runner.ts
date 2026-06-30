@@ -43,6 +43,16 @@ export interface RunRequest {
 export interface RunTokens {
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /**
+   * Cached input tokens the harness billed/served separately from
+   * `inputTokens` — Claude Code's `cache_creation_input_tokens` +
+   * `cache_read_input_tokens`, or Codex's `cached_input_tokens`. Claude Code
+   * injects a large cached system prompt per call (~27K tokens observed), so
+   * omitting this materially undercounts the token-overhead headline (the
+   * "~10% more tokens" cost the variance claim rides on). 0 when the harness
+   * reports no cache usage.
+   */
+  readonly cacheTokens: number;
   /** Total cost in USD when the harness reports it; `null` when unavailable. */
   readonly costUsd: number | null;
 }

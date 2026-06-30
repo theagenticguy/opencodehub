@@ -28,7 +28,12 @@ class FakeRunner implements AgentRunner {
     return Promise.resolve({
       finalText: request.withPack ? "stable" : `wander-${this.i}`,
       diff: "",
-      tokens: { inputTokens: request.withPack ? 110 : 100, outputTokens: 10, costUsd: null },
+      tokens: {
+        inputTokens: request.withPack ? 110 : 100,
+        outputTokens: 10,
+        cacheTokens: 0,
+        costUsd: null,
+      },
       errored: false,
     });
   }
@@ -88,7 +93,7 @@ describe("runVarianceProbe (seamed)", () => {
         return Promise.resolve({
           finalText: req.withPack ? "s" : `${Math.random()}`,
           diff: "",
-          tokens: { inputTokens: 1, outputTokens: 1, costUsd: null },
+          tokens: { inputTokens: 1, outputTokens: 1, cacheTokens: 0, costUsd: null },
           errored: false,
         });
       },
@@ -101,6 +106,32 @@ describe("runVarianceProbe (seamed)", () => {
       _runnerFor: () => capturing,
     });
     assert.equal(withPackPrompts, 2, "both with-pack runs saw the assembled context");
+  });
+
+  it("builds a per-harness runner for each agent in the default set (Bug-2 routing)", async () => {
+    // With no --harness pin, the probe visits both agents; the default factory
+    // maps args.models[harness] to each. We assert the factory is invoked once
+    // per harness so a per-harness model would reach the right runner.
+    const seen: string[] = [];
+    await runVarianceProbe({
+      taskFile,
+      runs: 1,
+      _assemblePackContext: async () => "PACK",
+      _runnerFor: (h) => {
+        seen.push(h);
+        return {
+          name: `fake:${h}`,
+          run: () =>
+            Promise.resolve({
+              finalText: "x",
+              diff: "",
+              tokens: { inputTokens: 1, outputTokens: 1, cacheTokens: 0, costUsd: null },
+              errored: false,
+            }),
+        };
+      },
+    });
+    assert.deepEqual([...seen].sort(), ["claude", "codex"], "one runner built per harness");
   });
 });
 

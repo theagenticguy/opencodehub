@@ -395,8 +395,13 @@ program
     "With --variance-probe: AWS region for Bedrock inference (default: inherited AWS_REGION)",
   )
   .option(
-    "--model <id>",
-    "With --variance-probe: Bedrock model / inference-profile id (default per harness)",
+    "--model-claude <id>",
+    "With --variance-probe: Claude Code Bedrock model / inference-profile id " +
+      "(us.-prefixed; default us.anthropic.claude-sonnet-4-6)",
+  )
+  .option(
+    "--model-codex <id>",
+    "With --variance-probe: Codex Bedrock model id (default openai.gpt-5.5)",
   )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     // --variance-probe short-circuits the normal pack path: it loads a task,
@@ -408,12 +413,17 @@ program
         typeof opts["runs"] === "number" && Number.isFinite(opts["runs"])
           ? opts["runs"]
           : undefined;
+      // Per-harness model overrides — Claude and Codex take different Bedrock
+      // ids, so they are separate flags rather than one global --model.
+      const models: Record<string, string> = {};
+      if (typeof opts["modelClaude"] === "string") models["claude"] = opts["modelClaude"];
+      if (typeof opts["modelCodex"] === "string") models["codex"] = opts["modelCodex"];
       const report = await probeMod.runVarianceProbe({
         taskFile: opts["varianceProbe"],
         ...(runs !== undefined ? { runs } : {}),
         ...(harness !== undefined ? { harness } : {}),
         ...(typeof opts["awsRegion"] === "string" ? { awsRegion: opts["awsRegion"] } : {}),
-        ...(typeof opts["model"] === "string" ? { model: opts["model"] } : {}),
+        ...(Object.keys(models).length > 0 ? { models } : {}),
       });
       probeMod.printVarianceReport(report, opts["json"] === true);
       return;
