@@ -10,6 +10,7 @@
     { "path": "../analysis" },
     { "path": "../core-types" },
     { "path": "../embedder" },
+    { "path": "../eval" },
     { "path": "../storage" },
     { "path": "../search" },
     { "path": "../ingestion" },

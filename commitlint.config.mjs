@@ -42,6 +42,7 @@ export default {
         "cobol-proleap",
         "core-types",
         "embedder",
+        "eval",
         "frameworks",
         "ingestion",
         "mcp",

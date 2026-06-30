@@ -1,10 +1,14 @@
 # Spec 010 — `pack --variance-probe`: measure the variance an OCH pack removes
 
-**Status:** Draft for review (NO code yet — Laith wants to understand deeply first)
+**Status:** Approved — building (CLI-runner-first; see §7 locked answers). 
 **Author:** Bonk + Laith · **Date:** 2026-06-30
 **Branch:** `spec/010-variance-probe` (off `main` @ `6b4d122`)
 **Roadmap origin:** M-W-F run 2026-06-29, Move 2 (HIGH). Depends on the Move 6 ruling (below).
 **Grounding validator:** arXiv:2606.26979 — deterministic anchoring "roughly halves run-to-run variance at ~10% more tokens."
+
+**Decision log (2026-06-30, Laith):** "all looks good. agree on 5. cli first. just remember for claude code and codex to use bedrock for inference. go forth." → §7 answers locked; v1 ships the direct-CLI runner; omnigent runner deferred to v2; **Claude Code + Codex inference MUST route through Amazon Bedrock** (new §4a hard constraint).
+
+**CLI-surface note:** the OCH code-pack command in this repo is `codehub code-pack` (the bare `codehub pack` is the legacy repomix snapshot). The probe attaches as `codehub code-pack --variance-probe <task-file>`. The spec text says `pack --variance-probe` as shorthand; the implementation wires onto `code-pack`.
 
 ---
 
@@ -82,6 +86,27 @@ Omnigent is a **meta-harness** — one orchestration layer over Claude Code, Cod
 
 **Recommendation:** define a small `AgentRunner` interface (`run(task, withPack) → {finalText, diff, tokens}`); ship an **omnigent-backed runner** as the default multi-agent implementation and a **direct-CLI runner** (shell out to `claude -p` / `codex exec`) as the dependency-light fallback. The probe logic is harness-agnostic; the runner is swappable. This keeps an alpha dep from being load-bearing while getting the cross-agent story omnigent uniquely enables.
 
+**v1 decision (Laith, 2026-06-30):** ship the **direct-CLI runner first**. omnigent (alpha) is deferred to v2. The `AgentRunner` interface is defined now so the omnigent runner drops in later without touching the probe core.
+
+## 4a. Bedrock inference constraint (hard requirement, Laith 2026-06-30)
+
+Both agents the probe drives **must run inference on Amazon Bedrock**, not the Anthropic/OpenAI first-party APIs. This is grounded against current docs (`code.claude.com/docs`, `developers.openai.com/codex`), not recalled.
+
+**Claude Code → Bedrock** — the runner sets these in the child process env before `claude -p`:
+- `CLAUDE_CODE_USE_BEDROCK=1` — route Claude Code through Bedrock.
+- `AWS_REGION` — e.g. `us-east-1`; credentials resolve via the default AWS SDK chain (env keys / `AWS_PROFILE` / SSO / `AWS_BEARER_TOKEN_BEDROCK`). The probe inherits the operator's AWS env; it does not manage creds.
+- `ANTHROPIC_MODEL` — a **cross-region inference-profile ID** (the `us.` prefix is required for on-demand throughput), e.g. `us.anthropic.claude-sonnet-4-6`. Configurable per task/run; defaults to a sonnet inference profile.
+- Headless invocation: `claude -p "<prompt>" --output-format json --model <inference-profile-id>`.
+- Token usage read from the single JSON result object: `.usage.input_tokens`, `.usage.output_tokens`, `.total_cost_usd`; final answer at `.result`.
+- **No temperature/seed flag exists** in the Claude Code CLI (verified). This is *consistent with* the probe design (§3): within-arm sampling nondeterminism is the variance being measured, held free within an arm and identical between arms.
+
+**Codex → Bedrock** — Codex ships a first-party `amazon-bedrock` provider (OpenAI-compatible "Bedrock Mantle" surface, AWS-native SigV4 / bearer-token auth). The runner invokes:
+- `codex exec --json -c model_provider=amazon-bedrock -m <model> --skip-git-repo-check "<prompt>"` (model e.g. `openai.gpt-5.5`).
+- Auth: `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION`, or the AWS SDK credential chain (`AWS_PROFILE` / env keys). Commercial AWS regions only (GovCloud unsupported).
+- Output is JSONL: final answer = last `item.completed` of `type:"agent_message"` (its `.text`); token usage = last `turn.completed.usage` = `{input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens}` (no `total` field — the runner sums them).
+
+The runner centralizes this Bedrock env/flag wiring per agent so the probe core stays inference-backend-agnostic; a future omnigent runner sets the same env on whichever harness it spawns.
+
 ## 5. Where it lives + shape
 
 - **`packages/eval`** — currently a stub (README only). This is its first real content: `@opencodehub/eval` gains the variance-probe core (task loading, the experiment loop, dispersion stats, the `AgentRunner` interface + the two runner impls).
@@ -97,15 +122,16 @@ Omnigent is a **meta-harness** — one orchestration layer over Claude Code, Cod
 - **R4** The agent runner SHALL be an interface with at least two implementations: an omnigent-backed multi-agent runner (default) and a direct-CLI runner (no omnigent dependency).
 - **R5** WHERE omnigent (alpha) is unavailable or its API has drifted, the probe SHALL fall back to / be usable via the direct-CLI runner without code change to the probe core.
 - **R6** The emitted `--json` report SHALL be a pure function of the captured run outcomes (no wall-clock/run-id), so the report serialization is reproducible given the same outcomes.
-- **R7** The probe SHALL pin the omnigent version it was validated against and surface a clear error if the installed version mismatches.
+- **R7** The probe SHALL pin the omnigent version it was validated against and surface a clear error if the installed version mismatches. *(Deferred with the omnigent runner to v2; the version-pin guard ships when that runner does.)*
+- **R8** The direct-CLI runner SHALL route both agents' inference through Amazon Bedrock (§4a): for Claude Code it SHALL set `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, and a `us.`-prefixed inference-profile `ANTHROPIC_MODEL`; for Codex it SHALL pass `-c model_provider=amazon-bedrock`. The runner SHALL surface a clear, actionable error when the agent binary is absent or Bedrock auth/region is unconfigured, rather than silently falling back to a first-party API.
 
-## 7. Open questions for Laith (review these — don't want to build past them)
+## 7. Decisions (locked 2026-06-30 — answers to the prior open questions)
 
-1. **Default oracle.** I lean `assertion` (objective, defensible) as the documented default, with `output_hash` as the zero-config quick look and `judge` opt-in. Agree, or do you want `judge` front-and-center for the marketing number?
-2. **N (runs per arm).** 10 is the smallest N that gives a believable dispersion; 20+ is more defensible but doubles agent cost (real $ on Claude/Codex). Default 10, configurable?
-3. **Which agents for the headline.** Claude Code + Codex both (the agent-neutral claim) — or is one enough for v1 and the second a follow-up?
-4. **Token-overhead guardrail.** Should the probe *flag* (not fail) when variance drops but token overhead exceeds, say, 1.3× — i.e. "you bought stability expensively"? I think yes; it keeps the claim honest.
-5. **Omnigent now, or CLI-runner first?** Given omnigent is alpha, a defensible v1 is: ship the probe core + the direct-CLI runner first (fast, dependency-light, proves the method), add the omnigent runner second (unlocks the cross-agent story). Or do you want omnigent in v1 because the multi-agent claim IS the point?
+1. **Default oracle → `assertion`.** Objective and defensible. `output_hash` is the zero-config quick look; `judge` is opt-in for tasks with no mechanical oracle. The headline number is the assertion pass-rate dispersion delta.
+2. **N (runs per arm) → 10, configurable** via `--runs`. Smallest N that gives a believable dispersion; raise for a more defensible publish at linear agent-cost.
+3. **Agents → Claude Code AND Codex.** The agent-neutral claim ("the pack halves variance regardless of which agent reads it") is the point. v1 ships both via the direct-CLI runner; `--harness` selects one or the default runs the configured set.
+4. **Token-overhead guardrail → yes, flag (never fail).** When variance drops but token overhead exceeds ~1.3×, the report flags "stability bought expensively." Keeps the claim honest; the threshold is a reported constant, not a gate.
+5. **Omnigent vs CLI-first → CLI-runner first.** v1 = probe core + direct-CLI runner (fast, dependency-light, proves the method, Bedrock-wired per §4a). omnigent runner is v2, dropping in behind the same `AgentRunner` interface.
 
 ## 8. What this is NOT (scope guard)
 

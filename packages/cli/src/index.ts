@@ -375,8 +375,49 @@ program
     "After packing, print a summary of the context read-receipt (files indexed, lines, " +
       "hash coverage, per-language breakdown) read from the pack's context-bom.json",
   )
-  .option("--json", "With --explain-context, emit the receipt summary as JSON on stdout")
+  .option("--json", "With --explain-context or --variance-probe, emit the result as JSON on stdout")
+  .option(
+    "--variance-probe <task-file>",
+    "Measure the run-to-run answer variance an OCH pack removes from a coding agent " +
+      "(spec 010 / Move 2). Loads the task file, generates the pack, runs the agent N times " +
+      "with vs. without the pack, and reports the dispersion delta + token overhead. Agents run " +
+      "on Amazon Bedrock. On-demand only — costs real agent minutes + Bedrock spend, never a CI gate.",
+  )
+  .option("--runs <n>", "With --variance-probe: runs per arm (default 10)", (v) =>
+    Number.parseInt(v, 10),
+  )
+  .option(
+    "--harness <harness>",
+    "With --variance-probe: restrict to one agent — claude or codex (default: both)",
+  )
+  .option(
+    "--aws-region <region>",
+    "With --variance-probe: AWS region for Bedrock inference (default: inherited AWS_REGION)",
+  )
+  .option(
+    "--model <id>",
+    "With --variance-probe: Bedrock model / inference-profile id (default per harness)",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
+    // --variance-probe short-circuits the normal pack path: it loads a task,
+    // generates the pack itself, and runs the with/without experiment.
+    if (typeof opts["varianceProbe"] === "string") {
+      const probeMod = await import("./commands/variance-probe.js");
+      const harness = parseHarness(opts["harness"]);
+      const runs =
+        typeof opts["runs"] === "number" && Number.isFinite(opts["runs"])
+          ? opts["runs"]
+          : undefined;
+      const report = await probeMod.runVarianceProbe({
+        taskFile: opts["varianceProbe"],
+        ...(runs !== undefined ? { runs } : {}),
+        ...(harness !== undefined ? { harness } : {}),
+        ...(typeof opts["awsRegion"] === "string" ? { awsRegion: opts["awsRegion"] } : {}),
+        ...(typeof opts["model"] === "string" ? { model: opts["model"] } : {}),
+      });
+      probeMod.printVarianceReport(report, opts["json"] === true);
+      return;
+    }
     const mod = await import("./commands/code-pack.js");
     const rawEngine = typeof opts["engine"] === "string" ? opts["engine"] : "pack";
     const engine: "pack" | "repomix" =
@@ -1030,6 +1071,19 @@ function parseQueryGranularity(raw: unknown): "symbol" | "file" | "community" | 
   throw new Error(
     `Unknown --granularity value: "${trimmed}". Expected one of: symbol, file, community`,
   );
+}
+
+/**
+ * Parse a `--harness` value into the narrow agent set the variance probe
+ * accepts. Returns `undefined` when the flag was not supplied (the probe then
+ * runs the task's configured set — both agents by default). An unknown token
+ * throws so the user sees the typo rather than a silent fallback.
+ */
+function parseHarness(raw: unknown): "claude" | "codex" | undefined {
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === "claude" || trimmed === "codex") return trimmed;
+  throw new Error(`Unknown --harness value: "${trimmed}". Expected one of: claude, codex`);
 }
 
 /**

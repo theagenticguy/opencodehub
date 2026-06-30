@@ -1,0 +1,67 @@
+{
+  "name": "@opencodehub/eval",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenCodeHub — variance probe: measure the run-to-run answer variance an OCH pack removes from a coding agent",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theagenticguy/opencodehub.git",
+    "directory": "packages/eval"
+  },
+  "homepage": "https://github.com/theagenticguy/opencodehub#readme",
+  "bugs": {
+    "url": "https://github.com/theagenticguy/opencodehub/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*.js",
+    "!dist/**/*.test.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.d.ts",
+    "dist/**/*.js.map",
+    "!dist/**/*.test.js.map",
+    "dist/**/*.d.ts.map",
+    "!dist/**/*.test.d.ts.map"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test \"./dist/**/*.test.js\"",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@opencodehub/core-types": "workspace:*",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencodehub",
+    "code-intelligence",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "code-graph",
+    "variance",
+    "determinism",
+    "eval",
+    "agent-eval"
+  ],
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

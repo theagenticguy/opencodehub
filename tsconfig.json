@@ -11,6 +11,7 @@
     { "path": "./packages/analysis" },
     { "path": "./packages/pack" },
     { "path": "./packages/policy" },
+    { "path": "./packages/eval" },
     { "path": "./packages/mcp" },
     { "path": "./packages/cli" },
     { "path": "./packages/summarizer" },
