@@ -30,12 +30,39 @@ function mkInput(
   manifests: ReadonlyArray<readonly [string, string]>,
   detectedLanguages: readonly string[],
   configText?: ReadonlyArray<readonly [string, string]>,
+  importGraph?: FrameworkDetectorInput["importGraph"],
 ): FrameworkDetectorInput {
   return {
     relPaths: new Set(files),
     manifestText: new Map(manifests),
     detectedLanguages,
     ...(configText !== undefined ? { configText: new Map(configText) } : {}),
+    ...(importGraph !== undefined ? { importGraph } : {}),
+  };
+}
+
+/**
+ * Build a minimal ImportStageGraph: each spec is an IMPORTS edge to an
+ * external-stub CodeElement node carrying `external import: <source>:<symbol>`
+ * content. `confidence` 1 = scip-resolved (deterministic), <1 = heuristic.
+ */
+function makeImportGraph(
+  specs: ReadonlyArray<{ source: string; symbol?: string; confidence: number }>,
+): FrameworkDetectorInput["importGraph"] {
+  const nodes = new Map<string, { id: string; kind: string; content: string }>();
+  const edges: Array<{ from: string; to: string; type: string; confidence: number }> = [];
+  specs.forEach((s, i) => {
+    const to = `CodeElement:ext:${s.source}:${i}`;
+    nodes.set(to, {
+      id: to,
+      kind: "CodeElement",
+      content: `external import: ${s.source}:${s.symbol ?? "*"}`,
+    });
+    edges.push({ from: `File:src/app.py:${i}`, to, type: "IMPORTS", confidence: s.confidence });
+  });
+  return {
+    edges: () => edges[Symbol.iterator](),
+    getNode: (id: string) => nodes.get(id),
   };
 }
 
@@ -866,5 +893,63 @@ describe("stage 3 — config-AST evidence", () => {
     // Without configText: no stage-3 evidence. With it: stage-3 present.
     assert.equal((a?.evidence.filter((e) => e.stage === 3) ?? []).length, 0);
     assert.ok((b?.evidence.filter((e) => e.stage === 3) ?? []).length > 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage 5 — import-graph evidence (wired via importGraph)
+// ---------------------------------------------------------------------------
+
+describe("stage 5 — import-graph evidence", () => {
+  it("a deterministic import CREATES a detection (scip-resolved is authoritative)", () => {
+    // No manifest, no layout marker — a scip-resolved `import fastapi` alone.
+    const input = mkInput(
+      ["src/app.py"],
+      [],
+      ["python"],
+      undefined,
+      makeImportGraph([{ source: "fastapi", symbol: "FastAPI", confidence: 1 }]),
+    );
+    const out = detectFrameworksStructured(input);
+    const fastapi = findByName(out, "fastapi");
+    assert.ok(fastapi, "deterministic import should create the fastapi detection");
+    assert.equal(fastapi.confidence, "deterministic");
+    const stage5 = fastapi.evidence.filter((e) => e.stage === 5);
+    assert.ok(stage5.length > 0, "stage-5 evidence should be attached");
+  });
+
+  it("a heuristic import does NOT create a detection on its own (corroborates only)", () => {
+    const input = mkInput(
+      ["src/app.py"],
+      [],
+      ["python"],
+      undefined,
+      makeImportGraph([{ source: "fastapi", symbol: "FastAPI", confidence: 0.5 }]),
+    );
+    const out = detectFrameworksStructured(input);
+    assert.equal(findByName(out, "fastapi"), undefined, "heuristic import alone must not detect");
+  });
+
+  it("a heuristic import corroborates a manifest hit with stage-5 evidence", () => {
+    const input = mkInput(
+      ["pyproject.toml", "src/app.py"],
+      [["pyproject.toml", '[project]\ndependencies = ["fastapi>=0.110"]\n']],
+      ["python"],
+      undefined,
+      makeImportGraph([{ source: "fastapi", symbol: "FastAPI", confidence: 0.5 }]),
+    );
+    const out = detectFrameworksStructured(input);
+    const fastapi = findByName(out, "fastapi");
+    assert.ok(fastapi, "manifest hit detects fastapi");
+    assert.ok(
+      fastapi.evidence.some((e) => e.stage === 5),
+      "heuristic import should still attach stage-5 evidence to the existing hit",
+    );
+  });
+
+  it("is a no-op when importGraph is omitted (legacy callers unchanged)", () => {
+    const input = mkInput(["src/app.py"], [], ["python"]);
+    const out = detectFrameworksStructured(input);
+    assert.equal(findByName(out, "fastapi"), undefined);
   });
 });

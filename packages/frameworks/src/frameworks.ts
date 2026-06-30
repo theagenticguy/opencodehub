@@ -18,6 +18,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { detectFrameworksStructured } from "./detector.js";
 import { CONFIG_AST_FILES } from "./stages/config-ast.js";
+import type { ImportStageGraph } from "./stages/imports.js";
 import { indexResolutions, KNOWN_LOCKFILES, parseLockfile } from "./stages/lockfile.js";
 
 /**
@@ -42,6 +43,13 @@ export interface FrameworkDetectionInput {
    * every ecosystem" when omitted (keeps the legacy contract).
    */
   readonly detectedLanguages?: readonly string[];
+  /**
+   * Optional stage-5 import graph (the `KnowledgeGraph` after the parse phase).
+   * When supplied, `detectFromImports` reads its IMPORTS edges to external
+   * stubs and feeds the findings into detection. Absent for callers that run
+   * before parse or don't hold a graph — stage 5 then contributes nothing.
+   */
+  readonly importGraph?: ImportStageGraph;
 }
 
 /**
@@ -163,6 +171,7 @@ export async function detectFrameworks(input: FrameworkDetectionInput): Promise<
     lockfileVersions,
     configText,
     detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
+    ...(input.importGraph !== undefined ? { importGraph: input.importGraph } : {}),
   });
   return detections.map((d) => d.name);
 }
@@ -188,5 +197,6 @@ export async function detectFrameworksDetailed(
     lockfileVersions,
     configText,
     detectedLanguages: input.detectedLanguages ?? ALL_ECOSYSTEM_LANGUAGES,
+    ...(input.importGraph !== undefined ? { importGraph: input.importGraph } : {}),
   });
 }

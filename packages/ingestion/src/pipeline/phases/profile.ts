@@ -31,6 +31,7 @@ import { detectIaCTypes } from "../profile-detectors/iac.js";
 import { detectLanguages } from "../profile-detectors/languages.js";
 import { detectSrcDirs } from "../profile-detectors/src-dirs.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
+import { PARSE_PHASE_NAME } from "./parse.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
 
 export const PROFILE_PHASE_NAME = "profile" as const;
@@ -43,7 +44,10 @@ export interface ProfileOutput {
 
 export const profilePhase: PipelinePhase<ProfileOutput> = {
   name: PROFILE_PHASE_NAME,
-  deps: [SCAN_PHASE_NAME],
+  // `parse` is a dep (not just `scan`) so the import-graph IMPORTS edges that
+  // framework detection stage 5 reads from `ctx.graph` are guaranteed present.
+  // No cycle: parse deps [scan, structure], neither of which deps profile.
+  deps: [SCAN_PHASE_NAME, PARSE_PHASE_NAME],
   async run(ctx, deps) {
     const scan = deps.get(SCAN_PHASE_NAME) as ScanOutput | undefined;
     if (scan === undefined) {
@@ -68,6 +72,10 @@ async function runProfile(ctx: PipelineContext, scan: ScanOutput): Promise<Profi
       files,
       manifests,
       detectedLanguages: languages,
+      // Stage 5 — the parse phase has populated IMPORTS edges (incl. external
+      // stubs) on the graph by now; `KnowledgeGraph` structurally satisfies the
+      // import-stage's `edges()`/`getNode()` reader.
+      importGraph: ctx.graph,
     }),
   ]);
   const srcDirs = detectSrcDirs(files);
