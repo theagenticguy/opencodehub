@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.6](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.5...root-v0.10.6) (2026-06-30)
+
+
+### Bug Fixes
+
+* **eval:** count cache tokens + per-harness model in variance probe ([#271](https://github.com/theagenticguy/opencodehub/issues/271)) ([df12cf9](https://github.com/theagenticguy/opencodehub/commit/df12cf965dcc458b4b6dd176381fc0955b348d0b))
+
+
+### Documentation
+
+* finding 0001 — OCH pack cuts agent token usage 2–4× (live Move 2 data) ([#273](https://github.com/theagenticguy/opencodehub/issues/273)) ([c712ebc](https://github.com/theagenticguy/opencodehub/commit/c712ebc1f4584e6a0e4bc03d9a13318faff8e7c2))
+
 ## [0.10.5](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.4...root-v0.10.5) (2026-06-30)
 
 

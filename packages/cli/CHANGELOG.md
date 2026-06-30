@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.6](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.5...cli-v0.10.6) (2026-06-30)
+
+
+### Bug Fixes
+
+* **eval:** count cache tokens + per-harness model in variance probe ([#271](https://github.com/theagenticguy/opencodehub/issues/271)) ([df12cf9](https://github.com/theagenticguy/opencodehub/commit/df12cf965dcc458b4b6dd176381fc0955b348d0b))
+
 ## [0.10.5](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.4...cli-v0.10.5) (2026-06-30)
 
 
