@@ -45,14 +45,15 @@ const chunk = (path: string, startByte: number, endByte: number) => ({ path, sta
 
 describe("runReplayCompare (seamed)", () => {
   async function compare(a: LoadedPack, b: LoadedPack) {
-    const byDir = new Map([
-      [a.dir, a],
-      [b.dir, b],
-    ]);
+    // `runReplayCompare` calls `resolve(dir)` before the loader, so the
+    // resolved path is platform-dependent (POSIX vs Windows). It always loads
+    // A then B sequentially, so the fake serves packs in call order rather than
+    // keying on the (unstable) resolved path.
+    const queue = [a, b];
     return runReplayCompare(a.dir, b.dir, {
-      _loadPack: async (dir) => {
-        const p = byDir.get(dir);
-        if (p === undefined) throw new Error(`no fake pack at ${dir}`);
+      _loadPack: async () => {
+        const p = queue.shift();
+        if (p === undefined) throw new Error("fake loader called more than twice");
         return p;
       },
     });
