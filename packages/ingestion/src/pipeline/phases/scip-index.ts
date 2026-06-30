@@ -31,6 +31,13 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  findEnclosingSymbolId,
+  indexNodesByFile as indexNodesByFile_shared,
+  type NodeRow,
+  type NodesByFile,
+  SCIP_SYMBOL_KINDS,
+} from "@opencodehub/analysis";
 import type { GraphNode, NodeId } from "@opencodehub/core-types";
 import type {
   DerivedEdge,
@@ -408,71 +415,26 @@ function probeCachedVersion(scipPath: string): string {
   }
 }
 
-/** Per-file, line-sorted node index for the tightest-enclosing lookup. */
-type NodesByFile = ReadonlyMap<string, readonly SymbolRec[]>;
-interface SymbolRec {
-  readonly id: NodeId;
-  readonly filePath: string;
-  readonly startLine: number;
-  readonly endLine: number;
-}
-
-const SCIP_SYMBOL_KINDS: ReadonlySet<string> = new Set([
-  "Class",
-  "Method",
-  "Function",
-  "Interface",
-  "Struct",
-  "Enum",
-  "Trait",
-]);
-
+/**
+ * Project the in-memory graph's enclosing-symbol nodes into the shared
+ * per-file index. The node SOURCE here (`ctx.graph.nodes()`, mid-pipeline,
+ * before the store exists) differs from the SARIF path's store query, so the
+ * projection stays local; the index build + lookup are the shared
+ * `@opencodehub/analysis` impl (gated on {@link SCIP_SYMBOL_KINDS}).
+ */
 function indexNodesByFile(ctx: PipelineContext): NodesByFile {
-  const map = new Map<string, SymbolRec[]>();
+  const rows: NodeRow[] = [];
   for (const n of ctx.graph.nodes()) {
-    if (!SCIP_SYMBOL_KINDS.has(n.kind)) continue;
     const startLine = (n as { startLine?: number }).startLine;
     const endLine = (n as { endLine?: number }).endLine;
     if (startLine === undefined || endLine === undefined) continue;
-    const rec: SymbolRec = {
-      id: n.id as NodeId,
-      filePath: n.filePath,
-      startLine,
-      endLine,
-    };
-    const arr = map.get(n.filePath);
-    if (arr === undefined) map.set(n.filePath, [rec]);
-    else arr.push(rec);
+    rows.push({ id: n.id as NodeId, filePath: n.filePath, startLine, endLine, kind: n.kind });
   }
-  for (const arr of map.values()) {
-    arr.sort((a, b) => {
-      if (a.startLine !== b.startLine) return a.startLine - b.startLine;
-      return a.endLine - b.endLine;
-    });
-  }
-  return map;
+  return indexNodesByFile_shared(rows, SCIP_SYMBOL_KINDS);
 }
 
-function findEnclosingNodeId(
-  nodesByFile: NodesByFile,
-  filePath: string,
-  line: number,
-): NodeId | undefined {
-  const candidates = nodesByFile.get(filePath);
-  if (candidates === undefined) return undefined;
-  let best: SymbolRec | undefined;
-  let bestSpan = Number.POSITIVE_INFINITY;
-  for (const rec of candidates) {
-    if (rec.startLine > line) break;
-    if (rec.endLine < line) continue;
-    const span = rec.endLine - rec.startLine;
-    if (span < bestSpan) {
-      best = rec;
-      bestSpan = span;
-    }
-  }
-  return best?.id;
-}
+/** Local alias preserving the call-site name; the impl is the shared lookup. */
+const findEnclosingNodeId = findEnclosingSymbolId;
 
 function edgeKey(from: string, type: string, to: string): string {
   return `${from}\x00${type}\x00${to}`;

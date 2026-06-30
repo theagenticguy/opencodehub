@@ -24,6 +24,13 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  ENCLOSING_SYMBOL_KINDS,
+  findEnclosingSymbolId,
+  indexNodesByFile,
+  type NodeRow,
+  type NodesByFile,
+} from "@opencodehub/analysis";
 import { type FindingNode, KnowledgeGraph, makeNodeId, type NodeId } from "@opencodehub/core-types";
 import {
   applyBaselineState,
@@ -40,13 +47,6 @@ import {
   resolveRepoMetaDir,
 } from "@opencodehub/storage";
 import { readRegistry } from "../registry.js";
-import {
-  ENCLOSING_SYMBOL_KINDS,
-  findEnclosingSymbolId,
-  indexNodesByFile,
-  type NodeRow,
-  type NodesByFile,
-} from "./find-enclosing-symbol.js";
 
 export interface IngestSarifOptions {
   /** `--repo <name>`: look up a registered repo instead of using CWD. */

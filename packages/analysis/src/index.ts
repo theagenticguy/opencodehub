@@ -42,6 +42,13 @@ export {
   symbolKinds as deadCodeSymbolKinds,
 } from "./dead-code.js";
 export { runDetectChanges } from "./detect-changes.js";
+export type { NodeRow, NodesByFile } from "./enclosing-symbol.js";
+export {
+  ENCLOSING_SYMBOL_KINDS,
+  findEnclosingSymbolId,
+  indexNodesByFile,
+  SCIP_SYMBOL_KINDS,
+} from "./enclosing-symbol.js";
 export { createNodeFs } from "./fs.js";
 export {
   gitDiffHunks,
