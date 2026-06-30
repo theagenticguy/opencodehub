@@ -32,6 +32,7 @@ import {
   type ManifestKey,
 } from "./catalog.js";
 import { type ConfigAstFinding, inspectConfigAst } from "./stages/config-ast.js";
+import { detectFromImports, type ImportFinding, type ImportStageGraph } from "./stages/imports.js";
 import {
   VARIANT_RESOLVERS,
   type VariantResolveInput,
@@ -66,6 +67,15 @@ export interface FrameworkDetectorInput {
    * legacy callers — stage 3 simply contributes no evidence.
    */
   readonly configText?: ReadonlyMap<string, string>;
+  /**
+   * Stage 5 — the import graph (parse-phase `KnowledgeGraph`). When present,
+   * `detectFromImports` reads its IMPORTS edges to external stubs; the findings
+   * merge as stage-5 evidence. A `deterministic` import (scip-resolved,
+   * confidence 1.0) is authoritative enough to CREATE a detection on its own
+   * (an `import fastapi` is as strong as a manifest dep); a `heuristic` import
+   * only corroborates a framework that already hit. Absent for legacy callers.
+   */
+  readonly importGraph?: ImportStageGraph;
 }
 
 /** Mapping language → ecosystem. Covers the tree-sitter languages OpenCodeHub indexes. */
@@ -100,11 +110,20 @@ export function detectFrameworksStructured(
   // framework already hit on a manifest/layout signal (stage 3 corroborates,
   // never creates).
   const configFindingsByFramework = groupConfigFindings(input.configText, input.relPaths);
+  // Stage 5 — import-graph findings, grouped by framework. A `deterministic`
+  // import can create a detection; a `heuristic` one only corroborates.
+  const importFindingsByFramework = groupImportFindings(input.importGraph);
 
   const out: FrameworkDetection[] = [];
   for (const rule of FRAMEWORK_CATALOG) {
     if (rule.ecosystem !== "any" && !activeEcosystems.has(rule.ecosystem)) continue;
-    const hit = evaluateRule(rule, input, manifestJson, configFindingsByFramework.get(rule.name));
+    const hit = evaluateRule(
+      rule,
+      input,
+      manifestJson,
+      configFindingsByFramework.get(rule.name),
+      importFindingsByFramework.get(rule.name),
+    );
     if (hit === null) continue;
     const detection = buildDetection(
       rule,
@@ -139,6 +158,24 @@ function groupConfigFindings(
   return grouped;
 }
 
+/**
+ * Run stage 5 (import graph) once and group its findings by framework name, so
+ * `evaluateRule` can look up a rule's import findings by `rule.name`. Returns
+ * an empty map when no import graph was supplied (legacy callers).
+ */
+function groupImportFindings(
+  importGraph: ImportStageGraph | undefined,
+): ReadonlyMap<string, readonly ImportFinding[]> {
+  const grouped = new Map<string, ImportFinding[]>();
+  if (importGraph === undefined) return grouped;
+  for (const finding of detectFromImports(importGraph)) {
+    const list = grouped.get(finding.framework) ?? [];
+    list.push(finding);
+    grouped.set(finding.framework, list);
+  }
+  return grouped;
+}
+
 // ---------------------------------------------------------------------------
 // Evaluation helpers
 // ---------------------------------------------------------------------------
@@ -153,6 +190,8 @@ interface RuleHit {
   readonly hasManifestHit: boolean;
   /** Whether a layout/heuristic (stage 4, tier H) signal fired. */
   readonly hasFileHit: boolean;
+  /** Whether a scip-resolved (stage 5, deterministic) import fired. */
+  readonly hasDeterministicImport: boolean;
 }
 
 function evidenceKey(e: Evidence): string {
@@ -164,10 +203,12 @@ function evaluateRule(
   input: FrameworkDetectorInput,
   manifestJson: ReadonlyMap<string, unknown>,
   configFindings: readonly ConfigAstFinding[] | undefined,
+  importFindings: readonly ImportFinding[] | undefined,
 ): RuleHit | null {
   const evidenceSeen = new Map<string, Evidence>();
   let hasManifestHit = false;
   let hasFileHit = false;
+  let hasDeterministicImport = false;
 
   const push = (e: Evidence): void => {
     const key = evidenceKey(e);
@@ -209,23 +250,35 @@ function evaluateRule(
     }
   }
 
-  // Stage 3 — config-AST corroboration. Only merged when a manifest/layout
-  // signal already fired: config text alone never creates a detection (a repo
-  // can carry a vendored config without using the framework). Stage-3 evidence
-  // sharpens an existing hit (e.g. Next.js App vs Pages router).
-  if ((hasManifestHit || hasFileHit) && configFindings !== undefined) {
+  // Stage 5 — import-graph signal. A `deterministic` import (scip-resolved) is
+  // authoritative enough to create a detection on its own; a `heuristic` one is
+  // recorded but only corroborates a hit from another stage. Evaluated before
+  // the stage-3 gate so a deterministic import satisfies the "something hit"
+  // condition.
+  if (importFindings !== undefined) {
+    for (const f of importFindings) {
+      push({ stage: 5, source: f.source, detail: `import: ${f.source} (${f.confidence})` });
+      if (f.confidence === "deterministic") hasDeterministicImport = true;
+    }
+  }
+
+  // Stage 3 — config-AST corroboration. Only merged when a manifest/layout/
+  // import signal already fired: config text alone never creates a detection
+  // (a repo can carry a vendored config without using the framework). Stage-3
+  // evidence sharpens an existing hit (e.g. Next.js App vs Pages router).
+  if ((hasManifestHit || hasFileHit || hasDeterministicImport) && configFindings !== undefined) {
     for (const f of configFindings) {
       push({ stage: 3, source: f.source, detail: f.detail });
     }
   }
 
-  if (!hasManifestHit && !hasFileHit) return null;
+  if (!hasManifestHit && !hasFileHit && !hasDeterministicImport) return null;
   const sorted = [...evidenceSeen.values()].sort((a, b) => {
     if (a.stage !== b.stage) return a.stage - b.stage;
     if (a.source !== b.source) return a.source < b.source ? -1 : 1;
     return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
   });
-  return { evidence: sorted, hasManifestHit, hasFileHit };
+  return { evidence: sorted, hasManifestHit, hasFileHit, hasDeterministicImport };
 }
 
 function matchManifestKey(
@@ -268,7 +321,8 @@ function buildDetection(
 
 function inferConfidence(rule: FrameworkRule, hit: RuleHit): FrameworkDetection["confidence"] {
   if (rule.tier === "C") return "composite";
-  if (hit.hasManifestHit) return "deterministic";
+  // A manifest dep or a scip-resolved import are both authoritative.
+  if (hit.hasManifestHit || hit.hasDeterministicImport) return "deterministic";
   // tier D/H with only file-level hits → heuristic.
   return "heuristic";
 }

@@ -1,7 +1,7 @@
 /**
  * `@opencodehub/frameworks` — framework detection over a curated catalog.
  *
- * The dispatcher (`detector.ts`) merges four stages into each
+ * The dispatcher (`detector.ts`) merges five stages into each
  * `FrameworkDetection` (`{name, version?, confidence, evidence[]}`):
  *   1. Manifest presence + declared deps (`package.json`, `pyproject.toml`,
  *      `pom.xml`, …)
@@ -15,15 +15,13 @@
  *      (it corroborates, never creates a detection on its own).
  *   4. Folder / file-marker convention (`app/`, `pages/`, `vite.config.ts`,
  *      `src/main/java/`, …)
+ *   5. Import / SCIP (`imports.ts`) — reads the graph's `IMPORTS` edges to
+ *      external-import stubs via the `importGraph` input. The profile phase
+ *      depends on `parse` so those edges exist by detection time. A
+ *      `deterministic` (scip-resolved) import can create a detection on its
+ *      own; a `heuristic` import only corroborates an existing hit.
  *
- * One stage ships as a standalone, independently tested module but is not yet
- * wired into the ingestion profile phase:
- *   5. Import / SCIP (`imports.ts`) — consumes the graph's `IMPORTS` edges,
- *      which the profile phase (deps: [scan]) runs before. Wiring it needs a
- *      phase-ordering change (run framework detection after `crossFile`); a
- *      caller that already holds the resolved graph can pass it through today.
- *
- * Every stage is pure-local file-system + string/regex inspection; no
+ * Every stage is pure-local file-system / graph + string/regex inspection; no
  * network, no LLM, no subprocess.
  */
 

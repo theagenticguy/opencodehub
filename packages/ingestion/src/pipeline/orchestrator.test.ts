@@ -32,35 +32,29 @@ describe("runIngestion (end-to-end)", () => {
     assert.ok(result.graphHash.length === 64, "graphHash must be sha256 hex");
     assert.ok(result.stats.nodeCount >= 2, "should have File + definition nodes");
     assert.ok(result.stats.edgeCount >= 1);
-    // Topological order with alphabetic tiebreak — parse's descendants
-    // (orm/routes/tools) sort lexicographically, and crossFile/mro/
-    // communities/processes/annotate follow.
+    // Topological order with alphabetic tiebreak. `profile` now depends on
+    // `parse` (so framework-detection stage 5 sees the parse-emitted IMPORTS
+    // edges), which lands it — plus its dependents `dependencies`/`repo-node`/
+    // `coverage`/`sbom` — after `parse`/`complexity`/`orm`.
     assert.deepEqual(
       result.stats.phases.map((p) => p.name),
       [
         "scan",
         "incremental-scope",
-        "profile",
-        "dependencies",
-        // `repo-node` depends on `profile` only, so the topological
-        // alphabetic tiebreak lands it after `dependencies` and before `sbom`.
-        "repo-node",
-        "sbom",
         "structure",
-        // `coverage` becomes runnable once `structure` completes; the
-        // alphabetic tiebreak lands it before `markdown`.
-        "coverage",
         "markdown",
         "parse",
-        // `business-logic` depends on parse + scan; once parse completes it is
-        // ready alongside complexity/orm/routes and the alphabetic tiebreak
-        // ("business-logic" < "complexity") lands it first.
         "business-logic",
         "complexity",
         "orm",
+        "profile",
+        "coverage",
+        "dependencies",
+        "repo-node",
         "routes",
         "fetches",
         "openapi",
+        "sbom",
         "temporal",
         "cochange",
         "tools",
