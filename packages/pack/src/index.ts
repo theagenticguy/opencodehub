@@ -43,6 +43,17 @@ export type {
   ContextFile,
 } from "./context-bom.js";
 export { buildContextBom, mergeSpans } from "./context-bom.js";
+export {
+  canonicalDecisionSet,
+  type DecisionDiff,
+  type DecisionSet,
+  decisionHash,
+  decisionSetFromByteRanges,
+  decisionSetFromChunks,
+  diffDecisionSets,
+  type RangeTuple,
+  type Selection,
+} from "./decision-set.js";
 export type { DepRow, DepsOpts } from "./deps.js";
 export { buildDeps } from "./deps.js";
 export type { FileTreeNode, FileTreeOpts } from "./file-tree.js";

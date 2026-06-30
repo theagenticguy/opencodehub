@@ -454,6 +454,42 @@ program
   });
 
 program
+  .command("replay")
+  .description(
+    "Assert two code-packs are decision-equivalent (spec 011 / ADR 0020): same files + byte " +
+      "ranges selected under the same budget, regardless of incidental drift (tokenCount, pins, " +
+      "chunk text). packHash equality is the cheap witness; a decisionHash projection is the " +
+      "contract. Verdict: EQUIVALENT / DIVERGED / BUDGET_MISMATCH / CORRUPT. On-demand, never a CI gate.",
+  )
+  .requiredOption(
+    "--compare <packs...>",
+    "Two pack directories (.codehub/packs/<packHash>/) to compare for decision-equivalence",
+  )
+  .option(
+    "--json",
+    "Emit the full replay record (verdict + decisionHashes + diff) as JSON on stdout",
+  )
+  .option(
+    "--budget-strict",
+    "Treat a BUDGET_MISMATCH (different --budget between the packs) as a failure exit",
+  )
+  .action(async (opts: Record<string, unknown>) => {
+    const mod = await import("./commands/replay.js");
+    const packs = Array.isArray(opts["compare"]) ? (opts["compare"] as string[]) : [];
+    if (packs.length !== 2) {
+      throw new Error(
+        `codehub replay --compare expects exactly two pack directories, got ${packs.length}.`,
+      );
+    }
+    const budgetStrict = opts["budgetStrict"] === true;
+    const [packA, packB] = packs as [string, string];
+    const result = await mod.runReplayCompare(packA, packB);
+    mod.printReplayResult(result, opts["json"] === true, budgetStrict);
+    const { exitCode } = mod.replayVerdictLine(result, budgetStrict);
+    if (exitCode !== 0) process.exitCode = exitCode;
+  });
+
+program
   .command("query <text>")
   .description("Direct hybrid search against a repo's graph")
   .option("--limit <n>", "Max results", (v) => Number.parseInt(v, 10), 10)
