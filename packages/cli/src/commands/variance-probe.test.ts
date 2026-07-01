@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { AgentRunner, Harness, RunOutcome, RunRequest } from "@opencodehub/eval";
+import { DEFAULT_TOKENIZER_ID, SONNET5_TOKENIZER_ID } from "./code-pack.js";
 import { assemblePackContext, runVarianceProbe } from "./variance-probe.js";
 
 /** A fake runner: stable answer with-pack, distinct answer per run without. */
@@ -108,6 +109,47 @@ describe("runVarianceProbe (seamed)", () => {
     assert.equal(withPackPrompts, 2, "both with-pack runs saw the assembled context");
   });
 
+  it("threads --pack-tokenizer into the assemble call and onto the report", async () => {
+    let seenTokenizer: string | undefined;
+    const report = await runVarianceProbe({
+      taskFile,
+      runs: 1,
+      harness: "claude",
+      packTokenizer: SONNET5_TOKENIZER_ID,
+      _assemblePackContext: async (_repo, tokenizer) => {
+        seenTokenizer = tokenizer;
+        return "PACK";
+      },
+      _runnerFor: (h) => new FakeRunner(h),
+    });
+    assert.equal(
+      seenTokenizer,
+      SONNET5_TOKENIZER_ID,
+      "the with-pack arm packs under the requested lane",
+    );
+    assert.equal(
+      report.packTokenizerId,
+      SONNET5_TOKENIZER_ID,
+      "the report attributes the result to the tokenizer lane (Finding 0001 v2)",
+    );
+  });
+
+  it("falls back to the default tokenizer lane when --pack-tokenizer is absent", async () => {
+    let seenTokenizer: string | undefined;
+    const report = await runVarianceProbe({
+      taskFile,
+      runs: 1,
+      harness: "claude",
+      _assemblePackContext: async (_repo, tokenizer) => {
+        seenTokenizer = tokenizer;
+        return "PACK";
+      },
+      _runnerFor: (h) => new FakeRunner(h),
+    });
+    assert.equal(seenTokenizer, DEFAULT_TOKENIZER_ID, "default lane unchanged when flag omitted");
+    assert.equal(report.packTokenizerId, DEFAULT_TOKENIZER_ID);
+  });
+
   it("builds a per-harness runner for each agent in the default set (Bug-2 routing)", async () => {
     // With no --harness pin, the probe visits both agents; the default factory
     // maps args.models[harness] to each. We assert the factory is invoked once
@@ -157,5 +199,39 @@ describe("assemblePackContext", () => {
     assert.ok(!ctx.includes("context-bom.json"), "context-bom excluded");
     // sorted: readme.md before skeleton.jsonl
     assert.ok(ctx.indexOf("### readme.md") < ctx.indexOf("### skeleton.jsonl"));
+  });
+
+  it("Move 4: the auto default is byte-identical to the no-channel call (no marker)", async () => {
+    const bare = await assemblePackContext(packDir);
+    const auto = await assemblePackContext(packDir, "auto");
+    assert.equal(auto, bare, "auto must not perturb the default output");
+    assert.ok(!auto.includes("opencodehub:cachePoint"), "auto emits no cache marker");
+  });
+
+  it("Move 4: an automatic channel emits no marker", async () => {
+    const ctx = await assemblePackContext(packDir, "anthropic");
+    assert.ok(!ctx.includes("opencodehub:cachePoint"), "anthropic caches automatically");
+    assert.equal(ctx, await assemblePackContext(packDir), "identical to the marker-free default");
+  });
+
+  it("Move 4: bedrock inserts one cache-breakpoint sentinel at the prefix boundary", async () => {
+    const ctx = await assemblePackContext(packDir, "bedrock");
+    const marker =
+      '<!-- opencodehub:cachePoint channel=bedrock {"cachePoint":{"type":"default"}} -->';
+    assert.ok(ctx.includes(marker), "bedrock sentinel present");
+    assert.equal(ctx.split(marker).length - 1, 1, "exactly one marker");
+    // skeleton.jsonl is the sole stable-prefix file present, so the boundary
+    // sits immediately after it (before the volatile tail would begin).
+    assert.ok(
+      ctx.indexOf("### skeleton.jsonl") < ctx.indexOf(marker),
+      "marker follows the stable skeleton prefix",
+    );
+  });
+
+  it("Move 4: same channel twice is byte-identical (deterministic)", async () => {
+    assert.equal(
+      await assemblePackContext(packDir, "bedrock"),
+      await assemblePackContext(packDir, "bedrock"),
+    );
   });
 });

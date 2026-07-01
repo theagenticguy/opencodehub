@@ -12,6 +12,12 @@ import { readFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// Type-only import — erased at compile time, so it does not pull the
+// `@opencodehub/pack` barrel into the CLI's `--help` startup path (the whole
+// file loads subcommands lazily to keep startup cheap). The runtime channel
+// list is duplicated in `parseCacheChannelFlag` below and kept in sync with
+// `CACHE_CHANNELS` in `@opencodehub/pack/cache.ts`.
+import type { CacheChannel } from "@opencodehub/pack";
 // Silence the one-shot node:sqlite ExperimentalWarning before any subcommand
 // lazily loads the storage layer. This module is dependency-free (no native
 // binding), so importing it eagerly does not regress `--help` startup cost.
@@ -37,6 +43,41 @@ if (process.env["OCH_NATIVE_PARSER"] !== undefined) {
     "[codehub] OCH_NATIVE_PARSER was removed in 0.4.0; WASM is the only parser runtime. Unset to silence this warning.\n",
   );
   delete process.env["OCH_NATIVE_PARSER"];
+}
+
+/**
+ * Valid `--cache-channel` values (Move 4). Kept in sync with `CACHE_CHANNELS`
+ * in `@opencodehub/pack/cache.ts` — duplicated here as bare strings so the
+ * commander layer can validate the flag without eagerly importing the pack
+ * barrel (which would regress `--help` startup cost). The `code-pack` action
+ * forwards the narrowed value; `runCodePack`/`runVarianceProbe` re-default it.
+ */
+const CACHE_CHANNEL_VALUES = [
+  "bedrock",
+  "vertex",
+  "anthropic",
+  "claude-on-aws",
+  "foundry",
+  "auto",
+] as const;
+
+/**
+ * Validate the `--cache-channel` flag value once, before either the pack or
+ * variance-probe path runs. Commander applies the `"auto"` default, so a
+ * non-string here means the option was cleared — fall back to `auto`. An
+ * unrecognized channel exits with a clear error instead of silently
+ * mis-routing cache-marker emission.
+ */
+function parseCacheChannelFlag(value: unknown): CacheChannel {
+  if (typeof value !== "string" || value.length === 0) return "auto";
+  if ((CACHE_CHANNEL_VALUES as readonly string[]).includes(value)) {
+    return value as CacheChannel;
+  }
+  process.stderr.write(
+    `[codehub] --cache-channel: unknown channel '${value}'. ` +
+      `Valid: ${CACHE_CHANNEL_VALUES.join(", ")}.\n`,
+  );
+  process.exit(2);
 }
 
 const program = new Command()
@@ -371,9 +412,24 @@ program
     "pack",
   )
   .option(
+    "--cache-channel <channel>",
+    "Channel-aware cache-prefix enforcement (Move 4): bedrock | vertex | anthropic | " +
+      "claude-on-aws | foundry | auto (default). Emits cache-breakpoint markers + a " +
+      "deterministic prefix boundary only on the opt-in channels (bedrock, vertex); the " +
+      "automatic channels and the auto default emit no markers (byte-identical output).",
+    "auto",
+  )
+  .option(
     "--explain-context",
     "After packing, print a summary of the context read-receipt (files indexed, lines, " +
       "hash coverage, per-language breakdown) read from the pack's context-bom.json",
+  )
+  .option(
+    "--prove",
+    "After packing, emit an in-toto context attestation (attestation.intoto.json) whose " +
+      "subject is the pack's packHash and whose predicate records the context provenance " +
+      "(what was packed). Composable beneath the SLSA build provenance CI attests; unsigned " +
+      "(signing stays a CI concern). Pack engine only.",
   )
   .option("--json", "With --explain-context or --variance-probe, emit the result as JSON on stdout")
   .option(
@@ -403,7 +459,18 @@ program
     "--model-codex <id>",
     "With --variance-probe: Codex Bedrock model id (default openai.gpt-5.5)",
   )
+  .option(
+    "--pack-tokenizer <id>",
+    "With --variance-probe: tokenizer-provenance lane the with-pack arm packs under " +
+      '"<vendor>:<name>@<pin>" (default openai:o200k_base@tiktoken-0.8.0). Use ' +
+      "anthropic:claude-sonnet-5@2026-06-30 to author the pack for Sonnet 5's heavier tokenizer. " +
+      "Recorded in the variance report so results attribute to a lane (Finding 0001 v2).",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
+    // Channel-aware cache-prefix enforcement (Move 4). Validated once here so
+    // an unknown channel errors clearly before either path runs. Commander
+    // camelCases the flag to opts["cacheChannel"]; the default is "auto".
+    const cacheChannel = parseCacheChannelFlag(opts["cacheChannel"]);
     // --variance-probe short-circuits the normal pack path: it loads a task,
     // generates the pack itself, and runs the with/without experiment.
     if (typeof opts["varianceProbe"] === "string") {
@@ -424,6 +491,10 @@ program
         ...(harness !== undefined ? { harness } : {}),
         ...(typeof opts["awsRegion"] === "string" ? { awsRegion: opts["awsRegion"] } : {}),
         ...(Object.keys(models).length > 0 ? { models } : {}),
+        ...(typeof opts["packTokenizer"] === "string"
+          ? { packTokenizer: opts["packTokenizer"] }
+          : {}),
+        cacheChannel,
       });
       probeMod.printVarianceReport(report, opts["json"] === true);
       return;
@@ -445,6 +516,7 @@ program
       ...(typeof opts["tokenizer"] === "string" ? { tokenizer: opts["tokenizer"] } : {}),
       ...(typeof opts["outDir"] === "string" ? { outDir: opts["outDir"] } : {}),
       engine,
+      cacheChannel,
     });
     if (result.engine === "pack") {
       console.warn(
@@ -454,6 +526,10 @@ program
       if (opts["explainContext"] === true) {
         const summary = await mod.explainContextBom(result.outDir);
         mod.printContextSummary(summary, opts["json"] === true);
+      }
+      if (opts["prove"] === true && result.manifest !== null) {
+        const attestationPath = await mod.writeContextAttestation(result.outDir, result.manifest);
+        console.warn(`codehub code-pack: wrote context attestation to ${attestationPath}`);
       }
     } else {
       console.warn(

@@ -69,6 +69,15 @@ export interface VarianceReport {
   readonly schema: 1;
   /** The task id this report measures. */
   readonly taskId: string;
+  /**
+   * Tokenizer-provenance lane the with-pack arm packed under
+   * ("<vendor>:<name>@<pin>"). Optional so pre-existing captured reports stay
+   * valid; when present it lets Finding 0001 v2 attribute a result to a
+   * tokenizer (e.g. the Sonnet-5 lane whose heavier tokenizer inflates the
+   * same bytes ~30-35% vs prior Claude tokenizers). Pure provenance — recording
+   * it never changes the measured dispersion or token overhead.
+   */
+  readonly packTokenizerId?: string;
   /** One entry per harness the probe ran. */
   readonly harnesses: readonly HarnessReport[];
 }

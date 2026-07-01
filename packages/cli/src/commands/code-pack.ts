@@ -32,13 +32,20 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { FileNode, GraphNode, RepoNode } from "@opencodehub/core-types";
 import { sha256Hex } from "@opencodehub/core-types";
 import { parse as ingestionParse } from "@opencodehub/ingestion";
-import { generatePack, type PackManifest } from "@opencodehub/pack";
+import {
+  buildContextAttestation,
+  type CacheChannel,
+  DEFAULT_CACHE_CHANNEL,
+  generatePack,
+  type PackManifest,
+  serializeAttestation,
+} from "@opencodehub/pack";
 import { type IGraphStore, openStore, resolveGraphPath, type Store } from "@opencodehub/storage";
 import { runPack } from "./pack.js";
 
@@ -47,6 +54,27 @@ export const DEFAULT_BUDGET_TOKENS = 100_000;
 
 /** Default tokenizer identifier when `--tokenizer` is omitted. */
 export const DEFAULT_TOKENIZER_ID = "openai:o200k_base@tiktoken-0.8.0";
+
+/**
+ * Tokenizer-provenance lane for Claude Sonnet 5 (launched 2026-06-30).
+ *
+ * Sonnet 5 ships a new tokenizer that inflates the same source bytes by
+ * ~30-35% vs prior Claude tokenizers, so a budget authored for the default
+ * `openai:o200k_base` lane under-provisions when the *consuming* agent is
+ * Sonnet 5 — the pack's budgetTokens→chunkSize map is 1:1, so the same budget
+ * silently produces oversized chunks under the heavier tokenizer.
+ *
+ * This constant is provenance metadata ONLY: it records which tokenizer a pack
+ * was authored against so a variance probe (Finding 0001 v2) can attribute
+ * results to a lane. It does NOT change the bytes→token math — there is no
+ * runtime Sonnet-5 encoder. The `anthropic:` vendor prefix is load-bearing:
+ * `@opencodehub/pack`'s `resolveDeterminism` downgrades any `anthropic:`-prefixed
+ * lane from `strict` to `best_effort`, which is the correct class for a pack
+ * whose byte-identity guarantee is relaxed by a Claude tokenizer.
+ *
+ * Format follows the `<vendor>:<name>@<pin>` convention (see PackManifest).
+ */
+export const SONNET5_TOKENIZER_ID = "anthropic:claude-sonnet-5@2026-06-30";
 
 /** Default engine when `--engine` is omitted — the new `@opencodehub/pack` BOM. */
 export const DEFAULT_ENGINE: "pack" | "repomix" = "pack";
@@ -62,6 +90,13 @@ export interface CodePackArgs {
   readonly outDir?: string;
   /** Engine: "pack" (default) or "repomix" (legacy opt-in). */
   readonly engine?: "pack" | "repomix";
+  /**
+   * Delivery channel for channel-aware cache-prefix enforcement (Move 4).
+   * Recorded on the pack options and threaded into the agent-facing assembly.
+   * Kept OUT of the manifest/packHash preimage, so the default (`auto`) leaves
+   * pack output byte-identical to pre-Move-4. Defaults to `auto`.
+   */
+  readonly cacheChannel?: CacheChannel;
   /**
    * Test seam — inject a custom `generatePack` so unit tests don't need
    * to load native storage bindings. Production callers leave this
@@ -105,6 +140,11 @@ export interface CodePackResult {
    * directory; consumers should walk `outDir`).
    */
   readonly repomixOutputPath?: string;
+  /**
+   * Absolute path of the in-toto context attestation, present only when the
+   * `--prove` flag emitted one (pack engine only). Undefined otherwise.
+   */
+  readonly attestationPath?: string;
 }
 
 export async function runCodePack(args: CodePackArgs = {}): Promise<CodePackResult> {
@@ -120,6 +160,7 @@ export async function runCodePack(args: CodePackArgs = {}): Promise<CodePackResu
 async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<CodePackResult> {
   const budget = args.budget ?? DEFAULT_BUDGET_TOKENS;
   const tokenizer = args.tokenizer ?? DEFAULT_TOKENIZER_ID;
+  const cacheChannel = args.cacheChannel ?? DEFAULT_CACHE_CHANNEL;
   const generate = args._generatePack ?? generatePack;
 
   // Production: open a read-only graph store; tests inject `_store` to
@@ -175,6 +216,9 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         outDir: stagingDir,
         budgetTokens: budget,
         tokenizerId: tokenizer,
+        // Recorded on the pack options; deliberately not part of the manifest
+        // preimage (Move 4), so `auto` keeps packHash byte-identical to today.
+        cacheChannel,
       },
       composedStore !== undefined
         ? { store: composedStore, ...provenance }
@@ -356,6 +400,36 @@ export function statSizeOrZero(path: string): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Filename of the in-toto context attestation emitted by `--prove`, written
+ * inside the pack directory alongside the BOM bodies.
+ */
+export const ATTESTATION_FILENAME = "attestation.intoto.json";
+
+/**
+ * Emit the in-toto context attestation for a finished pack (spec: Move 3 /
+ * `--prove`). Builds the Statement from the manifest — subject = the pack's
+ * `packHash`, predicate = the context provenance + BOM item list — and writes
+ * its canonical JSON to `<outDir>/attestation.intoto.json`.
+ *
+ * The Statement is a pure function of the manifest (no clock / UUID / run-id),
+ * so re-emitting over the same pack yields byte-identical bytes. This is the
+ * UNSIGNED statement; signing (cosign keyless) stays a CI concern that can
+ * layer a DSSE envelope over these bytes.
+ *
+ * Returns the absolute path written so the caller can surface it.
+ */
+export async function writeContextAttestation(
+  outDir: string,
+  manifest: PackManifest,
+): Promise<string> {
+  const statement = buildContextAttestation(manifest);
+  const bytes = new TextEncoder().encode(serializeAttestation(statement));
+  const attestationPath = join(outDir, ATTESTATION_FILENAME);
+  await writeFile(attestationPath, bytes);
+  return attestationPath;
 }
 
 /** Summary of a pack's context read-receipt, derived from context-bom.json. */

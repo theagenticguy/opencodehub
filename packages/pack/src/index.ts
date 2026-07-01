@@ -36,6 +36,32 @@ import { buildXrefs } from "./xrefs.js";
 export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.js";
 export { buildAstChunks } from "./ast-chunker.js";
 export type {
+  AttestationBomItem,
+  ContextAttestationPredicate,
+  DigestSet,
+  InTotoStatement,
+  InTotoSubject,
+} from "./attestation.js";
+export {
+  buildContextAttestation,
+  CONTEXT_ATTESTATION_PREDICATE_TYPE,
+  CONTEXT_ATTESTATION_SUBJECT_NAME,
+  IN_TOTO_STATEMENT_TYPE,
+  serializeAttestation,
+} from "./attestation.js";
+export {
+  type AnthropicCacheControl,
+  type BedrockCachePoint,
+  buildCachePoint,
+  CACHE_CHANNELS,
+  type CacheChannel,
+  type CachePoint,
+  cacheBreakpointSentinel,
+  cacheChannelNeedsMarkers,
+  DEFAULT_CACHE_CHANNEL,
+  parseCacheChannel,
+} from "./cache.js";
+export type {
   ByteSpan,
   ContextBomDocument,
   ContextBomOpts,
@@ -166,7 +192,12 @@ export async function generatePack(
   //     tests, where chunkerFiles is supplied). ---
   const contextFiles = await collectContextFiles(graph);
   const byteRangesByPath = collectByteRanges(astResult.chunks);
-  const contextBom = buildContextBom({ files: contextFiles, byteRangesByPath });
+  const contextBom = buildContextBom({
+    files: contextFiles,
+    byteRangesByPath,
+    commit,
+    repoOriginUrl,
+  });
   const contextBomBytes = encodeUtf8(contextBom.canonical);
 
   // --- Serialize bodies. ---

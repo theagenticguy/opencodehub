@@ -248,6 +248,24 @@ test("E2E-B. Anthropic tokenizer downgrades determinism_class to best_effort", a
   }
 });
 
+test("E2E-B2. Sonnet-5 tokenizer lane downgrades determinism_class to best_effort", async () => {
+  const dir = await tempDir();
+  try {
+    // Mirror of E2E-B for the CLI's SONNET5_TOKENIZER_ID
+    // ("anthropic:claude-sonnet-5@2026-06-30"). The literal is duplicated here
+    // rather than imported because @opencodehub/pack must not depend on the CLI
+    // (dep direction is cli → pack). What matters to the pack contract is that
+    // the anthropic: vendor prefix relaxes the class to best_effort.
+    const manifest = await runFixture(dir, {
+      tokenizerId: "anthropic:claude-sonnet-5@2026-06-30",
+    });
+    assert.equal(manifest.determinismClass, "best_effort");
+    assert.equal(manifest.tokenizerId, "anthropic:claude-sonnet-5@2026-06-30");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("E2E-C. chunker degraded fallback flips determinism_class to degraded", async () => {
   const dir = await tempDir();
   try {

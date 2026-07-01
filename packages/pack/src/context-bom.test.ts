@@ -6,8 +6,11 @@
  *   B. Hash sensitivity — any file change flips contextBomHash.
  *   C. Missing contentHash omits the `hashes` array (no fabricated hash).
  *   D. Byte ranges — merged, sorted, non-overlapping; omitted when empty.
- *   E. CycloneDX 1.6 shape — bomFormat/specVersion/components well-formed.
+ *   E. CycloneDX 1.7 shape — bomFormat/specVersion/components well-formed.
  *   F. Order independence — input order does not affect output (sorted by path).
+ *   G. Provenance citation — externalReferences[vcs] + opencodehub:commit
+ *      present when (repoOriginUrl, commit) supplied, omitted when absent,
+ *      and deterministic.
  */
 
 import { strict as assert } from "node:assert";
@@ -103,10 +106,11 @@ test("D. no byte ranges → byteRanges property omitted", () => {
   assert.equal(prop, undefined);
 });
 
-test("E. document is a well-formed CycloneDX 1.6 BOM", () => {
+test("E. document is a well-formed CycloneDX 1.7 BOM", () => {
   const r = buildContextBom({ files: FILES });
   assert.equal(r.document.bomFormat, "CycloneDX");
-  assert.equal(r.document.specVersion, "1.6");
+  assert.equal(r.document.specVersion, "1.7");
+  assert.equal(r.document.$schema, "http://cyclonedx.org/schema/bom-1.7.schema.json");
   assert.equal(r.document.version, 1);
   for (const c of r.document.components) {
     assert.equal(c.type, "file");
@@ -137,6 +141,72 @@ test("F. input order does not affect output (components sorted by path)", () => 
     forward.document.components.map((c) => c.name),
     ["src/a.ts", "src/b.ts"],
   );
+});
+
+const ORIGIN = "https://github.com/org/repo";
+const COMMIT = "c".repeat(40);
+
+test("G. provenance citation appears on each component when commit+originUrl supplied", () => {
+  const r = buildContextBom({ files: FILES, commit: COMMIT, repoOriginUrl: ORIGIN });
+  assert.ok(r.document.components.length > 0, "expected components");
+  for (const c of r.document.components) {
+    assert.deepEqual(c.externalReferences, [{ type: "vcs", url: ORIGIN }]);
+    const commitProp = c.properties?.find((p) => p.name === "opencodehub:commit");
+    assert.ok(commitProp !== undefined, "opencodehub:commit property should be present");
+    assert.equal(commitProp?.value, COMMIT);
+  }
+});
+
+test("G. provenance citation is omitted when commit+originUrl are absent", () => {
+  const r = buildContextBom({ files: FILES });
+  for (const c of r.document.components) {
+    assert.equal(c.externalReferences, undefined);
+    const commitProp = c.properties?.find((p) => p.name === "opencodehub:commit");
+    assert.equal(commitProp, undefined);
+  }
+});
+
+test("G. null repoOriginUrl omits externalReferences; empty commit omits the property", () => {
+  const r = buildContextBom({ files: FILES, commit: "", repoOriginUrl: null });
+  for (const c of r.document.components) {
+    assert.equal(c.externalReferences, undefined);
+    const commitProp = c.properties?.find((p) => p.name === "opencodehub:commit");
+    assert.equal(commitProp, undefined);
+  }
+});
+
+test("G. commit-only (no origin) records the property but omits externalReferences", () => {
+  const r = buildContextBom({ files: FILES, commit: COMMIT });
+  for (const c of r.document.components) {
+    assert.equal(c.externalReferences, undefined);
+    const commitProp = c.properties?.find((p) => p.name === "opencodehub:commit");
+    assert.equal(commitProp?.value, COMMIT);
+  }
+});
+
+test("G. provenance is deterministic and does not disturb component sort order", () => {
+  const forward = buildContextBom({
+    files: [FILE_A, FILE_B],
+    commit: COMMIT,
+    repoOriginUrl: ORIGIN,
+  });
+  const reverse = buildContextBom({
+    files: [FILE_B, FILE_A],
+    commit: COMMIT,
+    repoOriginUrl: ORIGIN,
+  });
+  assert.equal(forward.canonical, reverse.canonical);
+  assert.equal(forward.contextBomHash, reverse.contextBomHash);
+  assert.deepEqual(
+    forward.document.components.map((c) => c.name),
+    ["src/a.ts", "src/b.ts"],
+  );
+});
+
+test("G. adding a provenance citation flips contextBomHash (it is in the preimage)", () => {
+  const plain = buildContextBom({ files: FILES });
+  const cited = buildContextBom({ files: FILES, commit: COMMIT, repoOriginUrl: ORIGIN });
+  assert.notEqual(plain.contextBomHash, cited.contextBomHash);
 });
 
 test("mergeSpans drops zero-length and inverted spans", () => {

@@ -95,6 +95,27 @@ describe("runProbe (end-to-end with a fake runner)", () => {
     );
   });
 
+  it("records packTokenizerId on the report when the option is set, omits it otherwise", async () => {
+    const withLane = await runProbe(TASK, (h) => new FakeRunner(h), {
+      runs: 1,
+      packContext: "PACK",
+      harnesses: ["claude"],
+      packTokenizerId: "anthropic:claude-sonnet-5@2026-06-30",
+    });
+    assert.equal(withLane.packTokenizerId, "anthropic:claude-sonnet-5@2026-06-30");
+
+    const withoutLane = await runProbe(TASK, (h) => new FakeRunner(h), {
+      runs: 1,
+      packContext: "PACK",
+      harnesses: ["claude"],
+    });
+    assert.equal(withoutLane.packTokenizerId, undefined, "field is absent when unset (pure)");
+    assert.ok(
+      !serializeReport(withoutLane).includes("packTokenizerId"),
+      "unset field never leaks into the canonical JSON",
+    );
+  });
+
   it("emits a byte-identical report across two identical probe runs (R6)", async () => {
     const opts = { runs: 3, packContext: "PACK", harnesses: ["codex"] as Harness[] };
     const a = await runProbe(TASK, (h) => new FakeRunner(h), opts);

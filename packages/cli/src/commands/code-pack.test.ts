@@ -17,12 +17,15 @@ import { sha256Hex } from "@opencodehub/core-types";
 import type { PackManifest } from "@opencodehub/pack";
 import type { IGraphStore } from "@opencodehub/storage";
 import {
+  ATTESTATION_FILENAME,
   DEFAULT_BUDGET_TOKENS,
   DEFAULT_ENGINE,
   DEFAULT_TOKENIZER_ID,
   explainContextBom,
   formatContextSummary,
   runCodePack,
+  SONNET5_TOKENIZER_ID,
+  writeContextAttestation,
 } from "./code-pack.js";
 
 function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
@@ -62,6 +65,17 @@ test("DEFAULT_BUDGET_TOKENS is 100_000", () => {
 
 test("DEFAULT_TOKENIZER_ID matches the spec pin", () => {
   assert.equal(DEFAULT_TOKENIZER_ID, "openai:o200k_base@tiktoken-0.8.0");
+});
+
+test("SONNET5_TOKENIZER_ID is the anthropic-prefixed Sonnet-5 lane", () => {
+  assert.equal(SONNET5_TOKENIZER_ID, "anthropic:claude-sonnet-5@2026-06-30");
+  // The anthropic: vendor prefix is load-bearing — it is what makes the pack's
+  // resolveDeterminism downgrade the lane to best_effort (see pack index.test.ts
+  // E2E-B2). Guard against an accidental prefix change here.
+  assert.ok(
+    SONNET5_TOKENIZER_ID.startsWith("anthropic:"),
+    "Sonnet-5 lane must use the anthropic: vendor prefix to inherit best_effort determinism",
+  );
 });
 
 test("runCodePack defaults to engine=pack and dispatches to generatePack", async () => {
@@ -338,7 +352,7 @@ test("explainContextBom summarizes a context-bom.json on disk", async () => {
   try {
     const doc = {
       bomFormat: "CycloneDX",
-      specVersion: "1.6",
+      specVersion: "1.7",
       version: 1,
       components: [
         {
@@ -381,5 +395,47 @@ test("explainContextBom throws a clear error when context-bom.json is absent", a
     await assert.rejects(explainContextBom(dir), /no context-bom\.json|predates/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeContextAttestation writes a parseable in-toto Statement to the pack dir", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-prove-"));
+  try {
+    const manifest = makeFakeManifest({ packHash: "9".repeat(64) });
+    const path = await writeContextAttestation(dir, manifest);
+
+    // Written at the documented filename inside the pack dir.
+    assert.equal(path, join(dir, ATTESTATION_FILENAME));
+
+    const raw = await readFile(path, "utf8");
+    const stmt = JSON.parse(raw);
+    // Exact in-toto Statement v1 envelope.
+    assert.equal(stmt._type, "https://in-toto.io/Statement/v1");
+    assert.equal(stmt.predicateType, "https://opencodehub.dev/attestation/context/v0.1");
+    // Subject digest equals the manifest packHash.
+    assert.equal(stmt.subject.length, 1);
+    assert.equal(stmt.subject[0].digest.sha256, manifest.packHash);
+    // Predicate carries the manifest's context provenance.
+    assert.equal(stmt.predicate.packHash, manifest.packHash);
+    assert.equal(stmt.predicate.contextBomHash, manifest.contextBomHash);
+    assert.equal(stmt.predicate.bomItems.length, manifest.files.length);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeContextAttestation is byte-deterministic across two emissions", async () => {
+  const dir1 = await mkdtemp(join(tmpdir(), "codehub-prove-det-1-"));
+  const dir2 = await mkdtemp(join(tmpdir(), "codehub-prove-det-2-"));
+  try {
+    const manifest = makeFakeManifest();
+    await writeContextAttestation(dir1, manifest);
+    await writeContextAttestation(dir2, manifest);
+    const a = await readFile(join(dir1, ATTESTATION_FILENAME), "utf8");
+    const b = await readFile(join(dir2, ATTESTATION_FILENAME), "utf8");
+    assert.equal(a, b);
+  } finally {
+    await rm(dir1, { recursive: true, force: true });
+    await rm(dir2, { recursive: true, force: true });
   }
 });
