@@ -1,12 +1,34 @@
 /**
- * BOM body item: the context read-receipt (item 9/9).
+ * BOM body item: the context read-receipt (item 8/8).
  *
- * A CycloneDX 1.6 JSON document whose components are the source files the
+ * A CycloneDX 1.7 JSON document whose components are the source files the
  * pack indexed — one `file` component per `File` node in the graph. It
  * answers a question a `packHash` alone cannot: *which source bytes did the
  * agent's context come from?* Each component carries the file's SHA-256
  * content hash, line count, language, and — when the AST chunker produced
  * range data — the merged byte ranges that were chunked out of it.
+ *
+ * Per-file provenance citation (CycloneDX 1.7): when the pack knows the repo
+ * origin URL and the indexed commit, each file component is bound to its
+ * source of record so an AIBOM / EU CRA reviewer can re-derive exactly which
+ * (repoOriginUrl, commit, path) triple produced the receipt. The citation is
+ * carried two ways, both CDX-native and deterministic:
+ *   - `component.externalReferences: [{ type: "vcs", url: <repoOriginUrl> }]`
+ *     — the CycloneDX-native way to cite a version-control origin (the `vcs`
+ *     externalReference type is stable across CDX 1.4–1.7). Emitted only when
+ *     `repoOriginUrl` is present.
+ *   - an `opencodehub:commit` property recording the commit SHA — a property
+ *     rather than a URL because the commit is a bare SHA, not a resolvable
+ *     link, and properties keep zero schema-shape risk. Emitted only when
+ *     `commit` is non-empty.
+ * When either is absent the field is OMITTED (never emitted null), matching
+ * the existing "only when present" idiom so a repo with no origin/commit still
+ * produces a valid, deterministic receipt. `Repo.indexTime` is deliberately
+ * NOT cited — it is wall-clock and out of every hash input.
+ *
+ * CycloneDX 1.7 is fully backward compatible with 1.4–1.6: it only ADDS
+ * optional fields, so bumping `specVersion` + `$schema` and adding
+ * `externalReferences` cannot break a 1.6-shaped consumer.
  *
  * Why File nodes and not chunks: the chunker's per-file byte ranges are only
  * present when `generatePack` is handed raw file bytes, which today happens
@@ -18,6 +40,9 @@
  *   - Components are sorted by `name` (the repo-relative path) ASC; paths are
  *     unique within a graph so no tiebreak is needed.
  *   - Byte ranges per file are merged into sorted, non-overlapping spans.
+ *   - The provenance citation is a pure function of the (repoOriginUrl,
+ *     commit) pair, identical across every component in a given pack, so it
+ *     adds no run-to-run variance.
  *   - The document is serialized through the shared RFC 8785 `canonicalJson`
  *     helper, so two runs over the same graph produce byte-identical output
  *     and therefore the same `contextBomHash`.
@@ -55,34 +80,57 @@ export interface ContextBomOpts {
    * when present, merged spans are attached as a `byteRanges` property.
    */
   readonly byteRangesByPath?: ReadonlyMap<string, readonly ByteSpan[]>;
+  /**
+   * The indexed commit SHA. When non-empty, recorded on each file component
+   * as an `opencodehub:commit` property so every file is bound to the exact
+   * revision it was read from. Omitted when empty/absent.
+   */
+  readonly commit?: string;
+  /**
+   * The repo origin URL (e.g. `https://github.com/org/repo`). When present,
+   * emitted on each file component as a CycloneDX `externalReferences` entry
+   * of type `vcs`, citing the version-control source of record. May be null
+   * (the manifest allows a null origin) — omitted in that case.
+   */
+  readonly repoOriginUrl?: string | null;
 }
 
-/** A CycloneDX 1.6 `property` — name + stringified value. */
+/** A CycloneDX 1.7 `property` — name + stringified value. */
 interface CdxProperty {
   readonly name: string;
   readonly value: string;
 }
 
-/** A CycloneDX 1.6 `hash` entry. */
+/** A CycloneDX 1.7 `hash` entry. */
 interface CdxHash {
   readonly alg: "SHA-256";
   readonly content: string;
 }
 
-/** A CycloneDX 1.6 `file` component. */
+/**
+ * A CycloneDX `externalReference`. Only the `vcs` type is emitted here (to
+ * cite the repo origin); the `type` enum is stable across CDX 1.4–1.7.
+ */
+interface CdxExternalReference {
+  readonly type: "vcs";
+  readonly url: string;
+}
+
+/** A CycloneDX 1.7 `file` component. */
 interface CdxComponent {
   readonly type: "file";
   readonly "bom-ref": string;
   readonly name: string;
   readonly hashes?: readonly CdxHash[];
+  readonly externalReferences?: readonly CdxExternalReference[];
   readonly properties?: readonly CdxProperty[];
 }
 
-/** The CycloneDX 1.6 document. */
+/** The CycloneDX 1.7 document. */
 export interface ContextBomDocument {
   readonly $schema: string;
   readonly bomFormat: "CycloneDX";
-  readonly specVersion: "1.6";
+  readonly specVersion: "1.7";
   readonly version: 1;
   readonly components: readonly CdxComponent[];
 }
@@ -96,13 +144,14 @@ export interface ContextBomResult {
   readonly contextBomHash: string;
 }
 
-const CDX_SCHEMA_URL = "http://cyclonedx.org/schema/bom-1.6.schema.json";
+const CDX_SCHEMA_URL = "http://cyclonedx.org/schema/bom-1.7.schema.json";
 const PROP_BYTE_RANGES = "opencodehub:byteRanges";
 const PROP_LINE_COUNT = "opencodehub:lineCount";
 const PROP_LANGUAGE = "opencodehub:language";
+const PROP_COMMIT = "opencodehub:commit";
 
 /**
- * Build the context read-receipt as a CycloneDX 1.6 document plus its
+ * Build the context read-receipt as a CycloneDX 1.7 document plus its
  * canonical serialization and hash.
  *
  * An empty file set produces a valid document with `components: []` — a real
@@ -111,9 +160,20 @@ const PROP_LANGUAGE = "opencodehub:language";
 export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
   const sorted = [...opts.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
+  // Provenance citation shared by every component: cite the repo origin as a
+  // CDX-native `vcs` externalReference (only when a URL is present — the
+  // manifest allows a null origin) and record the commit as a property (only
+  // when non-empty). Both are per-pack constants, so they add no run-to-run
+  // variance to the canonical bytes.
+  const commit = opts.commit !== undefined && opts.commit.length > 0 ? opts.commit : undefined;
+  const externalReferences: readonly CdxExternalReference[] | undefined =
+    opts.repoOriginUrl !== undefined && opts.repoOriginUrl !== null
+      ? [{ type: "vcs", url: opts.repoOriginUrl }]
+      : undefined;
+
   const components: CdxComponent[] = [];
   for (const file of sorted) {
-    const properties = buildProperties(file, opts.byteRangesByPath?.get(file.path));
+    const properties = buildProperties(file, opts.byteRangesByPath?.get(file.path), commit);
     const component: CdxComponent = {
       type: "file",
       "bom-ref": file.path,
@@ -121,6 +181,7 @@ export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
       ...(file.contentHash !== undefined
         ? { hashes: [{ alg: "SHA-256", content: file.contentHash } as const] }
         : {}),
+      ...(externalReferences !== undefined ? { externalReferences } : {}),
       ...(properties.length > 0 ? { properties } : {}),
     };
     components.push(component);
@@ -129,7 +190,7 @@ export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
   const document: ContextBomDocument = {
     $schema: CDX_SCHEMA_URL,
     bomFormat: "CycloneDX",
-    specVersion: "1.6",
+    specVersion: "1.7",
     version: 1,
     components,
   };
@@ -143,9 +204,20 @@ export function buildContextBom(opts: ContextBomOpts): ContextBomResult {
  * Assemble a component's properties in a fixed key order. CycloneDX requires
  * every `value` to be a string, so numbers and span arrays are stringified.
  * Properties are omitted (not emitted empty) when their source is absent.
+ *
+ * `commit` is the per-pack indexed commit SHA (already normalized to
+ * `undefined` when empty), recorded as `opencodehub:commit` so each file is
+ * bound to the exact revision it was read from.
  */
-function buildProperties(file: ContextFile, spans: readonly ByteSpan[] | undefined): CdxProperty[] {
+function buildProperties(
+  file: ContextFile,
+  spans: readonly ByteSpan[] | undefined,
+  commit: string | undefined,
+): CdxProperty[] {
   const props: CdxProperty[] = [];
+  if (commit !== undefined) {
+    props.push({ name: PROP_COMMIT, value: commit });
+  }
   if (file.lineCount !== undefined) {
     props.push({ name: PROP_LINE_COUNT, value: String(file.lineCount) });
   }
