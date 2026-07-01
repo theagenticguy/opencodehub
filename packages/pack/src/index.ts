@@ -166,7 +166,12 @@ export async function generatePack(
   //     tests, where chunkerFiles is supplied). ---
   const contextFiles = await collectContextFiles(graph);
   const byteRangesByPath = collectByteRanges(astResult.chunks);
-  const contextBom = buildContextBom({ files: contextFiles, byteRangesByPath });
+  const contextBom = buildContextBom({
+    files: contextFiles,
+    byteRangesByPath,
+    commit,
+    repoOriginUrl,
+  });
   const contextBomBytes = encodeUtf8(contextBom.canonical);
 
   // --- Serialize bodies. ---

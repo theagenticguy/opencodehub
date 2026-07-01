@@ -338,7 +338,7 @@ test("explainContextBom summarizes a context-bom.json on disk", async () => {
   try {
     const doc = {
       bomFormat: "CycloneDX",
-      specVersion: "1.6",
+      specVersion: "1.7",
       version: 1,
       components: [
         {

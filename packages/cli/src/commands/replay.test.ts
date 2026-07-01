@@ -187,7 +187,7 @@ describe("loadPack (real on-disk)", () => {
     // context-bom.json — CycloneDX with an opencodehub:byteRanges property.
     const contextBom = JSON.stringify({
       bomFormat: "CycloneDX",
-      specVersion: "1.6",
+      specVersion: "1.7",
       components: [
         {
           type: "file",
