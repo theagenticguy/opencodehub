@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.7](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.6...cli-v0.10.7) (2026-07-01)
+
+
+### Features
+
+* **pack:** roadmap Moves 1-4 — Sonnet-5 lane, CycloneDX 1.7, pack --prove, --cache-channel ([#278](https://github.com/theagenticguy/opencodehub/issues/278)) ([981563e](https://github.com/theagenticguy/opencodehub/commit/981563e972abfeddd1f27c0a8c8f6fa149b1ef59))
+
 ## [0.10.6](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.5...cli-v0.10.6) (2026-06-30)
 
 
