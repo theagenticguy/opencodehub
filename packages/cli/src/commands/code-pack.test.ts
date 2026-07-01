@@ -17,6 +17,7 @@ import { sha256Hex } from "@opencodehub/core-types";
 import type { PackManifest } from "@opencodehub/pack";
 import type { IGraphStore } from "@opencodehub/storage";
 import {
+  ATTESTATION_FILENAME,
   DEFAULT_BUDGET_TOKENS,
   DEFAULT_ENGINE,
   DEFAULT_TOKENIZER_ID,
@@ -24,6 +25,7 @@ import {
   formatContextSummary,
   runCodePack,
   SONNET5_TOKENIZER_ID,
+  writeContextAttestation,
 } from "./code-pack.js";
 
 function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
@@ -393,5 +395,47 @@ test("explainContextBom throws a clear error when context-bom.json is absent", a
     await assert.rejects(explainContextBom(dir), /no context-bom\.json|predates/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeContextAttestation writes a parseable in-toto Statement to the pack dir", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codehub-prove-"));
+  try {
+    const manifest = makeFakeManifest({ packHash: "9".repeat(64) });
+    const path = await writeContextAttestation(dir, manifest);
+
+    // Written at the documented filename inside the pack dir.
+    assert.equal(path, join(dir, ATTESTATION_FILENAME));
+
+    const raw = await readFile(path, "utf8");
+    const stmt = JSON.parse(raw);
+    // Exact in-toto Statement v1 envelope.
+    assert.equal(stmt._type, "https://in-toto.io/Statement/v1");
+    assert.equal(stmt.predicateType, "https://opencodehub.dev/attestation/context/v0.1");
+    // Subject digest equals the manifest packHash.
+    assert.equal(stmt.subject.length, 1);
+    assert.equal(stmt.subject[0].digest.sha256, manifest.packHash);
+    // Predicate carries the manifest's context provenance.
+    assert.equal(stmt.predicate.packHash, manifest.packHash);
+    assert.equal(stmt.predicate.contextBomHash, manifest.contextBomHash);
+    assert.equal(stmt.predicate.bomItems.length, manifest.files.length);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeContextAttestation is byte-deterministic across two emissions", async () => {
+  const dir1 = await mkdtemp(join(tmpdir(), "codehub-prove-det-1-"));
+  const dir2 = await mkdtemp(join(tmpdir(), "codehub-prove-det-2-"));
+  try {
+    const manifest = makeFakeManifest();
+    await writeContextAttestation(dir1, manifest);
+    await writeContextAttestation(dir2, manifest);
+    const a = await readFile(join(dir1, ATTESTATION_FILENAME), "utf8");
+    const b = await readFile(join(dir2, ATTESTATION_FILENAME), "utf8");
+    assert.equal(a, b);
+  } finally {
+    await rm(dir1, { recursive: true, force: true });
+    await rm(dir2, { recursive: true, force: true });
   }
 });

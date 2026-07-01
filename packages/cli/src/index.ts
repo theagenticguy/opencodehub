@@ -375,6 +375,13 @@ program
     "After packing, print a summary of the context read-receipt (files indexed, lines, " +
       "hash coverage, per-language breakdown) read from the pack's context-bom.json",
   )
+  .option(
+    "--prove",
+    "After packing, emit an in-toto context attestation (attestation.intoto.json) whose " +
+      "subject is the pack's packHash and whose predicate records the context provenance " +
+      "(what was packed). Composable beneath the SLSA build provenance CI attests; unsigned " +
+      "(signing stays a CI concern). Pack engine only.",
+  )
   .option("--json", "With --explain-context or --variance-probe, emit the result as JSON on stdout")
   .option(
     "--variance-probe <task-file>",
@@ -464,6 +471,10 @@ program
       if (opts["explainContext"] === true) {
         const summary = await mod.explainContextBom(result.outDir);
         mod.printContextSummary(summary, opts["json"] === true);
+      }
+      if (opts["prove"] === true && result.manifest !== null) {
+        const attestationPath = await mod.writeContextAttestation(result.outDir, result.manifest);
+        console.warn(`codehub code-pack: wrote context attestation to ${attestationPath}`);
       }
     } else {
       console.warn(
