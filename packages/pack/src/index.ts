@@ -36,6 +36,20 @@ import { buildXrefs } from "./xrefs.js";
 export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.js";
 export { buildAstChunks } from "./ast-chunker.js";
 export type {
+  AttestationBomItem,
+  ContextAttestationPredicate,
+  DigestSet,
+  InTotoStatement,
+  InTotoSubject,
+} from "./attestation.js";
+export {
+  buildContextAttestation,
+  CONTEXT_ATTESTATION_PREDICATE_TYPE,
+  CONTEXT_ATTESTATION_SUBJECT_NAME,
+  IN_TOTO_STATEMENT_TYPE,
+  serializeAttestation,
+} from "./attestation.js";
+export type {
   ByteSpan,
   ContextBomDocument,
   ContextBomOpts,
