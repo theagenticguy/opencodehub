@@ -403,6 +403,13 @@ program
     "--model-codex <id>",
     "With --variance-probe: Codex Bedrock model id (default openai.gpt-5.5)",
   )
+  .option(
+    "--pack-tokenizer <id>",
+    "With --variance-probe: tokenizer-provenance lane the with-pack arm packs under " +
+      '"<vendor>:<name>@<pin>" (default openai:o200k_base@tiktoken-0.8.0). Use ' +
+      "anthropic:claude-sonnet-5@2026-06-30 to author the pack for Sonnet 5's heavier tokenizer. " +
+      "Recorded in the variance report so results attribute to a lane (Finding 0001 v2).",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     // --variance-probe short-circuits the normal pack path: it loads a task,
     // generates the pack itself, and runs the with/without experiment.
@@ -424,6 +431,9 @@ program
         ...(harness !== undefined ? { harness } : {}),
         ...(typeof opts["awsRegion"] === "string" ? { awsRegion: opts["awsRegion"] } : {}),
         ...(Object.keys(models).length > 0 ? { models } : {}),
+        ...(typeof opts["packTokenizer"] === "string"
+          ? { packTokenizer: opts["packTokenizer"] }
+          : {}),
       });
       probeMod.printVarianceReport(report, opts["json"] === true);
       return;

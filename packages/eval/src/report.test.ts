@@ -113,6 +113,16 @@ describe("serializeReport (determinism, R6)", () => {
     assert.ok(!json.includes("Date"));
     assert.ok(!json.includes("timestamp"));
   });
+
+  it("carries packTokenizerId when present and stays byte-stable (Finding 0001 v2)", () => {
+    const withLane: VarianceReport = {
+      ...report,
+      packTokenizerId: "anthropic:claude-sonnet-5@2026-06-30",
+    };
+    const json = serializeReport(withLane);
+    assert.ok(json.includes('"packTokenizerId":"anthropic:claude-sonnet-5@2026-06-30"'));
+    assert.equal(serializeReport(withLane), serializeReport(withLane), "still pure");
+  });
 });
 
 describe("formatReport", () => {

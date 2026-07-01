@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { AgentRunner, Harness, RunOutcome, RunRequest } from "@opencodehub/eval";
+import { DEFAULT_TOKENIZER_ID, SONNET5_TOKENIZER_ID } from "./code-pack.js";
 import { assemblePackContext, runVarianceProbe } from "./variance-probe.js";
 
 /** A fake runner: stable answer with-pack, distinct answer per run without. */
@@ -106,6 +107,47 @@ describe("runVarianceProbe (seamed)", () => {
       _runnerFor: () => capturing,
     });
     assert.equal(withPackPrompts, 2, "both with-pack runs saw the assembled context");
+  });
+
+  it("threads --pack-tokenizer into the assemble call and onto the report", async () => {
+    let seenTokenizer: string | undefined;
+    const report = await runVarianceProbe({
+      taskFile,
+      runs: 1,
+      harness: "claude",
+      packTokenizer: SONNET5_TOKENIZER_ID,
+      _assemblePackContext: async (_repo, tokenizer) => {
+        seenTokenizer = tokenizer;
+        return "PACK";
+      },
+      _runnerFor: (h) => new FakeRunner(h),
+    });
+    assert.equal(
+      seenTokenizer,
+      SONNET5_TOKENIZER_ID,
+      "the with-pack arm packs under the requested lane",
+    );
+    assert.equal(
+      report.packTokenizerId,
+      SONNET5_TOKENIZER_ID,
+      "the report attributes the result to the tokenizer lane (Finding 0001 v2)",
+    );
+  });
+
+  it("falls back to the default tokenizer lane when --pack-tokenizer is absent", async () => {
+    let seenTokenizer: string | undefined;
+    const report = await runVarianceProbe({
+      taskFile,
+      runs: 1,
+      harness: "claude",
+      _assemblePackContext: async (_repo, tokenizer) => {
+        seenTokenizer = tokenizer;
+        return "PACK";
+      },
+      _runnerFor: (h) => new FakeRunner(h),
+    });
+    assert.equal(seenTokenizer, DEFAULT_TOKENIZER_ID, "default lane unchanged when flag omitted");
+    assert.equal(report.packTokenizerId, DEFAULT_TOKENIZER_ID);
   });
 
   it("builds a per-harness runner for each agent in the default set (Bug-2 routing)", async () => {

@@ -23,6 +23,7 @@ import {
   explainContextBom,
   formatContextSummary,
   runCodePack,
+  SONNET5_TOKENIZER_ID,
 } from "./code-pack.js";
 
 function makeFakeManifest(overrides: Partial<PackManifest> = {}): PackManifest {
@@ -62,6 +63,17 @@ test("DEFAULT_BUDGET_TOKENS is 100_000", () => {
 
 test("DEFAULT_TOKENIZER_ID matches the spec pin", () => {
   assert.equal(DEFAULT_TOKENIZER_ID, "openai:o200k_base@tiktoken-0.8.0");
+});
+
+test("SONNET5_TOKENIZER_ID is the anthropic-prefixed Sonnet-5 lane", () => {
+  assert.equal(SONNET5_TOKENIZER_ID, "anthropic:claude-sonnet-5@2026-06-30");
+  // The anthropic: vendor prefix is load-bearing — it is what makes the pack's
+  // resolveDeterminism downgrade the lane to best_effort (see pack index.test.ts
+  // E2E-B2). Guard against an accidental prefix change here.
+  assert.ok(
+    SONNET5_TOKENIZER_ID.startsWith("anthropic:"),
+    "Sonnet-5 lane must use the anthropic: vendor prefix to inherit best_effort determinism",
+  );
 });
 
 test("runCodePack defaults to engine=pack and dispatches to generatePack", async () => {

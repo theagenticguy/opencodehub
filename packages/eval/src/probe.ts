@@ -41,6 +41,13 @@ export interface ProbeOptions {
    * `@opencodehub/pack` (keeps the package graph acyclic).
    */
   readonly packContext: string;
+  /**
+   * Tokenizer-provenance lane the with-pack `packContext` was authored under
+   * ("<vendor>:<name>@<pin>"). Recorded verbatim on the {@link VarianceReport}
+   * so Finding 0001 v2 attributes results to a tokenizer. Pure provenance — the
+   * probe never encodes with it, so it cannot change the measured numbers.
+   */
+  readonly packTokenizerId?: string;
   /** Required only when the task's oracle is `judge`. */
   readonly score?: ScoreOptions;
   /**
@@ -151,5 +158,10 @@ export async function runProbe(
   for (const harness of harnesses) {
     reports.push(await probeHarness(runnerFor(harness), task, harness, options));
   }
-  return { schema: 1, taskId: task.id, harnesses: reports };
+  return {
+    schema: 1,
+    taskId: task.id,
+    ...(options.packTokenizerId !== undefined ? { packTokenizerId: options.packTokenizerId } : {}),
+    harnesses: reports,
+  };
 }

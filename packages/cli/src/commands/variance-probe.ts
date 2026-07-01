@@ -32,7 +32,7 @@ import {
   serializeReport,
   type VarianceReport,
 } from "@opencodehub/eval";
-import { runCodePack } from "./code-pack.js";
+import { DEFAULT_TOKENIZER_ID, runCodePack } from "./code-pack.js";
 
 export interface VarianceProbeArgs {
   /** Path to the task file (YAML or JSON). */
@@ -52,10 +52,19 @@ export interface VarianceProbeArgs {
    */
   readonly models?: Partial<Record<Harness, string>>;
   /**
-   * Test seam — inject a fake pack-context assembler so unit tests don't need a
-   * real analyzed repo + pack on disk.
+   * Tokenizer-provenance lane the with-pack arm packs under
+   * ("<vendor>:<name>@<pin>"). Defaults to the pack's DEFAULT_TOKENIZER_ID when
+   * absent. Recorded on the report's `packTokenizerId` so Finding 0001 v2 can
+   * attribute results to a lane (e.g. SONNET5_TOKENIZER_ID for Sonnet 5's
+   * heavier tokenizer).
    */
-  readonly _assemblePackContext?: (repo: string) => Promise<string>;
+  readonly packTokenizer?: string;
+  /**
+   * Test seam — inject a fake pack-context assembler so unit tests don't need a
+   * real analyzed repo + pack on disk. Receives the resolved tokenizer lane so
+   * a test can assert it threads through to the assemble call.
+   */
+  readonly _assemblePackContext?: (repo: string, tokenizer: string) => Promise<string>;
   /**
    * Test seam — inject a runner factory so unit tests drive a fake agent
    * instead of spawning the real `claude` / `codex` CLIs.
@@ -93,10 +102,17 @@ export async function assemblePackContext(packOutDir: string): Promise<string> {
 export async function runVarianceProbe(args: VarianceProbeArgs): Promise<VarianceReport> {
   const task = await loadTask(args.taskFile);
 
+  // Resolve the tokenizer-provenance lane the with-pack arm packs under. When
+  // the flag is absent, packing stays on DEFAULT_TOKENIZER_ID (unchanged
+  // behavior); a caller opts into e.g. Sonnet 5's heavier tokenizer by passing
+  // SONNET5_TOKENIZER_ID. The resolved lane is recorded on the report so
+  // Finding 0001 v2 attributes results to a tokenizer.
+  const packTokenizerId = args.packTokenizer ?? DEFAULT_TOKENIZER_ID;
+
   // 1. Generate the OCH pack for the task's repo (requires it to be analyzed).
   //    Then assemble its artifacts into the context the with-pack arm injects.
   const assemble = args._assemblePackContext ?? defaultAssemble;
-  const packContext = await assemble(task.repo);
+  const packContext = await assemble(task.repo, packTokenizerId);
 
   // 2. The runner factory: a Bedrock-wired direct-CLI runner per harness
   //    (spec 010 §4a). Tests inject a fake via `_runnerFor`.
@@ -113,6 +129,7 @@ export async function runVarianceProbe(args: VarianceProbeArgs): Promise<Varianc
 
   const options: ProbeOptions = {
     packContext,
+    packTokenizerId,
     ...(args.runs !== undefined ? { runs: args.runs } : {}),
     ...(args.harness !== undefined ? { harnesses: [args.harness] } : {}),
   };
@@ -123,9 +140,11 @@ export async function runVarianceProbe(args: VarianceProbeArgs): Promise<Varianc
 /**
  * Production pack-context assembler: generate the pack for `repo` via the same
  * `runCodePack` the bare `code-pack` command uses, then read its artifacts.
+ * Packs under the resolved tokenizer-provenance lane so the with-pack arm's
+ * chunking reflects the consuming agent's tokenizer.
  */
-async function defaultAssemble(repo: string): Promise<string> {
-  const result = await runCodePack({ repo, engine: "pack" });
+async function defaultAssemble(repo: string, tokenizer: string): Promise<string> {
+  const result = await runCodePack({ repo, engine: "pack", tokenizer });
   return assemblePackContext(result.outDir);
 }
 
