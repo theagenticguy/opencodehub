@@ -48,6 +48,27 @@ export const DEFAULT_BUDGET_TOKENS = 100_000;
 /** Default tokenizer identifier when `--tokenizer` is omitted. */
 export const DEFAULT_TOKENIZER_ID = "openai:o200k_base@tiktoken-0.8.0";
 
+/**
+ * Tokenizer-provenance lane for Claude Sonnet 5 (launched 2026-06-30).
+ *
+ * Sonnet 5 ships a new tokenizer that inflates the same source bytes by
+ * ~30-35% vs prior Claude tokenizers, so a budget authored for the default
+ * `openai:o200k_base` lane under-provisions when the *consuming* agent is
+ * Sonnet 5 — the pack's budgetTokens→chunkSize map is 1:1, so the same budget
+ * silently produces oversized chunks under the heavier tokenizer.
+ *
+ * This constant is provenance metadata ONLY: it records which tokenizer a pack
+ * was authored against so a variance probe (Finding 0001 v2) can attribute
+ * results to a lane. It does NOT change the bytes→token math — there is no
+ * runtime Sonnet-5 encoder. The `anthropic:` vendor prefix is load-bearing:
+ * `@opencodehub/pack`'s `resolveDeterminism` downgrades any `anthropic:`-prefixed
+ * lane from `strict` to `best_effort`, which is the correct class for a pack
+ * whose byte-identity guarantee is relaxed by a Claude tokenizer.
+ *
+ * Format follows the `<vendor>:<name>@<pin>` convention (see PackManifest).
+ */
+export const SONNET5_TOKENIZER_ID = "anthropic:claude-sonnet-5@2026-06-30";
+
 /** Default engine when `--engine` is omitted — the new `@opencodehub/pack` BOM. */
 export const DEFAULT_ENGINE: "pack" | "repomix" = "pack";
 
