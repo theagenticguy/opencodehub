@@ -200,4 +200,38 @@ describe("assemblePackContext", () => {
     // sorted: readme.md before skeleton.jsonl
     assert.ok(ctx.indexOf("### readme.md") < ctx.indexOf("### skeleton.jsonl"));
   });
+
+  it("Move 4: the auto default is byte-identical to the no-channel call (no marker)", async () => {
+    const bare = await assemblePackContext(packDir);
+    const auto = await assemblePackContext(packDir, "auto");
+    assert.equal(auto, bare, "auto must not perturb the default output");
+    assert.ok(!auto.includes("opencodehub:cachePoint"), "auto emits no cache marker");
+  });
+
+  it("Move 4: an automatic channel emits no marker", async () => {
+    const ctx = await assemblePackContext(packDir, "anthropic");
+    assert.ok(!ctx.includes("opencodehub:cachePoint"), "anthropic caches automatically");
+    assert.equal(ctx, await assemblePackContext(packDir), "identical to the marker-free default");
+  });
+
+  it("Move 4: bedrock inserts one cache-breakpoint sentinel at the prefix boundary", async () => {
+    const ctx = await assemblePackContext(packDir, "bedrock");
+    const marker =
+      '<!-- opencodehub:cachePoint channel=bedrock {"cachePoint":{"type":"default"}} -->';
+    assert.ok(ctx.includes(marker), "bedrock sentinel present");
+    assert.equal(ctx.split(marker).length - 1, 1, "exactly one marker");
+    // skeleton.jsonl is the sole stable-prefix file present, so the boundary
+    // sits immediately after it (before the volatile tail would begin).
+    assert.ok(
+      ctx.indexOf("### skeleton.jsonl") < ctx.indexOf(marker),
+      "marker follows the stable skeleton prefix",
+    );
+  });
+
+  it("Move 4: same channel twice is byte-identical (deterministic)", async () => {
+    assert.equal(
+      await assemblePackContext(packDir, "bedrock"),
+      await assemblePackContext(packDir, "bedrock"),
+    );
+  });
 });

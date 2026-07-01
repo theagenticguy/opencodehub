@@ -49,6 +49,18 @@ export {
   IN_TOTO_STATEMENT_TYPE,
   serializeAttestation,
 } from "./attestation.js";
+export {
+  type AnthropicCacheControl,
+  type BedrockCachePoint,
+  buildCachePoint,
+  CACHE_CHANNELS,
+  type CacheChannel,
+  type CachePoint,
+  cacheBreakpointSentinel,
+  cacheChannelNeedsMarkers,
+  DEFAULT_CACHE_CHANNEL,
+  parseCacheChannel,
+} from "./cache.js";
 export type {
   ByteSpan,
   ContextBomDocument,

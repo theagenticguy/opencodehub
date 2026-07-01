@@ -40,6 +40,8 @@ import { sha256Hex } from "@opencodehub/core-types";
 import { parse as ingestionParse } from "@opencodehub/ingestion";
 import {
   buildContextAttestation,
+  type CacheChannel,
+  DEFAULT_CACHE_CHANNEL,
   generatePack,
   type PackManifest,
   serializeAttestation,
@@ -88,6 +90,13 @@ export interface CodePackArgs {
   readonly outDir?: string;
   /** Engine: "pack" (default) or "repomix" (legacy opt-in). */
   readonly engine?: "pack" | "repomix";
+  /**
+   * Delivery channel for channel-aware cache-prefix enforcement (Move 4).
+   * Recorded on the pack options and threaded into the agent-facing assembly.
+   * Kept OUT of the manifest/packHash preimage, so the default (`auto`) leaves
+   * pack output byte-identical to pre-Move-4. Defaults to `auto`.
+   */
+  readonly cacheChannel?: CacheChannel;
   /**
    * Test seam — inject a custom `generatePack` so unit tests don't need
    * to load native storage bindings. Production callers leave this
@@ -151,6 +160,7 @@ export async function runCodePack(args: CodePackArgs = {}): Promise<CodePackResu
 async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<CodePackResult> {
   const budget = args.budget ?? DEFAULT_BUDGET_TOKENS;
   const tokenizer = args.tokenizer ?? DEFAULT_TOKENIZER_ID;
+  const cacheChannel = args.cacheChannel ?? DEFAULT_CACHE_CHANNEL;
   const generate = args._generatePack ?? generatePack;
 
   // Production: open a read-only graph store; tests inject `_store` to
@@ -206,6 +216,9 @@ async function runPackEngine(repoPath: string, args: CodePackArgs): Promise<Code
         outDir: stagingDir,
         budgetTokens: budget,
         tokenizerId: tokenizer,
+        // Recorded on the pack options; deliberately not part of the manifest
+        // preimage (Move 4), so `auto` keeps packHash byte-identical to today.
+        cacheChannel,
       },
       composedStore !== undefined
         ? { store: composedStore, ...provenance }
