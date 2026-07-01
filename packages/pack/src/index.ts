@@ -35,6 +35,18 @@ import { buildXrefs } from "./xrefs.js";
 
 export type { AstChunk, AstChunkerOpts, AstChunkerResult } from "./ast-chunker.js";
 export { buildAstChunks } from "./ast-chunker.js";
+export {
+  type AnthropicCacheControl,
+  type BedrockCachePoint,
+  buildCachePoint,
+  CACHE_CHANNELS,
+  type CacheChannel,
+  type CachePoint,
+  cacheBreakpointSentinel,
+  cacheChannelNeedsMarkers,
+  DEFAULT_CACHE_CHANNEL,
+  parseCacheChannel,
+} from "./cache.js";
 export type {
   ByteSpan,
   ContextBomDocument,

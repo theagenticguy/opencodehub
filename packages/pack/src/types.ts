@@ -7,6 +7,8 @@
  * in-place.
  */
 
+import type { CacheChannel } from "./cache.js";
+
 /** A single item in the 9-item BOM. */
 export interface BomItem {
   readonly kind:
@@ -60,4 +62,14 @@ export interface PackOpts {
   readonly budgetTokens: number;
   readonly tokenizerId: string;
   readonly engine?: "pack" | "repomix"; // repomix fallback retained through M6 per spec
+  /**
+   * Delivery channel that controls channel-aware cache-prefix enforcement
+   * (Move 4). See {@link CacheChannel} in `cache.ts`. Recorded here so the
+   * chosen channel threads with the other pack options, but deliberately kept
+   * OUT of the manifest/packHash preimage — it only shapes the agent-facing
+   * assembled context, so the default (`auto`) path stays byte-identical to
+   * pre-Move-4 packs and existing determinism fixtures are undisturbed.
+   * Defaults to `"auto"` (assume automatic caching, emit no markers).
+   */
+  readonly cacheChannel?: CacheChannel;
 }
