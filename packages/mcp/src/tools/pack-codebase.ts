@@ -23,7 +23,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { generatePack as defaultGeneratePack } from "@opencodehub/pack";
+import { generatePack as defaultGeneratePack, resolvePackProvenance } from "@opencodehub/pack";
 import { z } from "zod";
 import { toolAmbiguousRepoError, toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -282,6 +282,11 @@ async function callRealPackEngine(args: {
   const store = await openStore({ path: dbPath, readOnly: true });
   const stagingDir = await mkdtemp(join(tmpdir(), "codehub-pack-mcp-"));
   try {
+    // Resolve the SAME provenance bundle the CLI wires (commit, repoOriginUrl,
+    // per-file chunker bytes, grammar pins). Without it the MCP pack ships an
+    // empty ast-chunks.jsonl + byte-range-free context-bom and a packHash that
+    // diverges from the CLI's for the identical repo+commit (B1 / injection-seam).
+    const provenance = await resolvePackProvenance(store.graph, args.repo);
     const manifest = await defaultGeneratePack(
       {
         repoPath: args.repo,
@@ -289,7 +294,7 @@ async function callRealPackEngine(args: {
         budgetTokens: args.budget,
         tokenizerId: args.tokenizer,
       },
-      { store },
+      { store, ...provenance },
     );
     const finalOutDir = resolve(args.repo, ".codehub", "packs", manifest.packHash);
     await mkdir(dirname(finalOutDir), { recursive: true });

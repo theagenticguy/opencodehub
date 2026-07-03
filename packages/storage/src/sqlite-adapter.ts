@@ -990,14 +990,23 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       typePredDown = ` AND edges.type IN (${phs})`;
       typePredUp = ` AND edges.type IN (${phs})`;
     }
+    // Cycle guard: the path is a comma-joined id list, so we must anchor the
+    // membership test on comma delimiters — a raw `instr(path, id)` would
+    // falsely match when one node id is a SUBSTRING of another already on the
+    // path (e.g. `Class:a.ts:Foo` ⊂ `Class:a.ts:FooBar`, `File:a.ts` ⊂
+    // `File:a.ts.bak`), pruning the real edge and its whole subtree and
+    // silently under-reporting blast radius. Wrapping both operands in commas
+    // (`,path,` vs `,id,`) makes the match whole-id-only. (B2)
     const downStep =
       "SELECT edges.dst, reach.depth + 1, reach.path || ',' || edges.dst " +
       "FROM edges JOIN reach ON edges.src = reach.node_id " +
-      `WHERE reach.depth < ? AND edges.confidence >= ? AND instr(reach.path, edges.dst) = 0${typePredDown}`;
+      "WHERE reach.depth < ? AND edges.confidence >= ? AND " +
+      `instr(',' || reach.path || ',', ',' || edges.dst || ',') = 0${typePredDown}`;
     const upStep =
       "SELECT edges.src, reach.depth + 1, reach.path || ',' || edges.src " +
       "FROM edges JOIN reach ON edges.dst = reach.node_id " +
-      `WHERE reach.depth < ? AND edges.confidence >= ? AND instr(reach.path, edges.src) = 0${typePredUp}`;
+      "WHERE reach.depth < ? AND edges.confidence >= ? AND " +
+      `instr(',' || reach.path || ',', ',' || edges.src || ',') = 0${typePredUp}`;
 
     let recursive: string;
     const stepParams: SqlParam[] = [];
@@ -1017,15 +1026,25 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       pushStep(true);
       pushStep(false);
     }
+    // Per node we want the shallowest reach, and on a depth tie a DETERMINISTIC
+    // path (multiple equally-short paths can reach the same node on a diamond
+    // graph). A bare `SELECT ..., path ... GROUP BY node_id` lets SQLite pick an
+    // ARBITRARY tied row for `path`, so the reported predecessor / viaRelation
+    // varies across runs and SQLite builds. Rank each row by (depth, path) and
+    // keep rank 1 — the lexicographically-smallest path at the min depth. (B2b)
     const sql = `
       WITH RECURSIVE reach(node_id, depth, path) AS (
         SELECT ?, 0, ?
         UNION
         ${recursive}
+      ),
+      ranked AS (
+        SELECT node_id, depth, path,
+               ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth ASC, path ASC) AS rn
+        FROM reach WHERE node_id != ?
       )
-      SELECT node_id, MIN(depth) AS depth, path
-      FROM reach WHERE node_id != ?
-      GROUP BY node_id ORDER BY depth ASC, node_id ASC`;
+      SELECT node_id, depth, path FROM ranked WHERE rn = 1
+      ORDER BY depth ASC, node_id ASC`;
     const allParams: SqlParam[] = [
       String(q.startId),
       String(q.startId),

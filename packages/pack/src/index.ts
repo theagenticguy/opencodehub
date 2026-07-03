@@ -90,6 +90,8 @@ export type { LicensesContent, LicensesOpts } from "./licenses.js";
 export { buildLicenses } from "./licenses.js";
 export type { BuildManifestOpts } from "./manifest.js";
 export { buildManifest, serializeManifest } from "./manifest.js";
+export type { PackProvenance } from "./provenance.js";
+export { resolvePackProvenance } from "./provenance.js";
 export type { ReadmeOpts } from "./readme.js";
 export { buildReadme } from "./readme.js";
 export type { SkeletonOpts, SkeletonRow } from "./skeleton.js";
