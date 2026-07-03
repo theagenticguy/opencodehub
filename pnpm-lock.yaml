@@ -167,6 +167,9 @@ importers:
       '@opencodehub/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@opencodehub/core-ops':
+        specifier: workspace:*
+        version: link:../core-ops
       '@opencodehub/core-types':
         specifier: workspace:*
         version: link:../core-types
@@ -231,6 +234,25 @@ importers:
       '@opencodehub/ingestion':
         specifier: workspace:*
         version: link:../ingestion
+    devDependencies:
+      '@types/node':
+        specifier: 26.0.1
+        version: 26.0.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/core-ops:
+    dependencies:
+      '@opencodehub/analysis':
+        specifier: workspace:*
+        version: link:../analysis
+      '@opencodehub/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+      '@opencodehub/storage':
+        specifier: workspace:*
+        version: link:../storage
     devDependencies:
       '@types/node':
         specifier: 26.0.1
@@ -428,6 +450,9 @@ importers:
       '@opencodehub/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@opencodehub/core-ops':
+        specifier: workspace:*
+        version: link:../core-ops
       '@opencodehub/core-types':
         specifier: workspace:*
         version: link:../core-types
