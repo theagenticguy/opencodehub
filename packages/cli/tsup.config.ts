@@ -50,8 +50,8 @@ const distDir = join(here, "dist");
  * bundled source are still followed. `noExternal` takes precedence for the
  * `@opencodehub/*` scope, so our workspace libs are still inlined.
  *
- * This implicitly covers the native bindings (`@ladybugdb/core`,
- * `@duckdb/node-api`, `onnxruntime-node`, `web-tree-sitter`), the worker host
+ * This implicitly covers the WASM/optional runtimes (`web-tree-sitter`,
+ * the `onnxruntime-web` embedder), the worker host
  * (`piscina`), the CJS MCP SDK, and the lazily-imported packages
  * (`@chonkiejs/core`, `@apidevtools/swagger-parser`,
  * `@aws-sdk/client-sagemaker-runtime`, `ts-morph`).

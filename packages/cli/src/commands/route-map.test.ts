@@ -61,8 +61,8 @@ function makeFakeStore(routes: readonly RouteNode[], edges: readonly CodeRelatio
   handle.store = {
     graph: graph as unknown as IGraphStore,
     temporal: {} as unknown as ITemporalStore,
-    graphFile: "/tmp/fake.lbug",
-    temporalFile: "/tmp/fake.duckdb",
+    graphFile: "/tmp/fake.sqlite",
+    temporalFile: "/tmp/fake.sqlite",
     close: async () => {
       handle.closed = true;
     },

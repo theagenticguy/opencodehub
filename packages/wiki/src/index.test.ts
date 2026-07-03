@@ -1,6 +1,6 @@
 /**
  * Wiki generation tests — confirm the deterministic-output + success-criteria
- * contract without spinning up DuckDB.
+ * contract without spinning up the store.
  *
  * `WikiFakeStore` implements `IGraphStore` finder methods directly
  * over in-memory `nodes` + `edges` arrays. Every helper in

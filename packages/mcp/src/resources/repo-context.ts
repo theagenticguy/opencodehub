@@ -22,7 +22,6 @@ const AVAILABLE_TOOLS = [
   "context",
   "impact",
   "detect_changes",
-  "rename",
   "sql",
 ] as const;
 

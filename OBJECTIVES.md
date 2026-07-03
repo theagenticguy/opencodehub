@@ -52,9 +52,10 @@ quality bar sits, and what is deliberately out of scope.
 
 ## Non-goals
 
-8. **Do not operate a server or SaaS.** DuckDB is embedded. The MCP server is
-   a stdio process. ADR 0001 rejects any engine that would need a daemon. The
-   product ships as a CLI plus an MCP server, nothing hosted.
+8. **Do not operate a server or SaaS.** The index is an embedded single-file
+   SQLite store (ADR 0019). The MCP server is a stdio process. ADR 0001
+   rejects any engine that would need a daemon. The product ships as a CLI
+   plus an MCP server, nothing hosted.
 
 9. **Do not port to Rust before it is needed.** ADR 0002 measured p95
    single-file incremental analysis at 195-250ms on the 100-file fixture, well

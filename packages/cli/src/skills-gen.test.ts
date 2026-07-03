@@ -6,7 +6,7 @@
  * "listNodesByEntryPoint" | "listEdgesByType">`). The fake store below
  * implements those four methods over an in-memory fixture so the tests
  * exercise the real code path down to the markdown renderer and the
- * filesystem writer without standing up DuckDB.
+ * filesystem writer without standing up the store.
  */
 
 import { strict as assert } from "node:assert";

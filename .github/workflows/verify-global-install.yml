@@ -208,7 +208,7 @@ jobs:
           TARBALL_DIR: ${{ runner.temp }}/opencodehub-tarballs
           FIXTURE_DIR: tests/fixtures/multi-lang
           # Use the script's documented default budget. A cold-cache global
-          # install of the native prebuilts (ladybug + duckdb + onnxruntime)
+          # install of a pure-JS + WASM package (no native storage/embedder bindings)
           # on a loaded shared runner legitimately varies 30-90s, so the old
           # hardcoded 60s tripped on slow macOS cells despite a clean install
           # (see scripts/verify-global-install.sh header + issue #163). The

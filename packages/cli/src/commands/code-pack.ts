@@ -531,9 +531,9 @@ export function formatContextSummary(s: ContextSummary): string {
  * via `_store`; production passes the full Store envelope from
  * {@link openStore}. The composed envelope is the only shape carrying both
  * a `graph` and a `temporal` view, so the presence of both uniquely
- * identifies it. (The pre-ADR-0016 envelope also carried a `backend`
- * discriminator; that field was removed when the DuckDB-as-graph backend was
- * ripped out, so this no longer keys off it.)
+ * identifies it. (An earlier envelope also carried a `backend` discriminator;
+ * the single-backend collapse in ADR 0019 removed it, so this no longer keys
+ * off it.)
  */
 function isStoreShape(s: Store | IGraphStore | undefined): s is Store {
   if (s === undefined) return false;

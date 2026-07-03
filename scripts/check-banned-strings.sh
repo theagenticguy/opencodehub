@@ -13,12 +13,14 @@ set -euo pipefail
 
 # Literal strings we reject outright. Case-insensitive.
 #
-# Removed at v1: `ladybug` and `kuzu`. LadybugDB is now the default graph
-# backend (M7, ADR 0013); the bare product name is critical prose surface
-# for end-user docs, slash-command help, and the public site. `kuzu` is
-# retained as historical lineage in cross-link prose ("LadybugDB is the
-# open-source successor to the pre-1.0 Kuzu codebase") and ADRs already
-# cite it for provenance.
+# The prior-backend names (`ladybug`, `kuzu`, `duckdb`, `lbug`) are NOT in
+# this global list: ADR 0019 removed both native storage backends, and the
+# names remain legitimate REMOVAL PROSE in end-user docs, ADRs, CHANGELOGs,
+# and the public site ("ADR 0019 removed @ladybugdb/core and @duckdb/node-api").
+# Banning them globally would corrupt correct historical documentation. They
+# are instead hard-banned ONLY in live source (`packages/**/src`, excluding
+# tests) via the SOURCE_BANNED_REGEX sweep below, and their dead on-disk
+# artifact filenames are banned in the docs surface via DOC_STALE_LITERALS.
 BANNED_LITERALS=(
   'STEP_IN_PROCESS'
   'heuristicLabel'
@@ -111,6 +113,56 @@ for pat in "${BANNED_REGEX[@]}"; do
     fail=1
   fi
 done
+
+# Published-docs staleness sweep — scoped to the user-facing docs surface
+# (the Starlight site, README, and the two generated agent-facing files).
+# ADR 0019 replaced the lbug + DuckDB two-file store with a single
+# `store.sqlite`, and the MCP surface is 29 tools. These literals are the
+# unambiguous drift signals: the dead on-disk filenames, and the stale tool
+# counts. Removal/supersession PROSE ("ADR 0019 removed @ladybugdb/core") is
+# NOT banned — only the concrete dead artifacts and wrong numbers are. Scoped
+# so architectural-history ADRs and internal planning notes stay free to name
+# the old backend.
+DOC_STALE_LITERALS=(
+  'graph.lbug'         # dead on-disk graph file (was LadybugDB)
+  'temporal.duckdb'    # dead on-disk temporal file (was DuckDB)
+  '28 tools'           # stale MCP tool count (now 29)
+  '30 tools'           # stale MCP tool count (now 29)
+  '28 MCP tool'        # stale MCP tool count (now 29)
+  '30 MCP tool'        # stale MCP tool count (now 29)
+)
+DOC_PATHSPEC=(
+  'packages/docs/src'
+  'packages/docs/public/tool-catalog.json'
+  'packages/docs/astro.config.mjs'
+  'README.md'
+)
+for pat in "${DOC_STALE_LITERALS[@]}"; do
+  if matches=$(git grep -I -n -i -e "$pat" --untracked -- "${DOC_PATHSPEC[@]}" 2>/dev/null); then
+    echo "FAIL: stale docs literal '$pat' found (ADR 0019 storage / 29-tool drift):" >&2
+    printf '%s\n' "$matches" >&2
+    fail=1
+  fi
+done
+
+# ── Prior-backend names hard-banned in LIVE SOURCE ────────────────────────────
+# ADR 0019 removed the two native storage backends. Their names must never
+# reappear in shipping source code (only in removal prose / ADRs / CHANGELOGs).
+# Scoped to `packages/**/src`, EXCLUDING `*.test.ts` — one test deliberately
+# keeps the tokens: `sqlite-adapter.test.ts` asserts NO `.lbug`/`.duckdb`
+# sidecar file is ever created, which is the regression guard that the removal
+# stays removed. That assertion IS the enforcement, so its source is exempt.
+SOURCE_BANNED_REGEX='duckdb|ladybug|lbug|kuzu'
+SOURCE_PATHSPEC=(
+  ':(glob)packages/*/src/**/*.ts'
+  ':(exclude,glob)packages/*/src/**/*.test.ts'
+  ':(exclude)packages/storage/src/test-utils'
+)
+if matches=$(git grep -I -n -i -E -e "$SOURCE_BANNED_REGEX" -- "${SOURCE_PATHSPEC[@]}" 2>/dev/null); then
+  echo "FAIL: prior-backend name (duckdb/ladybug/lbug/kuzu) found in live source (ADR 0019 removed both backends — use 'store.sqlite' / 'the store'):" >&2
+  printf '%s\n' "$matches" >&2
+  fail=1
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "Banned-strings check failed." >&2

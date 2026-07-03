@@ -3,7 +3,7 @@
  *
  * These tests write SARIF files on disk under a scratch tmp dir, run the
  * command handlers directly (no commander round-trip), and assert on the
- * returned summary + on-disk artifact. No registry or DuckDB is touched.
+ * returned summary + on-disk artifact. No registry or store is touched.
  */
 
 import assert from "node:assert/strict";

@@ -9,13 +9,14 @@ sidebar:
 tree-sitter (and SCIP for every language with a pinned indexer —
 TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin, Ruby), resolve
 imports and inheritance, detect processes and clusters, build BM25
-and HNSW indexes, and write everything to `.codehub/` under the repo
+and vector indexes, and write everything to `.codehub/` under the repo
 root.
 
-The graph half is always **LadybugDB** (`.codehub/graph.lbug`) and the
-temporal sibling is always **DuckDB** (`.codehub/temporal.duckdb`). Both
-files are written on every analyze — there is no backend knob and no
-single-file fallback. See
+The whole index lives in one **`store.sqlite`** file (WAL mode) under
+`.codehub/`, via Node's built-in `node:sqlite`. It holds graph nodes,
+edges, embeddings, and the temporal tables, and it is written on every
+analyze. There is no backend knob and no native storage binding (ADR
+0019). See
 [Storage backend](/opencodehub/architecture/storage-backend/).
 
 ## Basic indexing
@@ -34,7 +35,7 @@ codehub analyze --embeddings
 ```
 
 `--embeddings` computes symbol and optional file/community vectors and
-writes them to the HNSW index. After this, `codehub query` fuses BM25
+writes them to the `embeddings` table. After this, `codehub query` fuses BM25
 and vector results via reciprocal-rank fusion (RRF).
 
 Memory-constrained machines can use `--embeddings-int8` for quantised
@@ -83,13 +84,13 @@ symbol participates in. The default granularity is `symbol`.
 
 ## What lives in `.codehub/`
 
-Every index writes the same two-file layout — LadybugDB for the graph,
-DuckDB for the temporal sibling:
+Every index writes the same single-file layout: one `store.sqlite` via
+Node's built-in `node:sqlite`:
 
 | Path | Purpose |
 |---|---|
-| `graph.lbug` | LadybugDB graph store — symbols, edges, embeddings, BM25 + HNSW indexes. |
-| `temporal.duckdb` | DuckDB sibling — cochanges, symbol-summary cache. |
+| `store.sqlite` | The whole index (WAL mode) — symbols, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges, symbol-summary cache). |
+| `store.sqlite-wal` / `store.sqlite-shm` | WAL companions present while a writer is open; collapse into `store.sqlite` at close. |
 | `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins, embedder modelId). |
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |

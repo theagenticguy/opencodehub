@@ -208,7 +208,7 @@ export type StoreOverrides = Partial<{
     bulkLoadCochanges: ITemporalStore["bulkLoadCochanges"];
     bulkLoadSymbolSummaries: ITemporalStore["bulkLoadSymbolSummaries"];
     exec: ITemporalStore["exec"];
-    // Optional escape hatch — present on lbug adapter.
+    // Optional escape hatch — reserved for a community graph adapter.
     execCypher: NonNullable<IGraphStore["execCypher"]>;
     // Legacy raw-SQL escape — only sql.test.ts calls this, but we keep
     // the override slot so the test can plug in a custom dispatcher.

@@ -202,8 +202,8 @@ export async function loadPack(dir: string): Promise<LoadedPack> {
 
 /**
  * Parse the on-disk snake_case manifest into the fields `replay` needs.
- * Corrected for schema 2 (ADR 0019): no `duckdb_version` pin, `budget_tokens`
- * is read for the decision set.
+ * Corrected for schema 2 (ADR 0019): no legacy native-backend version pin,
+ * `budget_tokens` is read for the decision set.
  */
 function parseManifest(json: string): ReplayManifest {
   const w = JSON.parse(json) as Record<string, unknown>;

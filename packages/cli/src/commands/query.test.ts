@@ -10,7 +10,7 @@
  *   - `--bm25-only` skips the embedder probe entirely.
  *
  * The fake store intercepts the `embeddings` count probe so we can steer
- * the hybrid-vs-BM25 branch without staging DuckDB or ONNX weights.
+ * the hybrid-vs-BM25 branch without staging the store or ONNX weights.
  */
 
 import assert from "node:assert/strict";
@@ -153,8 +153,8 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   const composed: Store = {
     graph: graph as unknown as IGraphStore,
     temporal: temporal as unknown as ITemporalStore,
-    graphFile: "/tmp/fake.duckdb",
-    temporalFile: "/tmp/fake.duckdb",
+    graphFile: "/tmp/fake.sqlite",
+    temporalFile: "/tmp/fake.sqlite",
     close: async () => {
       handle.closed = true;
     },

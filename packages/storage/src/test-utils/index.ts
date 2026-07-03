@@ -1,18 +1,14 @@
 /**
  * `@opencodehub/storage/test-utils` barrel.
  *
- * Public entry point for adapter conformance testing. Third-party
- * `IGraphStore` adapter authors (community AGE / Memgraph / Neo4j /
- * Neptune forks) import {@link assertIGraphStoreConformance} from here and
- * run it against their own implementation to prove they satisfy the v1.0
- * graphHash byte-identity + typed-finder contract.
- *
- * {@link assertGraphParity} + {@link rebuildFromStore} are the lower-level
- * primitives that the conformance suite is built on; they are re-exported
- * for adapter authors who want to compose their own bespoke checks.
+ * Public entry point for adapter parity testing. {@link assertGraphParity}
+ * proves an adapter round-trips a `KnowledgeGraph` to a byte-identical
+ * `graphHash`; {@link rebuildFromStore} reconstructs the graph from the
+ * stored rows via the typed finders. In-tree, `sqlite-parity.test.ts` uses
+ * both to pin the graphHash determinism invariant; a third-party SQL-shaped
+ * adapter fork can compose the same checks against its own implementation.
  */
 
-export { assertIGraphStoreConformance } from "./conformance.js";
 export {
   applyRepoNullables,
   assertGraphParity,

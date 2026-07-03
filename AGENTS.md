@@ -13,14 +13,15 @@ tiers.
 - `context` — inbound/outbound refs and participating flows for one symbol.
 - `impact` — dependents of a target up to a configurable depth, with a risk tier.
 - `detect_changes` — map an uncommitted or committed diff to affected symbols.
-- `sql` — read-only SQL against the local temporal store (the `cochanges` and `symbol_summaries` tables), 5 s timeout. The node/edge graph lives in `graph.lbug` (ADR 0016) and is reached via the typed tools (`query`/`context`/`impact`) or Cypher via the MCP `sql` tool's `cypher` arg — NOT via this SQL path.
+- `list_findings` — browse SARIF findings from the latest scan by severity and rule.
+- `sql` — read-only SQL against the local temporal store (cochanges + symbol_summaries), 5 s timeout; the node/edge graph is queried via the typed tools or Cypher via the MCP `sql` tool.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
 with the working tree. `codehub status` reports staleness.
 
 ## Full MCP surface
 
-The full MCP surface is **28 tools** (see `packages/mcp/src/server.ts`);
+The full MCP surface is **29 tools** (see `packages/mcp/src/server.ts`);
 the 6 listed above are the high-frequency exploration tools. For the
 full inventory, use the `/opencodehub-guide` skill.
 
@@ -81,22 +82,23 @@ This repo ships a Claude Code plugin at `plugins/opencodehub/` — it
 provides a `code-analyst` subagent and 11 skills. Install via
 `codehub init` (writes `.mcp.json` + links the plugin).
 
-## Storage backend — lbug graph + DuckDB temporal
+## Storage backend — single-file SQLite (ADR 0019)
 
-The graph tier is always `@ladybugdb/core` (`graph.lbug`); the temporal
-tier — cochanges, structured symbol summaries, and the
-`codehub query --sql` escape hatch — is always DuckDB
-(`temporal.duckdb`). Both files live under `<repo>/.codehub/`. There is
-no env-var, no probe, no fallback; if the lbug binding fails to load,
-`open()` throws `GraphDbBindingError` and the operation aborts. See
-ADR 0016 (`docs/adr/0016-duckdb-graph-rip.md`) for the rationale and the
-AGE/Memgraph/Neo4j/Neptune community-adapter contract that survives the
-rip-out (the segregated `IGraphStore` / `ITemporalStore` interfaces stay
-exactly because community-fork adapters are a deliberate escape hatch).
+The entire index lives in ONE `<repo>/.codehub/store.sqlite` file (WAL),
+via Node's built-in `node:sqlite` — graph nodes, edges, embeddings, and
+the temporal tables (cochanges, structured symbol summaries, and the
+`codehub query --sql` escape hatch). One `SqliteStore` class implements
+BOTH `IGraphStore` and `ITemporalStore`; `openStore()` returns that single
+instance as both the `graph` and `temporal` views, so call sites use
+`store.graph.X()` / `store.temporal.Y()` unchanged. There are zero native
+storage bindings — `@ladybugdb/core` and `@duckdb/node-api` were both
+removed. See ADR 0019 (`docs/adr/0019-single-file-sqlite-storage.md`) for
+the rationale; it supersedes ADR 0016
+(`docs/adr/0016-duckdb-graph-rip.md`).
 
-`IGraphStore` lives only on `GraphDbStore`; `DuckDbStore` implements
-`ITemporalStore` only. Embeddings live in `graph.lbug` and stream into a
-per-call DuckDB temp table at pack time so the byte-identical Parquet
-sidecar still works (see `packages/pack/src/embeddings-sidecar.ts`).
-Future temporal swap (e.g. SQLite-WASM) only needs a new `ITemporalStore`
-implementor — no graph-tier change.
+The segregated `IGraphStore` / `ITemporalStore` interfaces remain as the
+community-fork escape hatch: an AGE / Memgraph / Neo4j / Neptune adapter
+implements `IGraphStore` and pairs with any SQL-shaped `ITemporalStore`.
+Embeddings live in the `embeddings` table inside `store.sqlite` — the
+write-only Parquet sidecar was dropped with DuckDB (nothing ever read it
+back).

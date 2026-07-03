@@ -1,11 +1,10 @@
 /**
  * License-tier classification — pure, dependency-free.
  *
- * Extracted out of `duckdb-adapter.ts` so consumers (the single-file
- * `SqliteStore`, `listDependencies`, the license-audit surface) can use it
- * WITHOUT transitively importing `@duckdb/node-api`. That top-level native
- * import is exactly what would defeat the lazy-SQLite contract — importing a
- * pure helper must never load a native binding.
+ * Lives in its own pure module so consumers (`SqliteStore`,
+ * `listDependencies`, the license-audit surface) can use it without pulling
+ * in any storage-adapter internals. Keeping the classifier dependency-free is
+ * deliberate — a pure helper must never drag in the store's runtime deps.
  */
 
 /**

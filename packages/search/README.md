@@ -27,9 +27,9 @@ const fused = await hybridSearch(
 // fused: readonly FusedHit[] — { nodeId, score, sources: ("bm25" | "vector")[] }
 ```
 
-- **BM25** — full-text search via DuckDB FTS, run directly in the graph
+- **BM25** — full-text search via SQLite FTS5, run directly in the store
   store (`packages/storage`).
-- **Dense vector** — cosine ANN search via DuckDB's `hnsw_acorn` extension.
+- **Dense vector** — cosine ANN search via brute-force cosine over the embeddings table.
 - **RRF fusion** — the BM25 and vector rank lists are merged with
   Reciprocal Rank Fusion (`DEFAULT_RRF_K = 60`) before the final `limit` is
   applied. Each `FusedHit.sources` records which runs (`"bm25"`, `"vector"`)

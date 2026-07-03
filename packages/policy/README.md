@@ -36,7 +36,7 @@ Violations are sorted by `ruleId` for deterministic CI output.
 
 ## Design
 
-- **Pure evaluator** — no DuckDB, no filesystem beyond the one YAML read.
+- **Pure evaluator** — no store, no filesystem beyond the one YAML read.
   Inputs (`PolicyContext`) are pre-computed by the caller.
 - **Zod-only** validation, matching `packages/sarif`.
 - **Self-hosted OSS** — no calls to any OpenCodeHub-operated service.

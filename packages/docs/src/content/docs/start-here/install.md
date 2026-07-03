@@ -11,16 +11,16 @@ sidebar:
   parity with the Linux dev path, but native Windows now works without
   the MSVC build chain because OpenCodeHub does no native compilation
   at install time.
-- **Node.js:** Node 20, 22, or 24. The parse runtime is `web-tree-sitter`
-  (WASM) on every supported version — there is no native opt-in (ADR 0015).
+- **Node.js:** Node ≥24.15. The store is Node's built-in `node:sqlite`
+  (`DatabaseSync`, enabled by default at that version) and the parse
+  runtime is `web-tree-sitter` (WASM) — there is no native opt-in (ADR 0015).
 
 ## Supported platforms
 
-OpenCodeHub installs with **zero native compilation** — the parse runtime is
-WASM, and the two native bindings (`@ladybugdb/core` for the graph store,
-`@duckdb/node-api` for the temporal store) ship prebuilt per platform. The
-graph store is the narrowest matrix and is **mandatory** (there is no
-fallback), so its prebuilt coverage defines where OpenCodeHub runs:
+OpenCodeHub installs with **zero native compilation and zero native
+storage bindings** — the store is Node's built-in `node:sqlite` and the
+parse runtime is WASM (ADR 0019). There is no per-platform prebuilt to
+match, so **every platform is supported**:
 
 | Platform | Supported |
 |---|---|
@@ -29,16 +29,14 @@ fallback), so its prebuilt coverage defines where OpenCodeHub runs:
 | Linux x64 (glibc — Debian/Ubuntu/RHEL) | ✅ |
 | Linux arm64 (glibc) | ✅ |
 | Windows x64 | ✅ |
-| **Windows arm64** | ❌ no `@ladybugdb/core` prebuilt |
-| **Linux musl (Alpine)** | ❌ no `@ladybugdb/core` prebuilt |
+| Windows arm64 | ✅ |
+| Linux musl (Alpine) | ✅ |
 
-On an unsupported platform the CLI fails fast with a `GraphDbBindingError` that
-names the case. For containers, use a **glibc** base image (`node:22`,
-`node:22-slim`, `debian`, `ubuntu`) rather than an Alpine/musl image
-(`node:22-alpine`). Windows-on-ARM users should run under x64 emulation or WSL2
-with an x64/arm64-glibc Linux until upstream ships the missing prebuilts
-(tracked upstream in `@ladybugdb/core`).
-- **pnpm:** `>=10.0.0` (the workspace lockfile is generated with 10.33.2).
+There is no unsupported-platform failure mode: `npm install -g
+@opencodehub/cli` plus Node ≥24.15 is the whole install. Any base
+image works, including Alpine/musl (`node:24-alpine`) and Windows-on-ARM,
+because nothing compiles and no native binding has to load.
+- **pnpm:** `>=11.0.0` (the workspace lockfile is generated with 11.1.0).
 - **Python 3.12:** optional, only used by auxiliary tooling (the
   harness packages do not ship as runtime dependencies). Not required
   for the CLI or MCP server.
@@ -58,7 +56,7 @@ pnpm -r build
 mise run cli:link          # puts `codehub` on your PATH
 ```
 
-`mise install` activates the Node 22, pnpm 11.1.0, and Python 3.12 pins
+`mise install` activates the Node 24, pnpm 11.1.0, and Python 3.12 pins
 from `mise.toml`. `pnpm install --frozen-lockfile` installs exactly the
 lockfile-pinned dependencies. `pnpm -r build` compiles every TypeScript
 package so the CLI entrypoint at `packages/cli/dist/index.js` is
@@ -76,10 +74,10 @@ tarball globally.
 
 If you already manage Node and pnpm another way:
 
-1. Install Node 20, 22, or 24 (`nvm install 22`, `fnm install 22`, or
-   from [nodejs.org](https://nodejs.org)). Every supported version uses
-   the same `web-tree-sitter` (WASM) parse runtime — there is no native
-   parser and no opt-in (ADR 0015).
+1. Install Node ≥24.15 (`nvm install 24`, `fnm install 24`, or
+   from [nodejs.org](https://nodejs.org)). The store uses the built-in
+   `node:sqlite` and parsing uses `web-tree-sitter` (WASM) — there is no
+   native parser and no opt-in (ADR 0015).
 2. Install pnpm `>=11.0.0` (`corepack enable pnpm`, or `npm install -g
    pnpm@11`).
 3. Clone, build, and link:
@@ -113,10 +111,11 @@ Then probe your environment:
 codehub doctor
 ```
 
-`codehub doctor` checks your Node version, pnpm version, native-module
-bindings (the DuckDB and LadybugDB prebuilds — parsing is WASM-only, so
-there is no native parser to probe), and writable paths in `~/.codehub/`
-and `.codehub/`. It exits non-zero if anything looks off.
+`codehub doctor` checks your Node version, pnpm version, the built-in
+`node:sqlite` module (an import plus a WAL round-trip — there is no
+native storage binding to probe, and parsing is WASM-only), and writable
+paths in `~/.codehub/` and `.codehub/`. It exits non-zero if anything
+looks off.
 
 :::note[Fallback for unlinked checkouts]
 If you cannot or will not link the CLI (locked-down CI images, a
@@ -132,11 +131,11 @@ node packages/cli/dist/index.js doctor
 
 ## Optional environment toggles
 
-Storage has no toggle — the graph tier is always LadybugDB
-(`.codehub/graph.lbug`) and the temporal tier is always DuckDB
-(`.codehub/temporal.duckdb`); both are written on every `analyze` and
-there is no backend-selection env var (ADR 0016). Parsing has no toggle
-either — `web-tree-sitter` (WASM) is the only runtime (ADR 0015).
+Storage has no toggle: the whole index lands in one
+`.codehub/store.sqlite` file (WAL mode) via the built-in `node:sqlite`,
+written on every `analyze`, with no backend-selection env var and no
+native binding (ADR 0019). Parsing has no toggle either:
+`web-tree-sitter` (WASM) is the only runtime (ADR 0015).
 
 | Variable | Default | Effect |
 |---|---|---|

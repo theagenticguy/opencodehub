@@ -32,8 +32,8 @@ test("acquire opens once, reuses on subsequent acquires", async () => {
     return makeFakeStore(p).store;
   });
   try {
-    const a = await pool.acquire("repoA", "/a.duckdb");
-    const b = await pool.acquire("repoA", "/a.duckdb");
+    const a = await pool.acquire("repoA", "/a.sqlite");
+    const b = await pool.acquire("repoA", "/a.sqlite");
     assert.equal(a, b);
     assert.equal(factoryCalls, 1);
     await pool.release("repoA");
@@ -53,9 +53,9 @@ test("concurrent acquires dedupe in-flight opens", async () => {
   });
   try {
     const [a, b, c] = await Promise.all([
-      pool.acquire("repoX", "/x.duckdb"),
-      pool.acquire("repoX", "/x.duckdb"),
-      pool.acquire("repoX", "/x.duckdb"),
+      pool.acquire("repoX", "/x.sqlite"),
+      pool.acquire("repoX", "/x.sqlite"),
+      pool.acquire("repoX", "/x.sqlite"),
     ]);
     assert.equal(a, b);
     assert.equal(b, c);
@@ -76,11 +76,11 @@ test("LRU eviction on size overflow closes evicted entries", async () => {
     return probe.store;
   });
   try {
-    await pool.acquire("a", "/a.duckdb");
+    await pool.acquire("a", "/a.sqlite");
     await pool.release("a");
-    await pool.acquire("b", "/b.duckdb");
+    await pool.acquire("b", "/b.sqlite");
     await pool.release("b");
-    await pool.acquire("c", "/c.duckdb");
+    await pool.acquire("c", "/c.sqlite");
     await pool.release("c");
     // Give dispose a microtask to finish the async close.
     await new Promise((resolve) => setImmediate(resolve));
@@ -98,9 +98,9 @@ test("shutdown closes every remaining entry exactly once", async () => {
     probes.push(probe);
     return probe.store;
   });
-  await pool.acquire("r1", "/r1.duckdb");
+  await pool.acquire("r1", "/r1.sqlite");
   await pool.release("r1");
-  await pool.acquire("r2", "/r2.duckdb");
+  await pool.acquire("r2", "/r2.sqlite");
   await pool.release("r2");
   await pool.shutdown();
   for (const p of probes) {
@@ -112,7 +112,7 @@ test("shutdown closes every remaining entry exactly once", async () => {
 test("acquire after shutdown throws", async () => {
   const pool = new ConnectionPool({ max: 2 }, async (p) => makeFakeStore(p).store);
   await pool.shutdown();
-  await assert.rejects(() => pool.acquire("x", "/x.duckdb"), /shut down/);
+  await assert.rejects(() => pool.acquire("x", "/x.sqlite"), /shut down/);
 });
 
 test("eviction of an in-use entry defers close to the last release", async () => {
@@ -125,15 +125,15 @@ test("eviction of an in-use entry defers close to the last release", async () =>
   try {
     // Hold three distinct repos in flight at once with max=2 so the LRU
     // evicts the least-recently-used ("a") WHILE it is still referenced.
-    await pool.acquire("a", "/a.duckdb");
-    await pool.acquire("b", "/b.duckdb");
-    await pool.acquire("c", "/c.duckdb"); // evicts "a" (refCount 1)
+    await pool.acquire("a", "/a.sqlite");
+    await pool.acquire("b", "/b.sqlite");
+    await pool.acquire("c", "/c.sqlite"); // evicts "a" (refCount 1)
 
     await new Promise((resolve) => setImmediate(resolve));
     // The evicted entry is still in use — it MUST NOT be closed yet, or the
     // tool still holding the handle would see a closed store mid-call.
     assert.equal(
-      probes.get("/a.duckdb")?.isClosed(),
+      probes.get("/a.sqlite")?.isClosed(),
       false,
       "evicted-but-in-use store must stay open until its last release",
     );
@@ -143,11 +143,11 @@ test("eviction of an in-use entry defers close to the last release", async () =>
     // undefined), leaking the handle.
     await pool.release("a");
     assert.equal(
-      probes.get("/a.duckdb")?.isClosed(),
+      probes.get("/a.sqlite")?.isClosed(),
       true,
       "last release of an evicted entry must close the store",
     );
-    assert.equal(probes.get("/a.duckdb")?.closeCount(), 1, "store must close exactly once");
+    assert.equal(probes.get("/a.sqlite")?.closeCount(), 1, "store must close exactly once");
 
     await pool.release("b");
     await pool.release("c");
@@ -165,15 +165,15 @@ test("shutdown closes entries evicted while still in use", async () => {
   });
   // Overflow so "a" is evicted while refCount > 0, then shut down before any
   // release. The parked side-table entry must still be drained.
-  await pool.acquire("a", "/a.duckdb");
-  await pool.acquire("b", "/b.duckdb");
-  await pool.acquire("c", "/c.duckdb"); // evicts "a" (refCount 1, parked)
+  await pool.acquire("a", "/a.sqlite");
+  await pool.acquire("b", "/b.sqlite");
+  await pool.acquire("c", "/c.sqlite"); // evicts "a" (refCount 1, parked)
 
   await pool.shutdown();
   assert.equal(
-    probes.get("/a.duckdb")?.isClosed(),
+    probes.get("/a.sqlite")?.isClosed(),
     true,
     "shutdown must close a still-referenced evicted entry",
   );
-  assert.equal(probes.get("/a.duckdb")?.closeCount(), 1, "store must close exactly once");
+  assert.equal(probes.get("/a.sqlite")?.closeCount(), 1, "store must close exactly once");
 });

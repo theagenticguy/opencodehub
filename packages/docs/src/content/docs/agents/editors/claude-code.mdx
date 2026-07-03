@@ -36,7 +36,7 @@ The `.mcp.json` shape:
 }
 ```
 
-`codehub mcp` runs the stdio MCP server. The 28 tools register under
+`codehub mcp` runs the stdio MCP server. The 29 tools register under
 the `mcp__opencodehub__*` namespace. Every one is read-only with
 respect to your source — no tool edits the working tree.
 
@@ -122,7 +122,7 @@ In a Claude Code session, ask:
 which OpenCodeHub tools do you see?
 ```
 
-The agent should list 28 tools, all under `mcp__opencodehub__*`. If it
+The agent should list 29 tools, all under `mcp__opencodehub__*`. If it
 sees zero, the most common causes are: Claude Code wasn't restarted
 after `codehub init`, or `codehub` is not on PATH for the editor's
 process (try launching the editor from a shell that has `codehub`

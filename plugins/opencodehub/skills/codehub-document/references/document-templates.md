@@ -23,7 +23,7 @@ Cites `packages/foo/src/index.ts` (200 LOC) style file references.
 | Layer | Technology | Source |
 |---|---|---|
 | Runtime | Node 22 | `package.json:7` |
-| Storage | DuckDB + hnsw_acorn | `packages/storage/src/index.ts:12` |
+| Storage | SQLite (single-file, node:sqlite) — FTS5 + vector KNN | `packages/storage/src/index.ts:12` |
 | ... | ... | ... |
 
 ## Module map

@@ -86,20 +86,20 @@ Two-hop upstream trace for every caller of `validatePayment`:
 
 ```sql
 WITH direct AS (
-  SELECT from_id, to_id, 1 AS depth
-  FROM relations
+  SELECT src, dst, 1 AS depth
+  FROM edges
   WHERE type = 'CALLS'
-    AND to_id IN (SELECT id FROM nodes WHERE name = 'validatePayment' AND kind = 'Function')
+    AND dst IN (SELECT id FROM nodes WHERE name = 'validatePayment' AND kind = 'Function')
 ),
 indirect AS (
-  SELECT r.from_id, d.to_id, 2 AS depth
-  FROM relations r
-  JOIN direct d ON d.from_id = r.to_id
-  WHERE r.type = 'CALLS'
+  SELECT e.src, d.dst, 2 AS depth
+  FROM edges e
+  JOIN direct d ON d.src = e.dst
+  WHERE e.type = 'CALLS'
 )
 SELECT caller.name, caller.file_path, caller.start_line, u.depth
 FROM (SELECT * FROM direct UNION ALL SELECT * FROM indirect) u
-JOIN nodes caller ON caller.id = u.from_id
+JOIN nodes caller ON caller.id = u.src
 ORDER BY u.depth ASC, caller.name;
 ```
 

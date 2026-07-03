@@ -32,7 +32,7 @@ define the same server name.
 ```
 
 That is the entire config. `codehub mcp` runs the stdio MCP server
-and registers all 28 tools under `mcp__opencodehub__*`.
+and registers all 29 tools under `mcp__opencodehub__*`.
 
 If `codehub` is not on your shell PATH (Cursor inherits the GUI app's
 environment, not your shell's), substitute the absolute path:
@@ -55,7 +55,7 @@ Find the path with `which codehub` in your terminal.
 1. Restart Cursor (the agent only loads MCP servers at startup).
 2. Open the chat panel.
 3. Ask: `which OpenCodeHub tools do you see?`
-4. Expect 28 tools listed under `mcp__opencodehub__*`.
+4. Expect 29 tools listed under `mcp__opencodehub__*`.
 
 If you see zero tools, check Cursor's MCP debug pane (Settings → MCP)
 for the server's stderr. The most common cause is `codehub` not being

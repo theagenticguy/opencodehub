@@ -89,7 +89,7 @@ test("stringArrayOrNull: preserves [] vs absent for round-trip symmetry", () => 
   // Explicit empty array survives the writer side as a typed 0-length
   // array (NOT null) so the native TEXT[] / STRING[] column can
   // distinguish `keywords: []` from absent. The symmetric reader is in
-  // duckdb-adapter.ts:setStringArrayField + analyze.ts:stringArrayField.
+  // the SqliteStore payload-JSON read path (rehydrateNode).
   assert.deepEqual(stringArrayOrNull([]), []);
   assert.equal(stringArrayOrNull("a"), null);
   assert.equal(stringArrayOrNull(null), null);
@@ -329,7 +329,7 @@ test("stepZeroSentinel: drops 0 / null / undefined; passes through positive inte
 test("coerceLanguageStats: parse string / coerce empty / drop garbage", () => {
   assert.deepEqual(coerceLanguageStats('{"ts":0.83,"py":0.14}'), { ts: 0.83, py: 0.14 });
   // Empty string sentinel — the writer collapsed an empty stats object to
-  // SQL NULL, which DuckDB reads back as null and the graph-db reads as
+  // SQL NULL, which a columnar graph adapter reads back as
   // null/undefined depending on the binding; all paths converge to {}.
   assert.deepEqual(coerceLanguageStats(null), {});
   assert.deepEqual(coerceLanguageStats(undefined), {});

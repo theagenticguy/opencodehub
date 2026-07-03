@@ -30,10 +30,11 @@
 #                      (default: 120). The budget guards against a
 #                      regression that makes install HANG or refetch (the
 #                      old native tree-sitter-cli GHCR fetch); it is not a
-#                      perf benchmark. A cold-cache `npm install -g` of the
-#                      native prebuilts (ladybug + duckdb + onnxruntime) on a
-#                      loaded shared runner legitimately varies 30–90s, so a
-#                      tight 60s tripped on slow cells despite a clean install.
+#                      perf benchmark. A cold-cache `npm install -g` of a
+#                      pure-JS + WASM package (ADR 0019: no native storage or
+#                      embedder bindings) on a loaded shared runner legitimately
+#                      varies 30–90s, so a tight 60s tripped on slow cells
+#                      despite a clean install.
 #
 # Exit codes:
 #   0  every gate passed

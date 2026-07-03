@@ -3,11 +3,10 @@
  *
  * THESIS. One `store.sqlite` file in WAL mode backs EVERYTHING: graph nodes,
  * edges, embeddings, and the temporal/non-graph tables (cochanges, symbol
- * summaries). It replaced the two native-binding engines this project used
- * before — `graph.lbug` via @ladybugdb/core + `temporal.duckdb` via
- * @duckdb/node-api. Collapsing both onto Node 24's built-in `node:sqlite`
- * removed the last two native storage dependencies, which is what unlocked
- * the real goal: a zero-dep, one-command, no-Docker install
+ * summaries). It replaced the two native-binding storage engines this project
+ * used before (see ADR 0019). Collapsing both onto Node 24's built-in
+ * `node:sqlite` removed the last two native storage dependencies, which is
+ * what unlocked the real goal: a zero-dep, one-command, no-Docker install
  * (`npm i -g @opencodehub/cli` and nothing else).
  *
  * STATUS. This file implements the FULL {@link IGraphStore} +
@@ -20,16 +19,15 @@
  * `graphHash`. The node write/read path round-trips the full node object
  * through a JSON `payload` column (so arbitrary kind-specific fields — and the
  * `keywords: []`-vs-absent and `languageStats: {}` distinctions canonicalJson
- * cares about — survive verbatim). The edge read path mirrors
- * `GraphDbStore.listEdgesInternalGd` exactly, including the
+ * cares about — survive verbatim). The edge read path reproduces the
+ * canonical edge contract (ADR 0019), including the
  * {@link stepZeroSentinel} drop, the empty-reason drop, and the
  * `(from, to, type, id)` sort. Filter-only columns (severity, rule_id,
  * ecosystem, method, entry_point_id, repo_uri, …) live INSIDE the payload and
  * are reached via SQLite JSON1 `payload->>'$.field'` extracts.
  *
  * NON-GOAL. No backwards compatibility. Clean slate: this adapter assumes a
- * fresh index, not a migration of existing `graph.lbug` / `temporal.duckdb`
- * artifacts (per the spike brief).
+ * fresh index, not a migration of any prior-backend artifacts (ADR 0019).
  */
 
 // Install the experimental-warning guard BEFORE the node:sqlite binding loads.
@@ -240,8 +238,8 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
         PRIMARY KEY (granularity, node_id, chunk_index)
       );
     `);
-    // BM25 search: an FTS5 virtual table mirroring the THREE columns lbug's
-    // QUERY_FTS_INDEX indexes — name + signature + description. node_id is
+    // BM25 search: an FTS5 virtual table over the THREE columns the former
+    // FTS index covers name + signature + description. node_id is
     // UNINDEXED (carried for the join back to `nodes`). Populated at bulkLoad
     // from nodes.name + payload.signature/description.
     db.exec(`
@@ -254,7 +252,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       );
     `);
     // ── Temporal / non-graph tier — same file, no second engine ──
-    // Canonical 7-column cochanges shape (matches schema-ddl.ts:30-42).
+    // Canonical 7-column cochanges shape.
     // last_cocommit_at is stored as a TEXT ISO-8601 string (SQLite has no
     // native TIMESTAMP type; the affinity is irrelevant for a TEXT round-trip).
     db.exec(`
@@ -271,7 +269,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       CREATE INDEX IF NOT EXISTS idx_cochanges_source ON cochanges (source_file);
       CREATE INDEX IF NOT EXISTS idx_cochanges_target ON cochanges (target_file);
     `);
-    // Canonical 9-column symbol_summaries shape (matches schema-ddl.ts:54-67).
+    // Canonical 9-column symbol_summaries shape.
     db.exec(`
       CREATE TABLE IF NOT EXISTS symbol_summaries (
         node_id              TEXT NOT NULL,
@@ -287,8 +285,8 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       );
       CREATE INDEX IF NOT EXISTS idx_summaries_node ON symbol_summaries (node_id);
     `);
-    // Single-row meta table keyed by id=1 (mirrors GraphDbStore's StoreMeta
-    // {id:1} MERGE pattern). Typed columns so getMeta can re-attach optional
+    // Single-row meta table keyed by id=1 (keeps the former GraphDbStore
+    // StoreMeta {id:1} MERGE pattern). Typed columns so getMeta can re-attach optional
     // fields only when the column is non-null (exactOptional readback).
     db.exec(`
       CREATE TABLE IF NOT EXISTS store_meta (
@@ -419,8 +417,8 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
   }
 
   async listNodes(opts: ListNodesOptions = {}): Promise<readonly GraphNode[]> {
-    // Empty-array short-circuits BEFORE touching the connection (matches
-    // GraphDbStore.listNodes:1115-1117 — pure-JS contract).
+    // Empty-array short-circuits BEFORE touching the connection (the
+    // pure-JS contract carried over from the former GraphDbStore.listNodes).
     const kinds = opts.kinds;
     if (kinds !== undefined && kinds.length === 0) return [];
     const idsRaw = opts.ids;
@@ -458,7 +456,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     const offset = clampNonNegativeInt(opts.offset);
     const wheres: string[] = ["kind = ?"];
     const params: SqlParam[] = [kind];
-    // NOTE: GraphDbStore ANDs filePath + filePathLike (impl 1201-1210) even
+    // NOTE: the former GraphDbStore impl ANDed filePath + filePathLike even
     // though the interface doc says "exact takes priority" — mirror the IMPL.
     if (opts.filePath !== undefined) {
       wheres.push("file_path = ?");
@@ -671,7 +669,8 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       counts.set(r.type, typeof r.n === "bigint" ? Number(r.n) : Number(r.n ?? 0));
     }
     // Emit a 0 entry for every requested/all type with no rows (the
-    // GraphDbStore per-type loop guarantees every input type appears).
+    // per-type loop guarantees every input type appears — same contract the
+    // former GraphDbStore honored).
     for (const t of requested) out.set(t, counts.get(t) ?? 0);
     return out;
   }
@@ -722,7 +721,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
         ...(step !== undefined ? { step } : {}),
       });
     }
-    // Final ordering: (from, to, type, id) — byte-for-byte the GraphDbStore key.
+    // Final ordering: (from, to, type, id) — byte-for-byte the canonical edge key.
     collected.sort((x, y) => {
       if (x.from !== y.from) return x.from < y.from ? -1 : 1;
       if (x.to !== y.to) return x.to < y.to ? -1 : 1;
@@ -916,8 +915,8 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       vector: Uint8Array;
     }[];
     // VectorResult.distance is a DISTANCE (lower = closer). Cosine distance
-    // = 1 - cosine similarity, so ranking ascending matches the lbug HNSW
-    // contract (ORDER BY distance ASC).
+    // = 1 - cosine similarity, so ranking ascending matches the canonical
+    // vector-search contract (ORDER BY distance ASC).
     const scored: VectorResult[] = rows.map((r) => ({
       nodeId: r.node_id,
       distance: 1 - cosine(query, blobToF32(r.vector)),
@@ -939,9 +938,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     }
     // CRITICAL: SQLite bm25() returns a NEGATIVE number (more-negative =
     // more-relevant). To expose SearchResult.score as "higher = better"
-    // (matching lbug's score DESC), set score = -bm25(...) and ORDER BY
-    // bm25(...) ASC (== score DESC). Tiebreak (id, file_path, name) ASC
-    // mirrors DuckDbStore.search.
+    // (the "score DESC" contract the former backends exposed), set
+    // score = -bm25(...) and ORDER BY bm25(...) ASC (== score DESC).
+    // Tiebreak (id, file_path, name) ASC keeps ordering deterministic.
     const sql =
       "SELECT n.id AS node_id, n.file_path AS file_path, n.name AS name, n.kind AS kind, " +
       "-bm25(nodes_fts) AS score, bm25(nodes_fts) AS rank " +
@@ -973,9 +972,9 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
    * Reachability traversal as a single recursive CTE. `direction:"down"`
    * follows outgoing edges (callees / dependencies); `"up"` follows incoming
    * edges (callers / dependents — the blast-radius direction). Bounded by
-   * maxDepth so a cyclic graph terminates. This is the LadybugDB-Cypher
-   * replacement, and the whole reason traversal is feasible without a
-   * graph engine.
+   * maxDepth so a cyclic graph terminates. This recursive CTE is what makes
+   * traversal feasible on plain SQLite — it replaced the Cypher traversal the
+   * former graph-engine backend relied on.
    */
   async traverse(q: TraverseQuery): Promise<readonly TraverseResult[]> {
     const maxDepth = Math.max(0, Math.floor(q.maxDepth));
@@ -1258,7 +1257,7 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     });
     db.exec("BEGIN");
     try {
-      // DELETE+INSERT upsert per composite key (mirrors DuckDb's approach).
+      // DELETE+INSERT upsert per composite key.
       const del = db.prepare(
         "DELETE FROM symbol_summaries WHERE node_id = ? AND content_hash = ? AND prompt_version = ?",
       );
@@ -1446,10 +1445,9 @@ function summaryRowFromRecord(row: Record<string, unknown>): SymbolSummaryRow {
 }
 
 /**
- * Clamp a number to a non-negative integer. Semantics match
- * `clampNonNegativeIntGd` (graphdb-adapter.ts:2202-2207): `undefined` / `null`
- * / negative / non-finite → `undefined` (no clause); `0` preserved; else
- * `Math.floor`.
+ * Clamp a number to a non-negative integer. Semantics carried over from the
+ * former `clampNonNegativeIntGd` helper: `undefined` / `null` / negative /
+ * non-finite → `undefined` (no clause); `0` preserved; else `Math.floor`.
  */
 function clampNonNegativeInt(v: number | undefined): number | undefined {
   if (v === undefined || v === null) return undefined;

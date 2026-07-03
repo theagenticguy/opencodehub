@@ -117,7 +117,7 @@ async function withHarness(
         const ctx: ToolContext = { pool, home };
         // Acquire once just to seed handle.store for spy-based tests.
         const repoPath = `${home}/fakerepo`;
-        const dbPath = `${repoPath}/.codehub/graph.lbug`;
+        const dbPath = `${repoPath}/.codehub/store.sqlite`;
         try {
           handle.store = await pool.acquire(repoPath, dbPath);
         } finally {
@@ -386,7 +386,7 @@ test("sql: cypher timeout_ms is forwarded to store.query opts", async () => {
 // so `nodes` / `edges` / `embeddings` ARE directly SQL-queryable. The tool
 // description must advertise them as SQL tables under `sql:` and mark
 // `cypher:` as the community-fork-only escape hatch. (This inverts the prior
-// finding-R2 contract, which assumed a Cypher-only lbug graph tier.)
+// finding-R2 contract, which assumed a Cypher-only graph tier.)
 // ---------------------------------------------------------------------------
 
 test("sql: tool description advertises the graph tables as SQL-queryable and marks cypher fork-only", async () => {
@@ -414,7 +414,7 @@ test("sql: tool description advertises the graph tables as SQL-queryable and mar
     );
 
     // The inverted bug: the description must NOT claim the graph is
-    // unqueryable by SQL — that was true only under the old lbug backend.
+    // unqueryable by SQL — that was true only under an earlier graph backend.
     assert.ok(
       !/not SQL-queryable/i.test(desc),
       "description must NOT claim the graph is non-SQL-queryable (ADR 0019)",

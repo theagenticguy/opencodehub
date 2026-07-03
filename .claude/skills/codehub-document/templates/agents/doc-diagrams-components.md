@@ -26,7 +26,7 @@ Produce `{{ docs_root }}/diagrams/architecture/components.md`: a single Mermaid 
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top communities | `{{ context_path }} § Top communities` | cached |
-| Community relations | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
+| Community relations | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT src, dst, type FROM edges WHERE type IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
 | Component method list | `mcp__codehub__context({symbol: <community-name>})` per top 8 | mid-run |
 
 ## 4. Process

@@ -25,11 +25,11 @@
 #  14.  license-audit-smoke         (analyze + license_audit tool)  [NEW v1.0]
 #  15.  verdict-smoke               (2-commit fixture → tier)       [NEW v1.0]
 #  16.  pack-determinism            (code-pack ×2 → diff -r)         [NEW v1.0]
-#  17.  m7-parity-audit             (retired — lbug-only backend, ADR 0016; always SKIP)
+#  17.  m7-parity-audit             (retired — single SQLite backend, ADR 0019; always SKIP)
 #
 # Gates 10-17 MUST degrade gracefully: when their dependency binary is not
-# available (semgrep, embedder weights, codehub verdict command,
-# @ladybugdb/core binding), they print `[SKIP]` with a reason and
+# available (semgrep, embedder weights, codehub verdict command), they
+# print `[SKIP]` with a reason and
 # do not change the exit code. This lets the acceptance run complete on any
 # developer laptop and in CI, while still enforcing gates when those
 # dependencies are present.
@@ -561,8 +561,8 @@ echo
 # ---------------------------------------------------------------------------
 echo "16/${TOTAL_GATES}: pack-determinism (code-pack ×2 → diff -r)"
 # The audit script SKIPs cleanly when the CLI isn't built or the repo lacks
-# a populated `.codehub/duck.db` graph (worktree native-binding lesson). Pipe
-# its output through and translate PASS/SKIP/FAIL into our gate vocabulary.
+# a populated `.codehub/store.sqlite` index. Pipe its output through and
+# translate PASS/SKIP/FAIL into our gate vocabulary.
 PACK_LOG="$tmpdir/pack-determinism.log"
 if bash "$ROOT/scripts/pack-determinism-audit.sh" > "$PACK_LOG" 2>&1; then
   PACK_LINE=$(head -1 "$PACK_LOG" || true)
@@ -578,18 +578,18 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# 17. M7 parity audit: retired (lbug is the only graph backend post-ADR 0016)
+# 17. M7 parity audit: retired (single SQLite backend post-ADR 0019)
 # ---------------------------------------------------------------------------
 echo "17/${TOTAL_GATES}: m7-parity-audit (analyze ×2 backends → graphHash)"
-# ADR 0016 made `@ladybugdb/core` the only graph backend. The cross-backend
-# `CODEHUB_STORE=duck` vs `CODEHUB_STORE=lbug` parity audit no longer has two
-# backends to compare — `CODEHUB_STORE` is a no-op — so the underlying audit
-# script was removed. The banner stays at slot 17 so the `codehub bench`
-# dashboard contract (packages/cli/src/commands/bench.ts MVP_GATES) keeps its
-# verbatim banner match; the gate is now a permanent SKIP. In-memory graphHash
-# byte-identity is still pinned by gate 6 (determinism) and the parity harness
-# at packages/storage/src/test-utils/parity-harness.ts.
-skip "m7-parity-audit: retired — lbug is the only graph backend (ADR 0016); nothing to compare"
+# ADR 0019 collapsed storage onto a single `store.sqlite` backend. The
+# cross-backend parity audit no longer has two backends to compare
+# (`CODEHUB_STORE` is a no-op) so the underlying audit script was removed. The
+# banner stays at slot 17 so the `codehub bench` dashboard contract
+# (packages/cli/src/commands/bench.ts MVP_GATES) keeps its verbatim banner
+# match; the gate is now a permanent SKIP. In-memory graphHash byte-identity is
+# still pinned by gate 6 (determinism) and the parity harness at
+# packages/storage/src/test-utils/parity-harness.ts.
+skip "m7-parity-audit: retired — single SQLite backend (ADR 0019); nothing to compare"
 echo
 
 # ---------------------------------------------------------------------------

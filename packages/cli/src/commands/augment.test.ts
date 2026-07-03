@@ -4,7 +4,7 @@
  * Coverage matches the P0-1 contract:
  *   - empty output when no repo is registered for the cwd
  *   - empty output for sub-threshold patterns (<3 chars)
- *   - surface callers + processes when a real DuckDB fixture has them
+ *   - surface callers + processes when a real store fixture has them
  *   - never throws, regardless of registry corruption or missing index
  *   - cold-start budget (<750ms) on a 10k-node fixture
  */
@@ -113,11 +113,11 @@ test("augment: returns empty when cwd maps to no registered repo", async () => {
   assert.equal(out, "");
 });
 
-test("augment: returns empty when the registered repo has no DuckDB file", async () => {
+test("augment: returns empty when the registered repo has no store file", async () => {
   const home = await scratch("no-db");
   const repoPath = resolve(home, "ghost");
   await mkdir(join(repoPath, ".codehub"), { recursive: true });
-  // Registry entry points at a repo whose graph.duckdb does not exist.
+  // Registry entry points at a repo whose store.sqlite does not exist.
   await upsertRegistry(
     {
       name: "ghost",

@@ -26,12 +26,12 @@ identical output:
 ## Invariants
 
 - **graphHash byte-identity** holds before and after every pack-
-  affecting commit — the `DuckDbStore` / `GraphDbStore` parity suite
-  stays green.
+  affecting commit — the cross-adapter graphHash parity suite stays
+  green.
 - **packHash byte-identity** — same
-  `(commit, tokenizer, budget, chonkie_version, duckdb_version,
-  grammar_commits)` → same `packHash`. Verified by the determinism
-  suite at `packages/pack/src/pack-determinism.test.ts`.
+  `(commit, tokenizer, budget, chonkie_version, grammar_commits)` →
+  same `packHash`. Verified by the determinism suite at
+  `packages/pack/src/pack-determinism.test.ts`.
 - **No banned literals** in tracked source —
   `bash scripts/check-banned-strings.sh` exits 0 post-commit.
 - **`mise run check`** exits 0 after every commit.
@@ -56,7 +56,7 @@ identical output:
   on every file under the output directory).
 - `manifest.json` carries
   `{commit, repo_origin_url, tokenizer_id, determinism_class,
-  budget_tokens, grammar_commits, chonkie_version, duckdb_version,
+  budget_tokens, grammar_commits, chonkie_version,
   files[], pack_hash}` with
   `pack_hash = sha256(canonicalJson(all-other-fields))`.
 - PageRank is computed at request time from the loaded
@@ -81,7 +81,7 @@ identical output:
 - No LLM calls in `@opencodehub/pack` (enforced by
   `scripts/check-banned-strings.sh`-style audit + a
   `no-bedrock-outside-summarizer` test).
-- No writer metadata (DuckDB `created_by`, chonkie writer tags) as
+- No backend writer metadata (e.g. chonkie writer tags) as
   top-level fields in `manifest.json` — all tool-version pins live in
   a single nested `pins: {}` object so the BOM schema is stable across
   tool upgrades.
@@ -125,7 +125,7 @@ in TS) takes one of three values:
 
 | Class | Trigger | Implication |
 |-------|---------|-------------|
-| `strict` | None of the degraded triggers fire | The byte-identity invariant holds in full: same `(commit, tokenizer, budget, chonkie_version, duckdb_version, grammar_commits)` → same `pack_hash`. |
+| `strict` | None of the degraded triggers fire | The byte-identity invariant holds in full: same `(commit, tokenizer, budget, chonkie_version, grammar_commits)` → same `pack_hash`. |
 | `best_effort` | `tokenizer_id` resolves to a Claude model | The verifier MUST warn callers checking byte-identity. |
 | `degraded` | `@chonkiejs/core` native binding fails to load | Line-split fallback used; pack still self-consistent locally but not portable. |
 
@@ -140,7 +140,7 @@ suite.
 When debugging a `pack_hash` drift:
 
 1. Re-run with `engine: "pack"` and capture both manifests.
-2. Compare `pins` first — a chonkie or duckdb upgrade in node_modules
+2. Compare `pins` first — a chonkie upgrade in node_modules
    is the most common cause.
 3. Compare `files[i].file_hash` row-by-row — the first mismatch
    identifies which BOM emitter is non-deterministic.

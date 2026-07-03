@@ -1,21 +1,21 @@
 ---
 title: "codehub-code-pack"
-description: "Deterministic 9-item code-pack BOM for a repo or group — byte-identical given the same (commit, tokenizer, budget)."
+description: "Deterministic 8-item code-pack BOM for a repo or group — byte-identical given the same (commit, tokenizer, budget)."
 ---
 
 import { Aside } from "@astrojs/starlight/components";
 
 Standalone skill. Surfaces the `pack_codebase` MCP tool to produce a
-**deterministic, 9-item Bill of Materials (BOM)** at
+**deterministic, 8-item Bill of Materials (BOM)** at
 `<repo>/.codehub/packs/<packHash>/` that is byte-identical given the same
-`(commit, tokenizer, budget, chonkie_version, duckdb_version,
-grammar_commits)`. The pack is the durable artifact agents hand to a
+`(commit, tokenizer, budget, chonkie_version, grammar_commits)`. The
+pack is the durable artifact agents hand to a
 long-context LLM, archive for later replay, or diff between commits to
 prove invariants did not change.
 
 <Aside type="note" title="vs. the repomix fallback">
 For a one-shot bandwidth-saving dump that does not need byte-identity, use
-`pack_codebase --engine repomix` directly — no `packHash`, no 9-item BOM,
+`pack_codebase --engine repomix` directly — no `packHash`, no 8-item BOM,
 no reproducibility contract. This skill is the default for any pack request
 that wants reproducibility, archival, or cross-commit comparison.
 </Aside>
@@ -42,7 +42,7 @@ model: sonnet
    requested in the pack.
 4. `mcp__opencodehub__pack_codebase` with the default `engine: "pack"`.
    The tool resolves the output to `<repoRoot>/.codehub/packs/<packHash>/`
-   and writes the 9 items plus `manifest.json`.
+   and writes the 8 items plus `manifest.json`.
 5. Report back the `packHash`, the `determinismClass`, and the absolute
    output directory; name the cause when the class is `best_effort` or
    `degraded`.
@@ -53,7 +53,7 @@ Run the single-repo flow per member of the named group, then emit a table
 of `(repoUri, packHash, determinismClass, outDir)`. `packHash` is per-repo,
 not per-group — a group pack is the union of the member BOMs.
 
-## The 9-item BOM
+## The 8-item BOM
 
 | # | File | Determinism contract |
 |---|------|----------------------|
@@ -63,9 +63,12 @@ not per-group — a group pack is the union of the member BOMs.
 | 4 | `deps.jsonl` | `(ecosystem, name, version, id)` lexicographic ASC |
 | 5 | `ast-chunks.jsonl` | LF-normalized; degrades to line-split with `determinismClass: degraded` |
 | 6 | `xrefs.jsonl` | community rows first, then call rows |
-| 7 | `embeddings.parquet` | OPTIONAL — absent entirely when no embeddings exist |
-| 8 | `findings.jsonl` | severity rank then `ruleId` ASC |
-| 9 | `licenses.md` + `readme.md` | alpha-sorted dependency list + manifest-derived header |
+| 7 | `findings.jsonl` | severity rank then `ruleId` ASC |
+| 8 | `licenses.md` + `readme.md` | alpha-sorted dependency list + manifest-derived header |
+
+Embeddings are not a separate BOM item. They live in the `embeddings`
+table inside `store.sqlite`; the write-only Parquet sidecar that used to
+be item 7 was dropped with DuckDB (ADR 0019), since nothing read it back.
 
 ## Determinism class
 

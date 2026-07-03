@@ -3,10 +3,10 @@
  *
  * The single source of truth for which edge relation types exist, in their
  * load-bearing order (append new kinds, NEVER reorder — commit diffs and any
- * schema emitter depend on the order). Lived in `graphdb-schema.ts`; extracted
- * here so the single-file `SqliteStore` and the parity tests can reach it
- * without importing the lbug-era schema module (deleted in the single-file
- * migration).
+ * schema emitter depend on the order). Extracted into this pure module so the
+ * single-file `SqliteStore` and the parity tests can reach it directly (the
+ * prior schema module that once held it was removed in the single-file
+ * migration, ADR 0019).
  */
 const RELATION_KINDS: readonly string[] = [
   "CONTAINS",

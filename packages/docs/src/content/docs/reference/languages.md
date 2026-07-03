@@ -41,7 +41,7 @@ ProLeap deep-parse.
 
 ## Parse runtime — WASM-only
 
-The parse runtime is `web-tree-sitter` (WASM) on Node 20, 22, and 24.
+The parse runtime is `web-tree-sitter` (WASM) on Node ≥24.15.
 WASM has no native ABI dependency, so it works on every supported Node
 version out of the box and `npm install -g @opencodehub/cli@latest` does
 zero native builds.

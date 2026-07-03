@@ -184,7 +184,7 @@ async function withTestHarness(
 
     // Fake store pool: hand back a fake for every repo path.
     const pool = new ConnectionPool({ max: 4, ttlMs: 60_000 }, async (dbPath) => {
-      // dbPath looks like <repoPath>/.codehub/graph.lbug — match by repo name.
+      // dbPath looks like <repoPath>/.codehub/store.sqlite — match by repo name.
       for (const r of repos) {
         const rp = repoPaths.get(r.name);
         if (rp && dbPath.startsWith(rp)) {

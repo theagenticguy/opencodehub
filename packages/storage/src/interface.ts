@@ -101,38 +101,15 @@ export type GraphDialect = "cypher";
  * interface only. They pair with an {@link ITemporalStore} (always
  * SQLite-backed by default) for tabular concerns.
  *
- * ## v1.0 conformance contract
+ * ## graphHash parity contract
  *
- * `assertIGraphStoreConformance(name, factory)` from
- * `@opencodehub/storage/test-utils` is the formal v1.0 conformance test
- * suite for community adapters. A third-party adapter author imports it
- * from their own test file:
- *
- * ```ts
- * import { test } from "node:test";
- * import { assertIGraphStoreConformance } from "@opencodehub/storage/test-utils";
- * import { AgeGraphStore } from "../src/age-store.js";
- *
- * assertIGraphStoreConformance("Apache AGE", async () => {
- *   const store = new AgeGraphStore({ pgUrl: "postgresql://..." });
- *   await store.open();
- *   await store.createSchema();
- *   return store;
- * });
- * ```
- *
- * The suite proves the adapter has byte-identical {@link KnowledgeGraph}
- * round-trip via `graphHash`, that `listEdgesByType` agrees with
- * `listEdges({types})`, that `traverseAncestors` is a subset of the BFS
- * over `listEdges` truncated at the depth bound, that `listNodes` is
- * `id ASC` and pages stably, and that `healthCheck` returns `{ok: true}`
- * after `open + createSchema`. Vector search is treated as an optional
- * capability and skipped cleanly when the adapter throws "not implemented"
- * or returns `[]` for a known-non-empty query.
- *
- * The in-tree adapter (`SqliteStore`) opts into this suite from its own
- * test file — any future signature change here MUST keep the conformance
- * suite green before landing.
+ * `assertGraphParity` + `rebuildFromStore` from
+ * `@opencodehub/storage/test-utils` are the parity primitives an adapter
+ * must satisfy: a {@link KnowledgeGraph} written and read back through the
+ * typed finders must reproduce a byte-identical `graphHash`. The in-tree
+ * adapter (`SqliteStore`) exercises them in `sqlite-parity.test.ts` across
+ * every node/edge kind + the step-zero sentinel; any future signature
+ * change here MUST keep that parity suite green before landing.
  */
 export interface IGraphStore {
   /**
@@ -203,7 +180,7 @@ export interface IGraphStore {
    *                          discriminator. Unknown kinds yield 0 rows.
    *   - Results are ORDER BY id ASC at the storage layer for cross-adapter
    *     determinism. Adapters apply a lex-stable JS-side tiebreak so the
-   *     output matches byte-for-byte across DuckStore and GraphDbStore.
+   *     output matches byte-for-byte across any conforming adapter.
    *   - Wider polymorphic columns (Dependency `version`/`license`/
    *     `lockfile_source`/`ecosystem`, ProjectProfile JSON arrays, Repo
    *     fields, etc.) are mapped back onto the typed shape via per-kind

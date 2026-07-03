@@ -1,15 +1,13 @@
 /**
  * Shared column-encoder helpers for the polymorphic CodeNode table.
  *
- * `GraphDbStore` (`./graphdb-adapter.ts`, lbug) is the in-tree
- * {@link IGraphStore} writer: it emits a 73-column row per node where every
- * column matches the canonical {@link NODE_COLUMNS} order. These are the
- * canonical encode helpers for that contract, kept here (rather than inline
- * in the adapter) so a community `IGraphStore` adapter (AGE / Memgraph /
- * Neo4j / Neptune) can consume the identical implementation and stay
- * byte-identical under `graphHash`. (`DuckDbStore` is
- * {@link ITemporalStore}-only post-ADR-0016 and does NOT write CodeNode
- * rows; before the rip-out both adapters shared these helpers.)
+ * `SqliteStore` (`./sqlite-adapter.ts`) is the in-tree {@link IGraphStore}
+ * writer post-ADR-0019: it emits one row per node where every column matches
+ * the canonical {@link NODE_COLUMNS} order. These are the canonical encode
+ * helpers for that contract, kept here (rather than inline in the adapter) so
+ * a community `IGraphStore` adapter (AGE / Memgraph / Neo4j / Neptune) can
+ * consume the identical implementation and stay byte-identical under
+ * `graphHash`.
  *
  * The module is `internal-only` — it is NOT re-exported from
  * `packages/storage/src/index.ts`. Adapters import directly from
@@ -38,17 +36,14 @@
  * **`stringArrayOrNull` round-trip note** — an explicit empty `[]` and an
  * absent field are kept distinct on the wire. {@link stringArrayOrNull}
  * returns a typed 0-length array for an empty-array input and `null` for a
- * non-array input. The lbug graph adapter preserves the distinction with a
- * version-agnostic marker scheme (`encodeNodeCol` + `setStringArrayFieldGd`
- * in graphdb-adapter.ts):
- *   - an explicit empty array is written as a single-element marker and
- *     decoded back to `[]` on read;
- *   - an absent field is written as a bare `[]`, which decodes as absent —
- *     whether lbug stored it as SQL NULL (≤ v0.16.1, where a 0-length
- *     `STRING[]` collapsed to NULL on write) or as a typed empty `STRING[]`
- *     (≥ v0.17.0, PR #471, where empty lists round-trip).
- * A SQL-backed community adapter with a native array column (e.g. SQLite
- * `TEXT[]`) can instead store the 0-length literal directly; either scheme
+ * non-array input. `SqliteStore` stores the JSON array literal in the node
+ * `payload` column, so the empty-vs-absent distinction survives directly
+ * (`[]` stays `[]`, an absent field stays absent). A community graph adapter
+ * whose backend cannot store a 0-length list natively — e.g. a typed
+ * `STRING[]` column that collapses `[]` to NULL on write — must preserve the
+ * distinction with a marker scheme instead: write an explicit empty array as a
+ * single-element marker decoded back to `[]` on read, and an absent field as
+ * a bare value that decodes as absent. Either scheme
  * satisfies the contract. Net effect: `{keywords: []}` round-trips
  * byte-identically to itself instead of collapsing to `{}` (canonical-JSON /
  * graphHash distinction preserved on every backend). Enforced end-to-end by
@@ -333,13 +328,12 @@ export function booleanOrNull(v: unknown): boolean | null {
  *
  * **Preserve `[]` distinct from absent.** Returning a typed `[]` on an
  * empty-array input (rather than `null`) carries the "explicit empty"
- * signal into each adapter's writer. SQLite `TEXT[]` stores a 0-length
- * literal natively; lbug `STRING[]` cannot (it collapses `[]` to NULL on
- * write), so the graph-db adapter substitutes an empty-array marker on the
- * way in and decodes it back on the way out — see `encodeNodeCol` +
- * `setStringArrayFieldGd` in `graphdb-adapter.ts`. The symmetric reader
- * change in `duckdb-adapter.ts:setStringArrayField` and
- * `analyze.ts:stringArrayField` re-attaches `[]` instead of dropping the
+ * signal into each adapter's writer. `SqliteStore` stores the array in the
+ * JSON `payload` column, so a 0-length list round-trips natively; a community
+ * graph adapter whose column type cannot hold an empty list (e.g. a typed
+ * `STRING[]` column that collapses `[]` to NULL on write) must substitute an
+ * empty-array marker on the way in and decode it back on the way out. The
+ * `payload`-JSON read path re-attaches `[]` instead of dropping the
  * field when the read-back array has length zero. Combined, this preserves
  * the canonical-JSON shape difference between `{keywords: []}` and `{}`
  * (graphHash content-shape change — see the empty-keywords fixture in

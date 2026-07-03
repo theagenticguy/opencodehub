@@ -215,7 +215,7 @@ describe("loadPack (real on-disk)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("parses manifest (schema 2, no duckdb pin), ast-chunks, and context-bom ranges", async () => {
+  it("parses manifest (schema 2, no legacy backend pin), ast-chunks, and context-bom ranges", async () => {
     const loaded = await loadPack(dir);
     assert.equal(loaded.manifest.packHash, "deadbeef");
     assert.equal(loaded.manifest.budgetTokens, 100);

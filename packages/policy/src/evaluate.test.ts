@@ -133,7 +133,7 @@ test("ownership_required: passes when approval comes from require_approval_from"
   const decision = evaluatePolicy(
     policy,
     emptyCtx({
-      touchedPaths: ["packages/storage/src/duckdb.ts"],
+      touchedPaths: ["packages/storage/src/sqlite.ts"],
       approvals: ["@storage-team"],
     }),
   );
@@ -178,7 +178,7 @@ test("ownership_required: blocks when no acceptable approval is present", () => 
   const decision = evaluatePolicy(
     policy,
     emptyCtx({
-      touchedPaths: ["packages/storage/src/duckdb.ts"],
+      touchedPaths: ["packages/storage/src/sqlite.ts"],
       approvals: ["@not-storage"],
     }),
   );
@@ -344,7 +344,7 @@ test("evaluatePolicy: violations are sorted by ruleId across mixed rule types", 
     emptyCtx({
       blastRadiusTier: 3,
       licenseViolations: [{ license: "GPL-3.0", package: "readline-gpl" }],
-      touchedPaths: ["packages/storage/src/duckdb.ts"],
+      touchedPaths: ["packages/storage/src/sqlite.ts"],
       approvals: [],
     }),
   );

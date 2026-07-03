@@ -14,12 +14,11 @@ considered, and consequences.
 
 ### ADR 0001 — Storage backend selection
 
-DuckDB via `@duckdb/node-api` plus the `hnsw_acorn` community
-extension for filter-aware vector search and the official `fts`
-extension for BM25. SQLite + `sqlite-vec` was rejected because FTS5
-has no filtered-HNSW story. Superseded as the graph backend by ADR
-0011 + ADR 0013, and the single-file DuckDB graph layout was removed
-entirely in ADR 0016; DuckDB now backs the temporal store only.
+Records the original v1.0 embedded storage baseline and the filtered
+vector-search plus BM25 requirements it had to meet. Superseded by the
+later storage line: the graph backend moved behind the `IGraphStore`
+seam in ADR 0011 + ADR 0013, and ADR 0019 collapsed everything into one
+`store.sqlite` file via Node's built-in `node:sqlite`.
 
 [Read ADR 0001](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0001-storage-backend.md)
 
@@ -31,11 +30,11 @@ analyze budgets all sit comfortably below their reopen triggers.
 
 [Read ADR 0002](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0002-rust-core-deferred.md)
 
-### ADR 0004 — Hierarchical embeddings with filter-aware HNSW
+### ADR 0004 — Hierarchical embeddings with filter-aware vector search
 
 One `embeddings` table with a `granularity` discriminator column
-(`symbol | file | community`) and a single HNSW index. Filter-aware
-traversal pushes the granularity predicate into the graph walk.
+(`symbol | file | community`) and a single vector index. Filter-aware
+traversal pushes the granularity predicate into the search.
 ColBERT-style and RAPTOR were rejected.
 
 [Read ADR 0004](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0004-hierarchical-embeddings.md)
@@ -90,12 +89,14 @@ column, Phase 0 schema preflight.
 
 [Read ADR 0010](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0010-dogfood-findings-2026-04-27.md)
 
-### ADR 0011 — LadybugDB (phase-1)
+### ADR 0011 — Graph-native backend (phase-1)
 
-Adds `@ladybugdb/core` as the LadybugDB graph backend behind the
-`IGraphStore` seam. Motivation: recursive-CTE traversals on the
-polymorphic `relations` table do not get faster, and the predicate
-cannot be pushed into the graph walk.
+Introduces a graph-native backend behind the `IGraphStore` seam.
+Motivation: recursive-CTE traversals on the polymorphic `relations`
+table do not get faster, and the predicate cannot be pushed into the
+graph walk. The concrete engine chosen here was later replaced by the
+single `store.sqlite` file in ADR 0019; the `IGraphStore` seam it
+established survives.
 
 [Read ADR 0011](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0011-graph-db-backend.md)
 
@@ -111,10 +112,12 @@ envelope returned by per-repo tools.
 
 ### ADR 0013 — Storage default + interface segregation
 
-LadybugDB is the default backend and `IGraphStore` is segregated from
-`ITemporalStore`. The temporal half (cochanges, summary cache) lives
-on DuckDB. The community-adapter escape hatch (AGE / Memgraph /
-Neo4j / Neptune) keeps OCH from locking users into LadybugDB.
+Segregates `IGraphStore` from `ITemporalStore` so each half can be
+implemented independently, and establishes the community-adapter escape
+hatch (AGE / Memgraph / Neo4j / Neptune). The default backend it named
+was superseded by ADR 0019, which implements both interfaces on one
+`SqliteStore`; the interface segregation and the escape hatch it defined
+both survive.
 
 [Read ADR 0013](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0013-m7-default-flip-and-abstraction.md)
 
@@ -132,25 +135,55 @@ vectors (override available via documented force flag).
 ### ADR 0015 — WASM-only parser at the npm-distributed boundary
 
 Drop native `tree-sitter` from the install graph entirely. WASM
-(`web-tree-sitter`) is now the only parse runtime on Node 20, 22, and
-24. All 15 grammar `.wasm` blobs are vendored at
-`packages/ingestion/vendor/wasms/`. Lower `engines.node` floor to
-`>=20.0.0`. `npm install -g @opencodehub/cli@latest` does zero native
-builds and zero GitHub fetches. Supersedes ADR 0013 (parse runtime).
+(`web-tree-sitter`) is now the only parse runtime on Node ≥24.15. All
+15 grammar `.wasm` blobs are vendored at
+`packages/ingestion/vendor/wasms/`. `npm install -g @opencodehub/cli@latest`
+does zero native builds and zero GitHub fetches. Supersedes ADR 0013
+(parse runtime).
 
 [Read ADR 0015](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0015-wasm-only-parser-at-the-npm-distributed-boundary.md)
 
-### ADR 0016 — DuckDB graph rip-out
+### ADR 0016 — Graph-backend rip-out
 
-Remove the DuckDB graph backend, the `CODEHUB_STORE` env var, the
-backend probe, and the single-file `graph.duckdb` layout. The graph
-tier is always `@ladybugdb/core` (`graph.lbug`); the temporal tier is
-always DuckDB (`temporal.duckdb`); both files are written on every
-`analyze`, with no selector. A missing graph binding hard-fails with
-`GraphDbBindingError`. The segregated `IGraphStore` / `ITemporalStore`
-interfaces stay as the community-fork adapter contract.
+Removes the `CODEHUB_STORE` env var, the backend probe, and the
+selector, settling storage on a two-file native pair with the segregated
+`IGraphStore` / `ITemporalStore` interfaces preserved for community
+forks. **Superseded by ADR 0019**, which collapses that pair into one
+`store.sqlite` file and removes both native storage bindings. The
+segregated interfaces it kept survive unchanged.
 
 [Read ADR 0016](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0016-duckdb-graph-rip.md)
+
+### ADR 0018 — Cleanroom tool-name provenance
+
+Records the cleanroom provenance of the route / tool / contract tool
+names, documenting the independent-derivation trail for each name.
+
+[Read ADR 0018](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0018-cleanroom-tool-name-provenance.md)
+
+### ADR 0019 — Single-file SQLite storage
+
+Collapses the entire index into one `<repo>/.codehub/store.sqlite` file
+(WAL mode) via Node's built-in `node:sqlite` (`DatabaseSync`, enabled by
+default on Node ≥24.15). One `SqliteStore` implements both `IGraphStore`
+and `ITemporalStore`; `openStore()` returns that single instance as both
+the `graph` and `temporal` views, so call sites use `store.graph.X()` /
+`store.temporal.Y()` unchanged. Both native storage bindings are removed
+and the write-only Parquet embeddings sidecar is dropped, so the
+code-pack becomes an 8-item BOM and the install carries zero native
+storage dependencies. Every platform is supported, including Windows
+arm64 and Linux musl (Alpine). Supersedes ADR 0016 in its entirety; the
+segregated interfaces stay as the community-fork escape hatch.
+
+[Read ADR 0019](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0019-single-file-sqlite-storage.md)
+
+### ADR 0020 — Decision-equivalence supersedes byte-identity
+
+Makes decision-equivalence the pack contract and treats byte-identity as
+a witness rather than the contract itself. Pairs with the pack
+determinism spec.
+
+[Read ADR 0020](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0020-decision-equivalence-supersedes-byte-identity.md)
 
 ### ADR 0017 — Drop detect-secrets, tune betterleaks
 

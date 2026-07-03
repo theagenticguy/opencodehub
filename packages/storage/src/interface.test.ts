@@ -139,11 +139,11 @@ test("Store alias matches OpenStoreResult composition", () => {
   const dummy: Store = {
     graph: undefined as unknown as IGraphStore,
     temporal: undefined as unknown as ITemporalStore,
-    graphFile: "/tmp/.codehub/graph.lbug",
-    temporalFile: "/tmp/.codehub/temporal.duckdb",
+    graphFile: "/tmp/.codehub/store.sqlite",
+    temporalFile: "/tmp/.codehub/store.sqlite",
     close: async () => {},
   };
-  assert.equal(dummy.graphFile, "/tmp/.codehub/graph.lbug");
-  assert.equal(dummy.temporalFile, "/tmp/.codehub/temporal.duckdb");
+  assert.equal(dummy.graphFile, "/tmp/.codehub/store.sqlite");
+  assert.equal(dummy.temporalFile, "/tmp/.codehub/store.sqlite");
   assert.equal(typeof dummy.close, "function");
 });

@@ -14,11 +14,11 @@ flowchart LR
   core[Core types]
   ingestion[Ingestion DAG]
   storage[Storage]
-  duckdb[(DuckDB)]:::external
+  sqlite[(store.sqlite)]:::external
   mcp --> core
   ingestion --> core
   ingestion --> storage
-  storage --> duckdb
+  storage --> sqlite
   classDef external stroke-dasharray: 3 3
 ```
 
@@ -104,14 +104,14 @@ For `architecture/data-flow.md`.
 flowchart TB
   source[Repo files]
   parse[tree-sitter parser]
-  graph[DuckDB graph]
+  store[(store.sqlite)]
   embed[ONNX embedder]
   query[MCP query]
   source --> parse
-  parse --> graph
+  parse --> store
   parse --> embed
-  embed --> graph
-  query --> graph
+  embed --> store
+  query --> store
 ```
 
 **Rules:**

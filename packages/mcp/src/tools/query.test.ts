@@ -62,8 +62,8 @@ function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
   return {
     graph: fake as import("@opencodehub/storage").IGraphStore,
     temporal: fake as import("@opencodehub/storage").ITemporalStore,
-    graphFile: "/in-memory/graph.lbug",
-    temporalFile: "/in-memory/temporal.duckdb",
+    graphFile: "/in-memory/store.sqlite",
+    temporalFile: "/in-memory/store.sqlite",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -84,7 +84,7 @@ interface FakeNode {
  * a two-phase PROCESS_STEP walk; the fake short-circuits that with a
  * pre-built lookup: for each top-K hit id that falls under a known process,
  * emit one (process_id, node_id, step) triple. This is enough to exercise
- * the grouping/sort/score logic without replicating DuckDB's recursive CTE
+ * the grouping/sort/score logic without replicating the store's recursive CTE
  * engine.
  */
 interface FakeProcessMember {
