@@ -1,13 +1,13 @@
 {
-  "name": "@opencodehub/mcp",
-  "version": "0.5.0",
+  "name": "@opencodehub/core-ops",
+  "version": "0.1.0",
   "private": true,
-  "description": "OpenCodeHub \u2014 stdio MCP server exposing code-graph + group tools",
+  "description": "OpenCodeHub — transport-free capability core shared by the CLI and MCP surfaces",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/theagenticguy/opencodehub.git",
-    "directory": "packages/mcp"
+    "directory": "packages/core-ops"
   },
   "homepage": "https://github.com/theagenticguy/opencodehub#readme",
   "bugs": {
@@ -38,18 +38,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
     "@opencodehub/analysis": "workspace:*",
-    "@opencodehub/core-ops": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
-    "@opencodehub/embedder": "workspace:*",
-    "@opencodehub/pack": "workspace:*",
-    "@opencodehub/sarif": "workspace:*",
-    "@opencodehub/scanners": "workspace:*",
-    "@opencodehub/search": "workspace:*",
-    "@opencodehub/storage": "workspace:*",
-    "lru-cache": "11.5.1",
-    "zod": "4.4.3"
+    "@opencodehub/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.0.1",
@@ -63,14 +54,9 @@
     "code-intelligence",
     "mcp",
     "model-context-protocol",
-    "ai",
-    "code-graph",
-    "static-analysis",
-    "mcp-server",
-    "stdio",
-    "claude",
-    "cursor",
-    "coding-agent"
+    "cli",
+    "capability",
+    "typescript"
   ],
   "engines": {
     "node": ">=24.15.0"

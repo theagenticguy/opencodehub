@@ -1,7 +1,7 @@
 {
   "name": "@opencodehub/cli",
   "version": "0.10.7",
-  "description": "OpenCodeHub — codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
+  "description": "OpenCodeHub \u2014 codehub CLI (analyze, setup, mcp, list, status, clean, query, context, impact, sql)",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -39,7 +39,7 @@
     "test": "pnpm run build:test && node --test \"./dist-test/**/*.test.js\"",
     "clean": "rm -rf dist dist-test *.tsbuildinfo"
   },
-  "//deps": "The 15 @opencodehub/* workspace libs are INLINED into the bundle at build time (tsup noExternal) — they are devDependencies, not runtime deps. `dependencies` below is exactly the third-party set the bundle imports at runtime (kept `external`), plus the two @sourcegraph/scip-* indexers the parse pipeline spawns as subprocesses. onnxruntime-web (prebuilt WASM, no native binding) is optional (lazy-loaded only when embeddings are enabled).",
+  "//deps": "The 15 @opencodehub/* workspace libs are INLINED into the bundle at build time (tsup noExternal) \u2014 they are devDependencies, not runtime deps. `dependencies` below is exactly the third-party set the bundle imports at runtime (kept `external`), plus the two @sourcegraph/scip-* indexers the parse pipeline spawns as subprocesses. onnxruntime-web (prebuilt WASM, no native binding) is optional (lazy-loaded only when embeddings are enabled).",
   "dependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
     "@aws-sdk/client-bedrock-runtime": "3.1076.0",
@@ -68,6 +68,7 @@
   },
   "devDependencies": {
     "@opencodehub/analysis": "workspace:*",
+    "@opencodehub/core-ops": "workspace:*",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/embedder": "workspace:*",
     "@opencodehub/eval": "workspace:*",
