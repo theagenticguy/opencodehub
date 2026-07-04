@@ -40,6 +40,7 @@ export default {
         "analysis",
         "cli",
         "cobol-proleap",
+        "core-ops",
         "core-types",
         "embedder",
         "eval",
