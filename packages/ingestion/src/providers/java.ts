@@ -1,9 +1,11 @@
 import type { NodeKind } from "@opencodehub/core-types";
 import {
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixNoRegexReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
   stripComments,
 } from "./extract-helpers.js";
 import type {
@@ -52,104 +54,28 @@ function mapJavaDefKind(def: import("../parse/types.js").ParseCapture): NodeKind
   return undefined;
 }
 
+const JAVA_DEFS_CONFIG: DefinitionsConfig = {
+  // Java flattens class/enum/record onto `@definition.class`; resolve by
+  // `def.nodeType` via the function form (a `Record` cannot express it).
+  kindFor: mapJavaDefKind,
+  isExported: ({ def, sourceText }) => /\bpublic\b/.test(getLine(sourceText, def.startLine)),
+};
+
 function extractJavaDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = mapJavaDefKind(def);
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const headerLine = getLine(sourceText, def.startLine);
-    const isExported = /\bpublic\b/.test(headerLine);
-
-    const rec: ExtractedDefinition = {
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    };
-    out.push(rec);
-  }
-  return out;
+  return extractDefinitionsGeneric(input, JAVA_DEFS_CONFIG);
 }
+
+// Java call receiver: `foo()`, `this.foo()`, `obj.foo()`, `Class.foo()`. The
+// `@reference.call` capture covers `method_invocation`'s name child, so
+// `ref.text` is often just the bare method name (no `.`), in which case the
+// dot-prefix `lastIndexOf` finds nothing and no receiver is emitted — the same
+// outcome as the original body's explicit `ref.text.includes(".")` short-circuit.
+const JAVA_CALLS_CONFIG: CallsConfig = {
+  inferReceiver: dotPrefixNoRegexReceiver(),
+};
 
 function extractJavaCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Java call receiver: `foo()`, `this.foo()`, `obj.foo()`, `Class.foo()`.
-    // The `@reference.call` capture only covers `method_invocation`'s name
-    // child in our query, so `ref.text` is just the bare method name. We
-    // fall back to reading the source line and slicing before the name.
-    // As a MVP-level approximation, we leave receiver undefined here —
-    // downstream type resolution is the authoritative source.
-    let receiver: string | undefined;
-    if (innerName !== undefined && ref.text.includes(".")) {
-      const idx = ref.text.lastIndexOf(`.${innerName.text}`);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        if (prefix !== "") receiver = prefix;
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly import("../parse/types.js").ParseCapture[],
-  outer: import("../parse/types.js").ParseCapture,
-): import("../parse/types.js").ParseCapture | undefined {
-  let best: import("../parse/types.js").ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: import("../parse/types.js").ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, JAVA_CALLS_CONFIG);
 }
 
 /**

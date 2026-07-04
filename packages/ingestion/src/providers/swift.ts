@@ -1,10 +1,13 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
-  innermostEnclosingContainer,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
+  extractHeritageRefBased,
+  type HeritageConfig,
+  kindFromMap,
   stripComments,
 } from "./extract-helpers.js";
 import type {
@@ -55,107 +58,28 @@ const SWIFT_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.constant": "Const",
 };
 
+const SWIFT_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(SWIFT_DEF_KIND_MAP),
+  // Promote function -> method when nested in a type declaration.
+  promoteToMethod: (def, ownerDef) =>
+    def.tag === "definition.function" &&
+    (ownerDef?.tag === "definition.class" ||
+      ownerDef?.tag === "definition.struct" ||
+      ownerDef?.tag === "definition.enum" ||
+      ownerDef?.tag === "definition.interface"),
+  isExported: ({ name }) => !name.startsWith("_"),
+};
+
 function extractSwiftDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    let kind = SWIFT_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    // Promote function -> method when nested in a type declaration.
-    if (
-      def.tag === "definition.function" &&
-      (ownerDef?.tag === "definition.class" ||
-        ownerDef?.tag === "definition.struct" ||
-        ownerDef?.tag === "definition.enum" ||
-        ownerDef?.tag === "definition.interface")
-    ) {
-      kind = "Method";
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const isExported = !name.text.startsWith("_");
-
-    out.push({
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    });
-  }
-  return out;
+  return extractDefinitionsGeneric(input, SWIFT_DEFS_CONFIG);
 }
+
+const SWIFT_CALLS_CONFIG: CallsConfig = {
+  inferReceiver: dotPrefixReceiver(/^[A-Za-z_][\w.]*$/),
+};
 
 function extractSwiftCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(`.${innerName.text}`);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        if (prefix !== "" && /^[A-Za-z_][\w.]*$/.test(prefix)) receiver = prefix;
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, SWIFT_CALLS_CONFIG);
 }
 
 function extractSwiftImports(input: ExtractImportsInput): readonly ExtractedImport[] {
@@ -171,41 +95,26 @@ function extractSwiftImports(input: ExtractImportsInput): readonly ExtractedImpo
   return out;
 }
 
-function extractSwiftHeritage(input: ExtractHeritageInput): readonly ExtractedHeritage[] {
-  const { filePath, captures, definitions } = input;
-  const out: ExtractedHeritage[] = [];
-
-  const containerDefs = captures.filter(
-    (c) =>
-      c.tag === "definition.class" ||
-      c.tag === "definition.struct" ||
-      c.tag === "definition.enum" ||
-      c.tag === "definition.interface",
-  );
-  const parentRefs = captures.filter((c) => c.tag === "reference.class");
-
-  for (const ref of parentRefs) {
-    const enclosing = innermostEnclosingContainer(ref, containerDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) =>
-        (d.kind === "Class" ||
-          d.kind === "Struct" ||
-          d.kind === "Enum" ||
-          d.kind === "Interface") &&
-        d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
+// Swift emits all parents as EXTENDS; the downstream resolver demotes
+// protocol parents to IMPLEMENTS later when it has protocol knowledge.
+const SWIFT_HERITAGE_CONFIG: HeritageConfig = {
+  containerTags: [
+    "definition.class",
+    "definition.struct",
+    "definition.enum",
+    "definition.interface",
+  ],
+  rules: [
+    {
+      refTag: "reference.class",
       relation: "EXTENDS",
-      startLine: ref.startLine,
-    });
-  }
+      childKinds: ["Class", "Struct", "Enum", "Interface"],
+    },
+  ],
+};
 
-  return out;
+function extractSwiftHeritage(input: ExtractHeritageInput): readonly ExtractedHeritage[] {
+  return extractHeritageRefBased(input, SWIFT_HERITAGE_CONFIG);
 }
 
 export const swiftProvider: LanguageProvider = {

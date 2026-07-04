@@ -6,7 +6,10 @@
  * {@link ParseCapture} and receive back plain records.
  */
 
+import type { NodeKind } from "@opencodehub/core-types";
 import type { ParseCapture } from "../parse/types.js";
+import type { ExtractedCall, ExtractedDefinition, ExtractedHeritage } from "./extraction-types.js";
+import type { ExtractCallsInput, ExtractDefinitionsInput, ExtractHeritageInput } from "./types.js";
 
 /** One definition capture plus its inner `@name` capture (resolved by range). */
 export interface PairedDefinition {
@@ -142,6 +145,39 @@ export function isInside(inner: ParseCapture, outer: ParseCapture): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Return the earliest `@name` capture that lies within `outer`'s range.
+ * Used by per-language call extractors to resolve the callee identifier
+ * inside a `reference.call` / `reference.send` capture.
+ */
+export function findNameInside(
+  captures: readonly ParseCapture[],
+  outer: ParseCapture,
+): ParseCapture | undefined {
+  let best: ParseCapture | undefined;
+  for (const c of captures) {
+    if (c.tag !== "name") continue;
+    if (!isInside(c, outer)) continue;
+    if (best === undefined || c.startLine < best.startLine) best = c;
+  }
+  return best;
+}
+
+/**
+ * Resolve the qualified name of the definition that owns `def` (matched by
+ * start line) from the already-extracted `definitions`. Falls back to
+ * `"<module>"` for captures with no matching definition record.
+ */
+export function qualifiedForCapture(
+  def: ParseCapture,
+  definitions: readonly ExtractedDefinition[],
+): string {
+  for (const d of definitions) {
+    if (d.startLine === def.startLine) return d.qualifiedName;
+  }
+  return "<module>";
 }
 
 /**
@@ -309,6 +345,386 @@ export function stripComments(src: string): string {
     i += 1;
   }
   return out.join("");
+}
+
+/**
+ * A receiver-inference strategy: given the raw call-site text and the resolved
+ * bare callee name, return the receiver (`obj` in `obj.method()`) or
+ * `undefined` when none can be inferred. The per-language `extractCalls`
+ * bodies differ ONLY in this function; {@link extractCallsGeneric} owns the
+ * shared loop shell. The factories below produce the four distinct algorithms
+ * the languages actually use — the `lastIndexOf(.name)` vs bare-`lastIndexOf`
+ * target and the regex-vs-none guard are real behavioral differences and are
+ * NOT collapsed into one form.
+ */
+export type InferReceiver = (refText: string, calleeName: string) => string | undefined;
+
+/** Configuration for {@link extractCallsGeneric}. */
+export interface CallsConfig {
+  /**
+   * Capture tags that mark a call site. Defaults to `["reference.call"]`;
+   * C# adds `"reference.send"`.
+   */
+  readonly callTags?: readonly string[];
+  /** Receiver-inference strategy. Omit for languages that emit no receiver (C). */
+  readonly inferReceiver?: InferReceiver;
+  /**
+   * Callee names to drop entirely (pseudo-calls handled elsewhere). Ruby only:
+   * `require` / `include` / etc. are import/mixin forms, not real calls.
+   */
+  readonly dropCalleeNames?: ReadonlySet<string>;
+}
+
+const DEFAULT_CALL_TAGS: readonly string[] = ["reference.call"];
+
+/**
+ * Strategy (A) — dot-prefix + regex guard.
+ * `idx = refText.lastIndexOf(`.${callee}`)`; when `idx > 0`, take the trimmed
+ * prefix and accept it as the receiver iff it is non-empty and matches `regex`.
+ * Used by swift, ruby, dart, go, kotlin (each with its own regex).
+ */
+export function dotPrefixReceiver(regex: RegExp): InferReceiver {
+  return (refText, calleeName) => {
+    const idx = refText.lastIndexOf(`.${calleeName}`);
+    if (idx > 0) {
+      const prefix = refText.slice(0, idx).trim();
+      if (prefix !== "" && regex.test(prefix)) return prefix;
+    }
+    return undefined;
+  };
+}
+
+/**
+ * Strategy (B) — dot-prefix, NO regex guard.
+ * Same `lastIndexOf(`.${callee}`)` target but the only guard is `prefix !== ""`.
+ * Used by csharp and java (java additionally short-circuits on
+ * `!refText.includes(".")`, which is a no-op for the output since the
+ * `lastIndexOf` would then return `-1` — sharing this factory is safe).
+ */
+export function dotPrefixNoRegexReceiver(): InferReceiver {
+  return (refText, calleeName) => {
+    const idx = refText.lastIndexOf(`.${calleeName}`);
+    if (idx > 0) {
+      const prefix = refText.slice(0, idx).trim();
+      if (prefix !== "") return prefix;
+    }
+    return undefined;
+  };
+}
+
+/**
+ * Strategy (C) — bare-name `lastIndexOf` + strip trailing separator + regex.
+ * `idx = refText.lastIndexOf(callee)` (BARE name, not `.${callee}`); the
+ * trimmed prefix has a trailing separator stripped (`sepRe`, anchored `$`),
+ * and the re-trimmed remainder is accepted iff non-empty and matches `regex`.
+ * Used by cpp (`.` / `->` / `::`) and php (`->` / `::`).
+ */
+export function sepStripReceiver(sepRe: RegExp, regex: RegExp): InferReceiver {
+  return (refText, calleeName) => {
+    const idx = refText.lastIndexOf(calleeName);
+    if (idx > 0) {
+      const prefix = refText.slice(0, idx).trim();
+      const stripped = prefix.replace(sepRe, "").trim();
+      if (stripped !== "" && regex.test(stripped)) return stripped;
+    }
+    return undefined;
+  };
+}
+
+/**
+ * Strategy (D) — multi-separator preference loop, NO regex.
+ * Tries `${sep}${callee}` for each `sep` in order; the first with `idx > 0`
+ * and a non-empty trimmed prefix wins. Used by rust (`::` preferred, then `.`).
+ */
+export function multiSepReceiver(seps: readonly string[]): InferReceiver {
+  return (refText, calleeName) => {
+    for (const sep of seps) {
+      const idx = refText.lastIndexOf(`${sep}${calleeName}`);
+      if (idx > 0) {
+        const prefix = refText.slice(0, idx).trim();
+        if (prefix !== "") return prefix;
+      }
+    }
+    return undefined;
+  };
+}
+
+/**
+ * Shared call-site extraction loop. Reproduces the skeleton every per-language
+ * `extractCalls` body used to hand-roll:
+ *   - filter definition captures + call-reference captures (by `config.callTags`)
+ *   - for each call ref: resolve the inner `@name` (callee), optionally drop it
+ *     ({@link CallsConfig.dropCalleeNames}), attribute it to the innermost
+ *     enclosing definition, and run the per-language receiver strategy.
+ *
+ * Emits records byte-identical to the pre-refactor providers (locked by the
+ * characterization harness). The `calleeOwner` field is spread conditionally so
+ * an absent receiver never materializes as explicit `undefined`
+ * (`exactOptionalPropertyTypes` is on).
+ */
+export function extractCallsGeneric(
+  input: ExtractCallsInput,
+  config: CallsConfig = {},
+): readonly ExtractedCall[] {
+  const { filePath, captures, definitions } = input;
+  const callTags = config.callTags ?? DEFAULT_CALL_TAGS;
+  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
+  const callRefs = captures.filter((c) => callTags.includes(c.tag));
+  const out: ExtractedCall[] = [];
+
+  for (const ref of callRefs) {
+    const innerName = findNameInside(captures, ref);
+    const calleeName = innerName?.text ?? ref.text;
+
+    if (config.dropCalleeNames?.has(calleeName)) continue;
+
+    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
+    const callerQualifiedName = enclosingDef
+      ? qualifiedForCapture(enclosingDef, definitions)
+      : "<module>";
+
+    let receiver: string | undefined;
+    if (innerName !== undefined && config.inferReceiver !== undefined) {
+      receiver = config.inferReceiver(ref.text, innerName.text);
+    }
+
+    out.push({
+      callerQualifiedName,
+      calleeName,
+      filePath,
+      startLine: ref.startLine,
+      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Context handed to a {@link DefinitionsConfig.isExported} predicate. Bundles
+ * the raw definition capture, the resolved bare `name`, the file `sourceText`
+ * (so header-line providers can `getLine(sourceText, def.startLine)`), and the
+ * innermost enclosing definition capture (`ownerDef`, when the def is nested).
+ */
+export interface DefinitionExportContext {
+  readonly name: string;
+  readonly def: ParseCapture;
+  readonly sourceText: string;
+  readonly ownerDef?: ParseCapture;
+}
+
+/**
+ * Configuration for {@link extractDefinitionsGeneric}. Mirrors the
+ * {@link CallsConfig} style: the generic owns the paired-loop + owner
+ * derivation + qualifiedName + the push shape; the config supplies only the
+ * per-language varying pieces.
+ *
+ * `kindFor` is deliberately a FUNCTION (not a `Record`): csharp and java
+ * resolve the kind off `def.nodeType`, so a map cannot express them. The
+ * Record-driven providers wrap their table with {@link kindFromMap} to stay
+ * declarative — the two forms are NOT collapsed.
+ */
+export interface DefinitionsConfig {
+  /** Resolve the {@link NodeKind} for a definition capture, or `undefined` to skip it. */
+  readonly kindFor: (def: ParseCapture) => NodeKind | undefined;
+  /** Per-language export predicate. See {@link DefinitionExportContext}. */
+  readonly isExported: (ctx: DefinitionExportContext) => boolean;
+  /**
+   * Promote a `definition.function` to `"Method"` when nested in an allowed
+   * owner type (swift/ruby/dart/kotlin). Return `true` to force `"Method"`;
+   * omit for providers without function→method promotion.
+   */
+  readonly promoteToMethod?: (def: ParseCapture, ownerDef: ParseCapture | undefined) => boolean;
+  /**
+   * Compute an owner name directly from the source header, overriding the
+   * innermost-enclosing-def walk (Go method receiver types). Return a
+   * `{ owner }` wrapper to CLAIM the def — the walk is skipped and `owner`
+   * (which may itself be `undefined`, e.g. an unparseable receiver) becomes the
+   * owner. Return the bare `undefined` to decline, so the normal enclosing-def
+   * walk runs. Go claims `definition.method` captures and declines all others,
+   * mirroring the original `if (method) { owner = receiver } else { walk }`.
+   */
+  readonly ownerOverride?: (
+    def: ParseCapture,
+    sourceText: string,
+  ) => { readonly owner: string | undefined } | undefined;
+  /**
+   * Drop a paired definition before it is emitted (Go's `definition.type`
+   * dedup against a struct/interface at the same source position). Runs after
+   * `kindFor` resolves a defined kind, before the record is pushed.
+   */
+  readonly skipDef?: (def: ParseCapture) => boolean;
+  /**
+   * When set, emit `isConst: /\bconst\b/.test(headerLine)` on records whose
+   * kind is `"Const"` (ts/js). The header line is `getLine(sourceText,
+   * def.startLine)`. Providers with a different `isConst` rule (python) stay
+   * custom.
+   */
+  readonly wantsConst?: boolean;
+}
+
+/**
+ * Adapt a `Record<tag, NodeKind>` table into the {@link DefinitionsConfig.kindFor}
+ * function form. `noUncheckedIndexedAccess` makes `map[def.tag]` yield
+ * `NodeKind | undefined`, which is exactly the `kindFor` contract.
+ */
+export function kindFromMap(
+  map: Readonly<Record<string, NodeKind>>,
+): (def: ParseCapture) => NodeKind | undefined {
+  return (def) => map[def.tag];
+}
+
+/**
+ * Shared definition-extraction loop. Reproduces the skeleton every per-language
+ * `extractDefinitions` body used to hand-roll:
+ *   - pair each `@definition.*` capture with its inner `@name`
+ *     ({@link pairDefinitionsWithNames})
+ *   - resolve the {@link NodeKind} ({@link DefinitionsConfig.kindFor}); skip
+ *     when `undefined`
+ *   - derive the owner via {@link innermostEnclosingDef}, unless
+ *     {@link DefinitionsConfig.ownerOverride} yields a header-derived owner
+ *   - optionally promote a nested function to `"Method"`
+ *     ({@link DefinitionsConfig.promoteToMethod})
+ *   - build the dotted `qualifiedName` and the per-language `isExported` flag
+ *   - push the canonical record shape
+ *
+ * Emits records byte-identical to the pre-refactor providers (locked by the
+ * characterization harness). `owner` and `isConst` are spread conditionally so
+ * an absent value never materializes as explicit `undefined`
+ * (`exactOptionalPropertyTypes` is on).
+ */
+export function extractDefinitionsGeneric(
+  input: ExtractDefinitionsInput,
+  config: DefinitionsConfig,
+): readonly ExtractedDefinition[] {
+  const { filePath, captures, sourceText } = input;
+  const paired = pairDefinitionsWithNames(captures);
+  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
+  const out: ExtractedDefinition[] = [];
+
+  for (const { def, name } of paired) {
+    let kind = config.kindFor(def);
+    if (kind === undefined) continue;
+    if (config.skipDef?.(def)) continue;
+
+    let owner: string | undefined;
+    const overridden = config.ownerOverride?.(def, sourceText);
+    let ownerDef: ParseCapture | undefined;
+    if (overridden !== undefined) {
+      // The override CLAIMED this def — use its owner (possibly undefined) and
+      // skip the enclosing-def walk entirely.
+      owner = overridden.owner;
+    } else {
+      ownerDef = innermostEnclosingDef(def, defCaptures);
+      if (ownerDef !== undefined) {
+        const ownerPaired = paired.find((p) => p.def === ownerDef);
+        if (ownerPaired !== undefined) owner = ownerPaired.name.text;
+      }
+    }
+
+    if (config.promoteToMethod?.(def, ownerDef) === true) {
+      kind = "Method";
+    }
+
+    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
+    const isExported = config.isExported({
+      name: name.text,
+      def,
+      sourceText,
+      ...(ownerDef !== undefined ? { ownerDef } : {}),
+    });
+
+    let isConst: boolean | undefined;
+    if (config.wantsConst === true && kind === "Const") {
+      isConst = /\bconst\b/.test(getLine(sourceText, def.startLine));
+    }
+
+    out.push({
+      kind,
+      name: name.text,
+      qualifiedName,
+      filePath,
+      startLine: def.startLine,
+      endLine: def.endLine,
+      isExported,
+      ...(owner !== undefined ? { owner } : {}),
+      ...(isConst !== undefined ? { isConst } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * One heritage rule: attribute every `refTag` capture enclosed by a container
+ * to the enclosing definition, emitting a `relation` edge. `childKinds` gates
+ * which enclosing definition kinds are eligible — the reference is dropped when
+ * the innermost container's owning definition is not one of them.
+ */
+export interface HeritageRule {
+  /** Capture tag that marks a parent reference, e.g. `"reference.class"`. */
+  readonly refTag: string;
+  /** Edge relation emitted for matches under this rule. */
+  readonly relation: "EXTENDS" | "IMPLEMENTS";
+  /** Definition kinds eligible to own a matched reference. */
+  readonly childKinds: readonly NodeKind[];
+}
+
+/**
+ * Configuration for {@link extractHeritageRefBased}. Mirrors the
+ * {@link CallsConfig} / {@link DefinitionsConfig} style: the generic owns the
+ * container-filter + innermost-enclosing walk + child lookup + push shape; the
+ * config supplies only the per-language `containerTags` and the ordered
+ * `rules`. Rules are applied IN ORDER, so a provider's block order maps 1:1 to
+ * the rule order — keeping the pre-sort output identical to the hand-rolled
+ * body (locked by the characterization harness).
+ */
+export interface HeritageConfig {
+  /** Definition-capture tags eligible as heritage containers. */
+  readonly containerTags: readonly string[];
+  /** Per-reference rules, applied in order. */
+  readonly rules: readonly HeritageRule[];
+}
+
+/**
+ * Shared ref-based heritage-extraction loop. Reproduces the skeleton the
+ * ref-based providers (swift/php/ruby/dart) hand-rolled per rule:
+ *   - filter the container definition captures (by `config.containerTags`)
+ *   - for each rule, filter the `refTag` captures, walk each to its innermost
+ *     enclosing container ({@link innermostEnclosingContainer}), match the
+ *     owning definition by start line + `childKinds`, and push a
+ *     `{ childQualifiedName, parentName, filePath, relation, startLine }` edge
+ *
+ * Emits records byte-identical to the pre-refactor providers (locked by the
+ * characterization harness). Languages with a bespoke heritage algorithm
+ * (csharp header-regex, go structural method-set, ts-shared hybrid, java
+ * single-inheritance) do NOT use this generic.
+ */
+export function extractHeritageRefBased(
+  input: ExtractHeritageInput,
+  config: HeritageConfig,
+): readonly ExtractedHeritage[] {
+  const { filePath, captures, definitions } = input;
+  const containerDefs = captures.filter((c) => config.containerTags.includes(c.tag));
+  const out: ExtractedHeritage[] = [];
+
+  for (const rule of config.rules) {
+    const refs = captures.filter((c) => c.tag === rule.refTag);
+    for (const ref of refs) {
+      const enclosing = innermostEnclosingContainer(ref, containerDefs);
+      if (enclosing === undefined) continue;
+      const child = definitions.find(
+        (d) => rule.childKinds.includes(d.kind) && d.startLine === enclosing.startLine,
+      );
+      if (child === undefined) continue;
+      out.push({
+        childQualifiedName: child.qualifiedName,
+        parentName: ref.text,
+        filePath,
+        relation: rule.relation,
+        startLine: ref.startLine,
+      });
+    }
+  }
+  return out;
 }
 
 /**

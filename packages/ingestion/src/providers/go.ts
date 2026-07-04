@@ -1,8 +1,12 @@
 import type { NodeKind } from "@opencodehub/core-types";
 import {
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
-  innermostEnclosingDef,
-  isInside,
+  kindFromMap,
   pairDefinitionsWithNames,
   stripComments,
 } from "./extract-helpers.js";
@@ -48,62 +52,34 @@ const GO_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
 };
 
 function extractGoDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-
   // The Go unified query emits both `@definition.type` and either
   // `@definition.class` (struct) or `@definition.interface` for the same
   // source range — a type_declaration wrapping a struct/interface. Drop
   // the TypeAlias record when a more specific kind exists at the same
-  // position so the graph has one node per type, not two.
+  // position so the graph has one node per type, not two. Computed from the
+  // same pairing the generic uses (deterministic on `captures`).
   const specificPositions = new Set<string>();
-  for (const { def } of paired) {
+  for (const { def } of pairDefinitionsWithNames(input.captures)) {
     if (def.tag === "definition.class" || def.tag === "definition.interface") {
       specificPositions.add(`${def.startLine}:${def.startCol}`);
     }
   }
 
-  const out: ExtractedDefinition[] = [];
-  for (const { def, name } of paired) {
-    const kind = GO_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-    if (
-      def.tag === "definition.type" &&
-      specificPositions.has(`${def.startLine}:${def.startCol}`)
-    ) {
-      continue;
-    }
-
-    let owner: string | undefined;
-    if (def.tag === "definition.method") {
-      // `func (r *Receiver) Method(...)` — parse the receiver type off the
-      // header. We strip leading `*` for pointer receivers.
-      owner = readGoReceiverType(getLine(sourceText, def.startLine));
-    } else {
-      const ownerDef = innermostEnclosingDef(def, defCaptures);
-      if (ownerDef !== undefined) {
-        const ownerPaired = paired.find((p) => p.def === ownerDef);
-        if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-      }
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const isExported = /^[A-Z]/.test(name.text);
-
-    const rec: ExtractedDefinition = {
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    };
-    out.push(rec);
-  }
-  return out;
+  const config: DefinitionsConfig = {
+    kindFor: kindFromMap(GO_DEF_KIND_MAP),
+    skipDef: (def) =>
+      def.tag === "definition.type" && specificPositions.has(`${def.startLine}:${def.startCol}`),
+    // `func (r *Receiver) Method(...)` — parse the receiver type off the
+    // header (pointer `*` stripped). Claim every `definition.method` (skipping
+    // the walk, even when the receiver is unparseable → owner undefined); every
+    // other def declines so the enclosing-def walk runs instead.
+    ownerOverride: (def, sourceText) =>
+      def.tag === "definition.method"
+        ? { owner: readGoReceiverType(getLine(sourceText, def.startLine)) }
+        : undefined,
+    isExported: ({ name }) => /^[A-Z]/.test(name),
+  };
+  return extractDefinitionsGeneric(input, config);
 }
 
 function readGoReceiverType(headerLine: string): string | undefined {
@@ -114,65 +90,14 @@ function readGoReceiverType(headerLine: string): string | undefined {
   return m[1];
 }
 
+const GO_CALLS_CONFIG: CallsConfig = {
+  // Receiver inference: `pkg.Func(...)` or `recv.Method(...)`. When the grammar
+  // matched `selector_expression`, `ref.text` begins with the selector source.
+  inferReceiver: dotPrefixReceiver(/^[A-Za-z_][\w.]*$/),
+};
+
 function extractGoCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Receiver inference: `pkg.Func(...)` or `recv.Method(...)`. When the
-    // grammar matched `selector_expression`, `ref.text` begins with the
-    // selector source.
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(`.${innerName.text}`);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        if (prefix !== "" && /^[A-Za-z_][\w.]*$/.test(prefix)) receiver = prefix;
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly import("../parse/types.js").ParseCapture[],
-  outer: import("../parse/types.js").ParseCapture,
-): import("../parse/types.js").ParseCapture | undefined {
-  let best: import("../parse/types.js").ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: import("../parse/types.js").ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, GO_CALLS_CONFIG);
 }
 
 /**
