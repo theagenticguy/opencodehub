@@ -1,6 +1,6 @@
 ---
 title: Architecture overview
-description: Six-phase pipeline from source tree to MCP — parse, resolve, augment, index, cluster, serve — backed by a graph-native store with deterministic outputs.
+description: Six-phase pipeline from source tree to MCP — parse, resolve, augment, index, cluster, serve — backed by a single-file SQLite store with deterministic outputs.
 sidebar:
   order: 10
 ---
@@ -17,7 +17,7 @@ flowchart LR
   tree[Source tree] --> parse[Parse]
   parse --> resolve[Resolve]
   resolve --> augment[Augment<br/>SCIP]
-  augment --> index[Index<br/>BM25 + HNSW]
+  augment --> index[Index<br/>BM25 + vector KNN]
   index --> cluster[Cluster<br/>communities + processes]
   cluster --> serve[Serve<br/>MCP]
 ```
@@ -26,33 +26,32 @@ Fifteen tree-sitter grammars produce a unified `ParseCapture` stream.
 Per-language resolvers turn captures into typed relations. SCIP
 indexers (TypeScript, Python, Go, Rust, Java, C#, C/C++, Kotlin,
 Ruby) upgrade heuristic edges to compiler-grade references where
-available. The graph persists into LadybugDB, with DuckDB
-carrying the temporal sibling. Communities and
-processes are precomputed. An stdio MCP server with 28 tools answers
+available. The whole index persists into one `store.sqlite` file via
+Node's built-in `node:sqlite`. Communities and
+processes are precomputed. An stdio MCP server with 29 tools answers
 agent queries.
 
 ## Where the data lives
 
-The graph tier is always **LadybugDB** (`graph.lbug`); the temporal tier
-is always **DuckDB** (`temporal.duckdb`). Both files live under
-`.codehub/`. There is no selection knob, no probe, and no fallback — if
-the `@ladybugdb/core` binding cannot load, `open()` throws
-`GraphDbBindingError` and the operation aborts. See [Storage backend](/opencodehub/architecture/storage-backend/).
+The entire index lives in one **`store.sqlite`** file (WAL mode) under
+`.codehub/`, via Node's built-in `node:sqlite`. It holds graph nodes,
+edges, embeddings, the FTS5 search index, and the temporal tables
+(cochanges, summary cache). There is no selection knob, no native
+binding, and no fallback: ADR 0019 removed both `@ladybugdb/core` and
+`@duckdb/node-api`, leaving zero native storage bindings. See
+[Storage backend](/opencodehub/architecture/storage-backend/).
 
 ```mermaid
 flowchart LR
-  subgraph lbug[".codehub/ (default)"]
-    nodes[(graph.lbug<br/>nodes + edges)]
-    embed[(embeddings)]
-    temporal[(temporal.duckdb<br/>cochanges, summary cache)]
+  subgraph store[".codehub/"]
+    db[(store.sqlite<br/>nodes + edges + embeddings<br/>+ cochanges, summary cache)]
   end
-  fts["BM25 over names + summaries"] --- nodes
-  hnsw["filter-aware HNSW"] --- embed
-  nodes -. round-trip parity .- temporal
+  fts["BM25 (FTS5) over names + summaries"] --- db
+  vec["vector search over embeddings"] --- db
 ```
 
-Embeddings live in the same physical store as the graph (one
-`embeddings` table, one HNSW index, three granularities keyed by a
+Embeddings live in the same `store.sqlite` file as the graph (one
+`embeddings` table, three granularities keyed by a
 `granularity` discriminator). Findings reuse the `nodes` table with
 `kind='Finding'`.
 
@@ -67,8 +66,8 @@ line+col, nodeType). Lines are 1-indexed, columns 0-indexed.
 Fifteen languages are registered via a compile-time exhaustive
 `satisfies Record<LanguageId, LanguageProvider>` table: TypeScript,
 TSX, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin,
-Swift, PHP, Dart. The runtime is `web-tree-sitter` (WASM) — the only
-parse runtime on Node 20, 22, and 24. There is no native parser and no
+Swift, PHP, Dart. The runtime is `web-tree-sitter` (WASM), the only
+parse runtime on Node ≥24.15. There is no native parser and no
 opt-in (ADR 0015).
 
 See [Parsing and resolution](/opencodehub/architecture/parsing-and-resolution/).
@@ -103,16 +102,17 @@ and Ruby (scip-ruby). Pins live in `.github/workflows/gym.yml`.
 
 See [SCIP reconciliation](/opencodehub/architecture/scip-reconciliation/).
 
-### 4. Index — BM25, HNSW, and scanners
+### 4. Index — BM25, vector KNN, and scanners
 
-One job: persist the graph into LadybugDB with search indexes wired up.
+One job: persist the graph into `store.sqlite` with search indexes wired up.
 
-- **BM25** — over symbol names, signatures, and summaries.
-- **HNSW** — filter-aware, with the granularity discriminator pushed
-  into the predicate so all three tiers (symbol / file / community)
-  share one index without recall collapse.
-- **Multi-hop traversal** — Cypher-emitting dialect on the LadybugDB
-  graph store.
+- **BM25** — over symbol names, signatures, and summaries via an FTS5
+  virtual table.
+- **Vector search** — filter-aware, with the granularity discriminator
+  pushed into the predicate so all three tiers (symbol / file /
+  community) share one `embeddings` table without recall collapse.
+- **Multi-hop traversal** — recursive CTEs over the `edges` table for
+  impact and blast-radius.
 
 Embeddings are optional, gated on `PipelineOptions.embeddings`. The
 backend cascade is SageMaker → HTTP / OpenAI-compatible → local ONNX.
@@ -157,7 +157,7 @@ cheapest configuration that hits all three:
   `codehub analyze --offline` opens zero sockets.
 - **Deterministic.** Phases are pure: same inputs → same outputs,
   byte-identical `graphHash`. The `graphHash` invariant holds over the
-  LadybugDB graph tier. See
+  graph nodes and edges in `store.sqlite`. See
   [Determinism](/opencodehub/architecture/determinism/).
 - **Apache-2.0, every transitive dep on the permissive allowlist.**
   No BSL, no AGPL, no source-available engines in the core. See
@@ -167,19 +167,23 @@ cheapest configuration that hits all three:
 
 | ADR | Topic |
 |---|---|
-| 0001 | Storage backend selection — DuckDB + `hnsw_acorn` + `fts` (the v1.0 baseline). |
+| 0001 | Storage backend selection — the v1.0 embedded baseline. **Superseded by later storage ADRs.** |
 | 0002 | Rust core deferred — v2.0 stays pure TypeScript. |
-| 0004 | Hierarchical embeddings — one table, three granularities, filter-aware HNSW. |
+| 0004 | Hierarchical embeddings — one table, three granularities, filter-aware vector search. |
 | 0005 | SCIP replaces LSP — compiler-grade edges without long-running language servers. |
 | 0006 | SCIP indexer CI pins — current version table per language. |
 | 0007–0010 | Artifact factory, document pattern, output conventions, dogfood findings. |
-| 0011 | LadybugDB (phase-1) — graph-native backend behind the `IGraphStore` seam. |
+| 0011 | Graph-native backend (phase-1) behind the `IGraphStore` seam. |
 | 0012 | Repo as a first-class graph node — `repo_uri`, group registry, `AMBIGUOUS_REPO` envelope. |
-| 0013 (storage) | M7 default-flip + interface segregation. **Superseded by 0016.** |
+| 0013 (storage) | M7 default-flip + interface segregation. **Superseded by 0019.** |
 | 0013 (parse) | WASM-default parse runtime, native opt-in. **Superseded by 0015.** |
 | 0014 | SCIP REFERENCES + TYPE_OF emission, embedder modelId stamping. |
-| 0015 | WASM-only parser — `web-tree-sitter` is the only runtime on Node 20/22/24; native opt-in removed. |
-| 0016 | DuckDB graph backend ripped out — LadybugDB graph + DuckDB temporal, both always present, no selection knob. |
+| 0015 | WASM-only parser — `web-tree-sitter` is the only runtime on Node ≥24.15; native opt-in removed. |
+| 0016 | Graph-backend rip-out, segregated interfaces preserved. **Superseded by 0019.** |
+| 0017 | Drop detect-secrets — ship a tuned betterleaks default config. |
+| 0018 | Cleanroom provenance of the route / tool / contract tool names. |
+| 0019 | Single-file SQLite storage — one `store.sqlite` via `node:sqlite`; both native storage bindings removed. Supersedes 0016. |
+| 0020 | Decision-equivalence is the pack contract; byte-identity is a witness, not the contract. |
 
 See [ADRs](/opencodehub/architecture/adrs/) for the full list.
 
@@ -188,7 +192,8 @@ See [ADRs](/opencodehub/architecture/adrs/) for the full list.
 - [Monorepo map](/opencodehub/architecture/monorepo-map/) — every
   workspace package and what it owns.
 - [Storage backend](/opencodehub/architecture/storage-backend/) — the
-  graph + temporal interface segregation and the resolver.
+  single `store.sqlite` file and the `IGraphStore` / `ITemporalStore`
+  interface segregation.
 - [Cross-repo federation](/opencodehub/architecture/cross-repo-federation/)
   — `repo_uri`, the group registry, and the `AMBIGUOUS_REPO` envelope.
 - [Determinism](/opencodehub/architecture/determinism/) — the

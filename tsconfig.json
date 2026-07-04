@@ -9,6 +9,7 @@
     { "path": "./packages/search" },
     { "path": "./packages/embedder" },
     { "path": "./packages/analysis" },
+    { "path": "./packages/core-ops" },
     { "path": "./packages/pack" },
     { "path": "./packages/policy" },
     { "path": "./packages/eval" },

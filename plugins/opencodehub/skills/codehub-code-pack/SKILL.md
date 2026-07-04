@@ -21,7 +21,7 @@ model: sonnet
 Surface the `pack_codebase` MCP tool to a Claude Code agent. Produces a
 **deterministic, 9-item Bill of Materials (BOM)** at `<repo>/.codehub/packs/<packHash>/`
 that is byte-identical given the same `(commit, tokenizer, budget,
-chonkie_version, duckdb_version, grammar_commits)`. The pack is the
+chonkie_version, grammar_commits)`. The pack is the
 durable artifact agents hand to long-context LLMs, archive in S3 for
 later replay, or diff between commits to prove invariants did not
 change.
@@ -80,8 +80,8 @@ input that the pack emitter looked at is identical.
 
 The manifest schema is fixed at `schemaVersion: 1`. Required fields:
 `commit`, `repoOriginUrl`, `tokenizerId`, `determinismClass`,
-`budgetTokens`, `pins` (`chonkieVersion`, `duckdbVersion`,
-`grammarCommits`), `files[]`, `packHash`, `schemaVersion`.
+`budgetTokens`, `pins` (`chonkieVersion`, `grammarCommits`), `files[]`,
+`packHash`, `schemaVersion`.
 
 ## Group mode
 
@@ -108,7 +108,7 @@ verbatim when surfacing the pack to the user.
 
 | Class | Meaning | When emitted |
 |-------|---------|--------------|
-| `strict` | Same `(commit, tokenizer, budget, chonkieVersion, duckdbVersion, grammarCommits)` → same `packHash`. The full reproducibility contract holds. | Default path: chonkie native binding loaded, deterministic tokenizer (e.g. local HF tokenizer with pinned hash). |
+| `strict` | Same `(commit, tokenizer, budget, chonkieVersion, grammarCommits)` → same `packHash`. The full reproducibility contract holds. | Default path: chonkie native binding loaded, deterministic tokenizer (e.g. local HF tokenizer with pinned hash). |
 | `best_effort` | The tokenizer is an Anthropic API tokenizer (Claude family) — Anthropic may rotate the tokenizer pin behind the model name. Other inputs are still strictly pinned, but a future tokenizer rotation can change the output. | When `tokenizerId` resolves to a Claude model. The BOM verifier MUST warn callers checking byte-identity. |
 | `degraded` | A primitive fallback was used (e.g. line-split chunker because `@chonkiejs/core` failed to load). The pack is still self-consistent and re-runs match locally, but **does not** match a `strict` pack on a different machine. | When chonkie native binding is unavailable on CI platform. |
 
@@ -136,9 +136,9 @@ file.
 A caller proves byte-identity by re-running and diffing:
 
 ```bash
-# 1. Pin the environment so chonkie/duckdb match.
+# 1. Pin the environment so chonkie matches.
 node --version
-cat packages/pack/package.json | jq '.dependencies."@chonkiejs/core", .dependencies."@duckdb/node-api"'
+cat packages/pack/package.json | jq '.dependencies."@chonkiejs/core"'
 
 # 2. Run the pack twice with identical args.
 codehub code-pack --budget 200000 --tokenizer cl100k_base --out /tmp/packA
@@ -172,7 +172,7 @@ identical:
    been re-analyzed under you (an `analyze` invalidates the previous
    pack's `commit` field).
 3. If `pins` differs, the local toolchain has changed — pin
-   `@chonkiejs/core` and `@duckdb/node-api` in `package.json`.
+   `@chonkiejs/core` in `package.json`.
 4. If only `files[i].fileHash` differs for a single BOM item, that
    item's emitter has a determinism bug; raise it in the determinism
    suite under `packages/pack/src/`.

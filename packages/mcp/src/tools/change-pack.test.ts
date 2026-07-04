@@ -9,7 +9,7 @@ import type { ToolContext } from "./shared.js";
  * The analysis `runChangePack` never throws — it fails open to an empty diff
  * when git is unavailable (which it is in the temp harness repo). That gives
  * the MCP tool a coherent, deterministic ChangePack to wrap without needing a
- * real lbug graph DB or a git checkout. These tests assert the snake_case
+ * real graph store or a git checkout. These tests assert the snake_case
  * `structuredContent` shape the CLI parity test keys against.
  */
 async function withHarness(

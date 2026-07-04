@@ -1,11 +1,11 @@
 ---
 title: MCP tools
-description: All 28 MCP tools the opencodehub server registers, grouped by functional family. Every tool is read-only with respect to user source.
+description: All 29 MCP tools the opencodehub server registers, grouped by functional family. Every tool is read-only with respect to user source.
 sidebar:
   order: 20
 ---
 
-The `opencodehub` MCP server registers **28 tools**, imported and
+The `opencodehub` MCP server registers **29 tools**, imported and
 invoked from `packages/mcp/src/server.ts`. The number is taken live
 from `buildServer()` at startup. Every tool is **read-only with respect
 to user source** — no tool edits the working tree.
@@ -73,8 +73,8 @@ The high-frequency tools. Most agent loops live here.
 
 | | |
 |---|---|
-| **Use when** | You need a custom view of the temporal store (`cochanges` + `symbol_summaries`) that no other tool exposes. Read-only. 5-second timeout. |
-| **Avoid when** | A typed tool (`context`, `impact`, `query`) already covers the question, or you need the node/edge graph — that lives in `graph.lbug` and is reached via the typed tools or Cypher (ADR 0016), not this SQL path. |
+| **Use when** | You need a custom view of `store.sqlite` that no other tool exposes. Everything is directly SQL-queryable: `nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, and `store_meta` (ADR 0019); reach kind-specific fields via SQLite JSON1, `payload->>'$.field'`. Read-only. 5-second timeout. |
+| **Avoid when** | A typed tool (`context`, `impact`, `query`) already covers the question. The typed tools stay the high-level path; the `cypher` arg is reserved for community-fork graph adapters and is not supported by the default backend. |
 | **Inputs** | `query` (required), `repo?`, `repo_uri?` |
 | **Returns** | `{ rows: [...], row_count, next_steps }` |
 
@@ -141,7 +141,7 @@ form so a follow-up `AMBIGUOUS_REPO` retry can use it as input.
 | **Inputs** | `group` |
 | **Returns** | `{ group, contracts_written, cross_links_written, next_steps }` |
 
-## Scan / findings / verdict (7)
+## Scan / findings / verdict (8)
 
 `scan` is the only tool that spawns processes (`openWorldHint=true`).
 `verdict` exits 0/1/2/3 by tier — the canonical source of CI signal.
@@ -193,6 +193,14 @@ form so a follow-up `AMBIGUOUS_REPO` retry can use it as input.
 | **Use when** | One PR-level decision tier. Wraps `detect_changes` + `impact` + findings + owners. |
 | **Inputs** | `repo?`, `repo_uri?`, `base?` (default `main`), `head?` (default `HEAD`) |
 | **Returns** | `{ tier: "auto_merge" \| "single_review" \| "dual_review" \| "expert_review" \| "block", exit_code, reasons, signals }` |
+
+### `change_pack`
+
+| | |
+|---|---|
+| **Use when** | A CI agent needs everything a diff touches in one deterministic, read-only payload: the changed symbols, their upstream impacted subgraph, the `verdict` tier, the affected tests, and a token-cost estimate. |
+| **Inputs** | `repo?`, `repo_uri?`, `base?` (default `main`), `head?` (default `HEAD`), `depth?` (upstream traversal, default 4), `budget?` (context budget in heuristic tokens, default 100000) |
+| **Returns** | `{ changed, impacted_subgraph, verdict, affected_tests, cost_estimate }` — the same `ChangePack` the CLI's `codehub change-pack --json` emits, snake-cased under `structuredContent`. |
 
 ### `risk_trends`
 

@@ -7,8 +7,8 @@
  * so callers can route graph-tier queries through `store.graph` and
  * temporal-tier queries (cochanges, summaries, `--sql` escape hatch)
  * through `store.temporal`. Post-ADR 0019 both views are one `SqliteStore`
- * over a single `<repo>/.codehub/store.sqlite`; the legacy backend selector
- * was removed when the lbug + DuckDB pair was replaced (see ADR 0019).
+ * over a single `<repo>/.codehub/store.sqlite`; the prior two-backend
+ * selector was removed in that single-file migration (see ADR 0019).
  */
 
 import { resolve } from "node:path";

@@ -11,7 +11,7 @@ graph_hash: <from list_repos>
 
 ## Repo profile                      # from project_profile
 - languages: TypeScript 87%, Rust 11%, Python 2%
-- stacks: Node 22, pnpm 10, DuckDB, Vitest
+- stacks: Node 24, pnpm 10, SQLite (node:sqlite), Vitest
 - entry points: packages/mcp/src/index.ts, packages/cli/src/bin.ts
 
 ## Top communities (≤ 10)            # from sql: SELECT name, inferred_label, cohesion, symbol_count
@@ -126,7 +126,7 @@ Steps marked `# wave 0a` and `# wave 0b` each run as a single parallel tool-use 
 # wave 0b — depends on schema + profile (one parallel batch)
 11. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
 12. processes   = sql("SELECT … FROM nodes WHERE kind='Process' …")
-13. relations   = sql("SELECT … FROM relations …")   # for diagrams
+13. edges       = sql("SELECT … FROM edges …")   # for diagrams
 14. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
 15. owners_summary = [owners({path}) for path in top_folders]
 16. if --group: group_hits = group_query({group, canonical_terms})

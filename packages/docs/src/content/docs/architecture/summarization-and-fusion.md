@@ -130,7 +130,7 @@ sequenceDiagram
   participant Summ as summarize phase
   participant Bedrock
   participant Emb as embeddings phase
-  participant HNSW as embeddings table + HNSW
+  participant Vec as embeddings table
 
   Summ->>Summ: filter by SCIP-trust
   Summ->>Summ: cache probe (nodeId, contentHash, promptVersion)
@@ -141,7 +141,7 @@ sequenceDiagram
   end
   Summ->>Summ: persist SymbolSummaryRow
   Emb->>Emb: symbolText(node, summary, body) — fuse
-  Emb->>HNSW: upsert symbol-tier vector
+  Emb->>Vec: upsert symbol-tier vector
 ```
 
 ## Cache-key discriminator

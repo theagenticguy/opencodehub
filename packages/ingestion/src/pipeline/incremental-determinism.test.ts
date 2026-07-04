@@ -110,6 +110,31 @@ async function writeFixture(repo: string): Promise<void> {
       "",
     ].join("\n"),
   );
+  // A multi-dot TypeScript declaration file. Its `.d.ts` extension resolves
+  // to "typescript" by the LAST dot under the canonical detectLanguage (which
+  // the phases now route through) — the same result the deleted phase-local
+  // `lastIndexOf(".")` switches produced on a repo-relative path. Including it
+  // pins that the multi-dot handling does not perturb the graph hash.
+  await fs.writeFile(
+    path.join(repo, "shapes.d.ts"),
+    ["export interface Shape { readonly kind: string; }", ""].join("\n"),
+  );
+  // A COBOL program. cross-file's deleted local switch OMITTED cobol, so a
+  // .cbl file used to resolve to `undefined`; the canonical detectLanguage
+  // returns "cobol". COBOL has no tree-sitter grammar and emits no
+  // defs/calls, so it carries no CALLS edges to re-resolve — the widening is
+  // inert. Its presence here proves that inertness at the graph-hash level.
+  await fs.writeFile(
+    path.join(repo, "REPORT.cbl"),
+    [
+      "       IDENTIFICATION DIVISION.",
+      "       PROGRAM-ID. REPORT.",
+      "       PROCEDURE DIVISION.",
+      "           DISPLAY 'HELLO'.",
+      "           STOP RUN.",
+      "",
+    ].join("\n"),
+  );
   // Padding: 20 unrelated leaf files keep the total count high enough
   // that a single-file touch's closure stays well under the 30% valve.
   for (let i = 0; i < 20; i += 1) {

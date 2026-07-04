@@ -58,7 +58,7 @@ Sequenced by dependency only. No calendar estimates.
 
 ## M3 — LadybugDB phase-1 (PENDING, parallel with M4)
 
-Replace recursive-CTE traversals with polymorphic rel-table-per-edge schema (**corrected 2026-05-05** — the v1 roadmap proposed a single rel-table with a `type` column; LadybugDB docs recommend one named rel table per edge kind with multiple `FROM/TO` pairs for columnar predicate pushdown). Current OCH edge-kind count is **23** (post-M2 additions `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`), not 21 as originally estimated.
+Replace recursive-CTE traversals with polymorphic rel-table-per-edge schema (**corrected 2026-05-05** — the v1 roadmap proposed a single rel-table with a `type` column; LadybugDB docs recommend one named rel table per edge kind with multiple `FROM/TO` pairs for columnar predicate pushdown). Current OCH edge-kind count is **25** (post-M2 additions `FOUND_IN`, `DEPENDS_ON`, `OWNED_BY`, `WRAPS`, `QUERIES`, `REFERENCES`, `ACCESSES`), not 21 as originally estimated.
 
 LadybugDB = community successor to Kuzu (Apple acquisition). Pre-1.0 with ABI breaks every few months. **Current npm package: `@ladybugdb/core@0.16.1`** (released 2026-05-04, one day before roadmap review). Source-level naming uses `GraphDbStore` / `graphdb-adapter.ts` / `graphdb-pool.ts` to stay within `scripts/check-banned-strings.sh` limits — the `ladybug` and `kuzu` literals are rejected in tracked source files; the `@ladybugdb/core` dep in `package.json` is permitted under package-scope precedent.
 

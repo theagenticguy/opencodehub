@@ -33,7 +33,7 @@ Three concrete reasons:
 An input is:
 
 - Source tree contents at the current commit.
-- Toolchain versions (Node 22 or 24, pnpm 11.x, tree-sitter grammars
+- Toolchain versions (Node ≥24.15, pnpm 11.x, tree-sitter grammars
   pinned in `packages/ingestion/package.json`, SCIP indexer versions
   pinned in `.github/workflows/gym.yml` per ADR 0006).
 - OpenCodeHub version (the monorepo version pinned in
@@ -45,9 +45,9 @@ Anything outside that list — wall-clock time, process ID, file-system
 inode ordering — must not influence the hash. The ingestion phases
 are pure: inputs in, relations out, no ambient state.
 
-The `graphHash` invariant covers everything the graph store
-(`graph.lbug`) owns; the temporal signals in the DuckDB sibling
-(`temporal.duckdb`) are statistical and never enter the hash. A parity
+The `graphHash` invariant covers the graph nodes and edges in
+`store.sqlite`; the temporal signals in the same file (cochanges,
+symbol summaries) are statistical and never enter the hash. A parity
 gate in CI asserts the invariant on every PR that touches the storage
 layer.
 
@@ -120,9 +120,9 @@ bytes?" If the answer is not obviously yes, the phase is wrong.
 
 ## Related
 
-- [ADR 0001 — Storage backend](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0001-storage-backend.md) —
-  "Deterministic writes given identical INSERT order" is a listed
-  positive of DuckDB vs. engines with random header UUIDs.
+- [ADR 0019 — Single-file SQLite storage](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0019-single-file-sqlite-storage.md) —
+  the graphHash byte-identity gate (`sqlite-parity.test.ts`) that a
+  rebuilt `KnowledgeGraph` must hash identically to the original.
 - [ADR 0002 — Rust core deferred](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0002-rust-core-deferred.md) —
   calls out the "full vs incremental `graphHash` byte-identical"
   determinism CI gate explicitly.

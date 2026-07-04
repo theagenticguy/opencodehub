@@ -1,10 +1,13 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
-  innermostEnclosingContainer,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
+  extractHeritageRefBased,
+  type HeritageConfig,
+  kindFromMap,
   stripComments,
 } from "./extract-helpers.js";
 import type {
@@ -55,105 +58,26 @@ const DART_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.property": "Property",
 };
 
+const DART_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(DART_DEF_KIND_MAP),
+  promoteToMethod: (def, ownerDef) =>
+    def.tag === "definition.function" &&
+    (ownerDef?.tag === "definition.class" ||
+      ownerDef?.tag === "definition.interface" ||
+      ownerDef?.tag === "definition.mixin"),
+  isExported: ({ name }) => !name.startsWith("_"),
+};
+
 function extractDartDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    let kind = DART_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    if (
-      def.tag === "definition.function" &&
-      (ownerDef?.tag === "definition.class" ||
-        ownerDef?.tag === "definition.interface" ||
-        ownerDef?.tag === "definition.mixin")
-    ) {
-      kind = "Method";
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const isExported = !name.text.startsWith("_");
-
-    out.push({
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    });
-  }
-  return out;
+  return extractDefinitionsGeneric(input, DART_DEFS_CONFIG);
 }
+
+const DART_CALLS_CONFIG: CallsConfig = {
+  inferReceiver: dotPrefixReceiver(/^[A-Za-z_][\w.]*$/),
+};
 
 function extractDartCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(`.${innerName.text}`);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        if (prefix !== "" && /^[A-Za-z_][\w.]*$/.test(prefix)) receiver = prefix;
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, DART_CALLS_CONFIG);
 }
 
 function extractDartImports(input: ExtractImportsInput): readonly ExtractedImport[] {
@@ -177,74 +101,20 @@ function extractDartImports(input: ExtractImportsInput): readonly ExtractedImpor
   return out;
 }
 
+const DART_HERITAGE_CONFIG: HeritageConfig = {
+  containerTags: ["definition.class", "definition.interface", "definition.mixin"],
+  rules: [
+    // superclass: `extends Parent`
+    { refTag: "reference.class", relation: "EXTENDS", childKinds: ["Class", "Interface", "Trait"] },
+    // implements: `implements I1, I2`
+    { refTag: "reference.interface", relation: "IMPLEMENTS", childKinds: ["Class", "Interface"] },
+    // mixins: `with M1, M2`
+    { refTag: "reference.mixin", relation: "IMPLEMENTS", childKinds: ["Class", "Trait"] },
+  ],
+};
+
 function extractDartHeritage(input: ExtractHeritageInput): readonly ExtractedHeritage[] {
-  const { filePath, captures, definitions } = input;
-  const out: ExtractedHeritage[] = [];
-
-  const classDefs = captures.filter(
-    (c) =>
-      c.tag === "definition.class" ||
-      c.tag === "definition.interface" ||
-      c.tag === "definition.mixin",
-  );
-
-  // superclass: `extends Parent`
-  const extendsRefs = captures.filter((c) => c.tag === "reference.class");
-  for (const ref of extendsRefs) {
-    const enclosing = innermostEnclosingContainer(ref, classDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) =>
-        (d.kind === "Class" || d.kind === "Interface" || d.kind === "Trait") &&
-        d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "EXTENDS",
-      startLine: ref.startLine,
-    });
-  }
-
-  // implements: `implements I1, I2`
-  const implementsRefs = captures.filter((c) => c.tag === "reference.interface");
-  for (const ref of implementsRefs) {
-    const enclosing = innermostEnclosingContainer(ref, classDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) => (d.kind === "Class" || d.kind === "Interface") && d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "IMPLEMENTS",
-      startLine: ref.startLine,
-    });
-  }
-
-  // mixins: `with M1, M2`
-  const mixinRefs = captures.filter((c) => c.tag === "reference.mixin");
-  for (const ref of mixinRefs) {
-    const enclosing = innermostEnclosingContainer(ref, classDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) => (d.kind === "Class" || d.kind === "Trait") && d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "IMPLEMENTS",
-      startLine: ref.startLine,
-    });
-  }
-
-  return out;
+  return extractHeritageRefBased(input, DART_HERITAGE_CONFIG);
 }
 
 export const dartProvider: LanguageProvider = {

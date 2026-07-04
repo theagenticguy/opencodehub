@@ -20,7 +20,7 @@ export default defineConfig({
     starlight({
       title: "OpenCodeHub",
       description:
-        "Apache-2.0 code intelligence graph + MCP server for AI coding agents. 30 tools, 15 GA languages, lbug graph + DuckDB temporal, WASM-only parsing, deterministic, offline-capable.",
+        "Apache-2.0 code intelligence graph + MCP server for AI coding agents. 29 tools, 15 GA languages, single-file SQLite storage, WASM-only parsing, deterministic, offline-capable.",
       logo: {
         src: "./src/assets/logo.svg",
         replacesTitle: false,
@@ -48,7 +48,7 @@ export default defineConfig({
           description:
             "Apache-2.0 code intelligence graph + MCP server for AI coding agents. Gives agents callers, callees, processes, and blast radius in one MCP tool call — local, offline-capable, deterministic.",
           details:
-            "OpenCodeHub indexes a repository into a hybrid structural + semantic knowledge graph and exposes it over the Model Context Protocol (MCP) to AI coding agents. The MCP server registers 30 tools across five families — exploration (list_repos, query, context, impact, detect_changes, rename, sql, signature), group / federation (group_list, group_query, group_status, group_contracts, group_cross_repo_links, group_sync), scan / findings / verdict (scan, list_findings, list_findings_delta, list_dead_code, remove_dead_code, license_audit, verdict, risk_trends), HTTP / routing (route_map, api_impact, shape_check, tool_map), and meta (project_profile, dependencies, owners, pack_codebase). The CLI binary is `codehub`. Runtime: Node 20, 22, or 24, pnpm 11, lbug graph store (graph.lbug) + DuckDB temporal sibling (temporal.duckdb), always both, no backend selector (ADR 0016), web-tree-sitter (WASM) is the only parse runtime with all 15 grammar `.wasm` blobs vendored at packages/ingestion/vendor/wasms/, 15 GA languages, SCIP indexers for TypeScript / TSX / JavaScript / Python / Go / Rust / Java / C# / C / C++ / Kotlin / Ruby. 19-scanner inventory. Apache-2.0 end to end. Repos are first-class graph nodes (`repo_uri`); the cross-repo `group_*` family fans out over named groups; AMBIGUOUS_REPO error envelope returns `choices[]` so a caller can retry deterministically.",
+            "OpenCodeHub indexes a repository into a hybrid structural + semantic knowledge graph and exposes it over the Model Context Protocol (MCP) to AI coding agents. The MCP server registers 29 tools across five families — exploration (list_repos, query, context, impact, detect_changes, sql, signature), group / federation (group_list, group_query, group_status, group_contracts, group_cross_repo_links, group_sync), scan / findings / verdict (scan, list_findings, list_findings_delta, list_dead_code, license_audit, verdict, change_pack, risk_trends), HTTP / routing (route_map, api_impact, shape_check, tool_map), and meta (project_profile, dependencies, owners, pack_codebase). The CLI binary is `codehub`. Runtime: Node 24.15+, pnpm 11, a single-file SQLite store (`<repo>/.codehub/store.sqlite`, via Node's built-in node:sqlite) that backs graph nodes, edges, embeddings, and the temporal tables — zero native storage bindings (ADR 0019), web-tree-sitter (WASM) is the only parse runtime with all 15 grammar `.wasm` blobs vendored at packages/ingestion/vendor/wasms/, 15 GA languages, SCIP indexers for TypeScript / TSX / JavaScript / Python / Go / Rust / Java / C# / C / C++ / Kotlin / Ruby. 19-scanner inventory. Apache-2.0 end to end. Repos are first-class graph nodes (`repo_uri`); the cross-repo `group_*` family fans out over named groups; AMBIGUOUS_REPO error envelope returns `choices[]` so a caller can retry deterministically.",
           promote: [
             "start-here/**",
             "agents/**",
@@ -80,7 +80,7 @@ export default defineConfig({
               label: "agents",
               paths: ["agents/**", "mcp/**"],
               description:
-                "Agent-side reference: per-editor MCP setup, the 30-tool catalog, tool decision matrix, idiomatic prompts.",
+                "Agent-side reference: per-editor MCP setup, the 29-tool catalog, tool decision matrix, idiomatic prompts.",
             },
             {
               label: "mcp",

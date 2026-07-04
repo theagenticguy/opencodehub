@@ -11,7 +11,7 @@ graph_hash: <from list_repos>
 
 ## Repo profile                      # from project_profile
 - languages: TypeScript 87%, Rust 11%, Python 2%
-- stacks: Node 22, pnpm 10, DuckDB, Vitest
+- stacks: Node 24, pnpm 10, SQLite (node:sqlite), Vitest
 - entry points: packages/mcp/src/index.ts, packages/cli/src/bin.ts
 
 ## Top communities (≤ 10)            # from sql: SELECT name, inferred_label, cohesion, symbol_count
@@ -80,17 +80,20 @@ File-level fan-out means one role may seed multiple packets (for example, `doc-a
 
 ## Schema preflight (non-optional)
 
-**Before composing any SQL query over `nodes`, `relations`, or any other
-graph table, Phase 0 MUST probe the schema once and cache the result in
-`.prefetch.md`.** Subagents then consult the cached schema instead of
-guessing column names, which would fail with `Binder Error: Referenced
-column "X" not found in FROM clause`.
+**Before composing any SQL query over `nodes`, `edges`, or any other
+table in `store.sqlite`, Phase 0 MUST probe the schema once and cache the
+result in `.prefetch.md`.** Subagents then consult the cached schema
+instead of guessing column names, which would fail with a `no such column`
+SQLite error.
 
-The probe is one SQL call:
+The probe is one SQL call over SQLite's schema catalog:
 
 ```
-sql("SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_name IN ('nodes','relations') ORDER BY table_name, column_name")
+sql("SELECT m.name AS table_name, c.name AS column_name
+     FROM sqlite_master m
+     JOIN pragma_table_info(m.name) c
+     WHERE m.type = 'table' AND m.name IN ('nodes','edges')
+     ORDER BY table_name, column_name")
 ```
 
 Write the result as a dedicated `.context.md § Schema` subsection (top 30
@@ -100,8 +103,8 @@ rows, no cap) and as a digest line in `.prefetch.md` with
 Historical note: `nodes` does not have a `path` column — routes store their
 endpoint under `name` (as `"METHOD /path"`), and the file path is
 `file_path`. Observed during a 2026-04-27 dogfood when subagent prompts
-blindly referenced `path` and hit a Binder Error on an otherwise fresh
-graph. The preflight prevents this class of bug across every subagent.
+blindly referenced `path` and hit a `no such column` error on an otherwise
+fresh index. The preflight prevents this class of bug across every subagent.
 
 ## Phase 0 algorithm (pseudocode)
 
@@ -111,7 +114,7 @@ Steps marked `# wave 0a` and `# wave 0b` each run as a single parallel tool-use 
 # wave 0a — independent precompute (one parallel batch)
 1.  staleness = list_repos → entry for this repo → _meta.codehub/staleness
 2.  profile = project_profile({repo})
-3.  schema = sql("SELECT table_name, column_name FROM information_schema.columns …")
+3.  schema = sql("SELECT … FROM sqlite_master JOIN pragma_table_info(name) …")
 4.  routes = route_map({repo})
 5.  tools = tool_map({repo})
 6.  deps = dependencies({repo})
@@ -126,7 +129,7 @@ Steps marked `# wave 0a` and `# wave 0b` each run as a single parallel tool-use 
 # wave 0b — depends on schema + profile (one parallel batch)
 11. communities = sql("SELECT … FROM nodes WHERE kind='Community' …")
 12. processes   = sql("SELECT … FROM nodes WHERE kind='Process' …")
-13. relations   = sql("SELECT … FROM relations …")   # for diagrams
+13. relations   = sql("SELECT … FROM edges …")   # for diagrams
 14. top_folders = top-5 folders by file count (from profile.entryPoints + glob)
 15. owners_summary = [owners({path}) for path in top_folders]
 16. if --group: group_hits = group_query({group, canonical_terms})

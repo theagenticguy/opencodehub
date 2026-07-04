@@ -5,7 +5,7 @@
  * ONE `*.sqlite` file in WAL mode, opened through Node's built-in
  * `node:sqlite` with zero native dependencies, can back the graph tier
  * (nodes, edges, traversal), the embedding tier (Float32Array vectors,
- * cosine KNN), and the temporal tier — replacing the lbug + DuckDB pair.
+ * cosine KNN), and the temporal tier — one file, one backend (ADR 0019).
  *
  * The acceptance bar:
  *   - a real KnowledgeGraph bulk-loads and round-trips (nodes + edges) from

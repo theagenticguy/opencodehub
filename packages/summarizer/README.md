@@ -47,7 +47,7 @@ console.log(`attempts=${result.attempts} cacheRead=${result.usageByAttempt[0].ca
 - **Ingestion call site:** `packages/ingestion/src/pipeline/phases/summarize.ts`
   invokes `summarizeSymbol` once per high-confidence callable (SCIP-backed
   Function / Method / Class), gated by `--summaries` + budget + offline flags.
-  Results land in the `symbol_summaries` DuckDB table (see
+  Results land in the `symbol_summaries` table in store.sqlite (see
   `packages/storage/src/schema-ddl.ts`); they never mutate graph nodes or edges.
 - **Retrieval site:** `packages/ingestion/src/pipeline/phases/embeddings.ts`
   fuses each summary into the symbol-tier embedding (`signature + summary +

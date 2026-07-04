@@ -8,6 +8,7 @@
   "include": ["src/**/*", "test/**/*"],
   "references": [
     { "path": "../analysis" },
+    { "path": "../core-ops" },
     { "path": "../core-types" },
     { "path": "../embedder" },
     { "path": "../eval" },

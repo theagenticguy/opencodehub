@@ -77,11 +77,11 @@ codehub setup --editors claude-code
 codehub analyze
 ```
 
-`analyze` writes the graph to `.codehub/` under the repo root and
-registers the repo in `~/.codehub/registry.json`. The graph always lands
-in `.codehub/graph.lbug` (LadybugDB) with `.codehub/temporal.duckdb`
-alongside it; if `@ladybugdb/core` cannot load on the current platform,
-analyze aborts with a `GraphDbBindingError` rather than falling back.
+`analyze` writes the index to `.codehub/` under the repo root and
+registers the repo in `~/.codehub/registry.json`. The whole index always
+lands in one `.codehub/store.sqlite` file (WAL mode) via Node's built-in
+`node:sqlite`; there is no native storage binding to load and no
+platform where analyze fails for lack of a prebuilt (ADR 0019).
 Add `--embeddings` to compute semantic vectors for hybrid search, or
 `--offline` to guarantee zero network sockets.
 
@@ -117,7 +117,7 @@ codehub impact validateUser --depth 2
 
 - [Your first query](/opencodehub/start-here/first-query/) walks through
   `query`, `context`, and `impact` with sample output.
-- [MCP tools](/opencodehub/mcp/tools/) lists all 28 tools the server
+- [MCP tools](/opencodehub/mcp/tools/) lists all 29 tools the server
   exposes.
 - [Using with Claude Code](/opencodehub/guides/using-with-claude-code/)
   covers the plugin path (PreToolUse hooks) and the MCP-only path.

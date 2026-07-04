@@ -1,6 +1,6 @@
 ---
 title: MCP resources
-description: The seven MCP resources the opencodehub server publishes alongside its 28 tools.
+description: The seven MCP resources the opencodehub server publishes alongside its 29 tools.
 sidebar:
   order: 30
 ---

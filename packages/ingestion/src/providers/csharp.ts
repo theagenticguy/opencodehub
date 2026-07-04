@@ -1,9 +1,11 @@
 import type { NodeKind } from "@opencodehub/core-types";
 import {
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixNoRegexReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
   stripComments,
 } from "./extract-helpers.js";
 import type {
@@ -57,98 +59,25 @@ function mapCsharpDefKind(def: import("../parse/types.js").ParseCapture): NodeKi
   return undefined;
 }
 
+const CSHARP_DEFS_CONFIG: DefinitionsConfig = {
+  // C# resolves kind off `def.nodeType` (class/struct/record/enum/constructor)
+  // — a `Record<tag,NodeKind>` cannot express it, hence the function form.
+  kindFor: mapCsharpDefKind,
+  isExported: ({ def, sourceText }) => /\bpublic\b/.test(getLine(sourceText, def.startLine)),
+};
+
 function extractCsharpDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = mapCsharpDefKind(def);
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const headerLine = getLine(sourceText, def.startLine);
-    const isExported = /\bpublic\b/.test(headerLine);
-
-    const rec: ExtractedDefinition = {
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    };
-    out.push(rec);
-  }
-  return out;
+  return extractDefinitionsGeneric(input, CSHARP_DEFS_CONFIG);
 }
+
+const CSHARP_CALLS_CONFIG: CallsConfig = {
+  // C# is the only provider that also treats `reference.send` as a call site.
+  callTags: ["reference.call", "reference.send"],
+  inferReceiver: dotPrefixNoRegexReceiver(),
+};
 
 function extractCsharpCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call" || c.tag === "reference.send");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(`.${innerName.text}`);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        if (prefix !== "") receiver = prefix;
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly import("../parse/types.js").ParseCapture[],
-  outer: import("../parse/types.js").ParseCapture,
-): import("../parse/types.js").ParseCapture | undefined {
-  let best: import("../parse/types.js").ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: import("../parse/types.js").ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, CSHARP_CALLS_CONFIG);
 }
 
 /**

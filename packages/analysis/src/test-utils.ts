@@ -132,7 +132,7 @@ function sortNodesById(nodes: readonly FakeNode[]): FakeNode[] {
 
 /**
  * Sort edges by `(from, to, type)` so callers see the same order as
- * `listEdges` returns from DuckDb/GraphDb.
+ * `listEdges` returns from the store.
  */
 function sortEdges(edges: readonly FakeEdge[]): FakeEdge[] {
   return [...edges].sort((a, b) => {

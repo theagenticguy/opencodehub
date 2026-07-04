@@ -39,8 +39,8 @@ jobs:
     # Parsing is WASM-only on every supported Node version (ADR 0015), so the
     # test suite needs no native grammar build — `--ignore-scripts` is the
     # single install path across the matrix. The remaining native deps
-    # (@duckdb/node-api, @ladybugdb/core, onnxruntime-node) ship prebuilds, so
-    # storage/embedder tests pass without running postinstall.
+    # the WASM embedder (onnxruntime-web) and node:sqlite need no native build, so
+    # storage/embedder tests pass without running postinstall (ADR 0019).
     #
     # Build before test: every package's `test` runs `node --test` against its
     # built `dist/` (and the cli compiles `src` → `dist-test/`), so the dist

@@ -1,11 +1,13 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
+  type CallsConfig,
+  type DefinitionsConfig,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
   innermostEnclosingContainer,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  kindFromMap,
+  sepStripReceiver,
 } from "./extract-helpers.js";
 import type {
   ExtractedCall,
@@ -58,105 +60,25 @@ const CPP_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.template": "Template",
 };
 
+const CPP_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(CPP_DEF_KIND_MAP),
+  isExported: ({ name, def, sourceText }) =>
+    !/\bstatic\b/.test(getLine(sourceText, def.startLine)) && !name.startsWith("_"),
+};
+
 function extractCppDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = CPP_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const headerLine = getLine(sourceText, def.startLine);
-    const isStatic = /\bstatic\b/.test(headerLine);
-    const isExported = !isStatic && !name.text.startsWith("_");
-
-    out.push({
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    });
-  }
-  return out;
+  return extractDefinitionsGeneric(input, CPP_DEFS_CONFIG);
 }
+
+const CPP_CALLS_CONFIG: CallsConfig = {
+  // Receiver inference — `obj.method()`, `ptr->method()`, and `ns::fn()` are
+  // the common selector forms. Strip the trailing operator (`.` / `->` / `::`)
+  // off the bare-name prefix and normalize into a bare identifier.
+  inferReceiver: sepStripReceiver(/(?:\.|->|::)$/, /^[A-Za-z_][\w:]*$/),
+};
 
 function extractCppCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Receiver inference — `obj.method()`, `ptr->method()`, and `ns::fn()`
-    // are the common selector forms. We pick the text before the callee
-    // name and normalize the two pointer-forms into a bare identifier.
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(innerName.text);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        // Strip trailing operator: `obj.` / `ptr->` / `Ns::`.
-        const stripped = prefix.replace(/(?:\.|->|::)$/, "").trim();
-        if (stripped !== "" && /^[A-Za-z_][\w:]*$/.test(stripped)) {
-          receiver = stripped;
-        }
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, CPP_CALLS_CONFIG);
 }
 
 function extractCppImports(input: ExtractImportsInput): readonly ExtractedImport[] {

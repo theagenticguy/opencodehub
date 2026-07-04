@@ -1,5 +1,10 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import { getLine, innermostEnclosingDef, pairDefinitionsWithNames } from "./extract-helpers.js";
+import {
+  type DefinitionsConfig,
+  extractDefinitionsGeneric,
+  getLine,
+  kindFromMap,
+} from "./extract-helpers.js";
 import type { ExtractedDefinition } from "./extraction-types.js";
 import { detectHttpCallsTsJs } from "./http-detect.js";
 import { extractTsCalls, extractTsHeritage, extractTsImports } from "./ts-shared.js";
@@ -21,45 +26,21 @@ const JS_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
 };
 
 function extractJsDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const exportedNames = collectCjsExports(sourceText);
-  const out: ExtractedDefinition[] = [];
+  // CommonJS export names are collected once per file, then consulted by the
+  // top-level export predicate below.
+  const exportedNames = collectCjsExports(input.sourceText);
 
-  for (const { def, name } of paired) {
-    const kind = JS_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    let owner: string | undefined;
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const headerLine = getLine(sourceText, def.startLine);
-
-    const exported =
-      ownerDef !== undefined
+  const config: DefinitionsConfig = {
+    kindFor: kindFromMap(JS_DEF_KIND_MAP),
+    isExported: ({ name, def, sourceText, ownerDef }) => {
+      const headerLine = getLine(sourceText, def.startLine);
+      return ownerDef !== undefined
         ? !/\bprivate\b/.test(headerLine)
-        : /\bexport\b/.test(headerLine) || exportedNames.has(name.text);
-
-    const rec: ExtractedDefinition = {
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported: exported,
-      ...(owner !== undefined ? { owner } : {}),
-      ...(kind === "Const" ? { isConst: /\bconst\b/.test(headerLine) } : {}),
-    };
-    out.push(rec);
-  }
-  return out;
+        : /\bexport\b/.test(headerLine) || exportedNames.has(name);
+    },
+    wantsConst: true,
+  };
+  return extractDefinitionsGeneric(input, config);
 }
 
 /** Extract `module.exports.foo = ...` / `exports.foo = ...` names. */

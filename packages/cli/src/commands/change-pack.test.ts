@@ -11,7 +11,7 @@
  *   4. The store is always closed (finally), even on the summary path.
  *
  * Each test injects an `_openStore` factory + an `_runChangePack` stand-in
- * so nothing hits lbug/DuckDB or git. The CLI's contract under test is the
+ * so nothing hits the store or git. The CLI's contract under test is the
  * exit-code passthrough (`pack.verdict.exitCode`) and the JSON shape — not
  * the analysis module's compose logic, which has its own suite.
  */
@@ -39,8 +39,8 @@ function fakeStore(): FakeStoreHandle {
   const store = {
     graph: FAKE_GRAPH,
     temporal: {} as unknown,
-    graphFile: "/tmp/fake-repo/.codehub/graph.lbug",
-    temporalFile: "/tmp/fake-repo/.codehub/temporal.duckdb",
+    graphFile: "/tmp/fake-repo/.codehub/store.sqlite",
+    temporalFile: "/tmp/fake-repo/.codehub/store.sqlite",
     close: async () => {
       wasClosed = true;
     },

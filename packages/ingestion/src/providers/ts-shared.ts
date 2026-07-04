@@ -8,12 +8,14 @@
  */
 
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
+  type CallsConfig,
+  type DefinitionsConfig,
+  dotPrefixNoRegexReceiver,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  kindFromMap,
   splitNamedImports,
   stripComments,
 } from "./extract-helpers.js";
@@ -45,46 +47,19 @@ const TS_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.module": "Namespace",
 };
 
+const TS_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(TS_DEF_KIND_MAP),
+  // Use the header line for export/declaration analysis. Nesting is signalled
+  // by the presence of an enclosing definition (`ownerDef`).
+  isExported: ({ def, sourceText, ownerDef }) =>
+    isTsDefExported(getLine(sourceText, def.startLine), ownerDef !== undefined),
+  wantsConst: true,
+};
+
 export function extractTsDefinitions(
   input: ExtractDefinitionsInput,
 ): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = TS_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    // Derive owner for nested definitions (e.g. methods inside a class).
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    let owner: string | undefined;
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-
-    // Use the header line for export/declaration analysis.
-    const headerLine = getLine(sourceText, def.startLine);
-    const exported = isTsDefExported(headerLine, kind, ownerDef !== undefined);
-
-    const rec: ExtractedDefinition = {
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported: exported,
-      ...(owner !== undefined ? { owner } : {}),
-      ...(kind === "Const" ? { isConst: /\bconst\b/.test(headerLine) } : {}),
-    };
-    out.push(rec);
-  }
-  return out;
+  return extractDefinitionsGeneric(input, TS_DEFS_CONFIG);
 }
 
 /**
@@ -92,7 +67,7 @@ export function extractTsDefinitions(
  * contains an `export` keyword. For class members the parent's export state
  * controls visibility — downstream phases may re-check via `isExported()`.
  */
-function isTsDefExported(headerLine: string, _kind: NodeKind, isNested: boolean): boolean {
+function isTsDefExported(headerLine: string, isNested: boolean): boolean {
   if (isNested) {
     // Method/field visibility is governed by its class, not the member line.
     // Treat as exported when `public` or no explicit modifier (TS default).
@@ -106,79 +81,17 @@ function isTsDefExported(headerLine: string, _kind: NodeKind, isNested: boolean)
 // Calls
 // ---------------------------------------------------------------------------
 
+// Distinguish `obj.method()` from bare `fn()`: `ref.text` is the full call
+// expression source (e.g. `this.foo(x)` or `a.b.c.method(y)`). Everything
+// before the last `.callee` is the receiver expression — we keep the full
+// non-empty prefix (identifier, `this`, or a chain) so downstream typing can
+// further resolve it (no regex filter).
+const TS_CALLS_CONFIG: CallsConfig = {
+  inferReceiver: dotPrefixNoRegexReceiver(),
+};
+
 export function extractTsCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    // The `@name` capture sits inside the `@reference.call` range.
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Distinguish `obj.method()` from bare `fn()`: the call capture range
-    // starts where the member expression begins, so reading the source line
-    // in front of the name lets us infer a receiver.
-    const receiver = inferTsReceiver(ref, innerName);
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function inferTsReceiver(ref: ParseCapture, name: ParseCapture | undefined): string | undefined {
-  if (name === undefined) return undefined;
-  // `ref.text` is the full call expression source (e.g. `this.foo(x)` or
-  // `obj.method(y)`). Everything before the last `.` ahead of the callee
-  // name is the receiver expression.
-  const text = ref.text;
-  const nameText = name.text;
-  const idx = text.lastIndexOf(`.${nameText}`);
-  if (idx <= 0) return undefined;
-  const receiverExpr = text.slice(0, idx).trim();
-  if (receiverExpr === "") return undefined;
-  // We only keep simple receivers (identifiers or `this`). Chained
-  // expressions like `a.b.c.method()` surface the full chain — keep the
-  // full prefix so downstream typing can further resolve it.
-  if (receiverExpr === "this") return "this";
-  // A pure identifier receiver is the most common and useful case.
-  if (/^[A-Za-z_$][\w$]*$/.test(receiverExpr)) return receiverExpr;
-  return receiverExpr;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, TS_CALLS_CONFIG);
 }
 
 // ---------------------------------------------------------------------------

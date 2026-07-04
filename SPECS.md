@@ -4,9 +4,9 @@
 
 OpenCodeHub is an Apache-2.0, local-first code-intelligence toolchain for AI
 coding agents. It ingests a source tree into a hybrid knowledge graph
-(structural relations + semantic vectors) stored as a two-tier split — an
-lbug graph (`@ladybugdb/core`, `graph.lbug`) plus a DuckDB temporal sibling
-(`temporal.duckdb`), both under `<repo>/.codehub/` (ADR 0016) — and exposes
+(structural relations + semantic vectors) stored in a single-file SQLite
+index (`store.sqlite`, WAL, via Node's built-in `node:sqlite`) under
+`<repo>/.codehub/` (ADR 0019, superseding ADR 0016) — and exposes
 that graph over the Model Context Protocol and a `codehub` CLI. Agents use
 it to answer "what breaks if I change this, what depends on it, where does
 this data flow" *before* they produce a diff.
@@ -20,7 +20,7 @@ Communities and Processes, and optionally populates embeddings from a
 pinned F2LLM-v2-80M ONNX model (320-dim; fp32 ~321 MB or int8 ~81 MB) or
 an OpenAI-compatible HTTP endpoint.
 
-At query time it exposes an MCP server with 28 tools (`query`, `context`,
+At query time it exposes an MCP server with 29 tools (`query`, `context`,
 `impact`, `signature`, `detect_changes`, `sql`, scanner /
 finding / dependency / verdict / route tools, and cross-repo `group_*`
 tools), along with a CLI that mirrors the main tools plus administrative
@@ -32,9 +32,8 @@ working tree.
 
 - Not a language server. It runs SCIP indexers as one-shot artifact
   producers and does not speak LSP to editors directly.
-- Not a SaaS. There is no server to operate; the graph lives as two
-  embedded files under `<repo>/.codehub/` (the lbug `graph.lbug` plus the
-  DuckDB `temporal.duckdb`).
+- Not a SaaS. There is no server to operate; the graph lives as one
+  embedded file under `<repo>/.codehub/` (`store.sqlite`).
 - Not a hosted vector DB. Embeddings are optional and local; there is no
   network dependency for analyze or query.
 - Not a ranking / recommendation product. The graph is precomputed at index
@@ -130,35 +129,38 @@ indexers agree on `package{manager,name,version}`.
 
 ## 3. Storage & schema
 
-3.1 The system shall persist the graph tier to an lbug graph file
-(`graph.lbug`, `@ladybugdb/core`) and the temporal tier — cochanges and
-structured symbol summaries — to a DuckDB file (`temporal.duckdb`), both
-under `<repo>/.codehub/`. Both files are written on every analyze; there is
-no `CODEHUB_STORE` env var, no backend probe, and no single-file DuckDB
-graph layout (ADR 0016).
+3.1 The system shall persist the entire index — graph nodes, edges,
+embeddings, and the temporal tables (cochanges and structured symbol
+summaries) — to a single `store.sqlite` file (WAL, via `node:sqlite`) under
+`<repo>/.codehub/`. The file is written on every analyze; there is no
+`CODEHUB_STORE` env var, no backend probe, and no separate graph/temporal
+file split (ADR 0019, superseding ADR 0016).
 
-3.2 The storage layer shall segregate `IGraphStore` (graph workload: nodes,
-edges, embeddings, multi-hop traversal) from `ITemporalStore` (cochanges,
-summary cache). `IGraphStore` lives only on `GraphDbStore`; `DuckDbStore`
-implements `ITemporalStore` only; `openStore()` composes them. The
-segregated interfaces are the v1.0 contract for community-fork adapters
-(AGE / Memgraph / Neo4j / Neptune target `IGraphStore`). If the lbug
-binding fails to load, `open()` throws `GraphDbBindingError`.
+3.2 The storage layer shall retain the segregated `IGraphStore` (graph
+workload: nodes, edges, embeddings, multi-hop traversal) and `ITemporalStore`
+(cochanges, summary cache) interfaces. One `SqliteStore` class implements
+BOTH over the single file, and `openStore()` returns that instance as both
+views. The segregated interfaces are the v1.0 contract for community-fork
+adapters (AGE / Memgraph / Neo4j / Neptune implement `IGraphStore` and pair
+with any SQL-shaped `ITemporalStore`). There is no native storage binding to
+load, so `open()` cannot fail on a missing binding.
 
 3.3 While executing the `sql` MCP tool or `codehub sql` CLI, the system
 shall reject non-read-only statements and apply a 5-second default timeout.
-The `sql` path targets the DuckDB temporal store (`cochanges` +
-`symbol_summaries`); the node/edge graph is queried via the typed tools or
-via Cypher (the `sql` tool's `cypher` argument), not this SQL path.
+The `sql` path targets the SQLite index directly (`nodes`, `edges`,
+`embeddings`, `cochanges`, `symbol_summaries`, `store_meta` are all
+SQL-queryable); the typed tools remain the high-level path. The `cypher`
+argument is reserved for community-fork graph adapters and is unsupported by
+the default backend.
 
-3.4 The vector search path shall use the lbug graph's filter-aware
-nearest-neighbour traversal when embeddings are populated.
+3.4 The vector search path shall use filter-aware nearest-neighbour search
+over the `embeddings` table when embeddings are populated.
 
-3.5 The full-text search path shall use BM25 scoring over the indexed
-symbols.
+3.5 The full-text search path shall use BM25 scoring (SQLite FTS5) over the
+indexed symbols.
 
-3.6 Multi-hop graph traversal shall be expressed in the lbug graph's Cypher
-dialect rather than recursive SQL CTEs.
+3.6 Multi-hop graph traversal shall be expressed as recursive SQL CTEs over
+the `edges` table.
 
 3.7 The storage layer shall write metadata (schema version, graph hash,
 last-analyzed commit) atomically and expose it via `getMeta`.
@@ -215,12 +217,12 @@ merge-safe tiers, 1 for review-required tiers, and 2 for `block`.
 6.1 The MCP server shall advertise itself as `opencodehub` over stdio with
 an `instructions` block steering clients to call `list_repos` first.
 
-6.2 The server shall register 28 tools: `list_repos`, `query`, `context`,
+6.2 The server shall register 29 tools: `list_repos`, `query`, `context`,
 `impact`, `signature`, `detect_changes`, `sql`, `group_list`,
 `group_query`, `group_status`, `group_contracts`, `group_cross_repo_links`,
 `group_sync`, `project_profile`, `dependencies`, `license_audit`, `owners`,
 `list_findings`, `list_findings_delta`, `list_dead_code`,
-`scan`, `verdict`, `risk_trends`, `route_map`,
+`scan`, `verdict`, `change_pack`, `risk_trends`, `route_map`,
 `api_impact`, `shape_check`, `tool_map`, and `pack_codebase`. No registered
 tool mutates user source files; the MCP surface is read-only with respect
 to the working tree.
@@ -258,7 +260,8 @@ shall reject it with `SqlGuardError`.
 and `sql`.
 
 7.2 The CLI shall lazy-load every subcommand via `await import(...)` so
-`codehub --help` does not transitively load DuckDB or tree-sitter.
+`codehub --help` does not transitively load the WASM parser or the embedder
+runtime.
 
 7.3 The `setup` command shall write MCP configuration stanzas for
 claude-code, cursor, codex, windsurf, and opencode; pass `--undo` to

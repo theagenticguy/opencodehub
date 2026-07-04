@@ -1,36 +1,38 @@
 # @opencodehub/storage
 
-Storage abstraction for OpenCodeHub. The graph tier is always
-`@ladybugdb/core` (`graph.lbug`) — symbols, edges, embeddings, HNSW ANN
-search, and BM25 full-text search. The temporal tier is always DuckDB
-(`temporal.duckdb`) — cochanges and the symbol-summary cache.
+Storage abstraction for OpenCodeHub. The whole index lives in one
+`<repo>/.codehub/store.sqlite` file (WAL) via Node's built-in `node:sqlite`
+— graph nodes, edges, embeddings, BM25 full-text search, and the temporal
+tables (cochanges, symbol-summary cache). One `SqliteStore` class
+implements both the graph tier (`IGraphStore`) and the temporal tier
+(`ITemporalStore`); there are zero native storage bindings.
 
 ## Surface
 
 ```ts
-import { openStore, StorageAdapter } from "@opencodehub/storage";
+import { openStore, type Store } from "@opencodehub/storage";
 
-const store = await openStore({ repoRoot: "/path/to/repo" });
-// store: StorageAdapter — read/write graph nodes and edges
+const store = await openStore({ path: "/path/to/repo/.codehub" });
+await store.graph.open();
+// store.graph.X() / store.temporal.Y() — both hit the one SqliteStore
 ```
 
-- **`openStore`** — opens both tiers and returns `{ graph: GraphDbStore,
-  temporal: DuckDbStore, graphFile, temporalFile, close }`. No `backend`
-  field, no probe, no fallback; if `@ladybugdb/core` cannot load,
-  `open()` throws `GraphDbBindingError` and the operation aborts.
-- **`GraphDbStore` / `DuckDbStore`** — `IGraphStore` lives only on
-  `GraphDbStore`; `DuckDbStore` implements `ITemporalStore` only. The
-  segregated interfaces are the v1.0 contract for community-fork adapters
-  (AGE / Memgraph / Neo4j / Neptune target `IGraphStore`).
-- **`test-utils`** — exported as `@opencodehub/storage/test-utils` for
-  in-memory stores in tests (`packages/storage/src/test-utils/index.ts`).
-  The `assertIGraphStoreConformance` conformance suite stays as the
-  community-adapter contract.
+- **`openStore`** — constructs one `SqliteStore` and returns it as both
+  views: `{ graph, temporal, graphFile, temporalFile, close }`. `graph`
+  and `temporal` are the same instance; `graphFile` and `temporalFile`
+  are the same `store.sqlite` path (retained so callers keep compiling).
+  No `backend` field, no probe, no fallback, nothing to compile at install.
+- **`SqliteStore`** — the single concrete adapter, implementing
+  `IGraphStore` + `ITemporalStore`. The two interfaces stay segregated as
+  the contract for a community SQL-shaped fork that wants to swap the
+  temporal tier.
+- **`test-utils`** — exported as `@opencodehub/storage/test-utils`
+  (`packages/storage/src/test-utils/index.ts`). Ships `assertGraphParity`
+  + `rebuildFromStore`, the graphHash byte-identity parity primitives the
+  in-tree `sqlite-parity.test.ts` runs across every node/edge kind.
 
-There is no backend selection: lbug owns the graph, DuckDB owns the
-temporal store, both files are always written. See
-[ADR 0016](../../docs/adr/0016-duckdb-graph-rip.md) for the rationale
-behind ripping out the DuckDB graph backend.
+See [ADR 0019](../../docs/adr/0019-single-file-sqlite-storage.md) for the
+single-file SQLite migration (supersedes ADR 0016's DuckDB-graph rip).
 
 ## Design
 

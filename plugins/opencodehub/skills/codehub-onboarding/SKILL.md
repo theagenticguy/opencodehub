@@ -52,7 +52,7 @@ Produces a single ONBOARDING.md with a ranked reading order drawn from graph cen
 | Layer | Tech | Source |
 |---|---|---|
 | Runtime | Node 22 | `package.json:7` |
-| Storage | DuckDB | `packages/storage/src/index.ts:12` |
+| Storage | SQLite (single-file, node:sqlite) | `packages/storage/src/index.ts:12` |
 | ... | ... | ... |
 
 ## Read these 10 files first (in order)

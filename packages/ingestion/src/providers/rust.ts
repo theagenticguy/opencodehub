@@ -1,8 +1,11 @@
 import type { NodeKind } from "@opencodehub/core-types";
 import {
+  type CallsConfig,
+  extractCallsGeneric,
   getLine,
   innermostEnclosingDef,
   isInside,
+  multiSepReceiver,
   pairDefinitionsWithNames,
   stripComments,
 } from "./extract-helpers.js";
@@ -119,72 +122,15 @@ function findEnclosingImpl(
   return best;
 }
 
+const RUST_CALLS_CONFIG: CallsConfig = {
+  // Receiver inference for Rust: `self.method()`, `Struct::method()`,
+  // `path::to::fn()`. Prefer `::` scoping, fall back to `.` field access; the
+  // first separator with a non-empty prefix wins (no regex guard).
+  inferReceiver: multiSepReceiver(["::", "."]),
+};
+
 function extractRustCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Receiver inference for Rust: `self.method()`, `Struct::method()`,
-    // `path::to::fn()`. We look at the source slice before the callee name.
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const text = ref.text;
-      // Prefer `::` scoping, fall back to `.` field access.
-      const nameWithSep = [`::${innerName.text}`, `.${innerName.text}`];
-      for (const sep of nameWithSep) {
-        const idx = text.lastIndexOf(sep);
-        if (idx > 0) {
-          const prefix = text.slice(0, idx).trim();
-          if (prefix !== "") {
-            receiver = prefix;
-            break;
-          }
-        }
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly import("../parse/types.js").ParseCapture[],
-  outer: import("../parse/types.js").ParseCapture,
-): import("../parse/types.js").ParseCapture | undefined {
-  let best: import("../parse/types.js").ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: import("../parse/types.js").ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, RUST_CALLS_CONFIG);
 }
 
 /**

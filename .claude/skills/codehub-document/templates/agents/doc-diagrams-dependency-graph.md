@@ -26,7 +26,7 @@ Produce `{{ docs_root }}/diagrams/structural/dependency-graph.md`: a single Merm
 | Shared context | `Read {{ context_path }}` | always first |
 | Prefetch ledger | `Read {{ prefetch_path }}` | always first |
 | Top communities | `{{ context_path }} § Top communities` | cached |
-| Internal edges | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT source, target, kind FROM relations WHERE kind IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
+| Internal edges | `{{ prefetch_path }} § sql relations` or `mcp__codehub__sql({query: "SELECT src, dst, type FROM edges WHERE type IN ('CONTAINS','CALLS','IMPORTS') LIMIT 500"})` | cached if digest present; mid-run otherwise |
 | External dependencies | `{{ context_path }} § Stack` or `mcp__codehub__dependencies({repo: "{{ repo }}"})` | cached if digest present; mid-run otherwise |
 
 ## 4. Process

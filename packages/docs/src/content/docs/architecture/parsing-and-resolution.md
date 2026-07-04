@@ -20,7 +20,7 @@ threads. Each file is hashed and the resulting `ParseCapture[]` is
 cached keyed on `(sha256, grammarSha, SCHEMA_VERSION)`, so a subsequent
 analyze with the same content skips tree-sitter entirely.
 
-The runtime is `web-tree-sitter` (WASM) on Node 20, 22, and 24 — the
+The runtime is `web-tree-sitter` (WASM) on Node ≥24.15, the
 only supported parse runtime. All 15 grammar `.wasm` blobs are vendored
 at `packages/ingestion/vendor/wasms/`, built from the grammar sources
 pinned in `package.json`; rebuild via `bash scripts/build-vendor-wasms.sh`

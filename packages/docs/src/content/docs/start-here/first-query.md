@@ -18,7 +18,7 @@ haven't linked the CLI, replace `codehub` with
 
 ## Hybrid search: `query`
 
-`codehub query` fuses BM25 lexical search with HNSW vector search (when
+`codehub query` fuses BM25 lexical search with brute-force vector KNN (when
 embeddings are present) to find symbols related to a natural-language
 concept.
 
@@ -99,7 +99,7 @@ down` restricts to dependencies (who do I call), and `--direction both`
 ## Next
 
 - [MCP tools overview](/opencodehub/mcp/overview/) for the full server
-  capabilities (28 tools across exploration, federation, scan, HTTP,
+  capabilities (29 tools across exploration, federation, scan, HTTP,
   and meta).
 - [Using with Claude Code](/opencodehub/guides/using-with-claude-code/)
   to let the agent run these tools for you.

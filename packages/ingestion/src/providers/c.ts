@@ -1,10 +1,10 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
+  type DefinitionsConfig,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
   getLine,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  kindFromMap,
 } from "./extract-helpers.js";
 import type {
   ExtractedCall,
@@ -51,90 +51,22 @@ const C_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.macro": "Macro",
 };
 
+const C_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(C_DEF_KIND_MAP),
+  // C convention: identifiers prefixed with `_` tend to be internal; we
+  // respect both `static` (file-scoped) and leading-underscore as non-exported.
+  isExported: ({ name, def, sourceText }) =>
+    !/\bstatic\b/.test(getLine(sourceText, def.startLine)) && !name.startsWith("_"),
+};
+
 function extractCDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures, sourceText } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = C_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const headerLine = getLine(sourceText, def.startLine);
-    const isStatic = /\bstatic\b/.test(headerLine);
-    // C convention: identifiers prefixed with `_` tend to be internal; we
-    // respect both `static` and leading-underscore as non-exported.
-    const isExported = !isStatic && !name.text.startsWith("_");
-
-    out.push({
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    });
-  }
-  return out;
+  return extractDefinitionsGeneric(input, C_DEFS_CONFIG);
 }
 
 function extractCCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  // C emits NO receiver: qualified calls (`ns::foo()`) are a C++ concept, not
+  // applicable here. Omitting `inferReceiver` means `calleeOwner` is never set.
+  return extractCallsGeneric(input);
 }
 
 /**

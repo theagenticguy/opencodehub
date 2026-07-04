@@ -157,7 +157,7 @@ test("status degrades to summaries:- / vectors:unknown when the store can't open
   const repoPath = await seedRepo(home, "degraded");
   const cap = captureStdout();
   try {
-    // Default probe: no graph.lbug exists in the seeded repo → undefined.
+    // Default probe: no store.sqlite exists in the seeded repo → undefined.
     await runStatus(repoPath, { home, probeRetrieval: async () => undefined });
   } finally {
     cap.restore();

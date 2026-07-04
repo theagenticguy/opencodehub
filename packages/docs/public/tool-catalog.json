@@ -1,14 +1,14 @@
 {
   "$schema": "https://opencodehub.dev/schemas/tool-catalog-v1.json",
   "version": "1.0.0",
-  "description": "Machine-readable catalog of the 28 MCP tools the OpenCodeHub server registers. Every tool is read-only with respect to user source — no tool edits the working tree. Generated to be fetched by an AI coding agent that wants the catalog without scraping the docs.",
+  "description": "Machine-readable catalog of the 29 MCP tools the OpenCodeHub server registers. Every tool is read-only with respect to user source — no tool edits the working tree. Generated to be fetched by an AI coding agent that wants the catalog without scraping the docs.",
   "server": {
     "name": "opencodehub",
     "transport": "stdio",
     "launch_command": "codehub mcp",
     "capabilities": ["tools", "resources"]
   },
-  "tool_count": 28,
+  "tool_count": 29,
   "families": {
     "exploration": "High-frequency code-graph tools.",
     "group": "Cross-repo federation tools (require a named group).",
@@ -65,7 +65,7 @@
     {
       "name": "sql",
       "family": "exploration",
-      "description": "Read-only SQL against the DuckDB temporal store (cochanges + symbol_summaries). 5-second timeout. The node/edge graph is queried via the typed tools or Cypher.",
+      "description": "Read-only SQL against the temporal store (cochanges + symbol_summaries). 5-second timeout. The node/edge graph is queried via the typed tools or Cypher.",
       "when_to_use": "Custom view of the temporal store (cochanges + symbol_summaries) that no other tool exposes.",
       "when_not_to_use": "A typed tool (context, impact, query) already covers the question, or you need the node/edge graph (reach it via the typed tools or Cypher).",
       "signature_sketch": "sql({query, repo?, repo_uri?}) -> {rows, row_count, next_steps}",
@@ -187,6 +187,15 @@
       "when_not_to_use": "Local exploratory analysis — call detect_changes.",
       "signature_sketch": "verdict({repo?, repo_uri?, base?, head?}) -> {tier, exit_code, reasons, signals}",
       "example": "verdict({base: 'main', head: 'HEAD'})"
+    },
+    {
+      "name": "change_pack",
+      "family": "scan",
+      "description": "Deterministic, diff-scoped context pack: changed symbols plus their upstream impacted subgraph, the 5-tier verdict, affected tests, and a token-cost estimate.",
+      "when_to_use": "Hand a CI agent everything a diff touches in one read-only payload.",
+      "when_not_to_use": "Whole-repo snapshot — call pack_codebase; plain merge gate — call verdict.",
+      "signature_sketch": "change_pack({repo?, repo_uri?, base?, head?, depth?, budget?}) -> {changed, impacted_subgraph, verdict, affected_tests, cost_estimate}",
+      "example": "change_pack({base: 'main', head: 'HEAD'})"
     },
     {
       "name": "risk_trends",

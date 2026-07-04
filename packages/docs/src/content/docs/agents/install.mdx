@@ -14,9 +14,9 @@ right config and links the plugin.
 
 ## 1. Prerequisites
 
-- **Node** 20, 22, or 24. Parsing is `web-tree-sitter` (WASM) on every
-  supported version — no native parser, no build step.
-- **pnpm** 10 or newer.
+- **Node** ≥24.15. The store is the built-in `node:sqlite` and parsing
+  is `web-tree-sitter` (WASM): no native binding, no build step.
+- **pnpm** 11 or newer.
 - **git**.
 - Optional: [`mise`](https://mise.jdx.dev) — recommended for the
   per-project tool versions and the `cli:link` task.
@@ -56,8 +56,8 @@ codehub init
   project-scope MCP file.
 - `.claude/` — links the OpenCodeHub plugin so Claude Code gets slash
   commands, the `code-analyst` subagent, and 11 skills.
-- `.gitignore` — appends `.codehub/` so the local graph and temporal
-  store stay out of version control.
+- `.gitignore` — appends `.codehub/` so the local `store.sqlite` index
+  stays out of version control.
 - `opencodehub.policy.yaml` — seed policy file (license tiers, risk
   thresholds). Edit to taste, commit if you want repo-wide policy.
 
@@ -72,12 +72,12 @@ medium monorepo, 5–10 minutes the first time on a large repo (after
 which incremental analyzes are sub-second per file). Output is written
 to `.codehub/` next to the project root.
 
-Storage is split across two always-present files under `.codehub/`: the
-graph tier is LadybugDB (`graph.lbug`) and the temporal tier is DuckDB
-(`temporal.duckdb`). There is no selection knob and no fallback — if the
-LadybugDB binding fails to load, the operation aborts with a
-`GraphDbBindingError`. See
-[ADR 0016](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0016-duckdb-graph-rip.md).
+Storage is one always-present file under `.codehub/`: the whole index
+lives in `store.sqlite` (WAL mode) via Node's built-in `node:sqlite`,
+holding graph nodes, edges, embeddings, and the temporal tables. There
+is no selection knob, no native storage binding, and no platform where
+this fails for lack of a prebuilt. See
+[ADR 0019](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0019-single-file-sqlite-storage.md).
 
 ## 6. Verify the install
 
@@ -86,12 +86,11 @@ codehub doctor
 ```
 
 `codehub doctor` prints the active toolchain: the `web-tree-sitter`
-(WASM) parse runtime, the DuckDB native binding (`@duckdb/node-api`),
-the LadybugDB graph binding (`@ladybugdb/core`), and which embedding
-backend is in effect (SageMaker → HTTP → local ONNX, in that
-precedence). Parsing is WASM-only on every supported Node version, so
-there is no native parser binding to probe; the DuckDB and LadybugDB
-bindings ship prebuilds and should report OK on Node 20, 22, and 24.
+(WASM) parse runtime, the built-in `node:sqlite` store (checked with an
+import plus a WAL round-trip), and which embedding backend is in effect
+(SageMaker → HTTP → local ONNX, in that precedence). There is no native
+storage binding to probe and parsing is WASM-only, so doctor reports OK
+on any Node ≥24.15.
 
 ## 7. Wire your editor
 

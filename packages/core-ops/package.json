@@ -1,0 +1,64 @@
+{
+  "name": "@opencodehub/core-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenCodeHub — transport-free capability core shared by the CLI and MCP surfaces",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theagenticguy/opencodehub.git",
+    "directory": "packages/core-ops"
+  },
+  "homepage": "https://github.com/theagenticguy/opencodehub#readme",
+  "bugs": {
+    "url": "https://github.com/theagenticguy/opencodehub/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*.js",
+    "!dist/**/*.test.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.d.ts",
+    "dist/**/*.js.map",
+    "!dist/**/*.test.js.map",
+    "dist/**/*.d.ts.map",
+    "!dist/**/*.test.d.ts.map"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test \"./dist/**/*.test.js\"",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@opencodehub/analysis": "workspace:*",
+    "@opencodehub/core-types": "workspace:*",
+    "@opencodehub/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "typescript": "6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencodehub",
+    "code-intelligence",
+    "mcp",
+    "model-context-protocol",
+    "cli",
+    "capability",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

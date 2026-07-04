@@ -81,8 +81,8 @@ function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
   return {
     graph: fake as import("@opencodehub/storage").IGraphStore,
     temporal: fake as import("@opencodehub/storage").ITemporalStore,
-    graphFile: "/in-memory/graph.lbug",
-    temporalFile: "/in-memory/temporal.duckdb",
+    graphFile: "/in-memory/store.sqlite",
+    temporalFile: "/in-memory/store.sqlite",
     close: async () => {
       const closer = (fake as { close?: () => Promise<void> }).close;
       if (typeof closer === "function") await closer.call(fake);
@@ -91,7 +91,7 @@ function wrapAsStore(fake: unknown): import("@opencodehub/storage").Store {
 }
 
 /**
- * Minimal DuckDB-compatible fake — every `store.query` that a tool runs
+ * Minimal store-compatible fake — every `store.query` that a tool runs
  * against it returns an empty row set. That is enough to exercise the
  * `run<Tool>` call path through `withStore` without a real index. Tools
  * handle empty results gracefully and return a "nothing matched" message
@@ -131,7 +131,7 @@ function makeFakeStore(): IGraphStore {
 
 /**
  * Spin up a fake `~/.codehub` with one registered repo so `withStore` can
- * resolve it. The connection pool is wired to return our fake DuckDB.
+ * resolve it. The connection pool is wired to return our fake store.
  */
 async function withHarness(fn: (ctx: ToolContext) => Promise<void>): Promise<void> {
   const home = await mkdtemp(resolve(tmpdir(), "codehub-runsmoke-"));

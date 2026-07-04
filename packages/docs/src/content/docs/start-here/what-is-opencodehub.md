@@ -28,12 +28,12 @@ where does this data flow.
 OpenCodeHub parses your repository with tree-sitter (15 GA languages,
 plus SCIP indexers for TypeScript, Python, Go, Rust, and Java),
 resolves imports and inheritance, and materialises a **typed symbol
-graph**. That graph is stored in LadybugDB, a graph-native database,
-with DuckDB carrying the temporal sibling (cochanges and the
-symbol-summary cache). Both tiers are always present — there is no
-backend toggle, and a failure to load the `@ladybugdb/core` binding
-aborts the operation rather than falling back. BM25 lexical search and
-filter-aware HNSW vector search sit on the same store. A local MCP
+graph**. That graph is stored in one `store.sqlite` file via Node's
+built-in `node:sqlite`, which also carries the temporal tables
+(cochanges and the symbol-summary cache). There is no backend toggle and
+no native storage binding: ADR 0019 removed both `@ladybugdb/core` and
+`@duckdb/node-api`, so the whole index is one file. BM25 lexical search
+and filter-aware vector search sit on the same store. A local MCP
 server exposes the graph to any agent that speaks Model Context
 Protocol.
 
@@ -41,11 +41,11 @@ Protocol.
 flowchart LR
   A[Source tree] -->|tree-sitter parse| B[Symbol graph]
   B -->|resolve imports and MRO| C[Typed relations]
-  C -->|BM25 plus HNSW index| D[Hybrid graph store]
+  C -->|BM25 plus vector index| D[store.sqlite]
   C -->|detect communities and flows| E[Processes and clusters]
   D --> F[MCP server]
   E --> F
-  F -->|28 tools| G[AI coding agent]
+  F -->|29 tools| G[AI coding agent]
 ```
 
 Clustering, execution-flow tracing, and blast-radius analysis all happen
@@ -54,19 +54,19 @@ call, not ten round-trips.
 
 ## What you get in v1
 
-- **Graph-native storage.** LadybugDB is the graph tier and a dedicated
-  DuckDB sibling serves the temporal store. Both files (`graph.lbug` +
-  `temporal.duckdb`) are written on every index — no backend knob, no
-  fallback layout (ADR 0016).
+- **Single-file storage.** One `store.sqlite` file (WAL mode) via Node's
+  built-in `node:sqlite` holds the whole index: graph nodes, edges,
+  embeddings, and the temporal tables. There is no backend knob and no
+  native storage binding (ADR 0019), so every platform is supported.
 - **Cross-repo federation.** Group several indexed repos with `codehub
   group` and query them through the `group_*` MCP tools. The repo is a
   first-class graph node and `repo_uri` carries through every
   cross-repo response, including the `AMBIGUOUS_REPO` envelope.
 - **Deterministic code-pack.** `pack_codebase` (MCP) and `codehub
-  code-pack` produce a reproducible 9-item BOM signed by the release
+  code-pack` produce a reproducible 8-item BOM signed by the release
   workflow.
 - **WASM-only parsing.** `web-tree-sitter` is the only parse runtime on
-  Node 20, 22, and 24, with all 15 grammar `.wasm` blobs vendored in the
+  Node ≥24.15, with all 15 grammar `.wasm` blobs vendored in the
   `@opencodehub/ingestion` tarball. `npm install -g @opencodehub/cli@latest`
   does zero native builds and zero GitHub fetches (ADR 0015).
 

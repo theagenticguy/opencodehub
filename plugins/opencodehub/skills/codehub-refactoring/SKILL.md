@@ -149,18 +149,22 @@ mcp__codehub__shape_check({ route: "GET /users/:id", repo: "my-app" })
 → mismatches: [{ consumer, expected, actual }]
 ```
 
-### `mcp__codehub__sql` — custom reference query (temporal store)
+### `mcp__codehub__sql` — custom reference query (single-file store)
 
-The `sql` arg is read-only DuckDB over the temporal store (cochanges +
-symbol_summaries). To enumerate every file referencing a symbol from the graph,
-use the `cypher` arg of the same tool instead (the node/edge graph lives in
-`graph.lbug`, not the SQL store):
+The `sql` arg is read-only SQL over the single-file `store.sqlite`, and every
+table is queryable, including `nodes` and `edges`. To enumerate every file
+referencing a symbol from the graph, join `edges` back to `nodes` (the `cypher`
+arg is reserved for community-fork graph adapters and is unsupported by the
+default backend):
 
-```cypher
-MATCH (caller:CodeNode)-[r:REFERENCES|CALLS|IMPORTS]->(target:CodeNode)
-WHERE target.name = 'validateUser'
-RETURN DISTINCT caller.file_path AS file
-ORDER BY file
+```sql
+SELECT DISTINCT caller.file_path AS file
+FROM edges e
+JOIN nodes target ON target.id = e.dst
+JOIN nodes caller ON caller.id = e.src
+WHERE e.type IN ('REFERENCES', 'CALLS', 'IMPORTS')
+  AND target.name = 'validateUser'
+ORDER BY file;
 ```
 
 This catches references a textual rename might miss — useful as a manual-check
@@ -172,7 +176,7 @@ list before and after you edit.
 | --------------------------------- | ----------------------------------------------------------------------- |
 | Many callers (> 5)                | Use your editor's LSP rename for the mechanical work; `impact` is the checklist |
 | Cross-module references           | Run `detect_changes` after editing; watch for missed imports            |
-| String / dynamic references       | Use the `cypher` arg with `REFERENCES`; the graph cannot see string-keyed dispatch — read those by hand |
+| String / dynamic references       | Use the `sql` arg to query `REFERENCES` edges; the graph cannot see string-keyed dispatch — read those by hand |
 | Public / exported API             | Version and deprecate; mirror symbol names in a transition layer        |
 | Heuristic edges (confirmed = 0)   | Cross-check by reading source; the SCIP oracle did not weigh in         |
 

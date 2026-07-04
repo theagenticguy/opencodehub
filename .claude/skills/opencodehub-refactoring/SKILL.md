@@ -149,19 +149,26 @@ mcp__codehub__shape_check({ route: "GET /users/:id", repo: "my-app" })
 → mismatches: [{ consumer, expected, actual }]
 ```
 
-### `mcp__codehub__sql` — custom reference query (temporal store)
+### `mcp__codehub__sql` — custom reference query (single-file SQLite)
 
-The `sql` arg is read-only DuckDB over the temporal store (cochanges +
-symbol_summaries). To enumerate every file referencing a symbol from the graph,
-use the `cypher` arg of the same tool instead (the node/edge graph lives in
-`graph.lbug`, not the SQL store):
+The `sql` arg is read-only SQL over the single-file `store.sqlite` index
+(ADR 0019). Every table is directly queryable: `nodes`, `edges`, `embeddings`,
+`cochanges`, `symbol_summaries`, `store_meta`. To enumerate every file
+referencing a symbol from the graph, join `edges` to `nodes` on both endpoints:
 
-```cypher
-MATCH (caller:CodeNode)-[r:REFERENCES|CALLS|IMPORTS]->(target:CodeNode)
+```sql
+SELECT DISTINCT caller.file_path AS file
+FROM edges e
+JOIN nodes caller ON caller.id = e.src
+JOIN nodes target ON target.id = e.dst
 WHERE target.name = 'validateUser'
-RETURN DISTINCT caller.file_path AS file
+  AND e.type IN ('REFERENCES', 'CALLS', 'IMPORTS')
 ORDER BY file
 ```
+
+The `cypher` arg of the same tool is reserved for community-fork graph
+adapters (AGE / Memgraph / Neo4j / Neptune) and is not supported by the
+default SQLite backend.
 
 This catches references a textual rename might miss — useful as a manual-check
 list before and after you edit.
@@ -172,7 +179,7 @@ list before and after you edit.
 | --------------------------------- | ----------------------------------------------------------------------- |
 | Many callers (> 5)                | Use your editor's LSP rename for the mechanical work; `impact` is the checklist |
 | Cross-module references           | Run `detect_changes` after editing; watch for missed imports            |
-| String / dynamic references       | Use the `cypher` arg with `REFERENCES`; the graph cannot see string-keyed dispatch — read those by hand |
+| String / dynamic references       | Query the `edges` table for `REFERENCES` rows; the graph cannot see string-keyed dispatch, so read those by hand |
 | Public / exported API             | Version and deprecate; mirror symbol names in a transition layer        |
 | Heuristic edges (confirmed = 0)   | Cross-check by reading source; the SCIP oracle did not weigh in         |
 

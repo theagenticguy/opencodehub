@@ -22,14 +22,14 @@ package is a library imported by `cli`, `mcp`, `ingestion`, or
 | `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`F2LLM-v2-80M`, 320-dim), modelId fingerprint, three-backend cascade. |
 | `@opencodehub/frameworks` | `packages/frameworks` | Five-stage framework detector (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry. |
 | `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, summaries, ...). |
-| `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 28 tool registrations (all read-only with respect to user source), 7 resources, the error envelope, the staleness `_meta` block. |
-| `@opencodehub/pack` | `packages/pack` | Deterministic 9-item code-pack BOM (the artifact attached to every release). |
+| `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 29 tool registrations (all read-only with respect to user source), 7 resources, the error envelope, the staleness `_meta` block. |
+| `@opencodehub/pack` | `packages/pack` | Deterministic 8-item code-pack BOM (the artifact attached to every release). |
 | `@opencodehub/policy` | `packages/policy` | `opencodehub.policy.yaml` loader, validator, evaluator. |
 | `@opencodehub/sarif` | `packages/sarif` | SARIF 2.1.0 Zod schemas, merge + enrich, suppressions, baseline diffing. |
 | `@opencodehub/scanners` | `packages/scanners` | Nineteen scanner wrappers (semgrep, betterleaks, osv-scanner, bandit, biome, pip-audit, npm-audit, trivy, checkov, checkov-docker-compose, hadolint, tflint, spectral, ruff, grype, vulture, radon, ty, clamav). |
 | `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
 | `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
-| `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the LadybugDB graph adapter and DuckDB temporal adapter, and `openStore()` that composes them. |
+| `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the `SqliteStore` class that implements both over one `store.sqlite` via `node:sqlite`, and `openStore()` that returns it as both views. |
 | `@opencodehub/summarizer` | `packages/summarizer` | Structured per-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4). |
 | `@opencodehub/wiki` | `packages/wiki` | Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph. |
 | `@opencodehub/docs` | `packages/docs` | This Starlight documentation site. |
@@ -55,23 +55,24 @@ TypeScript project-references graph enforces this via `tsc --noEmit`.
 
 ## Storage — interface segregation
 
-`@opencodehub/storage` exposes two narrow interfaces — `IGraphStore`
+`@opencodehub/storage` exposes two narrow interfaces: `IGraphStore`
 (graph workload: nodes, edges, embeddings, multi-hop traversal) and
 `ITemporalStore` (temporal workload: cochanges, summary cache). The
-single shipping pair implements them:
+single shipping class implements both:
 
-- **LadybugDB graph store + DuckDB temporal store** — always. Two
-  artifacts on disk (`graph.lbug` + `temporal.duckdb`), backed by a
-  Cypher-emitting dialect for the graph half and DuckDB SQL for the
-  temporal half. `IGraphStore` lives only on `GraphDbStore`;
-  `DuckDbStore` implements `ITemporalStore` only; `openStore()`
-  composes them. There is no backend selector and no fallback (ADR
-  0016) — a missing LadybugDB binding throws `GraphDbBindingError`.
+- **`SqliteStore` over one `store.sqlite`** — always. One artifact on
+  disk (`.codehub/store.sqlite`, WAL mode) backed by Node's built-in
+  `node:sqlite`, holding nodes, edges, embeddings, the FTS5 index, and
+  the temporal tables. One `SqliteStore` implements both `IGraphStore`
+  and `ITemporalStore`; `openStore()` returns that one instance as both
+  the `graph` and `temporal` views. There is no backend selector, no
+  native binding, and no fallback (ADR 0019 removed both
+  `@ladybugdb/core` and `@duckdb/node-api`).
 
 See [Storage backend](/opencodehub/architecture/storage-backend/) for
-how `openStore()` composes the pair and the community-adapter escape
-hatch (AGE / Memgraph / Neo4j / Neptune via the segregated
-interfaces).
+how `openStore()` returns the single store as both views and the
+community-adapter escape hatch (AGE / Memgraph / Neo4j / Neptune via
+the segregated interfaces).
 
 ## Related files
 

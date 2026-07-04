@@ -47,7 +47,6 @@ export {
   resolveRepoMetaDir,
 } from "./paths.js";
 export { getAllRelationTypes } from "./relations.js";
-export { generateSchemaDDL, type SchemaOptions } from "./schema-ddl.js";
 export { assertReadOnlySql, SqlGuardError } from "./sql-guard.js";
 export { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 export { installSqliteRuntimeGuard } from "./sqlite-runtime.js";
@@ -59,8 +58,8 @@ import { SqliteStore, type SqliteStoreOptions } from "./sqlite-adapter.js";
 /**
  * Combined options accepted by {@link openStore}. Superset of the spec-level
  * {@link ApiOpenStoreOptions} that adds the SQLite-adapter tuning bag. The
- * single-file store replaced the lbug + DuckDB pair (ADR 0019), so the former
- * `duckOptions` / `graphDbOptions` per-backend bags are gone.
+ * single-file store (ADR 0019) has one backend, so the former per-backend
+ * option bags are gone.
  */
 export interface OpenStoreOptions extends ApiOpenStoreOptions {
   /** SQLite-adapter tuning (journal mode, busy timeout). */
@@ -68,10 +67,10 @@ export interface OpenStoreOptions extends ApiOpenStoreOptions {
 }
 
 /**
- * Resolve the single store file. The whole index now lives in ONE
- * `<dir>/store.sqlite` (WAL) — there is no graph.lbug / temporal.duckdb
- * split. The input `path` is the directory anchor (its dirname is the
- * `<repo>/.codehub/` parent); `:memory:` short-circuits for tests.
+ * Resolve the single store file. The whole index lives in ONE
+ * `<dir>/store.sqlite` (WAL) — one file, one backend (ADR 0019). The input
+ * `path` is the directory anchor (its dirname is the `<repo>/.codehub/`
+ * parent); `:memory:` short-circuits for tests.
  */
 function resolveStoreFile(path: string): string {
   if (path === ":memory:") return ":memory:";

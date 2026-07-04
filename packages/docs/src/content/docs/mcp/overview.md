@@ -16,7 +16,7 @@ can connect to over stdio.
 - **Capabilities:** `tools` and `resources`. The server does not
   advertise `prompts` — the canned-prompts surface lives as Claude
   Code skills shipped by `plugins/opencodehub/` instead.
-- **Tool count:** 28 (registered in `packages/mcp/src/server.ts`). Every
+- **Tool count:** 29 (registered in `packages/mcp/src/server.ts`). Every
   tool is read-only with respect to user source — no tool edits the
   working tree.
 
@@ -39,7 +39,7 @@ editor's native MCP config location.
 
 ## The four tool families
 
-The 28 tools fall into four functional clusters plus a meta cluster.
+The 29 tools fall into four functional clusters plus a meta cluster.
 The full per-tool catalog is in [MCP tools](/opencodehub/mcp/tools/).
 
 | Family | Tools | Count |
@@ -91,7 +91,7 @@ Error responses instead carry `isError: true`,
 
 ## What the server exposes
 
-- **28 tools** — exploration, federation, scan/findings, HTTP routing,
+- **29 tools** — exploration, federation, scan/findings, HTTP routing,
   and metadata. All read-only with respect to user source. See
   [tools](/opencodehub/mcp/tools/).
 - **7 resources** — structured views over repos, clusters, and

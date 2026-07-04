@@ -5,7 +5,7 @@ description: "Use when the user asks about OpenCodeHub itself — available MCP 
 
 # OpenCodeHub Guide
 
-Quick reference for every OpenCodeHub MCP tool, MCP resource, and the graph + temporal store schema.
+Quick reference for every OpenCodeHub MCP tool, MCP resource, and the single-file `store.sqlite` schema.
 
 ## Always Start Here
 
@@ -59,7 +59,7 @@ standalone artifact producer with its own preconditions and output path.
 | `mcp__codehub__context`           | 360-degree symbol view + `confidenceBreakdown` + `cochanges` side-section |
 | `mcp__codehub__impact`            | Blast radius with risk tier + `confidenceBreakdown`                       |
 | `mcp__codehub__detect_changes`    | Map an uncommitted or committed diff to affected symbols and flows        |
-| `mcp__codehub__sql`               | Read-only query: `sql` arg → temporal DuckDB (cochanges/summaries); `cypher` arg → lbug graph (5 s timeout) |
+| `mcp__codehub__sql`               | Read-only SQL over the single-file `store.sqlite`: all tables queryable (`nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, `store_meta`), 5 s timeout. `cypher` arg is reserved for community-fork graph adapters and is unsupported by the default backend |
 | `mcp__codehub__signature`         | Symbol declaration + stubbed members (class/interface header + method/property signatures, bodies elided) |
 
 ### HTTP / RPC surface
@@ -115,91 +115,121 @@ Lightweight reads for navigation (every URI uses the `codehub://` scheme):
 | `codehub://repo/{name}/context`                | Stats + staleness envelope                  |
 | `codehub://repo/{name}/schema`                 | Live node kinds / relation types for `sql`  |
 
-> Cluster and process navigation resources (`codehub://repo/{name}/clusters`, `codehub://repo/{name}/processes`, etc.) are slated for a later wave. Until then, use the typed tools or Cypher (below) filtered to `kind = 'Community'` / `kind = 'Process'`.
+> Cluster and process navigation resources (`codehub://repo/{name}/clusters`, `codehub://repo/{name}/processes`, etc.) are slated for a later wave. Until then, use the typed tools or `sql` (below) filtered to `kind = 'Community'` / `kind = 'Process'`.
 
-## Where the graph lives (ADR 0016)
+## Where the graph lives (ADR 0019)
 
-There are **two stores**, and they are queried differently:
+There is **one store**: a single-file `<repo>/.codehub/store.sqlite` (WAL, via
+Node's built-in `node:sqlite`). ADR 0019 supersedes ADR 0016: the old
+two-tier layout (a `graph.lbug` graph file plus a `temporal.duckdb` file) is
+gone. One `SqliteStore` class implements both the graph and temporal views over
+that single file.
 
-- **Graph tier — `graph.lbug`** (ladybug, Cypher dialect). Holds nodes, edges,
-  and embeddings. Query it via the typed tools (`query` / `context` / `impact` /
-  `route_map` / …) or, for bespoke questions, **Cypher** via the MCP `sql`
-  tool's `cypher` argument. There is NO `nodes` or `relations` SQL table.
-- **Temporal tier — `temporal.duckdb`** (DuckDB SQL). Holds only the
-  `cochanges` and `symbol_summaries` tables. The `sql` argument of the MCP
-  `sql` tool (and `codehub sql` on the CLI) targets THIS store.
+Every table is directly SQL-queryable through the MCP `sql` tool's `sql`
+argument (and `codehub sql` on the CLI): `nodes`, `edges`, `embeddings`,
+`cochanges`, `symbol_summaries`, and `store_meta`. Query the graph via the typed
+tools (`query` / `context` / `impact` / `route_map` / …) for the high-level path,
+or write SQL directly against these tables for bespoke questions. Multi-hop graph
+traversal is a **recursive SQL CTE over the `edges` table**, not Cypher.
+Full-text search is BM25 via SQLite FTS5.
 
-Pass exactly one of `sql` (temporal DuckDB) or `cypher` (lbug graph) to the MCP
-`sql` tool.
+The `cypher` argument of the `sql` tool is **reserved for community-fork graph
+adapters** (AGE / Memgraph / Neo4j / Neptune) and is **not supported by the
+default backend**. On the default single-file SQLite backend, always pass `sql`.
 
-### Graph schema (lbug / Cypher)
+### Store schema (single-file SQLite)
 
-One node label `CodeNode` carrying `kind` as a **property** (NOT a per-kind
-label). One relationship table per relation type. Properties are **snake_case**
-(`file_path`, `start_line`, `inferred_label`, `step_count`, `entry_point_id`);
-a camelCase RETURN alias comes back as the alias you give it, but the stored
-property names are snake_case.
+Two universal tables carry the graph. `nodes` has base columns
+(`id`, `kind`, `name`, `file_path`, `start_line`, `end_line`) plus a `payload`
+JSON column holding the kind-specific fields; reach those via SQLite JSON1,
+`payload->>'$.field'` (e.g. `payload->>'$.inferredLabel'`,
+`payload->>'$.stepCount'`, `payload->>'$.entryPointId'`). `edges` is one
+polymorphic table keyed by the `(src, dst, type, step)` dedup tuple, with columns
+`id`, `src`, `dst`, `type`, `confidence`, `step`, `reason`.
 
-**Node kinds** (`n.kind` values): File, Folder, Function, Class, Method,
+**Node kinds** (`kind` values): File, Folder, Function, Class, Method,
 Interface, Constructor, Struct, Enum, Macro, Typedef, Union, Namespace, Trait,
 Impl, TypeAlias, Const, Static, Variable, Property, Record, Delegate,
 Annotation, Template, Module, CodeElement, Community, Process, Route, Tool,
 Finding, Dependency, Contributor, Repo, ProjectProfile, Section.
 
-**Relationship types** (each is its own edge label): CONTAINS, DEFINES, IMPORTS,
+**Edge types** (`edges.type` values): CONTAINS, DEFINES, IMPORTS,
 CALLS, EXTENDS, IMPLEMENTS, HAS_METHOD, HAS_PROPERTY, ACCESSES, METHOD_OVERRIDES,
 OVERRIDES, METHOD_IMPLEMENTS, MEMBER_OF, PROCESS_STEP, HANDLES_ROUTE, FETCHES,
 HANDLES_TOOL, ENTRY_POINT_OF, WRAPS, QUERIES, REFERENCES, FOUND_IN, DEPENDS_ON,
 OWNED_BY.
 
-Cochanges live only in the **temporal** `cochanges` table (DuckDB SQL), never as
-graph edges.
+Cochanges live in the `cochanges` table, never as graph edges.
 
-## Cypher cheat-sheet (MCP `sql` tool, `cypher` arg)
+## SQL cheat-sheet (MCP `sql` tool, `sql` arg)
 
-All inbound callers of a function by name:
+All inbound callers of a function by name (join `edges` back to `nodes`):
 
-```cypher
-MATCH (caller:CodeNode)-[r:CALLS]->(callee:CodeNode)
-WHERE callee.name = 'validateUser' AND callee.kind = 'Function'
-RETURN caller.name AS name, caller.file_path AS file, caller.start_line AS line,
-       r.confidence AS confidence, r.reason AS reason
-ORDER BY r.confidence DESC
-LIMIT 50
+```sql
+SELECT caller.name AS name, caller.file_path AS file, caller.start_line AS line,
+       e.confidence AS confidence, e.reason AS reason
+FROM edges e
+JOIN nodes callee ON callee.id = e.dst
+JOIN nodes caller ON caller.id = e.src
+WHERE e.type = 'CALLS'
+  AND callee.name = 'validateUser' AND callee.kind = 'Function'
+ORDER BY e.confidence DESC
+LIMIT 50;
 ```
 
-Top communities by cohesion:
+Top communities by cohesion (kind-specific fields via JSON1):
 
-```cypher
-MATCH (n:CodeNode)
-WHERE n.kind = 'Community'
-RETURN n.name AS name, n.inferred_label AS label, n.cohesion AS cohesion,
-       n.symbol_count AS symbols
-ORDER BY n.cohesion DESC
-LIMIT 20
+```sql
+SELECT name,
+       payload->>'$.inferredLabel' AS label,
+       payload->>'$.cohesion'      AS cohesion,
+       payload->>'$.symbolCount'   AS symbols
+FROM nodes
+WHERE kind = 'Community'
+ORDER BY cohesion DESC
+LIMIT 20;
 ```
 
 Process entry points:
 
-```cypher
-MATCH (n:CodeNode)
-WHERE n.kind = 'Process'
-RETURN n.name AS name, n.inferred_label AS label, n.step_count AS steps,
-       n.entry_point_id AS entry_point
-ORDER BY n.step_count DESC
+```sql
+SELECT name,
+       payload->>'$.inferredLabel' AS label,
+       payload->>'$.stepCount'     AS steps,
+       payload->>'$.entryPointId'  AS entry_point
+FROM nodes
+WHERE kind = 'Process'
+ORDER BY steps DESC;
 ```
 
 SCIP-confirmed CALLS edges only (strict impact):
 
-```cypher
-MATCH ()-[r:CALLS]->()
-WHERE r.confidence >= 0.95 AND r.reason STARTS WITH 'scip:'
-RETURN r
+```sql
+SELECT id, src, dst, confidence, reason
+FROM edges
+WHERE type = 'CALLS'
+  AND confidence >= 0.95
+  AND reason LIKE 'scip:%';
 ```
 
-### Temporal SQL cheat-sheet (MCP `sql` tool, `sql` arg)
+Multi-hop traversal is a recursive CTE over `edges` (this is what `impact`
+runs under the hood):
 
-Tightest co-change pairs (DuckDB SQL — temporal store):
+```sql
+WITH RECURSIVE reach(id, depth) AS (
+  SELECT :start_id, 0
+  UNION
+  SELECT e.src, r.depth + 1
+  FROM edges e
+  JOIN reach r ON e.dst = r.id
+  WHERE r.depth < 2 AND e.confidence >= 0.5
+)
+SELECT DISTINCT n.id, n.name, n.file_path
+FROM reach r JOIN nodes n ON n.id = r.id
+WHERE r.depth > 0;
+```
+
+Tightest co-change pairs (from the `cochanges` table):
 
 ```sql
 SELECT source_file, target_file, lift, cocommit_count

@@ -20,17 +20,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import {
-  type CodeRelation,
-  type EdgeId,
-  type GraphNode,
-  NODE_KINDS,
-  type NodeId,
-  type NodeKind,
-  RELATION_TYPES,
-  type RelationType,
-  SCHEMA_VERSION,
-} from "@opencodehub/core-types";
+import { type CodeRelation, type GraphNode, SCHEMA_VERSION } from "@opencodehub/core-types";
 import { embedderModelId } from "@opencodehub/embedder";
 import { pipeline } from "@opencodehub/ingestion";
 import {
@@ -47,7 +37,6 @@ import { type RepoEntry, readRegistry, upsertRegistry } from "../registry.js";
 import { generateSkills } from "../skills-gen.js";
 import {
   computeScanFingerprint,
-  countSarifFindings,
   readScanFingerprint,
   shouldSkipScan,
   writeScanFingerprint,
@@ -556,9 +545,25 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
             sarifExists,
           })
         ) {
-          const priorCount = await countSarifFindings(sarifPath);
-          const countNote = priorCount !== undefined ? `, reusing ${priorCount} finding(s)` : "";
-          log(`codehub analyze: scan — up to date (fingerprint match)${countNote}`);
+          // The graph bulkLoad above ran in replace mode (ADR 0019), which
+          // truncated every node — including the `Finding` nodes and
+          // `FOUND_IN` edges from the prior scan. When we skip re-running the
+          // scanners we still MUST re-ingest the reused `scan.sarif`, or the
+          // freshly-rebuilt graph ends up with zero findings and
+          // `list_findings`/`verdict`/`list_findings_delta` silently report a
+          // clean scan. `runIngestSarif` is idempotent (fingerprint-stable
+          // enrichment + upsert-mode bulkLoad), so re-ingesting the unchanged
+          // SARIF restores exactly the findings the wipe removed.
+          const { runIngestSarif } = await import("./ingest-sarif.js");
+          const ingestOpts: { repo: string; home?: string } = {
+            repo: repoName,
+            ...(opts.home !== undefined ? { home: opts.home } : {}),
+          };
+          const ingested = await runIngestSarif(sarifPath, ingestOpts);
+          log(
+            `codehub analyze: scan — up to date (fingerprint match), ` +
+              `re-ingested ${ingested.findingsEmitted} finding(s) from cached SARIF`,
+          );
         } else {
           await runScanAndLog();
           // Refresh the sidecar only after a successful scan so a thrown
@@ -598,9 +603,9 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
  *     `.codehub/scan-state.json` (written at the tail of the prior run),
  *   - IMPORTS + EXTENDS + IMPLEMENTS edges recovered from the `relations`
  *     table by stripping each endpoint id back to its enclosing file path,
- *   - the FULL prior node and edge snapshot, mapped back into
- *     {@link GraphNode} / {@link CodeRelation} via {@link rowToGraphNode}
- *     and {@link rowToCodeRelation}. Shipping these two arrays is what
+ *   - the FULL prior node and edge snapshot as {@link GraphNode} /
+ *     {@link CodeRelation} arrays (via the store's typed `listNodes` /
+ *     `listEdges` finders). Shipping these two arrays is what
  *     flips `resolveIncrementalView`
  *     (`packages/ingestion/src/pipeline/phases/incremental-helper.ts:95-102`)
  *     from `active=false` (passive mode) to `active=true`, so the four
@@ -629,10 +634,7 @@ export async function loadPreviousGraph(
     // Full node + edge dumps via typed finders. For a typical OCH repo
     // this is 10K-50K nodes and 20K-100K edges — fits in memory in one
     // shot. The `listNodes` / `listEdges` finders already return
-    // rehydrated `GraphNode` / `CodeRelation` objects, so the legacy
-    // `rowToGraphNode` / `rowToCodeRelation` adapters are no longer
-    // needed on this read path — they remain exported for external
-    // consumers that hand-roll over the wide-column shape.
+    // rehydrated `GraphNode` / `CodeRelation` objects.
     const nodes = [...(await store.graph.listNodes())];
     const edges = [...(await store.graph.listEdges())];
     // Derive the legacy file-granular projections from the full edge set so
@@ -985,12 +987,11 @@ async function openEmbeddingHashCacheAdapter(
     adapter: {
       // listEmbeddingHashes is on the graph-tier interface — embeddings
       // travel with the graph view, not the temporal cochange table.
-      // Wrapped in try/catch: on a freshly-created lbug db that has no
-      // schema yet, the Cypher query inside listEmbeddingHashes() can
-      // throw "Cannot create an empty database under READ ONLY mode"
-      // because lbug defers some internal initialization until first
-      // query. Returning an empty map matches the interface contract
-      // ("Empty map on a fresh database or any error").
+      // Wrapped in try/catch: querying a freshly-created store that has no
+      // schema yet (or a read-only handle on a not-yet-initialized file) can
+      // throw before the embeddings table exists. Returning an empty map
+      // matches the interface contract ("Empty map on a fresh database or
+      // any error").
       list: async () => {
         try {
           return await store.graph.listEmbeddingHashes();
@@ -1016,350 +1017,6 @@ function fileFromNodeId(id: string): string | undefined {
   const second = rest.indexOf(":");
   if (second === -1) return rest;
   return rest.slice(0, second);
-}
-
-// `PREV_NODE_SELECT_COLUMNS` was the explicit column whitelist used by the
-// legacy SQL `SELECT * FROM nodes` round-trip in {@link loadPreviousGraph}.
-// That read path now goes through `store.graph.listNodes()`, which already
-// returns rehydrated `GraphNode` objects, so the constant is no longer
-// load-bearing here. The `rowToGraphNode` / `rowToCodeRelation` adapters
-// below remain exported for external consumers that hand-roll over the
-// SQLite wide-column shape.
-
-const NODE_KIND_SET: ReadonlySet<string> = new Set<string>(NODE_KINDS);
-const RELATION_TYPE_SET: ReadonlySet<string> = new Set<string>(RELATION_TYPES);
-
-function strField(r: Record<string, unknown>, col: string): string | undefined {
-  const v = r[col];
-  return typeof v === "string" && v.length > 0 ? v : undefined;
-}
-
-function numField(r: Record<string, unknown>, col: string): number | undefined {
-  const v = r[col];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "bigint") return Number(v);
-  return undefined;
-}
-
-function boolField(r: Record<string, unknown>, col: string): boolean | undefined {
-  const v = r[col];
-  return typeof v === "boolean" ? v : undefined;
-}
-
-function stringArrayField(r: Record<string, unknown>, col: string): readonly string[] | undefined {
-  // Preserve `[]` distinct from absent. The SQLite TEXT[] binder returns
-  // a 0-length JS array for an empty SQL array literal and `null` for
-  // SQL NULL; mirror the storage adapter's `setStringArrayField` and
-  // return the array verbatim so a Community / Route node written as
-  // `{keywords: []}` (or `{responseKeys: []}`) survives the carry-forward
-  // load with its empty array intact — required so canonical-JSON /
-  // graphHash byte-identity holds across the incremental re-index.
-  const v = r[col];
-  if (!Array.isArray(v)) return undefined;
-  const out: string[] = [];
-  for (const item of v) {
-    if (typeof item === "string") out.push(item);
-  }
-  return out;
-}
-
-function parseJsonStringArrayField(
-  r: Record<string, unknown>,
-  col: string,
-): readonly string[] | undefined {
-  const raw = r[col];
-  if (typeof raw !== "string" || raw.length === 0) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return undefined;
-    return parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    return undefined;
-  }
-}
-
-function parseJsonObjectField(
-  r: Record<string, unknown>,
-  col: string,
-): Record<string, unknown> | undefined {
-  const raw = r[col];
-  if (typeof raw !== "string" || raw.length === 0) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Reverse of `nodeToRow` (`packages/storage/src/duckdb-adapter.ts:1169`):
- * translate one row of the polymorphic `nodes` table back into a
- * {@link GraphNode}. Only the `nodes`/`edges` fidelity required by the four
- * incremental consumer phases (`cross-file`, `mro`, `communities`,
- * `processes`) is load-bearing — Community / Process nodes are re-added
- * verbatim by `communities.ts:90-94` / `processes.ts:306-310`, so their
- * `name` / `filePath` / `inferredLabel` / `keywords` / `symbolCount` /
- * `cohesion` / `entryPointId` / `stepCount` must round-trip. Other kinds
- * survive the round trip best-effort; fields we can't recover stay
- * `undefined` and the caller treats the resulting node as lossy — safe
- * because the carry-forward only lives long enough to be hashed into the
- * next graph.
- *
- * Returns `undefined` when the row carries a `kind` we don't recognise or
- * when required scalar slots (`id`, `name`, `file_path`) are missing.
- *
- * Exported for tests; the production call site is {@link loadPreviousGraph}.
- */
-export function rowToGraphNode(row: Record<string, unknown>): GraphNode | undefined {
-  const idRaw = row["id"];
-  const nameRaw = row["name"];
-  const fileRaw = row["file_path"];
-  const kindRaw = row["kind"];
-  if (typeof idRaw !== "string" || idRaw.length === 0) return undefined;
-  if (typeof nameRaw !== "string") return undefined;
-  if (typeof fileRaw !== "string") return undefined;
-  if (typeof kindRaw !== "string" || !NODE_KIND_SET.has(kindRaw)) return undefined;
-  const kind = kindRaw as NodeKind;
-
-  // Build a permissive record keyed by TS field names. The discriminated-
-  // union cast at the end is safe because every `GraphNode` member only
-  // requires `id`/`kind`/`name`/`filePath` plus optional fields beyond that;
-  // required fields unique to a kind (e.g. `FindingNode.propertiesBag`) are
-  // populated explicitly in the per-kind branches below.
-  const node: Record<string, unknown> = {
-    id: idRaw as NodeId,
-    kind,
-    name: nameRaw,
-    filePath: fileRaw,
-  };
-
-  // LocatedNode fields — set only when non-NULL because some non-LocatedNode
-  // kinds (Community / Process / File / Folder) intentionally leave them
-  // NULL and re-hydrating a spurious zero would change the graph hash.
-  const startLine = numField(row, "start_line");
-  if (startLine !== undefined) node["startLine"] = startLine;
-  const endLine = numField(row, "end_line");
-  if (endLine !== undefined) node["endLine"] = endLine;
-
-  const isExported = boolField(row, "is_exported");
-  if (isExported !== undefined) node["isExported"] = isExported;
-  const signature = strField(row, "signature");
-  if (signature !== undefined) node["signature"] = signature;
-  const parameterCount = numField(row, "parameter_count");
-  if (parameterCount !== undefined) node["parameterCount"] = parameterCount;
-  const returnType = strField(row, "return_type");
-  if (returnType !== undefined) node["returnType"] = returnType;
-  const declaredType = strField(row, "declared_type");
-  if (declaredType !== undefined) node["declaredType"] = declaredType;
-  const owner = strField(row, "owner");
-  if (owner !== undefined) node["owner"] = owner;
-  const description = strField(row, "description");
-  if (description !== undefined) node["description"] = description;
-  const contentHash = strField(row, "content_hash");
-  if (contentHash !== undefined) node["contentHash"] = contentHash;
-  const content = strField(row, "content");
-  if (content !== undefined) node["content"] = content;
-
-  // Community / Process — the two carry-forward-critical kinds.
-  const inferredLabel = strField(row, "inferred_label");
-  if (inferredLabel !== undefined) node["inferredLabel"] = inferredLabel;
-  const symbolCount = numField(row, "symbol_count");
-  if (symbolCount !== undefined) node["symbolCount"] = symbolCount;
-  const cohesion = numField(row, "cohesion");
-  if (cohesion !== undefined) node["cohesion"] = cohesion;
-  const keywords = stringArrayField(row, "keywords");
-  if (keywords !== undefined) node["keywords"] = keywords;
-  const entryPointId = strField(row, "entry_point_id");
-  if (entryPointId !== undefined) node["entryPointId"] = entryPointId;
-  const stepCount = numField(row, "step_count");
-  if (stepCount !== undefined) node["stepCount"] = stepCount;
-
-  // Section (markdown heading) — `level` round-trips for completeness.
-  const level = numField(row, "level");
-  if (level !== undefined) node["level"] = level;
-
-  // Route: `url` + `responseKeys` + `method` (shared column with Tool / Operation).
-  const url = strField(row, "url");
-  if (url !== undefined) node["url"] = url;
-  const responseKeys = stringArrayField(row, "response_keys");
-  if (responseKeys !== undefined) node["responseKeys"] = responseKeys;
-
-  if (kind === "Tool") {
-    const toolName = strField(row, "tool_name");
-    if (toolName !== undefined) node["toolName"] = toolName;
-    const inputSchemaJson = strField(row, "input_schema_json");
-    if (inputSchemaJson !== undefined) node["inputSchemaJson"] = inputSchemaJson;
-  } else if (kind === "Route") {
-    const method = strField(row, "method");
-    if (method !== undefined) node["method"] = method;
-  }
-
-  if (kind === "Finding") {
-    const ruleId = strField(row, "rule_id");
-    const severity = strField(row, "severity");
-    const scannerId = strField(row, "scanner_id");
-    const message = strField(row, "message");
-    const propertiesBag = parseJsonObjectField(row, "properties_bag");
-    if (ruleId !== undefined) node["ruleId"] = ruleId;
-    if (severity !== undefined) node["severity"] = severity;
-    if (scannerId !== undefined) node["scannerId"] = scannerId;
-    if (message !== undefined) node["message"] = message;
-    // propertiesBag is REQUIRED on FindingNode; default to {} on lossy reads
-    // so the resulting object still structurally satisfies the union.
-    node["propertiesBag"] = propertiesBag ?? {};
-    const partialFingerprint = strField(row, "partial_fingerprint");
-    if (partialFingerprint !== undefined) node["partialFingerprint"] = partialFingerprint;
-    const baselineState = strField(row, "baseline_state");
-    if (baselineState !== undefined) node["baselineState"] = baselineState;
-    const suppressedJson = strField(row, "suppressed_json");
-    if (suppressedJson !== undefined) node["suppressedJson"] = suppressedJson;
-  }
-
-  if (kind === "Dependency") {
-    const version = strField(row, "version");
-    const ecosystem = strField(row, "ecosystem");
-    const lockfileSource = strField(row, "lockfile_source");
-    const license = strField(row, "license");
-    // version / ecosystem / lockfileSource are REQUIRED on the type; default
-    // to safe values when NULL so the object still passes the structural
-    // union at runtime. The carry-forward path only hashes these fields.
-    node["version"] = version ?? "";
-    node["ecosystem"] = ecosystem ?? "npm";
-    node["lockfileSource"] = lockfileSource ?? "";
-    if (license !== undefined) node["license"] = license;
-  }
-
-  if (kind === "Operation") {
-    const httpMethod = strField(row, "http_method");
-    const httpPath = strField(row, "http_path");
-    node["method"] = httpMethod ?? "GET";
-    node["path"] = httpPath ?? "/";
-    const summary = strField(row, "summary");
-    if (summary !== undefined) node["summary"] = summary;
-    const operationId = strField(row, "operation_id");
-    if (operationId !== undefined) node["operationId"] = operationId;
-  }
-
-  if (kind === "Contributor") {
-    const emailHash = strField(row, "email_hash");
-    node["emailHash"] = emailHash ?? "";
-    const emailPlain = strField(row, "email_plain");
-    if (emailPlain !== undefined) node["emailPlain"] = emailPlain;
-  }
-
-  // ProjectProfile — JSON-encoded array columns plus a polymorphic
-  // `frameworks_json` (flat `string[]` OR `{ flat, detected }`).
-  if (kind === "ProjectProfile") {
-    node["languages"] = parseJsonStringArrayField(row, "languages_json") ?? [];
-    const frameworksRaw = strField(row, "frameworks_json");
-    let frameworksFlat: readonly string[] = [];
-    if (frameworksRaw !== undefined) {
-      try {
-        const parsed = JSON.parse(frameworksRaw) as unknown;
-        if (Array.isArray(parsed)) {
-          frameworksFlat = parsed.filter((x): x is string => typeof x === "string");
-        } else if (typeof parsed === "object" && parsed !== null) {
-          const rec = parsed as Record<string, unknown>;
-          const flat = rec["flat"];
-          if (Array.isArray(flat)) {
-            frameworksFlat = flat.filter((x): x is string => typeof x === "string");
-          }
-          const detected = rec["detected"];
-          if (Array.isArray(detected)) node["frameworksDetected"] = detected;
-        }
-      } catch {
-        /* ignore — leave frameworks as [] */
-      }
-    }
-    node["frameworks"] = frameworksFlat;
-    node["iacTypes"] = parseJsonStringArrayField(row, "iac_types_json") ?? [];
-    node["apiContracts"] = parseJsonStringArrayField(row, "api_contracts_json") ?? [];
-    node["manifests"] = parseJsonStringArrayField(row, "manifests_json") ?? [];
-    node["srcDirs"] = parseJsonStringArrayField(row, "src_dirs_json") ?? [];
-  }
-
-  // File ownership (H.5) + Community ownership (H.4) — shared across kinds.
-  const orphanGrade = strField(row, "orphan_grade");
-  if (orphanGrade !== undefined) node["orphanGrade"] = orphanGrade;
-  const isOrphan = boolField(row, "is_orphan");
-  if (isOrphan !== undefined) node["isOrphan"] = isOrphan;
-  const truckFactor = numField(row, "truck_factor");
-  if (truckFactor !== undefined) node["truckFactor"] = truckFactor;
-  const od30 = numField(row, "ownership_drift_30d");
-  if (od30 !== undefined) node["ownershipDrift30d"] = od30;
-  const od90 = numField(row, "ownership_drift_90d");
-  if (od90 !== undefined) node["ownershipDrift90d"] = od90;
-  const od365 = numField(row, "ownership_drift_365d");
-  if (od365 !== undefined) node["ownershipDrift365d"] = od365;
-
-  // v1.2 extensions
-  const deadness = strField(row, "deadness");
-  if (deadness !== undefined) node["deadness"] = deadness;
-  const coveragePercent = numField(row, "coverage_percent");
-  if (coveragePercent !== undefined) node["coveragePercent"] = coveragePercent;
-  const coveredLinesJson = strField(row, "covered_lines_json");
-  if (coveredLinesJson !== undefined) node["coveredLinesJson"] = coveredLinesJson;
-  const cyclomaticComplexity = numField(row, "cyclomatic_complexity");
-  if (cyclomaticComplexity !== undefined) node["cyclomaticComplexity"] = cyclomaticComplexity;
-  const nestingDepth = numField(row, "nesting_depth");
-  if (nestingDepth !== undefined) node["nestingDepth"] = nestingDepth;
-  const nloc = numField(row, "nloc");
-  if (nloc !== undefined) node["nloc"] = nloc;
-  const halsteadVolume = numField(row, "halstead_volume");
-  if (halsteadVolume !== undefined) node["halsteadVolume"] = halsteadVolume;
-
-  return node as unknown as GraphNode;
-}
-
-/**
- * Reverse of the relations row builder at
- * `packages/storage/src/duckdb-adapter.ts:299-340`. Relations round-trip
- * cleanly because their schema is 7 scalar columns with no polymorphism.
- * Returns `undefined` when `type` is not a known {@link RelationType} or
- * when required scalars are missing.
- *
- * Exported for tests; the production call site is {@link loadPreviousGraph}.
- */
-export function rowToCodeRelation(row: Record<string, unknown>): CodeRelation | undefined {
-  const id = row["id"];
-  const from = row["from_id"];
-  const to = row["to_id"];
-  const type = row["type"];
-  const confidence = row["confidence"];
-  if (typeof id !== "string" || id.length === 0) return undefined;
-  if (typeof from !== "string" || from.length === 0) return undefined;
-  if (typeof to !== "string" || to.length === 0) return undefined;
-  if (typeof type !== "string" || !RELATION_TYPE_SET.has(type)) return undefined;
-  const conf =
-    typeof confidence === "number" && Number.isFinite(confidence) ? confidence : Number(confidence);
-  if (!Number.isFinite(conf)) return undefined;
-
-  const reason = row["reason"];
-  const step = row["step"];
-  const base = {
-    id: id as EdgeId,
-    from: from as NodeId,
-    to: to as NodeId,
-    type: type as RelationType,
-    confidence: conf,
-  };
-  const stepNum: number | undefined =
-    typeof step === "number" && Number.isFinite(step)
-      ? step
-      : typeof step === "bigint"
-        ? Number(step)
-        : undefined;
-  const hasReason = typeof reason === "string" && reason.length > 0;
-  // Build the final record in a single statement so we match the optional-
-  // field discipline required by `exactOptionalPropertyTypes`.
-  if (hasReason && stepNum !== undefined) {
-    return { ...base, reason: reason as string, step: stepNum };
-  }
-  if (hasReason) return { ...base, reason: reason as string };
-  if (stepNum !== undefined) return { ...base, step: stepNum };
-  return base;
 }
 
 /** Per-file record persisted to `.codehub/scan-state.json`. */

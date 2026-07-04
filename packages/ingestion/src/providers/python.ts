@@ -1,9 +1,11 @@
 import type { NodeKind } from "@opencodehub/core-types";
 import {
+  type CallsConfig,
+  dotPrefixNoRegexReceiver,
+  extractCallsGeneric,
   getLine,
   innermostEnclosingContainer,
   innermostEnclosingDef,
-  isInside,
   pairDefinitionsWithNames,
   stripComments,
 } from "./extract-helpers.js";
@@ -108,72 +110,16 @@ function extractPyDefinitions(input: ExtractDefinitionsInput): readonly Extracte
   return out;
 }
 
+// Receiver inference from the call expression's source text. The
+// `@reference.call` range covers the full call; when the grammar matched
+// `attribute.attribute`, `ref.text` is like `self.foo(x)` — we keep the
+// full non-empty prefix before `.callee` as the receiver (no regex filter).
+const PYTHON_CALLS_CONFIG: CallsConfig = {
+  inferReceiver: dotPrefixNoRegexReceiver(),
+};
+
 function extractPyCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    // Determine caller context: walk enclosing defs from innermost out.
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Receiver inference from the call expression's source text. The
-    // `@reference.call` range covers the full call; when the grammar
-    // matched `attribute.attribute`, `ref.text` is like `self.foo(x)`.
-    const receiver = inferPyReceiver(ref, innerName);
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly import("../parse/types.js").ParseCapture[],
-  outer: import("../parse/types.js").ParseCapture,
-): import("../parse/types.js").ParseCapture | undefined {
-  let best: import("../parse/types.js").ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function inferPyReceiver(
-  ref: import("../parse/types.js").ParseCapture,
-  name: import("../parse/types.js").ParseCapture | undefined,
-): string | undefined {
-  if (name === undefined) return undefined;
-  const idx = ref.text.lastIndexOf(`.${name.text}`);
-  if (idx <= 0) return undefined;
-  const prefix = ref.text.slice(0, idx).trim();
-  if (prefix === "") return undefined;
-  if (/^[A-Za-z_][\w]*$/.test(prefix)) return prefix;
-  return prefix;
-}
-
-function qualifiedForCapture(
-  def: import("../parse/types.js").ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, PYTHON_CALLS_CONFIG);
 }
 
 /**

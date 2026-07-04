@@ -1,10 +1,13 @@
 import type { NodeKind } from "@opencodehub/core-types";
-import type { ParseCapture } from "../parse/types.js";
 import {
-  innermostEnclosingContainer,
-  innermostEnclosingDef,
-  isInside,
-  pairDefinitionsWithNames,
+  type CallsConfig,
+  type DefinitionsConfig,
+  extractCallsGeneric,
+  extractDefinitionsGeneric,
+  extractHeritageRefBased,
+  type HeritageConfig,
+  kindFromMap,
+  sepStripReceiver,
   stripComments,
 } from "./extract-helpers.js";
 import type {
@@ -54,101 +57,24 @@ const PHP_DEF_KIND_MAP: Readonly<Record<string, NodeKind>> = {
   "definition.enum": "Enum",
 };
 
+const PHP_DEFS_CONFIG: DefinitionsConfig = {
+  kindFor: kindFromMap(PHP_DEF_KIND_MAP),
+  isExported: ({ name }) => !name.startsWith("_"),
+};
+
 function extractPhpDefinitions(input: ExtractDefinitionsInput): readonly ExtractedDefinition[] {
-  const { filePath, captures } = input;
-  const paired = pairDefinitionsWithNames(captures);
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const out: ExtractedDefinition[] = [];
-
-  for (const { def, name } of paired) {
-    const kind = PHP_DEF_KIND_MAP[def.tag];
-    if (kind === undefined) continue;
-
-    let owner: string | undefined;
-    const ownerDef = innermostEnclosingDef(def, defCaptures);
-    if (ownerDef !== undefined) {
-      const ownerPaired = paired.find((p) => p.def === ownerDef);
-      if (ownerPaired !== undefined) owner = ownerPaired.name.text;
-    }
-
-    const qualifiedName = owner !== undefined ? `${owner}.${name.text}` : name.text;
-    const isExported = !name.text.startsWith("_");
-
-    out.push({
-      kind,
-      name: name.text,
-      qualifiedName,
-      filePath,
-      startLine: def.startLine,
-      endLine: def.endLine,
-      isExported,
-      ...(owner !== undefined ? { owner } : {}),
-    });
-  }
-  return out;
+  return extractDefinitionsGeneric(input, PHP_DEFS_CONFIG);
 }
+
+const PHP_CALLS_CONFIG: CallsConfig = {
+  // Receiver inference — PHP has `$obj->method()`, `Class::method()`, and
+  // `self::method()` forms. Strip the trailing `->` / `::` off the bare-name
+  // prefix; a leading `$` on the remainder is allowed.
+  inferReceiver: sepStripReceiver(/(?:->|::)$/, /^\$?[A-Za-z_][\w]*$/),
+};
 
 function extractPhpCalls(input: ExtractCallsInput): readonly ExtractedCall[] {
-  const { filePath, captures, definitions } = input;
-  const defCaptures = captures.filter((c) => c.tag.startsWith("definition."));
-  const callRefs = captures.filter((c) => c.tag === "reference.call");
-  const out: ExtractedCall[] = [];
-
-  for (const ref of callRefs) {
-    const innerName = findNameInside(captures, ref);
-    const calleeName = innerName?.text ?? ref.text;
-
-    const enclosingDef = innermostEnclosingDef(ref, defCaptures);
-    const callerQualifiedName = enclosingDef
-      ? qualifiedForCapture(enclosingDef, definitions)
-      : "<module>";
-
-    // Receiver inference — PHP has `$obj->method()`, `Class::method()`,
-    // and `self::method()` forms.
-    let receiver: string | undefined;
-    if (innerName !== undefined) {
-      const idx = ref.text.lastIndexOf(innerName.text);
-      if (idx > 0) {
-        const prefix = ref.text.slice(0, idx).trim();
-        const stripped = prefix.replace(/(?:->|::)$/, "").trim();
-        if (stripped !== "" && /^\$?[A-Za-z_][\w]*$/.test(stripped)) {
-          receiver = stripped;
-        }
-      }
-    }
-
-    out.push({
-      callerQualifiedName,
-      calleeName,
-      filePath,
-      startLine: ref.startLine,
-      ...(receiver !== undefined ? { calleeOwner: receiver } : {}),
-    });
-  }
-  return out;
-}
-
-function findNameInside(
-  captures: readonly ParseCapture[],
-  outer: ParseCapture,
-): ParseCapture | undefined {
-  let best: ParseCapture | undefined;
-  for (const c of captures) {
-    if (c.tag !== "name") continue;
-    if (!isInside(c, outer)) continue;
-    if (best === undefined || c.startLine < best.startLine) best = c;
-  }
-  return best;
-}
-
-function qualifiedForCapture(
-  def: ParseCapture,
-  definitions: readonly ExtractedDefinition[],
-): string {
-  for (const d of definitions) {
-    if (d.startLine === def.startLine) return d.qualifiedName;
-  }
-  return "<module>";
+  return extractCallsGeneric(input, PHP_CALLS_CONFIG);
 }
 
 function extractPhpImports(input: ExtractImportsInput): readonly ExtractedImport[] {
@@ -181,74 +107,20 @@ function extractPhpImports(input: ExtractImportsInput): readonly ExtractedImport
   return out;
 }
 
+const PHP_HERITAGE_CONFIG: HeritageConfig = {
+  containerTags: ["definition.class", "definition.interface", "definition.trait"],
+  rules: [
+    // EXTENDS — `@reference.class`
+    { refTag: "reference.class", relation: "EXTENDS", childKinds: ["Class", "Interface", "Trait"] },
+    // IMPLEMENTS — `@reference.interface`
+    { refTag: "reference.interface", relation: "IMPLEMENTS", childKinds: ["Class"] },
+    // Trait use — `@reference.mixin`
+    { refTag: "reference.mixin", relation: "IMPLEMENTS", childKinds: ["Class", "Trait"] },
+  ],
+};
+
 function extractPhpHeritage(input: ExtractHeritageInput): readonly ExtractedHeritage[] {
-  const { filePath, captures, definitions } = input;
-  const out: ExtractedHeritage[] = [];
-
-  const containerDefs = captures.filter(
-    (c) =>
-      c.tag === "definition.class" ||
-      c.tag === "definition.interface" ||
-      c.tag === "definition.trait",
-  );
-
-  // EXTENDS — `@reference.class`
-  const extendsRefs = captures.filter((c) => c.tag === "reference.class");
-  for (const ref of extendsRefs) {
-    const enclosing = innermostEnclosingContainer(ref, containerDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) =>
-        (d.kind === "Class" || d.kind === "Interface" || d.kind === "Trait") &&
-        d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "EXTENDS",
-      startLine: ref.startLine,
-    });
-  }
-
-  // IMPLEMENTS — `@reference.interface`
-  const implementsRefs = captures.filter((c) => c.tag === "reference.interface");
-  for (const ref of implementsRefs) {
-    const enclosing = innermostEnclosingContainer(ref, containerDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) => d.kind === "Class" && d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "IMPLEMENTS",
-      startLine: ref.startLine,
-    });
-  }
-
-  // Trait use — `@reference.mixin`
-  const mixinRefs = captures.filter((c) => c.tag === "reference.mixin");
-  for (const ref of mixinRefs) {
-    const enclosing = innermostEnclosingContainer(ref, containerDefs);
-    if (enclosing === undefined) continue;
-    const child = definitions.find(
-      (d) => (d.kind === "Class" || d.kind === "Trait") && d.startLine === enclosing.startLine,
-    );
-    if (child === undefined) continue;
-    out.push({
-      childQualifiedName: child.qualifiedName,
-      parentName: ref.text,
-      filePath,
-      relation: "IMPLEMENTS",
-      startLine: ref.startLine,
-    });
-  }
-
-  return out;
+  return extractHeritageRefBased(input, PHP_HERITAGE_CONFIG);
 }
 
 export const phpProvider: LanguageProvider = {

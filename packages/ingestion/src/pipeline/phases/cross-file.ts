@@ -29,6 +29,7 @@
  */
 
 import { makeNodeId, type NodeId } from "@opencodehub/core-types";
+import { detectLanguage } from "../../parse/language-detector.js";
 import { getProvider } from "../../providers/registry.js";
 import {
   CONFIDENCE_BY_TIER,
@@ -36,11 +37,7 @@ import {
   type SymbolIndex,
 } from "../../providers/resolution/context.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
-import {
-  buildFilePathLookup,
-  partitionPriorEdges,
-  resolveIncrementalView,
-} from "./incremental-helper.js";
+import { carryForwardEdges, resolveIncrementalView } from "./incremental-helper.js";
 import { INCREMENTAL_SCOPE_PHASE_NAME } from "./incremental-scope.js";
 import { ORM_PHASE_NAME } from "./orm.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./parse.js";
@@ -86,29 +83,10 @@ function runCrossFile(ctx: PipelineContext, parse: ParseOutput): CrossFileOutput
   // a full run at the same commit. Determinism gate: see
   // `packages/ingestion/src/pipeline/incremental-determinism.test.ts`.
   const view = resolveIncrementalView(ctx);
-  if (
-    view.active &&
-    view.previousGraph?.edges !== undefined &&
-    view.previousGraph.nodes !== undefined
-  ) {
-    const filePathByNodeId = buildFilePathLookup(view.previousGraph.nodes);
-    const carried = partitionPriorEdges(
-      view.previousGraph.edges,
-      filePathByNodeId,
-      view.closure,
-      new Set(["CALLS"]),
-    );
-    for (const e of carried) {
-      if (e.confidence <= CONFIDENCE_BY_TIER.global) continue;
-      ctx.graph.addEdge({
-        from: e.from,
-        to: e.to,
-        type: e.type,
-        confidence: e.confidence,
-        ...(e.reason !== undefined ? { reason: e.reason } : {}),
-      });
-    }
-  }
+  carryForwardEdges(ctx, view, {
+    edgeTypes: ["CALLS"],
+    minConfidence: CONFIDENCE_BY_TIER.global,
+  });
 
   // ---- 1. Build the import graph restricted to files we actually parsed. -
   // In incremental mode we narrow the SCC+upgrade walk to closure files;
@@ -215,9 +193,7 @@ function reresolveCallsForFile(
   }
   const fileNodeId = makeNodeId("File", filePath, filePath);
 
-  const language = parse.definitionsByFile.has(filePath)
-    ? inferLanguageFromFile(filePath)
-    : undefined;
+  const language = parse.definitionsByFile.has(filePath) ? detectLanguage(filePath) : undefined;
   if (language === undefined) return { upgraded: 0, stillUnresolved: 0 };
   const provider = getProvider(language);
 
@@ -254,84 +230,6 @@ function reresolveCallsForFile(
   }
 
   return { upgraded, stillUnresolved };
-}
-
-function inferLanguageFromFile(
-  filePath: string,
-):
-  | "typescript"
-  | "tsx"
-  | "javascript"
-  | "python"
-  | "go"
-  | "rust"
-  | "java"
-  | "csharp"
-  | "c"
-  | "cpp"
-  | "ruby"
-  | "kotlin"
-  | "swift"
-  | "php"
-  | "dart"
-  | undefined {
-  const idx = filePath.lastIndexOf(".");
-  if (idx < 0) return undefined;
-  const ext = filePath.slice(idx).toLowerCase();
-  switch (ext) {
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return "typescript";
-    case ".tsx":
-      return "tsx";
-    case ".js":
-    case ".mjs":
-    case ".cjs":
-    case ".jsx":
-      return "javascript";
-    case ".py":
-    case ".pyi":
-      return "python";
-    case ".go":
-      return "go";
-    case ".rs":
-      return "rust";
-    case ".java":
-      return "java";
-    case ".cs":
-      return "csharp";
-    case ".c":
-    case ".h":
-      // .h is ambiguous between C/C++; default to C. A dedicated C++ header
-      // detector can upgrade the classification later.
-      return "c";
-    case ".cpp":
-    case ".cc":
-    case ".cxx":
-    case ".hpp":
-    case ".hh":
-    case ".hxx":
-      return "cpp";
-    case ".rb":
-      return "ruby";
-    case ".kt":
-    case ".kts":
-      return "kotlin";
-    case ".swift":
-      return "swift";
-    case ".php":
-    case ".php3":
-    case ".php4":
-    case ".php5":
-    case ".php7":
-    case ".phtml":
-      return "php";
-    case ".dart":
-      return "dart";
-    default:
-      return undefined;
-  }
 }
 
 /**

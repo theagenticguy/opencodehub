@@ -69,7 +69,7 @@ top-level subcommands by phase of the workflow.
 ## Design
 
 - **Lazy loading** — each `.action()` does `await import(...)` so cold
-  startup is bounded by Commander, not DuckDB or the parse pool
+  startup is bounded by Commander, not the store or the parse pool
   (`packages/cli/src/index.ts:78-81`).
 - **No stateful daemon** — `analyze` runs to completion and exits;
   `mcp` is the only long-running process.
@@ -81,13 +81,12 @@ top-level subcommands by phase of the workflow.
 - **`mcp` is launched, never embedded** — agents that need the MCP
   surface spawn `codehub mcp` over stdio (`packages/cli/src/commands/mcp.ts`).
 
-See ADR 0016 for the lbug-graph + DuckDB-temporal storage layout and the
+See ADR 0019 for the single-file `store.sqlite` storage layout and the
 root README's "MCP tool surface" section for the agent-facing tool
 inventory.
 
-The bundled graph backend is `@ladybugdb/core` **0.17.1** or newer. 0.17.0
-changed empty-`STRING[]` serialization (empty lists now round-trip as a typed
-empty array rather than collapsing to NULL); the adapter decodes a bare empty
-array as an absent field on every supported lbug version, so `graphHash`
-byte-identity — and the Parquet embeddings sidecar `packHash` that depends on
-it — is preserved across the upgrade.
+Storage is one `store.sqlite` file (WAL) via Node's built-in `node:sqlite`,
+with zero native bindings (ADR 0019). Empty `keywords: []` round-trips as a
+typed empty array distinct from an absent field — stored in the node's JSON
+`payload` column — so `graphHash` byte-identity is preserved. Embeddings live
+in the `embeddings` table (no Parquet sidecar).

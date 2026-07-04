@@ -12,7 +12,7 @@
 npm install -g @opencodehub/cli
 cd /path/to/your/repo
 codehub init && codehub analyze
-# your agent now has impact, query, context, detect_changes — 28 tools over MCP
+# your agent now has impact, query, context, detect_changes — 29 tools over MCP
 ```
 
 ## Why this exists
@@ -63,11 +63,11 @@ ten round-trips.
 flowchart LR
   A[Source tree] -->|tree-sitter parse| B[Symbol graph]
   B -->|resolve imports / MRO| C[Typed relations]
-  C -->|BM25 + HNSW index| D[Hybrid graph store]
+  C -->|BM25 + vector KNN| D[Hybrid graph store]
   C -->|detect communities + flows| E[Processes / clusters]
   D --> F[MCP server]
   E --> F
-  F -->|28 tools| G[AI coding agent]
+  F -->|29 tools| G[AI coding agent]
 ```
 
 ## Design choices worth knowing
@@ -79,7 +79,7 @@ flowchart LR
 | **Deterministic indexing** | Identical inputs produce a byte-identical graph hash. Reproducible. Auditable. Cacheable in CI. |
 | **First-party source only** | `analyze` honors the repo's `.gitignore` (nested files included) and always skips dependency installs, virtualenvs, build output, and tool caches — `node_modules`, `.venv`/`venv`, `__pycache__`, `dist`/`build`/`target`, `.next`/`.nuxt`/`.turbo`, `.mypy_cache`/`.pytest_cache`/`.ruff_cache`, `coverage`, and similar. Exclusion is decided once at scan time (`HARDCODED_IGNORES` in `packages/ingestion/src/pipeline/gitignore.ts`), so every retrieval surface — `query`, `context`, `impact`, `sql`, `pack` — inherits it. Ambiguous names that are often real source (`vendor`, `env`, `out`, `bin`) are left to your `.gitignore`, which supports `!`-negation a hardcoded rule can't. |
 | **MCP-native** | Works out-of-the-box with Claude Code, Cursor, Codex, Windsurf, OpenCode. The MCP server is the primary interface; CLI exists for scripts and CI. |
-| **Single-file embedded storage** | One `store.sqlite` file holds everything — symbols, edges, embeddings, BM25 (FTS5) + HNSW traversal, and the temporal views (cochanges, summaries) — via Node's built-in `node:sqlite`. No daemon, no database to operate, and **zero native storage bindings** (ADR 0019 removed both `@ladybugdb/core` and `@duckdb/node-api`). |
+| **Single-file embedded storage** | One `store.sqlite` file holds everything — symbols, edges, embeddings, BM25 (FTS5) + brute-force vector KNN, and the temporal views (cochanges, summaries) — via Node's built-in `node:sqlite`. No daemon, no database to operate, and **zero native storage bindings** (ADR 0019 removed both `@ladybugdb/core` and `@duckdb/node-api`). |
 | **15 languages at GA** | TypeScript, JavaScript, Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, PHP, Dart, COBOL — tree-sitter for the first 14 plus a regex provider for fixed-format COBOL. |
 | **WASM-only parse runtime** | `web-tree-sitter` WASM is the only parse runtime. The 15 grammar `.wasm` blobs are vendored at `packages/ingestion/vendor/wasms/`, so parsing does **zero grammar/native builds and zero GitHub fetches** at install time — there is no native parser opt-in. Storage is pure `node:sqlite`; the only optional native dep is the local embedder (see Platform support). |
 
@@ -149,7 +149,7 @@ pnpm run check          # lint + typecheck + test + banned-strings
 mise run cli:link       # puts `codehub` on your PATH
 ```
 
-## MCP tool surface (28 tools)
+## MCP tool surface (29 tools)
 
 | Tool | Purpose |
 |---|---|
@@ -170,7 +170,7 @@ skills + a code-analyst subagent — install via `codehub init`.
 
 ## Repository layout
 
-The monorepo is organised as 18 workspace packages under `packages/`:
+The monorepo is organised as 19 workspace packages under `packages/`:
 
 | Package | Purpose |
 |---|---|
@@ -178,24 +178,26 @@ The monorepo is organised as 18 workspace packages under `packages/`:
 | `cli` | `codehub` command — `init`, `analyze`, `status`, `setup`, scanners, group federation |
 | `cobol-proleap` | ProLeap-backed deep-parse path for free-format COBOL (regex provider handles fixed-format) |
 | `core-types` | Shared TypeScript types, Zod schemas, error codes, canonical `LanguageId` and node/edge kinds |
+| `docs` | This Starlight documentation site (private workspace package) |
 | `embedder` | Embedding backends — local ONNX, HTTP, SageMaker; deterministic `embedderId` fingerprint |
+| `eval` | Retrieval / graph-quality evaluation harness (private, test-time only) |
 | `frameworks` | HTTP route + MCP tool detectors used by `route_map` / `api_impact` / `tool_map` |
 | `ingestion` | Tree-sitter + WASM parsers, symbol extraction, import resolution, complexity phase |
-| `mcp` | Model Context Protocol server — 28 tools, resources, structured error envelopes |
+| `mcp` | Model Context Protocol server — 29 tools, resources, structured error envelopes |
 | `pack` | Deterministic Repomix-compatible code-pack generator (M5) |
 | `policy` | Allowlist + license-tier policy engine driving `license_audit` and CI gates |
 | `sarif` | SARIF schema validation and scanner output normalisation |
 | `scanners` | Subprocess wrappers for 19 scanners — OSV, Semgrep, hadolint, tflint, betterleaks, and the rest |
 | `scip-ingest` | SCIP indexer runners (TS, Python, Go, Rust, Java) — emits CALLS, REFERENCES, IMPLEMENTS, TYPE_OF |
-| `search` | Hybrid BM25 + HNSW (ACORN-1 + RaBitQ) query layer |
+| `search` | Hybrid BM25 (FTS5) + vector query layer over `store.sqlite` |
 | `storage` | One `SqliteStore` (`node:sqlite`) implementing both `IGraphStore` + `ITemporalStore` over a single `store.sqlite`; deterministic `graphHash` |
 | `summarizer` | Process + cluster summaries for MCP responses |
 | `wiki` | LLM-narrated module pages emitted by `codehub wiki --llm` |
 
-The retrieval / graph-quality evaluation harness and the per-language F1
-regression gym used to live here as `eval` and `gym`; they were
+The per-language F1 regression gym used to live here as `gym`; it was
 extracted into the sibling `opencodehub-testbed` repository so the
-production package set ships free of test-time dependencies.
+production package set ships free of that test-time dependency. The
+`eval` harness stays in-tree as a private, test-time-only package.
 
 ## Embedding backends
 
@@ -281,8 +283,8 @@ superseded.
 `IGraphStore` / `ITemporalStore` interface segregation), B (19-scanner
 fleet incl. betterleaks), C (debt sweep — embedder fingerprint, SCIP
 REFERENCES + TYPE_OF), and D (dogfood polish) have all merged. The
-published package is `@opencodehub/cli` (currently `0.7.0`; the monorepo
-root tracks `0.8.0`); `1.0.0` is cut once schema + tool-surface stability
+published package is `@opencodehub/cli` (currently `0.10.6`; the monorepo
+root tracks `0.10.6`); `1.0.0` is cut once schema + tool-surface stability
 is signed off.
 
 While on `0.x`, **any release may contain breaking changes** to the

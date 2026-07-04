@@ -101,7 +101,7 @@ test("resolveMaxSummariesCap: auto clamps at the 500 cap for large repos", async
 });
 
 test("resolveMaxSummariesCap: auto falls back to 50 on first run (no prior seed)", async () => {
-  // `undefined` models "no prior DuckDB store at the expected path".
+  // `undefined` models "no prior store at the expected path".
   const cap = await resolveMaxSummariesCap("/unused", "auto", true, async () => undefined);
   assert.equal(cap, 50);
 });

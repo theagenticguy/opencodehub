@@ -3,10 +3,10 @@
  * {@link loadPreviousGraph}.
  *
  * What this exercises:
- *   - After a prior DuckDB index + scan-state.json are on disk,
+ *   - After a prior index (`store.sqlite`) + scan-state.json are on disk,
  *     `loadPreviousGraph` returns a {@link pipeline.PreviousGraph} whose
  *     `nodes` AND `edges` fields are populated (non-empty, round-tripped
- *     through the `rowToGraphNode` / `rowToCodeRelation` mappers).
+ *     through the store's typed `listNodes` / `listEdges` finders).
  *   - That shape is the exact precondition `resolveIncrementalView`
  *     (`packages/ingestion/src/pipeline/phases/incremental-helper.ts:95-102`)
  *     checks before it flips `active=true`. A `PreviousGraph` satisfying
@@ -15,7 +15,7 @@
  *     run their carry-forward codepath.
  *   - The negative case (missing DB) still returns `undefined`.
  *
- * The test builds its own DuckDB from scratch via a synthetic
+ * The test builds its own `store.sqlite` from scratch via a synthetic
  * `KnowledgeGraph` rather than running the full `runIngestion` pipeline —
  * keeps the test fast (no tree-sitter / SCIP invocations) and isolates the
  * storage ↔ `loadPreviousGraph` round-trip being exercised.
@@ -190,7 +190,7 @@ async function seedPriorIndex(repoPath: string): Promise<{
   return { nodeCount: graph.nodeCount(), edgeCount: graph.edgeCount() };
 }
 
-test("loadPreviousGraph: returns full nodes + edges from a seeded DuckDB", async () => {
+test("loadPreviousGraph: returns full nodes + edges from a seeded store", async () => {
   const repoPath = await mkdtemp(join(tmpdir(), "och-carry-forward-"));
   const seeded = await seedPriorIndex(repoPath);
 

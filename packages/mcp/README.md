@@ -54,7 +54,7 @@ tree.
   ambiguity is reported once, consistently
   (`packages/mcp/src/repo-resolver.ts`).
 - **Connection pooling** — the graph store is held in a per-process
-  pool to amortise DuckDB cold starts across many tool calls
+  pool to amortise SQLite cold starts across many tool calls
   (`packages/mcp/src/connection-pool.ts`).
 - **Lazy analysis** — heavy work (scan, code-pack, verdict) shells out
   via `analysis-bridge` rather than running in the MCP process so a

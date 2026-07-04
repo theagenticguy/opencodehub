@@ -42,7 +42,7 @@ The `manifest.json` (`PackManifest`) lists every written BOM body in
 ## Determinism contract
 
 Same `(commit, tokenizer_id, budget_tokens, chonkie_version,
-duckdb_version, grammar_commits)` produces a byte-identical pack and the
+grammar_commits)` produces a byte-identical pack and the
 same `pack_hash`. All file bytes use LF line endings; CRLF and lone-CR
 inputs are normalized to LF before chunking and hashing, so two repos
 differing only in line-ending style produce the same `pack_hash`.

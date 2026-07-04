@@ -100,8 +100,8 @@ function makeFakeStore(opts: FakeStoreOptions = {}): FakeStoreHandle {
   const composed: Store = {
     graph: graph as unknown as IGraphStore,
     temporal: {} as unknown as ITemporalStore,
-    graphFile: "/tmp/fake.duckdb",
-    temporalFile: "/tmp/fake.duckdb",
+    graphFile: "/tmp/fake.sqlite",
+    temporalFile: "/tmp/fake.sqlite",
     close: async () => {
       handle.closed = true;
     },

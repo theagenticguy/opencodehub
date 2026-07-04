@@ -74,14 +74,14 @@ When a name is ambiguous, `context` returns a ranked candidate list instead of s
 ### `mcp__codehub__sql` — trace a named process end-to-end
 
 ```sql
-SELECT r.step, callee.name, callee.file_path, callee.start_line
-FROM relations r
-JOIN nodes proc   ON proc.id = r.from_id
-JOIN nodes callee ON callee.id = r.to_id
-WHERE r.type = 'PROCESS_STEP'
+SELECT e.step, callee.name, callee.file_path, callee.start_line
+FROM edges e
+JOIN nodes proc   ON proc.id = e.src
+JOIN nodes callee ON callee.id = e.dst
+WHERE e.type = 'PROCESS_STEP'
   AND proc.kind = 'Process'
   AND proc.name = 'CheckoutFlow'
-ORDER BY r.step ASC;
+ORDER BY e.step ASC;
 ```
 
 ## Cross-repo exploration

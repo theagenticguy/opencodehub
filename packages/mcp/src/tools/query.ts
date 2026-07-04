@@ -247,9 +247,9 @@ async function lookupSummariesForHits(
  */
 async function bm25CorpusHasSummaries(temporal: ITemporalStore): Promise<boolean> {
   // Table-existence introspection via SQLite's `sqlite_master` catalog,
-  // routed through the temporal-tier `exec` escape hatch. (Pre-ADR-0019
-  // this probed DuckDB's `information_schema.tables`, which node:sqlite does
-  // not expose.) A future graph-only adapter pairing with a non-SQLite
+  // routed through the temporal-tier `exec` escape hatch. (An earlier
+  // backend probed `information_schema.tables`, which node:sqlite does not
+  // expose.) A future graph-only adapter pairing with a non-SQLite
   // temporal store can override this probe.
   try {
     const rows = await temporal.exec(

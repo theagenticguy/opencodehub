@@ -1,6 +1,6 @@
 ---
 title: Embeddings
-description: Three backends in a priority cascade, three tiers keyed by a granularity discriminator, one HNSW index with filter-aware traversal.
+description: Three backends in a priority cascade, three tiers keyed by a granularity discriminator, one embeddings table with exact brute-force cosine KNN.
 sidebar:
   order: 50
 ---
@@ -8,8 +8,8 @@ sidebar:
 Embeddings are optional. When enabled, the pipeline produces vectors
 at three granularities (symbol, file, community) from one of three
 backends (ONNX local, HTTP/OpenAI-compat, SageMaker) and persists
-them in the graph backend's embeddings table served by one HNSW
-index. This page covers the backend cascade, the tier model, the
+them in the `embeddings` table in `store.sqlite`, searched by exact
+brute-force cosine KNN. This page covers the backend cascade, the tier model, the
 storage shape, and why `WHERE granularity='symbol'` does not collapse
 recall.
 
@@ -123,39 +123,30 @@ embedded text when an LLM summary exists for the node. See
 [Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/)
 for the formula.
 
-## Single HNSW index
+## Single embeddings table
 
-The storage shape is deliberately simple: one embeddings table, one
-HNSW index over the `vector` column, one `granularity` column as a
-discriminator. All three tiers share this index. Granularity filtering
-is pushed as `WHERE e.granularity IN (…)` into the index predicate, so
-selective filters narrow the candidate set during traversal rather
-than being applied after the fact.
+The storage shape is deliberately simple: one `embeddings` table inside
+`store.sqlite`, with the `vector` stored as a BLOB (BLOB-exact
+`Float32Array`) and one `granularity` column as a discriminator. All
+three tiers share this table. Granularity filtering is pushed as
+`WHERE e.granularity IN (…)` into the query predicate, so selective
+filters narrow the candidate set rather than being applied after the
+fact.
 
-## Filter-aware HNSW
+## Filter-aware vector search
 
-The graph backend's HNSW index supports filter-aware traversal — the
-predicate is pushed into the graph walk so filters like
+Vector search runs directly over the `embeddings` table with the
+predicate applied in the SQL query, so filters like
 `WHERE language='python'` or `WHERE granularity='community'` actually
 return results. A naive post-filter walks the top-k by cosine
 distance and drops rows that fail the predicate, which collapses to
-zero recall under selective filters; the OCH index avoids that by
-construction.
+zero recall under selective filters; querying with the predicate
+inline avoids that by construction.
 
-On the legacy DuckDB layout, the same property holds via the
-`hnsw_acorn` community extension's ACORN-1 algorithm. If
-`hnsw_acorn` fails to install or load (first-run requires network to
-pull from the DuckDB community extension repo), the adapter falls
-back to `vss` with a post-filter warning. If both fail,
-`vectorExtension='none'` disables vector search entirely — queries
-return zero rows plus a surfaced warning rather than crashing.
-
-## RaBitQ quantization
-
-`hnsw_acorn` supports RaBitQ quantization, documented at 21-30×
-memory reduction versus fp32 vectors. It is a capability of the
-extension rather than a separately-configured knob in OpenCodeHub —
-enabling `hnsw_acorn` enables it.
+The default is a brute-force KNN over the stored BLOB vectors, which is
+exact and adds zero native dependencies. `node:sqlite` exposes a
+`loadExtension` seam for `sqlite-vec` if brute-force is ever outgrown;
+that is a deferred fast-follow, not a shipping requirement.
 
 ## Configuration knobs
 
@@ -177,9 +168,10 @@ enabling `hnsw_acorn` enables it.
   remote-env-var-set + offline=true combination throws. A missing
   SageMaker endpoint with no env vars just picks ONNX — that is the
   intended cascade, not a failure.
-- **`vectorExtension='none'` is a real state.** Queries return no
-  rows and surface an extension warning. This is the air-gapped /
-  offline / extension-broken state; it is not an exception.
+- **No-embeddings is a real state.** When embeddings were never
+  computed (the default, or an air-gapped / offline run), vector search
+  returns no rows and surfaces a warning. This is expected, not an
+  exception; lexical BM25 search still works.
 - **Graph-hash independence.** The embeddings phase does not
   contribute to `graphHash` — embeddings are optional and
   probabilistic across backends. Gate 10 (the embeddings determinism
@@ -191,10 +183,10 @@ enabling `hnsw_acorn` enables it.
 
 ## Further reading
 
-- [ADR 0001 — Storage backend](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0001-storage-backend.md)
-  — why DuckDB + `hnsw_acorn`.
+- [ADR 0019 — Single-file SQLite storage](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0019-single-file-sqlite-storage.md)
+  — where the `embeddings` table lives and why there is no native binding.
 - [ADR 0004 — Hierarchical embeddings](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0004-hierarchical-embeddings.md)
-  — one table, three granularities, one HNSW index.
+  — one table, three granularities, one discriminator column.
 - [Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/)
   — where the symbol-tier text comes from.
 - Durable lesson: `api-patterns/sagemaker-embedder-backend.md` —

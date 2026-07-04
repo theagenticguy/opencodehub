@@ -17,11 +17,9 @@
 # SKIP behavior:
 #   The script exits 0 with a SKIP message when:
 #     - The CLI binary at packages/cli/dist/index.js is absent (build first).
-#     - The repo lacks a `<repo>/.codehub/duck.db` graph (run `codehub
-#       analyze` first). DuckDB native bindings may not load on every host
-#       (worktree native-binding lesson) so we degrade gracefully.
-#   These are not failures — they let the script run safely as part of
-#   `scripts/acceptance.sh` on developer laptops without a populated index.
+#     - The repo lacks a `<repo>/.codehub/store.sqlite` index (run `codehub
+#       analyze` first). This lets the script run safely as part of
+#       `scripts/acceptance.sh` on developer laptops without a populated index.
 
 set -euo pipefail
 
@@ -34,8 +32,8 @@ if [ ! -f "$CLI" ]; then
   exit 0
 fi
 
-if [ ! -f "$REPO/.codehub/duck.db" ]; then
-  echo "SKIP: pack-determinism — no DuckStore at $REPO/.codehub/duck.db (run 'codehub analyze' first)"
+if [ ! -f "$REPO/.codehub/store.sqlite" ]; then
+  echo "SKIP: pack-determinism — no index at $REPO/.codehub/store.sqlite (run 'codehub analyze' first)"
   exit 0
 fi
 

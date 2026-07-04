@@ -14,25 +14,24 @@ mutate global state.
 
 ### Storage
 
-The graph tier is always LadybugDB (`graph.lbug`) and the temporal tier
-is always DuckDB (`temporal.duckdb`). There is no backend selector — the
-`CODEHUB_STORE` env var was removed in ADR 0016 along with the probe and
-the DuckDB-as-graph fallback. If the LadybugDB binding cannot load,
-`open()` throws `GraphDbBindingError`.
+The whole index lives in one `store.sqlite` file (WAL mode) via Node's
+built-in `node:sqlite`. There is no backend selector: the `CODEHUB_STORE`
+env var was removed and there is no native storage binding to probe (ADR
+0019). Nothing fails for lack of a platform prebuilt.
 
 | Variable | Purpose |
 |---|---|
 | `CODEHUB_HOME` | Override `~/.codehub/` (where the registry, embedder weights, and global state live). |
 
 ADR 0013 (`docs/adr/0013-m7-default-flip-and-abstraction.md`) records
-the `IGraphStore` / `ITemporalStore` interface segregation; ADR 0016
-(`docs/adr/0016-duckdb-graph-rip.md`) records the rip-out of the DuckDB
-graph backend, the env var, and the resolver.
+the `IGraphStore` / `ITemporalStore` interface segregation; ADR 0019
+(`docs/adr/0019-single-file-sqlite-storage.md`) records collapsing the
+whole index into one `store.sqlite` and removing both native storage
+bindings.
 
 ### Parse runtime
 
-`web-tree-sitter` (WASM) is the only parse runtime on Node 20, 22, and
-24. There is no env var or CLI flag to switch parsers — the native
+`web-tree-sitter` (WASM) is the only parse runtime on Node ≥24.15. There is no env var or CLI flag to switch parsers — the native
 `tree-sitter` N-API addon was removed in 0.4.0. The CLI emits a
 one-shot stderr advisory if a stale legacy env var is set, then ignores
 it; consult the CHANGELOG and ADR 0015 for the variable name and
@@ -70,13 +69,12 @@ When none of the above are set, the local ONNX backend
 ## On-disk layout: `.codehub/`
 
 `codehub analyze` writes everything under `<repo-root>/.codehub/`. The
-layout is fixed: a LadybugDB graph file alongside a DuckDB temporal
-file.
+layout is fixed: one `store.sqlite` file backs the whole index.
 
 | Path | Purpose |
 |---|---|
-| `graph.lbug` | LadybugDB graph store — nodes, edges, embeddings, BM25 + HNSW indexes. |
-| `temporal.duckdb` | Sibling DuckDB file — temporal store (cochanges, symbol-summary cache). |
+| `store.sqlite` | The whole index (WAL mode, `node:sqlite`) — nodes, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges, symbol-summary cache). |
+| `store.sqlite-wal` / `store.sqlite-shm` | WAL companions present while a writer is open; collapse into `store.sqlite` at close. |
 | `meta.json` | Index metadata: graph hash, node counts, CLI version, embedder model id. |
 | `scan.sarif` | SARIF output from `codehub scan`. |
 | `sbom.cyclonedx.json` / `sbom.spdx.json` | SBOMs when `codehub analyze --sbom` has run. |

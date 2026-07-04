@@ -9,7 +9,7 @@
  *   5. `--exit-code` on auto_merge tier → exit 0.
  *
  * Each test injects a stub `computeVerdictFn` + a fake store so nothing
- * hits DuckDB or git. The CLI's real exit-code ladder (0/1/2/3) is what
+ * hits the store or git. The CLI's real exit-code ladder (0/1/2/3) is what
  * the assertions target, so the test pinsbehavior — not the
  * analysis module's 0/1/2 mapping.
  */
@@ -88,7 +88,7 @@ function verdictFixture(
     communitiesTouched: ["c1", "c2", "c3"],
     changedFileCount: 7,
     changedFiles: [
-      "packages/storage/src/duckdb-adapter.ts",
+      "packages/storage/src/sqlite-adapter.ts",
       "packages/cli/src/index.ts",
       "README.md",
     ],
@@ -451,7 +451,7 @@ test("runVerdict: ownership_required rule passes when approvals are supplied", a
     ],
   };
   // touchedPaths now comes from the verdict pipeline (verdict.changedFiles).
-  // The auto_merge fixture touches `packages/storage/src/duckdb-adapter.ts`,
+  // The auto_merge fixture touches `packages/storage/src/sqlite-adapter.ts`,
   // which matches the rule glob — so the rule fires, but the supplied
   // @storage-team approval satisfies require_approval_from → pass.
   const { exitCode } = await withExitCode(async () => {
@@ -598,7 +598,7 @@ test("runVerdict: ownership_required blocks (exit 3) when a changed path lacks a
       },
     ],
   };
-  // The auto_merge fixture touches packages/storage/src/duckdb-adapter.ts,
+  // The auto_merge fixture touches packages/storage/src/sqlite-adapter.ts,
   // which matches the rule glob. No approval supplied → block, proving the
   // rule sees the real changedFiles threaded through touchedPaths.
   const { exitCode } = await withExitCode(async () => {
@@ -618,7 +618,7 @@ test("runVerdict: ownership_required blocks (exit 3) when a changed path lacks a
   assert.match(output, /Policy: block/);
   assert.match(
     output,
-    /storage-owner: path "packages\/storage\/src\/duckdb-adapter.ts" requires approval from one of: @storage-team/,
+    /storage-owner: path "packages\/storage\/src\/sqlite-adapter.ts" requires approval from one of: @storage-team/,
   );
   assert.equal(exitCode, 3);
 });

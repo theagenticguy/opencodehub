@@ -75,9 +75,9 @@ When a name is ambiguous, `context` returns a ranked candidate list instead of s
 
 ```sql
 SELECT r.step, callee.name, callee.file_path, callee.start_line
-FROM relations r
-JOIN nodes proc   ON proc.id = r.from_id
-JOIN nodes callee ON callee.id = r.to_id
+FROM edges r
+JOIN nodes proc   ON proc.id = r.src
+JOIN nodes callee ON callee.id = r.dst
 WHERE r.type = 'PROCESS_STEP'
   AND proc.kind = 'Process'
   AND proc.name = 'CheckoutFlow'
