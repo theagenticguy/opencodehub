@@ -15,17 +15,13 @@
  */
 
 import type { NodeId } from "@opencodehub/core-types";
+import { detectLanguage } from "../../parse/language-detector.js";
 import { getProvider } from "../../providers/registry.js";
 import { MroConflictError } from "../../providers/resolution/c3.js";
 import { getMroStrategy } from "../../providers/resolution/mro.js";
-import type { LanguageId } from "../../providers/types.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { CROSS_FILE_PHASE_NAME } from "./cross-file.js";
-import {
-  buildFilePathLookup,
-  partitionPriorEdges,
-  resolveIncrementalView,
-} from "./incremental-helper.js";
+import { carryForwardEdges, resolveIncrementalView } from "./incremental-helper.js";
 import { INCREMENTAL_SCOPE_PHASE_NAME } from "./incremental-scope.js";
 import { STRUCTURE_PHASE_NAME } from "./structure.js";
 
@@ -61,28 +57,9 @@ function runMro(ctx: PipelineContext): MroOutput {
   // forward for the rest keeps the graph hash byte-identical to a full
   // run at the same commit (see `incremental-determinism.test.ts`).
   const view = resolveIncrementalView(ctx);
-  if (
-    view.active &&
-    view.previousGraph?.edges !== undefined &&
-    view.previousGraph.nodes !== undefined
-  ) {
-    const filePathByNodeId = buildFilePathLookup(view.previousGraph.nodes);
-    const carried = partitionPriorEdges(
-      view.previousGraph.edges,
-      filePathByNodeId,
-      view.closure,
-      new Set(["METHOD_OVERRIDES", "METHOD_IMPLEMENTS"]),
-    );
-    for (const e of carried) {
-      ctx.graph.addEdge({
-        from: e.from,
-        to: e.to,
-        type: e.type,
-        confidence: e.confidence,
-        ...(e.reason !== undefined ? { reason: e.reason } : {}),
-      });
-    }
-  }
+  carryForwardEdges(ctx, view, {
+    edgeTypes: ["METHOD_OVERRIDES", "METHOD_IMPLEMENTS"],
+  });
 
   // ---- Collect owner nodes + their methods + their heritage. -------------
   //
@@ -148,7 +125,7 @@ function runMro(ctx: PipelineContext): MroOutput {
     // indirect ancestors through this lookup, but belt-and-suspenders.
     linearizationCache.set(id, [id as string]);
     const filePath = ownerFilePath.get(id) ?? "";
-    const lang = inferLanguageFromFile(filePath);
+    const lang = detectLanguage(filePath);
     if (lang === undefined) {
       linearizationCache.set(id, [id as string]);
       return [id as string];
@@ -187,7 +164,7 @@ function runMro(ctx: PipelineContext): MroOutput {
 
   for (const id of ownerIds) {
     const ownerPath = ownerFilePath.get(id) ?? "";
-    const lang = inferLanguageFromFile(ownerPath);
+    const lang = detectLanguage(ownerPath);
     if (lang === undefined) continue;
     const provider = getProvider(lang);
     if (provider.mroStrategy === "none") continue;
@@ -258,64 +235,4 @@ function runMro(ctx: PipelineContext): MroOutput {
   }
 
   return { overridesCount, implementsCount, conflictCount };
-}
-
-function inferLanguageFromFile(filePath: string): LanguageId | undefined {
-  const idx = filePath.lastIndexOf(".");
-  if (idx < 0) return undefined;
-  const ext = filePath.slice(idx).toLowerCase();
-  switch (ext) {
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return "typescript";
-    case ".tsx":
-      return "tsx";
-    case ".js":
-    case ".mjs":
-    case ".cjs":
-    case ".jsx":
-      return "javascript";
-    case ".py":
-    case ".pyi":
-      return "python";
-    case ".go":
-      return "go";
-    case ".rs":
-      return "rust";
-    case ".java":
-      return "java";
-    case ".cs":
-      return "csharp";
-    case ".c":
-    case ".h":
-      // .h is ambiguous between C/C++; default to C. A dedicated C++ header
-      // detector can upgrade the classification later.
-      return "c";
-    case ".cpp":
-    case ".cc":
-    case ".cxx":
-    case ".hpp":
-    case ".hh":
-    case ".hxx":
-      return "cpp";
-    case ".rb":
-      return "ruby";
-    case ".kt":
-    case ".kts":
-      return "kotlin";
-    case ".swift":
-      return "swift";
-    case ".php":
-    case ".php3":
-    case ".php4":
-    case ".php5":
-    case ".php7":
-    case ".phtml":
-      return "php";
-    case ".dart":
-      return "dart";
-    default:
-      return undefined;
-  }
 }

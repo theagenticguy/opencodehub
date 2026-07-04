@@ -162,3 +162,70 @@ export function buildFilePathLookup(priorNodes: readonly GraphNode[]): ReadonlyM
   for (const n of priorNodes) m.set(n.id, n.filePath);
   return m;
 }
+
+/**
+ * Options for {@link carryForwardEdges}.
+ */
+export interface CarryForwardEdgesOptions {
+  /**
+   * The edge types eligible for carry-forward. Only prior edges of one of
+   * these types whose BOTH endpoints resolve outside the closure are replayed.
+   */
+  readonly edgeTypes: readonly string[];
+  /**
+   * When set, prior edges with `confidence <= minConfidence` are skipped
+   * rather than carried forward. crossFile uses this to drop global-tier
+   * (0.5-floor) CALLS edges, which the post-parse graph already carries; mro
+   * omits it entirely (all its heritage edges are high-confidence).
+   */
+  readonly minConfidence?: number;
+}
+
+/**
+ * Replay prior-graph edges whose anchors are outside the closure into
+ * `ctx.graph`. This is the incremental carry-forward preamble shared verbatim
+ * by the crossFile and mro phases: guard the incremental view, build the
+ * node→filePath lookup, partition the prior edges by the given types, then
+ * re-emit each carried edge with its ORIGINAL field values.
+ *
+ * Emission order is irrelevant to the graph hash — `orderedEdges()` re-sorts
+ * before hashing and `addEdge` dedupes deterministically (see
+ * `core-types/src/graph-hash.ts`) — so this extraction is a pure code motion:
+ * the emitted `from/to/type/confidence/reason` are copied unchanged from the
+ * prior edge. Guarded end-to-end by `incremental-determinism.test.ts`.
+ *
+ * A no-op when `view.active` is false or the prior graph lacks a node/edge
+ * snapshot — callers may invoke it unconditionally.
+ */
+export function carryForwardEdges(
+  ctx: PipelineContext,
+  view: IncrementalScopeView,
+  options: CarryForwardEdgesOptions,
+): void {
+  if (
+    !view.active ||
+    view.previousGraph?.edges === undefined ||
+    view.previousGraph.nodes === undefined
+  ) {
+    return;
+  }
+  const filePathByNodeId = buildFilePathLookup(view.previousGraph.nodes);
+  const carried = partitionPriorEdges(
+    view.previousGraph.edges,
+    filePathByNodeId,
+    view.closure,
+    new Set(options.edgeTypes),
+  );
+  for (const e of carried) {
+    if (options.minConfidence !== undefined && e.confidence <= options.minConfidence) {
+      continue;
+    }
+    ctx.graph.addEdge({
+      from: e.from,
+      to: e.to,
+      type: e.type,
+      confidence: e.confidence,
+      ...(e.reason !== undefined ? { reason: e.reason } : {}),
+    });
+  }
+}

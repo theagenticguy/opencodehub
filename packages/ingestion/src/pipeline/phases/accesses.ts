@@ -31,8 +31,9 @@
  *     files; overage is dropped with a `warn` event.
  */
 
-import type { GraphNode, NodeId } from "@opencodehub/core-types";
+import type { GraphNode, LanguageId, NodeId } from "@opencodehub/core-types";
 import { makeNodeId } from "@opencodehub/core-types";
+import { detectLanguage } from "../../parse/language-detector.js";
 import { getProvider } from "../../providers/registry.js";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { CROSS_FILE_PHASE_NAME } from "./cross-file.js";
@@ -96,7 +97,7 @@ function runAccesses(ctx: PipelineContext, parse: ParseOutput): AccessesOutput {
 
   const files = [...parse.definitionsByFile.keys()].sort();
   for (const filePath of files) {
-    const language = languageForFile(filePath, parse);
+    const language = languageForFile(filePath);
     if (language === undefined) continue;
     const provider = getProvider(language);
     if (provider.extractPropertyAccesses === undefined) continue;
@@ -192,29 +193,26 @@ function runAccesses(ctx: PipelineContext, parse: ParseOutput): AccessesOutput {
   return { edgeCount, truncatedFiles, unresolvedCount };
 }
 
-function languageForFile(
-  filePath: string,
-  _parse: ParseOutput,
-): "typescript" | "tsx" | "javascript" | "python" | undefined {
-  const idx = filePath.lastIndexOf(".");
-  if (idx < 0) return undefined;
-  const ext = filePath.slice(idx).toLowerCase();
-  switch (ext) {
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return "typescript";
-    case ".tsx":
-      return "tsx";
-    case ".js":
-    case ".mjs":
-    case ".cjs":
-    case ".jsx":
-      return "javascript";
-    case ".py":
-    case ".pyi":
-      return "python";
-    default:
-      return undefined;
+/**
+ * Languages the accesses phase supports (those whose providers expose an
+ * `extractPropertyAccesses` hook). We route file paths through the canonical
+ * {@link detectLanguage} and then whitelist to this narrow set, preserving
+ * the phase's original 4-language contract even though `detectLanguage`
+ * recognises more.
+ */
+type AccessesLanguage = "typescript" | "tsx" | "javascript" | "python";
+
+const ACCESSES_LANGUAGES: ReadonlySet<LanguageId> = new Set<AccessesLanguage>([
+  "typescript",
+  "tsx",
+  "javascript",
+  "python",
+]);
+
+function languageForFile(filePath: string): AccessesLanguage | undefined {
+  const lang = detectLanguage(filePath);
+  if (lang !== undefined && ACCESSES_LANGUAGES.has(lang)) {
+    return lang as AccessesLanguage;
   }
+  return undefined;
 }

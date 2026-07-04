@@ -593,6 +593,20 @@ const DART_QUERY = `
 
 ; --- mixins: with M1, M2 (lives inside a superclass node in Dart grammar) ---
 (mixins (type_identifier) @name @reference.mixin)
+
+; --- calls: intentionally NOT captured ---
+; Dart's tree-sitter grammar has no invocation node (no call_expression /
+; function_expression_invocation). A call is a flat sibling chain under the
+; statement: an (identifier) or (unconditional_assignable_selector) followed by
+; a separate (selector (argument_part)). The callee name is a PRECEDING SIBLING
+; of the arguments node, which a tree-sitter query pattern cannot condition on.
+; Any single-S-expression @reference.call is therefore either UNSOUND (matching
+; (unconditional_assignable_selector (identifier)) also captures field READS such
+; as obj.field as calls, and still misses bare calls) or unable to reach the
+; callee name (matching the argument selector). A correct capture would need a
+; bespoke extractCalls that walks from the arguments node to the preceding
+; identifier -- deliberately not done. Dart's call graph is a documented
+; grammar-precision gap, same class as the Rust/Swift SCIP gaps in the roadmap.
 `;
 
 // ---------------------------------------------------------------------------
