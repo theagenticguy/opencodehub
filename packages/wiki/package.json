@@ -38,7 +38,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "3.1076.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1079.0",
     "@opencodehub/core-types": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/summarizer": "workspace:*",
