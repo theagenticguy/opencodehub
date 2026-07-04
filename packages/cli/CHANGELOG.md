@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.8](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.7...cli-v0.10.8) (2026-07-04)
+
+
+### Refactoring
+
+* act on the OCH duplication scan (providers, defineTool, cross-package single-sourcing) ([#280](https://github.com/theagenticguy/opencodehub/issues/280)) ([337dc5e](https://github.com/theagenticguy/opencodehub/commit/337dc5ee897aa3d2d3b417a74019b0ead126d0d7))
+
 ## [0.10.7](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.6...cli-v0.10.7) (2026-07-01)
 
 
