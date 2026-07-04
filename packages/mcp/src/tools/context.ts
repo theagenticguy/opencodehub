@@ -36,6 +36,7 @@
 // biome-ignore-all lint/complexity/useLiteralKeys: dot-access disallowed on Record index signatures
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { contextCapability } from "@opencodehub/core-ops";
 import type { GraphNode } from "@opencodehub/core-types";
 import type { IGraphStore, Store } from "@opencodehub/storage";
 import { z } from "zod";
@@ -279,7 +280,11 @@ export async function runContext(ctx: ToolContext, args: ContextArgs): Promise<T
       ] = await Promise.all([
         fetchCategorizedEdges(store.graph, target.id, "incoming"),
         fetchCategorizedEdges(store.graph, target.id, "outgoing"),
-        fetchProcessParticipation(store.graph, target.id),
+        // Shared PROCESS_STEP reader in @opencodehub/core-ops — the one piece
+        // both surfaces run identically. The MCP-only enrichment below stays here.
+        contextCapability
+          .execute({ targetId: target.id }, { store, repoName: resolved.name })
+          .then((o) => o.processes),
         fetchCochangePartners(store, target),
         fetchLinkedOperations(store.graph, target),
         fetchConfidenceBreakdownEdges(store.graph, target.id),
@@ -648,60 +653,6 @@ function appendCategorySection(lines: string[], header: string, buckets: Categor
       lines.push(`    ${arrow} ${n.name} [${n.kind}] — ${n.filePath}`);
     }
   }
-}
-
-interface ProcessParticipation {
-  readonly id: string;
-  readonly label: string;
-  readonly step: number | null;
-}
-
-/**
- * Find Process-kind partners reachable from the target via `PROCESS_STEP`
- * edges. The processes phase emits symbol-to-symbol step edges under a
- * Process node, so we accept either direction on the join and filter on
- * `kind = 'Process'`.
- */
-async function fetchProcessParticipation(
-  graph: IGraphStore,
-  targetId: string,
-): Promise<readonly ProcessParticipation[]> {
-  const [outEdges, inEdges] = await Promise.all([
-    graph.listEdgesByType("PROCESS_STEP", { fromIds: [targetId] }),
-    graph.listEdgesByType("PROCESS_STEP", { toIds: [targetId] }),
-  ]);
-  const partnerIds = new Set<string>();
-  for (const e of [...outEdges, ...inEdges]) {
-    const id = e.from === targetId ? e.to : e.from;
-    partnerIds.add(id);
-  }
-  if (partnerIds.size === 0) return [];
-  const partners = await graph.listNodes({ ids: [...partnerIds] });
-  const partnerById = new Map<string, GraphNode>();
-  for (const p of partners) partnerById.set(p.id, p);
-  const dedup = new Map<string, { label: string; step: number | null }>();
-  for (const e of [...outEdges, ...inEdges]) {
-    const partnerId = e.from === targetId ? e.to : e.from;
-    const partner = partnerById.get(partnerId);
-    if (partner?.kind !== "Process") continue;
-    if (dedup.has(partner.id)) continue;
-    const inferredLabel = (partner as unknown as { inferredLabel?: string }).inferredLabel;
-    const label =
-      typeof inferredLabel === "string" && inferredLabel.length > 0 ? inferredLabel : partner.name;
-    dedup.set(partner.id, { label, step: toLineOrNull(e.step) });
-  }
-  const items = Array.from(dedup.entries()).map(([id, v]) => ({
-    id,
-    label: v.label,
-    step: v.step,
-  }));
-  items.sort((a, b) => {
-    const as = a.step ?? Number.POSITIVE_INFINITY;
-    const bs = b.step ?? Number.POSITIVE_INFINITY;
-    if (as !== bs) return as - bs;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
-  return items.slice(0, 20);
 }
 
 /**
