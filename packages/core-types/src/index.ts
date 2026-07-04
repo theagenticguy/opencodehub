@@ -7,6 +7,7 @@ export type { EdgeId, MakeNodeIdOptions, NodeId, ParsedNodeId } from "./id.js";
 export { makeEdgeId, makeNodeId, parseNodeId } from "./id.js";
 export type { LanguageId } from "./language-id.js";
 export { PROVENANCE_PREFIXES, SCIP_PROVENANCE_PREFIXES } from "./lsp-provenance.js";
+export { NODE_COLUMNS, RELATION_COLUMNS } from "./node-columns.js";
 export type {
   AnnotationNode,
   ClassNode,

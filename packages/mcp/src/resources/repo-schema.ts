@@ -11,50 +11,17 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import { NODE_KINDS, RELATION_TYPES, SCHEMA_VERSION } from "@opencodehub/core-types";
+import {
+  NODE_COLUMNS,
+  NODE_KINDS,
+  RELATION_COLUMNS,
+  RELATION_TYPES,
+  SCHEMA_VERSION,
+} from "@opencodehub/core-types";
 import { readRegistry } from "../repo-resolver.js";
 import type { ResourceContext } from "./repos.js";
 
 const PATTERN = "codehub://repo/{name}/schema";
-
-const NODE_COLUMNS = [
-  "id",
-  "kind",
-  "name",
-  "file_path",
-  "start_line",
-  "end_line",
-  "is_exported",
-  "signature",
-  "parameter_count",
-  "return_type",
-  "declared_type",
-  "owner",
-  "url",
-  "method",
-  "tool_name",
-  "content",
-  "content_hash",
-  "inferred_label",
-  "symbol_count",
-  "cohesion",
-  "keywords",
-  "entry_point_id",
-  "step_count",
-  "level",
-  "response_keys",
-  "description",
-] as const;
-
-const RELATION_COLUMNS = [
-  "id",
-  "from_id",
-  "to_id",
-  "type",
-  "confidence",
-  "reason",
-  "step",
-] as const;
 
 export function registerRepoSchemaResource(server: McpServer, ctx: ResourceContext): void {
   const template = new ResourceTemplate(PATTERN, {

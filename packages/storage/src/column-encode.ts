@@ -62,112 +62,17 @@
  * never carried `frameworksDetected` round-trip byte-identically.
  */
 
-import { canonicalJson, type GraphNode } from "@opencodehub/core-types";
+import { canonicalJson, type GraphNode, NODE_COLUMNS } from "@opencodehub/core-types";
 
 /**
- * Canonical field ordering for the polymorphic `nodes` table. Retained as
- * the shared reference a community-fork adapter (AGE / Memgraph / Neo4j /
- * Neptune) consumes when it stores the universal base as typed columns.
- *
- * The in-tree `SqliteStore` (ADR 0019) stores only the universal base
- * (`id, kind, name, file_path, start_line, end_line`) as typed columns and
- * folds every remaining kind-specific field into a single canonical-JSON
- * `payload` column (`sqlite-adapter.ts`), so adding a kind-specific field
- * needs NO schema change there — it round-trips through `payload`
- * automatically. The `[]`-vs-absent and `{}`-vs-absent distinctions are
- * preserved by `canonicalJson` over `payload`, not by per-column encoding.
- *
- * Rules for a fork that DOES store a new field as a typed column:
- *   1. Append to the END of this list — reordering rewrites every prepared
- *      statement parameter slot and breaks already-persisted graphs.
- *   2. Append the writer in {@link nodeToColumns}.
- *   3. Append the reader in the adapter's row decoder.
- *   4. Update that adapter's CREATE TABLE DDL to keep the on-disk schema in
- *      lock step with this list.
+ * Canonical field ordering for the polymorphic `nodes` table. Single-sourced
+ * from `@opencodehub/core-types` (the zero-runtime-dep package) and re-exported
+ * here unchanged so `nodeToColumns` and every community-fork `IGraphStore`
+ * adapter (AGE / Memgraph / Neo4j / Neptune) that imports `./column-encode.js`
+ * keep consuming it under the same name. See `core-types/src/node-columns.ts`
+ * for the append-only-order rules (order is load-bearing — never reorder).
  */
-export const NODE_COLUMNS: readonly string[] = [
-  "id",
-  "kind",
-  "name",
-  "file_path",
-  "start_line",
-  "end_line",
-  "is_exported",
-  "signature",
-  "parameter_count",
-  "return_type",
-  "declared_type",
-  "owner",
-  "url",
-  "method",
-  "tool_name",
-  "content",
-  "content_hash",
-  "inferred_label",
-  "symbol_count",
-  "cohesion",
-  "keywords",
-  "entry_point_id",
-  "step_count",
-  "level",
-  "response_keys",
-  "description",
-  // Finding
-  "severity",
-  "rule_id",
-  "scanner_id",
-  "message",
-  "properties_bag",
-  // Dependency
-  "version",
-  "license",
-  "lockfile_source",
-  "ecosystem",
-  // Operation
-  "http_method",
-  "http_path",
-  "summary",
-  "operation_id",
-  // Contributor
-  "email_hash",
-  "email_plain",
-  // ProjectProfile
-  "languages_json",
-  "frameworks_json",
-  "iac_types_json",
-  "api_contracts_json",
-  "manifests_json",
-  "src_dirs_json",
-  // File ownership (H.5) + Community ownership (H.4)
-  "orphan_grade",
-  "is_orphan",
-  "truck_factor",
-  "ownership_drift_30d",
-  "ownership_drift_90d",
-  "ownership_drift_365d",
-  // v1.2 extensions (append-only).
-  "deadness",
-  "coverage_percent",
-  "covered_lines_json",
-  "cyclomatic_complexity",
-  "nesting_depth",
-  "nloc",
-  "halstead_volume",
-  "input_schema_json",
-  "partial_fingerprint",
-  "baseline_state",
-  "suppressed_json",
-  // Repo.
-  "origin_url",
-  "repo_uri",
-  "default_branch",
-  "commit_sha",
-  "index_time",
-  "repo_group",
-  "visibility",
-  "indexer",
-  "language_stats_json",
-];
+export { NODE_COLUMNS };
 
 /**
  * Encode a GraphNode into a `column → value` map indexed by the canonical
