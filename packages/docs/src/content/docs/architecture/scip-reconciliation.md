@@ -104,7 +104,7 @@ on confidence; the information is not lost.
 Every oracle-derived edge carries a reason of the form
 `scip:<indexer>@<version>`, e.g. `scip:scip-python@0.6.6`. The
 prefix set is declared once in `@opencodehub/core-types` and consumers
-(summarizer trust filter, `verdict`, MCP tools) test against the
+(`verdict`, MCP tools) test against the
 exported list rather than string-matching ad hoc. New indexers
 (scip-clang, scip-dotnet, scip-kotlin, scip-ruby) are appended to the
 same list as they land.

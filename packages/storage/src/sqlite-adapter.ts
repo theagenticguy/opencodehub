@@ -2,8 +2,8 @@
  * SqliteStore — single-file storage adapter (ADR 0019).
  *
  * THESIS. One `store.sqlite` file in WAL mode backs EVERYTHING: graph nodes,
- * edges, embeddings, and the temporal/non-graph tables (cochanges, symbol
- * summaries). It replaced the two native-binding storage engines this project
+ * edges, embeddings, and the temporal/non-graph tables (cochanges).
+ * It replaced the two native-binding storage engines this project
  * used before (see ADR 0019). Collapsing both onto Node 24's built-in
  * `node:sqlite` removed the last two native storage dependencies, which is
  * what unlocked the real goal: a zero-dep, one-command, no-Docker install
@@ -74,7 +74,6 @@ import type {
   SearchResult,
   SqlParam,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,
@@ -268,22 +267,6 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       );
       CREATE INDEX IF NOT EXISTS idx_cochanges_source ON cochanges (source_file);
       CREATE INDEX IF NOT EXISTS idx_cochanges_target ON cochanges (target_file);
-    `);
-    // Canonical 9-column symbol_summaries shape.
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS symbol_summaries (
-        node_id              TEXT NOT NULL,
-        content_hash         TEXT NOT NULL,
-        prompt_version       TEXT NOT NULL,
-        model_id             TEXT NOT NULL,
-        summary_text         TEXT NOT NULL,
-        signature_summary    TEXT,
-        returns_type_summary TEXT,
-        structured_json      TEXT,
-        created_at           TEXT NOT NULL,
-        PRIMARY KEY (node_id, content_hash, prompt_version)
-      );
-      CREATE INDEX IF NOT EXISTS idx_summaries_node ON symbol_summaries (node_id);
     `);
     // Single-row meta table keyed by id=1 (keeps the former GraphDbStore
     // StoreMeta {id:1} MERGE pattern). Typed columns so getMeta can re-attach optional
@@ -953,8 +936,6 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
       .all(...(params as SqliteParam[])) as unknown as Record<string, unknown>[];
     const out: SearchResult[] = [];
     for (const row of rows) {
-      // The storage-layer search() NEVER fills summary/signatureSummary —
-      // they are a post-join done by MCP/CLI.
       out.push({
         nodeId: String(row["node_id"] ?? ""),
         score: Number(row["score"] ?? 0),
@@ -1260,104 +1241,6 @@ export class SqliteStore implements IGraphStore, ITemporalStore {
     return row ? cochangeRowFromRecord(row) : undefined;
   }
 
-  // ── ITemporalStore: symbol summaries ─────────────────────────────────────────
-
-  async bulkLoadSymbolSummaries(rows: readonly SymbolSummaryRow[]): Promise<void> {
-    // Empty input → no-op return (NOT a table clear — symbol summaries are
-    // upserts, not replace).
-    if (rows.length === 0) return;
-    const db = this.conn();
-    // Sort by (nodeId, contentHash, promptVersion) for insert determinism.
-    const sorted = [...rows].sort((a, b) => {
-      if (a.nodeId !== b.nodeId) return a.nodeId < b.nodeId ? -1 : 1;
-      if (a.contentHash !== b.contentHash) return a.contentHash < b.contentHash ? -1 : 1;
-      if (a.promptVersion !== b.promptVersion) return a.promptVersion < b.promptVersion ? -1 : 1;
-      return 0;
-    });
-    db.exec("BEGIN");
-    try {
-      // DELETE+INSERT upsert per composite key.
-      const del = db.prepare(
-        "DELETE FROM symbol_summaries WHERE node_id = ? AND content_hash = ? AND prompt_version = ?",
-      );
-      const ins = db.prepare(
-        `INSERT INTO symbol_summaries (
-          node_id, content_hash, prompt_version, model_id,
-          summary_text, signature_summary, returns_type_summary,
-          structured_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
-      for (const r of sorted) {
-        del.run(r.nodeId, r.contentHash, r.promptVersion);
-        ins.run(
-          r.nodeId,
-          r.contentHash,
-          r.promptVersion,
-          r.modelId,
-          r.summaryText,
-          r.signatureSummary ?? null,
-          r.returnsTypeSummary ?? null,
-          r.structuredJson ?? null,
-          r.createdAt,
-        );
-      }
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
-  }
-
-  async lookupSymbolSummary(
-    nodeId: string,
-    contentHash: string,
-    promptVersion: string,
-  ): Promise<SymbolSummaryRow | undefined> {
-    const row = this.conn()
-      .prepare(
-        `SELECT node_id, content_hash, prompt_version, model_id,
-                summary_text, signature_summary, returns_type_summary,
-                structured_json, created_at
-           FROM symbol_summaries
-          WHERE node_id = ? AND content_hash = ? AND prompt_version = ?
-          LIMIT 1`,
-      )
-      .get(nodeId, contentHash, promptVersion) as unknown as Record<string, unknown> | undefined;
-    return row ? summaryRowFromRecord(row) : undefined;
-  }
-
-  async lookupSymbolSummariesByNode(
-    nodeIds: readonly string[],
-  ): Promise<readonly SymbolSummaryRow[]> {
-    if (nodeIds.length === 0) return [];
-    // ORDER BY (node_id, prompt_version, content_hash) — prompt_version
-    // BEFORE content_hash (differs from the bulkLoad sort) so callers pick
-    // the newest prompt deterministically.
-    const sql = `SELECT node_id, content_hash, prompt_version, model_id,
-              summary_text, signature_summary, returns_type_summary,
-              structured_json, created_at
-         FROM symbol_summaries
-        WHERE node_id IN (${placeholders(nodeIds.length)})
-        ORDER BY node_id ASC, prompt_version ASC, content_hash ASC`;
-    const rows = this.conn()
-      .prepare(sql)
-      .all(...(nodeIds as unknown as SqliteParam[])) as unknown as Record<string, unknown>[];
-    return rows.map(summaryRowFromRecord);
-  }
-
-  async countSymbolSummaries(): Promise<number> {
-    // MUST catch all errors and return 0 — codehub status degrades gracefully.
-    try {
-      const row = this.conn()
-        .prepare("SELECT COUNT(DISTINCT node_id) AS n FROM symbol_summaries")
-        .get() as unknown as { n: number | bigint } | undefined;
-      const n = row?.n;
-      return typeof n === "bigint" ? Number(n) : typeof n === "number" ? n : 0;
-    } catch {
-      return 0;
-    }
-  }
-
   private conn(): DatabaseSync {
     if (!this.db) throw new Error("SqliteStore: open() not called");
     return this.db;
@@ -1440,26 +1323,6 @@ function cochangeRowFromRecord(row: Record<string, unknown>): CochangeRow {
     totalCommitsTarget: Number(row["total_commits_target"] ?? 0),
     lastCocommitAt: String(row["last_cocommit_at"] ?? ""),
     lift: Number(row["lift"] ?? 0),
-  };
-}
-
-/** Convert a SQLite symbol_summaries row back into a {@link SymbolSummaryRow}. */
-function summaryRowFromRecord(row: Record<string, unknown>): SymbolSummaryRow {
-  const sig = row["signature_summary"];
-  const ret = row["returns_type_summary"];
-  const structured = row["structured_json"];
-  return {
-    nodeId: String(row["node_id"] ?? ""),
-    contentHash: String(row["content_hash"] ?? ""),
-    promptVersion: String(row["prompt_version"] ?? ""),
-    modelId: String(row["model_id"] ?? ""),
-    summaryText: String(row["summary_text"] ?? ""),
-    ...(sig !== null && sig !== undefined ? { signatureSummary: String(sig) } : {}),
-    ...(ret !== null && ret !== undefined ? { returnsTypeSummary: String(ret) } : {}),
-    ...(structured !== null && structured !== undefined
-      ? { structuredJson: String(structured) }
-      : {}),
-    createdAt: String(row["created_at"] ?? ""),
   };
 }
 

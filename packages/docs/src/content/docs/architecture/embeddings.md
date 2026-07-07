@@ -111,17 +111,16 @@ The `EmbeddingGranularity` discriminator is `"symbol" | "file" |
 
 | Tier      | Unit                                                 | Character cap                    |
 |-----------|------------------------------------------------------|----------------------------------|
-| symbol    | Callable or declaration (Function, Method, Constructor, Route, Tool, Class, Interface) | 1200 (body only; fused signature + summary add on top) |
+| symbol    | Callable or declaration (Function, Method, Constructor, Route, Tool, Class, Interface) | 1200 (body only; the fused signature adds on top) |
 | file      | One vector per scanned file                          | 8192 tokens (`FILE_CHAR_CAP = 8192 * 4`) |
 | community | One vector per Community node                        | N/A — built from member symbols  |
 
 The default is `["symbol"]` to preserve v1.0 behavior. File and
 community tiers opt in via `PipelineOptions.embeddingsGranularity`.
 
-Symbol-tier fusion combines `signature + summary + body` into the
-embedded text when an LLM summary exists for the node. See
-[Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/)
-for the formula.
+Symbol-tier text fuses the symbol's signature with its body so the
+embedded vector captures both the callable's shape and its
+implementation.
 
 ## Single embeddings table
 
@@ -187,8 +186,6 @@ that is a deferred fast-follow, not a shipping requirement.
   — where the `embeddings` table lives and why there is no native binding.
 - [ADR 0004 — Hierarchical embeddings](https://github.com/theagenticguy/opencodehub/blob/main/docs/adr/0004-hierarchical-embeddings.md)
   — one table, three granularities, one discriminator column.
-- [Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/)
-  — where the symbol-tier text comes from.
 - Durable lesson: `api-patterns/sagemaker-embedder-backend.md` —
   dynamic-import + credential soft-fail + structural-typing seam +
   modelId stamping + 413 split-retry.

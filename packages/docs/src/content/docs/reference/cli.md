@@ -33,9 +33,6 @@ codehub analyze [path]
 | `--sbom` / `--no-sbom` | **on** | Emit `sbom.cyclonedx.json` + `sbom.spdx.json` from `Dependency` nodes. Use `--no-sbom` to suppress. |
 | `--scan` / `--no-scan` | **on** | Run Priority-1 scanners, write `.codehub/scan.sarif`, and ingest findings into the graph. Network-backed scanners (osv-scanner, grype, npm/pip audit) self-skip under `--offline`. Use `--no-scan` to suppress. |
 | `--coverage` / `--no-coverage` | **auto** | Overlay lcov / cobertura / jacoco / coverage.py reports onto `File` nodes. `auto` probes `coverage/lcov.info`, `lcov.info`, `coverage.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`, `coverage.json` in that order and enables the phase when one exists (silent no-op otherwise). `--coverage` forces on and warns if nothing is found; `--no-coverage` forces off. |
-| `--summaries` / `--no-summaries` | off | LLM symbol summaries (Bedrock). Opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`; kill with `--no-summaries` or `CODEHUB_BEDROCK_DISABLED=1`. |
-| `--max-summaries <n\|auto>` | `auto` (10% of SCIP-confirmed callables, cap 500) | Summary budget. |
-| `--summary-model <id>` | — | Override the Bedrock summary model id. |
 | `--skills` | off | Emit one `SKILL.md` per Community (≥5 symbols) under `.codehub/skills/`. |
 | `--strict-detectors` | off | Drop heuristic-only matches from route / ORM detectors (DET-O-001). |
 | `--allow-build-scripts <list>` | — | Comma-separated build-script opt-ins (e.g. `proleap` for the JVM COBOL deep-parse). |
@@ -413,9 +410,9 @@ codehub bench
 
 ## `wiki`
 
-Emit a Markdown wiki for the repo under `--output`. Deterministic by
-default; `--llm` routes top-ranked modules through the summarizer for
-narrative prose.
+Emit a Markdown wiki for the repo under `--output`. Deterministic:
+every page is rendered from the graph, so the same commit produces the
+same wiki.
 
 ```bash title="usage"
 codehub wiki --output <dir>
@@ -426,10 +423,7 @@ codehub wiki --output <dir>
 | `--output <dir>` | — | **Required.** Target directory for rendered pages. |
 | `--repo <name>` | current | Target repo. |
 | `--json` | off | Emit a JSON summary on stdout. |
-| `--offline` | off | Assert no network access (incompatible with `--llm`). |
-| `--llm` | off | Route top-ranked modules through the summarizer. |
-| `--max-llm-calls <n>` | 0 (dry-run) | LLM call budget when `--llm` is set. |
-| `--llm-model <id>` | — | Override the Bedrock summary model id. |
+| `--offline` | off | Assert no network access. |
 
 ```bash title="example"
 codehub wiki --output docs/wiki
@@ -468,7 +462,7 @@ codehub augment <pattern>
 Read-only SQL against the single-file store, `<repo>/.codehub/store.sqlite`
 (WAL, via Node's built-in `node:sqlite`, ADR 0019). Every table lives in
 this one file and is directly queryable: `nodes`, `edges`, `embeddings`,
-`cochanges`, `symbol_summaries`, and `store_meta`. Reach kind-specific
+`cochanges`, and `store_meta`. Reach kind-specific
 fields on `nodes` via SQLite JSON1, e.g. `payload->>'$.field'`. The guard
 rejects any mutation. 5-second timeout by default.
 

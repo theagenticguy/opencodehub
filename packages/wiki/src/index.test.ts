@@ -750,155 +750,21 @@ test("generateWiki: empty graph still emits the 5 family index pages", async () 
   }
 });
 
-test("generateWiki: --llm absent produces byte-identical output to deterministic run", async () => {
-  // Regression guard: enabling and disabling --llm must yield bit-for-bit
-  // identical output in the default (no-llm) case.
+test("generateWiki: enabling no optional features produces byte-identical output across runs", async () => {
+  // Regression guard: the wiki is fully deterministic — two runs on the same
+  // graph yield bit-for-bit identical output.
   const storeA = seededStore();
   const storeB = seededStore();
   const dirA = await mkdtemp(path.join(tmpdir(), "codehub-wiki-baseline-"));
-  const dirB = await mkdtemp(path.join(tmpdir(), "codehub-wiki-explicit-off-"));
+  const dirB = await mkdtemp(path.join(tmpdir(), "codehub-wiki-baseline-2-"));
   try {
     await generateWiki(storeA, { outputDir: dirA });
-    await generateWiki(storeB, {
-      outputDir: dirB,
-      // Even with llm option present but disabled, output must match.
-      llm: { enabled: false, maxCalls: 0 },
-    });
+    await generateWiki(storeB, { outputDir: dirB });
     const hashA = await hashDir(dirA);
     const hashB = await hashDir(dirB);
-    assert.equal(hashA, hashB, "llm.enabled=false must produce identical output to no llm option");
+    assert.equal(hashA, hashB, "two runs on the same graph must produce identical output");
   } finally {
     await rm(dirA, { recursive: true, force: true });
     await rm(dirB, { recursive: true, force: true });
-  }
-});
-
-test("generateWiki: --llm with maxCalls=0 writes dry-run overview page; no Bedrock", async () => {
-  const store = seededStore();
-  const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-llm-dry-"));
-  let summarizeCalled = false;
-  try {
-    const result = await generateWiki(store, {
-      outputDir: dir,
-      llm: {
-        enabled: true,
-        maxCalls: 0,
-        summarize: async () => {
-          summarizeCalled = true;
-          throw new Error("should not be called in dry-run");
-        },
-      },
-    });
-    assert.equal(summarizeCalled, false);
-    // Normalize to forward slashes: `path.relative` yields backslashes on
-    // Windows, but the `.includes("a/b")` assertions below use POSIX
-    // separators. Without this the membership checks never match on Windows.
-    const rels = result.filesWritten
-      .map((f) => path.relative(dir, f).split(path.sep).join("/"))
-      .sort();
-    assert.ok(
-      rels.includes("architecture/llm-overview.md"),
-      "dry-run should still emit the llm-overview page",
-    );
-    const content = await readFile(path.join(dir, "architecture/llm-overview.md"), "utf8");
-    assert.match(content, /# Module narratives/);
-    assert.match(content, /dry-run/);
-    assert.match(content, /Auth Subsystem/);
-    // Root index gains the llm link when llm is enabled.
-    const rootIndex = await readFile(path.join(dir, "index.md"), "utf8");
-    assert.match(rootIndex, /llm-overview\.md/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("generateWiki: --llm happy path calls summarizer and writes narrative", async () => {
-  const store = seededStore();
-  const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-llm-happy-"));
-  const callSites: string[] = [];
-  try {
-    await generateWiki(store, {
-      outputDir: dir,
-      llm: {
-        enabled: true,
-        maxCalls: 5,
-        summarize: async (input) => {
-          callSites.push(input.filePath);
-          return {
-            summary: {
-              purpose: `Module narrative for ${input.filePath} — drives request handling and state.`,
-              inputs: [],
-              returns: {
-                type: "module",
-                type_summary: "aggregated surface",
-                details:
-                  "A cohesive bundle of handlers that share state across the request lifecycle.",
-              },
-              side_effects: ["writes shared module state during request dispatch"],
-              invariants: null,
-              citations: [{ field_name: "purpose", line_start: 1, line_end: 5 }],
-            },
-            attempts: 1,
-            usageByAttempt: [{ inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0 }],
-            wallClockMs: 1,
-            validationFailures: [],
-          };
-        },
-      },
-    });
-    assert.equal(callSites.length, 2, "should summarize two seeded communities");
-    const content = await readFile(path.join(dir, "architecture/llm-overview.md"), "utf8");
-    assert.match(content, /Auth Subsystem/);
-    assert.match(content, /Billing Subsystem/);
-    assert.match(content, /Module narrative for <synthetic>\/module\/Community:repo:auth/);
-    assert.match(content, /writes shared module state/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("generateWiki: --llm with per-module summarizer failure falls back but keeps others", async () => {
-  const store = seededStore();
-  const dir = await mkdtemp(path.join(tmpdir(), "codehub-wiki-llm-fallback-"));
-  try {
-    await generateWiki(store, {
-      outputDir: dir,
-      llm: {
-        enabled: true,
-        maxCalls: 5,
-        summarize: async (input) => {
-          if (input.filePath.includes("billing")) {
-            throw new Error("synthetic bedrock 429");
-          }
-          return {
-            summary: {
-              purpose:
-                "Aggregate authentication flows and session bookkeeping for the request lifecycle.",
-              inputs: [],
-              returns: {
-                type: "module",
-                type_summary: "aggregated surface",
-                details:
-                  "A cohesive bundle of handlers that share state across the request lifecycle.",
-              },
-              side_effects: [],
-              invariants: null,
-              citations: [{ field_name: "purpose", line_start: 1, line_end: 5 }],
-            },
-            attempts: 1,
-            usageByAttempt: [{ inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0 }],
-            wallClockMs: 1,
-            validationFailures: [],
-          };
-        },
-      },
-    });
-    const content = await readFile(path.join(dir, "architecture/llm-overview.md"), "utf8");
-    // Auth still gets the narrative; Billing gets the fallback stamp.
-    assert.match(content, /Aggregate authentication flows/);
-    assert.match(content, /summarizer failed/);
-    assert.match(content, /synthetic bedrock 429/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
   }
 });

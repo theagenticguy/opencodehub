@@ -22,12 +22,10 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import { type GraphNode, KnowledgeGraph, makeNodeId } from "@opencodehub/core-types";
-import type { SymbolSummaryRow } from "@opencodehub/storage";
 
 import type { PipelineContext, PipelineOptions, ProgressEvent } from "../types.js";
 import { embeddingsPhase } from "./embeddings.js";
 import { SCAN_PHASE_NAME } from "./scan.js";
-import { SUMMARIZE_PHASE_NAME } from "./summarize.js";
 
 function ctxFor(
   graph: KnowledgeGraph,
@@ -120,10 +118,12 @@ describe("embeddingsPhase", () => {
     assert.equal(a.embeddingsHash, b.embeddingsHash);
   });
 
-  it("is registered with annotate/summarize/communities as its dependencies", () => {
+  it("is registered with annotate/communities/confidence-demote as its dependencies", () => {
     // `communities` was added in P03 so the community tier observes the
-    // emitted Community nodes + MEMBER_OF edges.
-    assert.deepEqual([...embeddingsPhase.deps], ["annotate", "summarize", "communities"]);
+    // emitted Community nodes + MEMBER_OF edges. `confidence-demote` pins the
+    // phase after SCIP reconciliation so embeddings observe the final graph
+    // (this dep formerly arrived transitively via the removed summarize phase).
+    assert.deepEqual([...embeddingsPhase.deps], ["annotate", "communities", "confidence-demote"]);
     assert.equal(embeddingsPhase.name, "embeddings");
   });
 
@@ -344,33 +344,6 @@ describe("embeddingsPhase — hierarchical tiers (P03)", () => {
     assert.equal(out.byGranularity["community"], 0);
     assert.ok(out.byGranularity["symbol"] >= 3);
     for (const r of out.rows) assert.equal(r.granularity ?? "symbol", "symbol");
-  });
-
-  it("fuses summary text into the symbol-tier input when a summary is present", async () => {
-    const { repoPath, relPath } = makeRepo();
-    const graph = buildGraph(relPath);
-    const fnId = makeNodeId("Function", relPath, "hello");
-    const summary: SymbolSummaryRow = {
-      nodeId: fnId,
-      contentHash: "h",
-      promptVersion: "v1",
-      modelId: "m",
-      summaryText: "Returns the meaning of life.",
-      signatureSummary: "hello() -> number",
-      returnsTypeSummary: "number",
-      createdAt: new Date().toISOString(),
-    };
-    const ctx: PipelineContext = {
-      repoPath,
-      options: {
-        embeddings: true,
-        embeddingsGranularity: ["symbol"],
-      } as unknown as PipelineOptions,
-      graph,
-      phaseOutputs: new Map<string, unknown>([[SUMMARIZE_PHASE_NAME, { rows: [summary] }]]),
-    };
-    const out = await embeddingsPhase.run(ctx, new Map());
-    assert.equal(out.summaryFused, true, "phase flags that summaries fused");
   });
 
   it("embeds identical inputs deterministically (stable embeddingsHash)", async () => {

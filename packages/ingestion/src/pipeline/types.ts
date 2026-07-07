@@ -171,30 +171,6 @@ export interface PipelineOptions {
    */
   readonly coverage?: boolean;
   /**
-   * When `true`, the `summarize` phase walks callable symbols, computes a
-   * content hash from their source span, and issues a Bedrock summarize
-   * call for cache misses. Gated OFF by default because the phase spends
-   * real money. The `offline` flag always wins — when `offline === true`
-   * the phase is a no-op regardless of this flag.
-   */
-  readonly summaries?: boolean | undefined;
-  /**
-   * Upper bound on the number of Bedrock summarize calls per pipeline run.
-   * Defaults to `0`, which runs the phase in dry-run mode: it enumerates
-   * eligible symbols and reports `wouldHaveSummarized` without contacting
-   * Bedrock. Set to a positive integer (e.g. 10) to actually summarize a
-   * bounded subset. Ignored when `summaries !== true`. The CLI resolves
-   * `--max-summaries auto` to a concrete integer before calling into the
-   * pipeline, so this field is always numeric inside the pipeline.
-   */
-  readonly maxSummariesPerRun?: number | undefined;
-  /**
-   * Override the Bedrock model id used by the summarize phase. When
-   * undefined, the phase uses `DEFAULT_MODEL_ID` from
-   * `@opencodehub/summarizer`.
-   */
-  readonly summaryModel?: string | undefined;
-  /**
    * When `true`, detectors that pattern-match on receiver identifiers
    * skip heuristic-only matches entirely — edges are emitted only when a
    * receiver's module origin was confirmed via the import graph or

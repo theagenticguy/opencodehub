@@ -21,9 +21,8 @@ storage bindings.
 
 - **`IGraphStore`** — graph workload. Nodes, edges, embeddings,
   multi-hop traversal.
-- **`ITemporalStore`** — temporal workload. Cochanges, the
-  symbol-summary cache. Statistical signals over git history that
-  never enter `graphHash`.
+- **`ITemporalStore`** — temporal workload. Cochanges: statistical
+  signals over git history that never enter `graphHash`.
 
 The interfaces stay segregated so a community adapter can implement only
 the half it has an engine for. A graph-only Neo4j adapter does not have
@@ -41,7 +40,7 @@ One artifact on disk, always present after `codehub analyze`:
 
 | File | Holds |
 |---|---|
-| `<repo>/.codehub/store.sqlite` | Nodes, edges, embeddings, BM25 (FTS5) indexes, and the temporal tables (cochanges, symbol-summary cache). The entire index. |
+| `<repo>/.codehub/store.sqlite` | Nodes, edges, embeddings, BM25 (FTS5) indexes, and the temporal tables (cochanges). The entire index. |
 
 `node:sqlite` (`DatabaseSync`, enabled by default on Node ≥24.15, the
 engines floor) provides every primitive the store needs: BLOB storage
@@ -126,7 +125,7 @@ survive the move to a single store for exactly this reason.
 
 The `graphHash` invariant covers everything `IGraphStore` owns and is
 asserted by a CI gate on every PR that touches `packages/storage`. The
-temporal signals in `store.sqlite` (cochanges, symbol summaries) are
+temporal signals in `store.sqlite` (cochanges) are
 statistical and never enter `graphHash`. The migration's hard gate was
 that a `KnowledgeGraph` rebuilt from `listNodes({})` + `listEdges({})`
 must hash byte-identically to the original;

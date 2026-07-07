@@ -80,7 +80,6 @@ Workspace-package scopes map 1:1 to `packages/<scope>/`:
 | `scip-ingest` | `@opencodehub/scip-ingest` |
 | `search` | `@opencodehub/search` |
 | `storage` | `@opencodehub/storage` |
-| `summarizer` | `@opencodehub/summarizer` |
 | `wiki` | `@opencodehub/wiki` |
 
 Meta-scopes cover cross-cutting changes:

@@ -73,7 +73,7 @@ The high-frequency tools. Most agent loops live here.
 
 | | |
 |---|---|
-| **Use when** | You need a custom view of `store.sqlite` that no other tool exposes. Everything is directly SQL-queryable: `nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, and `store_meta` (ADR 0019); reach kind-specific fields via SQLite JSON1, `payload->>'$.field'`. Read-only. 5-second timeout. |
+| **Use when** | You need a custom view of `store.sqlite` that no other tool exposes. Everything is directly SQL-queryable: `nodes`, `edges`, `embeddings`, `cochanges`, and `store_meta` (ADR 0019); reach kind-specific fields via SQLite JSON1, `payload->>'$.field'`. Read-only. 5-second timeout. |
 | **Avoid when** | A typed tool (`context`, `impact`, `query`) already covers the question. The typed tools stay the high-level path; the `cypher` arg is reserved for community-fork graph adapters and is not supported by the default backend. |
 | **Inputs** | `query` (required), `repo?`, `repo_uri?` |
 | **Returns** | `{ rows: [...], row_count, next_steps }` |

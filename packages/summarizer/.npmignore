@@ -1,5 +1,0 @@
-# Exclude compiled test files and their sourcemaps from the published package
-dist/**/*.test.js
-dist/**/*.test.js.map
-dist/**/*.test.d.ts
-dist/**/*.test.d.ts.map

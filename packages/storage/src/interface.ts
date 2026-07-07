@@ -5,11 +5,11 @@
  *
  *   1. {@link IGraphStore} — graph-tier, pure graph operations only:
  *      nodes, edges, traversals, BM25 search, vector search, embeddings.
- *      NO SQL, NO cochanges, NO symbol summaries. Cypher dialect.
+ *      NO SQL, NO cochanges. Cypher dialect.
  *      The portable interface community AGE / Memgraph / Neo4j / Neptune
  *      adapters target.
  *   2. {@link ITemporalStore} — tabular-tier, SQL-only operations:
- *      cochanges, symbol summaries, the `codehub query --sql` escape hatch,
+ *      cochanges, the `codehub query --sql` escape hatch,
  *      and any future temporal-analytics query. Community adapters can
  *      implement other SQL-shaped stores (Postgres, …) without affecting
  *      graph adapters.
@@ -94,8 +94,8 @@ export type GraphDialect = "cypher";
  * Graph-tier interface. Pure graph operations: nodes, edges, traversals,
  * BM25 keyword search, vector search, embeddings.
  *
- * **Out of scope for this interface:** SQL, cochanges, symbol summaries,
- * and any tabular/time-travel queries — those live on {@link ITemporalStore}.
+ * **Out of scope for this interface:** SQL, cochanges, and any
+ * tabular/time-travel queries — those live on {@link ITemporalStore}.
  *
  * Community adapters (AGE / Memgraph / Neo4j / Neptune) implement THIS
  * interface only. They pair with an {@link ITemporalStore} (always
@@ -360,8 +360,8 @@ export interface IGraphStore {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Tabular/temporal interface. Cochanges, symbol summaries, time-travel
- * queries, and the `codehub query --sql` escape hatch all live here.
+ * Tabular/temporal interface. Cochanges, time-travel queries, and the
+ * `codehub query --sql` escape hatch all live here.
  * Post-ADR 0019 the in-tree `SqliteStore` implements this alongside
  * {@link IGraphStore} over one `store.sqlite`; a community fork can back it
  * with any other SQL-shaped store (Postgres, …) on the same surface.
@@ -406,38 +406,6 @@ export interface ITemporalStore {
   ): Promise<readonly CochangeRow[]>;
   /** Fetch the single cochange row (if any) for an ordered pair of files. */
   lookupCochangesBetween(fileA: string, fileB: string): Promise<CochangeRow | undefined>;
-
-  // ── Symbol-summary surface (was on IGraphStore via SymbolSummaryStore) ────
-  /**
-   * Insert or replace the supplied summary rows. Conflicts on the composite
-   * `(node_id, content_hash, prompt_version)` key overwrite the existing
-   * row. Empty input is a cheap no-op.
-   */
-  bulkLoadSymbolSummaries(rows: readonly SymbolSummaryRow[]): Promise<void>;
-  /**
-   * Fetch the single summary row (if any) keyed by the composite cache
-   * tuple. Returns `undefined` on miss.
-   */
-  lookupSymbolSummary(
-    nodeId: string,
-    contentHash: string,
-    promptVersion: string,
-  ): Promise<SymbolSummaryRow | undefined>;
-  /**
-   * Fetch every summary row whose `node_id` appears in the supplied list.
-   * Result ordering is stable: sorted by `(node_id, prompt_version,
-   * content_hash)` so callers can pick the newest prompt version
-   * deterministically when more than one row per node is present.
-   */
-  lookupSymbolSummariesByNode(nodeIds: readonly string[]): Promise<readonly SymbolSummaryRow[]>;
-  /**
-   * Count distinct nodes that have at least one summary row. Used by
-   * `codehub status` to report whether LLM symbol summaries were generated
-   * for this index (they feed the dense-retrieval leg). Returns 0 — never
-   * throws — when the table is missing or the store is degraded, so status
-   * degrades gracefully.
-   */
-  countSymbolSummaries(): Promise<number>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -515,56 +483,6 @@ export interface CochangeLookupOptions {
    * associations weaker than chance.
    */
   readonly minLift?: number;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Symbol-summary row (used by ITemporalStore)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * One row in the `symbol_summaries` table. Emitted by the ingestion
- * `summarize` phase (structured summaries from a Bedrock LLM); read by the
- * MCP layer when fusing summary-text recall with code-embedding recall (the
- * SACL-style two-lane retrieval pattern). Summaries never participate in
- * the graph edge set — they are content keyed by `(nodeId, contentHash,
- * promptVersion)`.
- */
-export interface SymbolSummaryRow {
-  readonly nodeId: string;
-  /**
-   * Content-addressed hash (sha256 hex) of the symbol's source text. Used
-   * as a cache key so re-index runs where the source hasn't moved reuse
-   * prior summaries for free.
-   */
-  readonly contentHash: string;
-  /**
-   * Semver-style version tag for the prompt that produced the summary.
-   * Bumping the prompt invalidates prior rows without deleting them, so
-   * multiple versions can coexist during rollout.
-   */
-  readonly promptVersion: string;
-  /** Bedrock model id (e.g. `global.anthropic.claude-haiku-4-5-...`). */
-  readonly modelId: string;
-  /** The expanded, verb-led purpose field. */
-  readonly summaryText: string;
-  /** Compact one-line gist of the signature (inputs + returns shape). */
-  readonly signatureSummary?: string;
-  /** Compact summary of what the symbol returns (`returns.type_summary`). */
-  readonly returnsTypeSummary?: string;
-  /**
-   * Canonical-JSON blob carrying the validated structured payload the
-   * summarizer produces beyond the three flattened fields above —
-   * citations (with `line_start` / `line_end`), `side_effects`,
-   * `invariants`, per-input descriptions, and `returns.details`. Persisted
-   * verbatim so a downstream staleness detector can fetch the cited line
-   * ranges and downrank summaries whose source has drifted. The storage
-   * layer treats this as an opaque pre-canonicalized string (the
-   * summarizer owns the shape); `undefined` when the producing prompt
-   * emitted no structured payload.
-   */
-  readonly structuredJson?: string;
-  /** ISO-8601 UTC timestamp when the row was produced. */
-  readonly createdAt: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -837,15 +755,6 @@ export interface SearchResult {
   readonly filePath: string;
   readonly name: string;
   readonly kind: string;
-  /**
-   * Populated by the MCP / CLI query surfaces after the base search when a
-   * `symbol_summaries` row exists for this node (see {@link SymbolSummaryRow}).
-   * The storage-layer `search()` call never fills this — it is always a
-   * post-join, driven by the P04 summarize-enrichment path.
-   */
-  readonly summary?: string;
-  /** Compact one-line gist of the signature, mirroring `SymbolSummaryRow.signatureSummary`. */
-  readonly signatureSummary?: string;
 }
 
 export interface VectorQuery {

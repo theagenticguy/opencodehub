@@ -36,7 +36,7 @@ agent queries.
 The entire index lives in one **`store.sqlite`** file (WAL mode) under
 `.codehub/`, via Node's built-in `node:sqlite`. It holds graph nodes,
 edges, embeddings, the FTS5 search index, and the temporal tables
-(cochanges, summary cache). There is no selection knob, no native
+(cochanges). There is no selection knob, no native
 binding, and no fallback: ADR 0019 removed both `@ladybugdb/core` and
 `@duckdb/node-api`, leaving zero native storage bindings. See
 [Storage backend](/opencodehub/architecture/storage-backend/).
@@ -44,9 +44,9 @@ binding, and no fallback: ADR 0019 removed both `@ladybugdb/core` and
 ```mermaid
 flowchart LR
   subgraph store[".codehub/"]
-    db[(store.sqlite<br/>nodes + edges + embeddings<br/>+ cochanges, summary cache)]
+    db[(store.sqlite<br/>nodes + edges + embeddings<br/>+ cochanges)]
   end
-  fts["BM25 (FTS5) over names + summaries"] --- db
+  fts["BM25 (FTS5) over names + signatures"] --- db
   vec["vector search over embeddings"] --- db
 ```
 
@@ -106,7 +106,7 @@ See [SCIP reconciliation](/opencodehub/architecture/scip-reconciliation/).
 
 One job: persist the graph into `store.sqlite` with search indexes wired up.
 
-- **BM25** — over symbol names, signatures, and summaries via an FTS5
+- **BM25** — over symbol names and signatures via an FTS5
   virtual table.
 - **Vector search** — filter-aware, with the granularity discriminator
   pushed into the predicate so all three tiers (symbol / file /
@@ -128,12 +128,6 @@ See [Embeddings](/opencodehub/architecture/embeddings/) and
 One job: group related symbols into communities (Louvain) and walk
 call chains to produce processes (handler → service → data access).
 Both are precomputed so MCP tools read them directly.
-
-Symbol-level LLM summaries are produced here when enabled. Summaries
-are fused into the symbol-tier embedding text at ingestion time (not
-query time) so retrieval runs against a pre-fused vector.
-
-See [Summarization and fusion](/opencodehub/architecture/summarization-and-fusion/).
 
 ### 6. Serve — MCP over stdio
 

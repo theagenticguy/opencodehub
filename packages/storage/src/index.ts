@@ -28,7 +28,6 @@ export type {
   SqlParam,
   Store,
   StoreMeta,
-  SymbolSummaryRow,
   TraverseQuery,
   TraverseResult,
   VectorQuery,

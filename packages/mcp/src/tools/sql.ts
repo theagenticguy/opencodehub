@@ -2,8 +2,8 @@
  * `sql` — raw read-only SQL over the local single-file store.
  *
  * Post-ADR 0019 the whole index is one `store.sqlite` (node:sqlite, WAL),
- * so `nodes`, `edges`, `embeddings`, `store_meta`, `cochanges`, and
- * `symbol_summaries` are all real SQL tables in the same file. The `sql`
+ * so `nodes`, `edges`, `embeddings`, `store_meta`, and `cochanges` are all
+ * real SQL tables in the same file. The `sql`
  * arg runs read-only SQL over them via `store.temporal.exec()`. The
  * read-only guard (`assertReadOnlySql`) rejects any write verb before the
  * statement reaches the engine.
@@ -49,7 +49,7 @@ const SqlInput = {
     .min(1)
     .optional()
     .describe(
-      "Read-only SQL statement against the single-file `store.sqlite` index — query `nodes`, `edges`, `embeddings`, `store_meta`, `cochanges`, or `symbol_summaries` directly. INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
+      "Read-only SQL statement against the single-file `store.sqlite` index — query `nodes`, `edges`, `embeddings`, `store_meta`, or `cochanges` directly. INSERT/UPDATE/DELETE/DDL are rejected by the guard. Provide exactly one of `sql` or `cypher`.",
     ),
   cypher: z
     .string()
@@ -74,7 +74,6 @@ const SCHEMA_HINT = [
   "  edges(id, src, dst, type, confidence, step, reason)  -- the call/reference graph; join src/dst back to nodes.id",
   "  embeddings(node_id, granularity, chunk_index, dim, vector, content_hash)",
   "  cochanges(source_file, target_file, cocommit_count, total_commits_source, total_commits_target, last_cocommit_at, lift)",
-  "  symbol_summaries(node_id, content_hash, prompt_version, model_id, summary_text, signature_summary, returns_type_summary, created_at)",
   "  store_meta(id, schema_version, indexed_at, node_count, edge_count, ...)",
   `  nodes.kind values: ${NODE_KINDS.join(", ")}.`,
   `  edges.type values: ${RELATION_TYPES.join(", ")}.`,
@@ -206,7 +205,7 @@ export function registerSqlTool(server: McpServer, ctx: ToolContext): void {
     {
       title: "Read-only SQL / Cypher over the code graph",
       description: [
-        "Execute a read-only query against the local single-file `store.sqlite` index. Supply `sql` to query the graph and temporal tables directly (`nodes`, `edges`, `embeddings`, `cochanges`, `symbol_summaries`, `store_meta`); `cypher` is reserved for community-fork graph adapters. Results are returned as a markdown table plus raw row objects. Use this for one-off questions the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
+        "Execute a read-only query against the local single-file `store.sqlite` index. Supply `sql` to query the graph and temporal tables directly (`nodes`, `edges`, `embeddings`, `cochanges`, `store_meta`); `cypher` is reserved for community-fork graph adapters. Results are returned as a markdown table plus raw row objects. Use this for one-off questions the higher-level tools don't cover — e.g. 'find every exported function in src/auth/'.",
         "",
         SCHEMA_HINT,
       ].join("\n"),

@@ -23,7 +23,7 @@ The canonical list lives at
 | `NOT_FOUND` | The target symbol, repo, or group does not exist. | Confirm the name; run `codehub list` for repos. |
 | `DB_ERROR` | The store returned an error during the query. | Check `codehub doctor` (it runs a `node:sqlite` import + WAL round-trip); inspect `.codehub/store.sqlite`. |
 | `SCHEMA_MISMATCH` | The index was produced by a different CLI version with an incompatible schema. | `codehub analyze --force` to rebuild. |
-| `RATE_LIMITED` | A downstream service (embedder, summariser) rate-limited the request. | Retry with backoff; reduce concurrency. |
+| `RATE_LIMITED` | A downstream service (embedder) rate-limited the request. | Retry with backoff; reduce concurrency. |
 | `INTERNAL` | Catch-all for unhandled exceptions reaching the tool boundary. | File an issue with the error `message`. |
 | `NO_INDEX` | The repo has no `.codehub/` directory. | `codehub analyze <path>`. |
 | `AMBIGUOUS_REPO` | More than one repo is indexed and neither `repo` nor `repo_uri` was supplied. | Retry with one of the `choices[].repo_uri` values. |

@@ -401,7 +401,6 @@ test("sql: tool description advertises the graph tables as SQL-queryable and mar
     assert.match(desc, /\bnodes\b/, "SQL section must list the nodes table");
     assert.match(desc, /\bedges\b/, "SQL section must list the edges table");
     assert.match(desc, /\bcochanges\b/, "SQL section must list cochanges");
-    assert.match(desc, /\bsymbol_summaries\b/, "SQL section must list symbol_summaries");
     assert.match(desc, /payload->>/, "SQL section must show the JSON1 payload extract idiom");
 
     // Cypher section: reserved for community-fork adapters; the default

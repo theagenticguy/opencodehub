@@ -62,8 +62,6 @@ When none of the above are set, the local ONNX backend
 |---|---|
 | `CODEHUB_DISABLE_SCIP` | Set to `1` to make the `scip-index` ingestion phase a no-op. Heuristic edges still flow. |
 | `CODEHUB_ALLOW_BUILD_SCRIPTS` | Set to `1` to allow SCIP indexers that require a build (Rust, Java) to run. Off by default for clean-room safety. |
-| `CODEHUB_BEDROCK_SUMMARIES` | Set to `1` to opt the LLM summarize phase in. Equivalent to `--summaries`. Off by default — `codehub analyze` runs fast, local, deterministic phases only. |
-| `CODEHUB_BEDROCK_DISABLED` | Set to `1` to force-disable the LLM summarize phase. Equivalent to `--no-summaries`. Wins over `CODEHUB_BEDROCK_SUMMARIES=1` and `--summaries`. |
 | `NO_COLOR` | Standard convention; disables colored console output. |
 
 ## On-disk layout: `.codehub/`
@@ -73,7 +71,7 @@ layout is fixed: one `store.sqlite` file backs the whole index.
 
 | Path | Purpose |
 |---|---|
-| `store.sqlite` | The whole index (WAL mode, `node:sqlite`) — nodes, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges, symbol-summary cache). |
+| `store.sqlite` | The whole index (WAL mode, `node:sqlite`) — nodes, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges). |
 | `store.sqlite-wal` / `store.sqlite-shm` | WAL companions present while a writer is open; collapse into `store.sqlite` at close. |
 | `meta.json` | Index metadata: graph hash, node counts, CLI version, embedder model id. |
 | `scan.sarif` | SARIF output from `codehub scan`. |

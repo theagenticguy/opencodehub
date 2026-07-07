@@ -2,16 +2,13 @@
  * `generateWiki` — emit a graph-only Markdown wiki under `outputDir`.
  *
  * Renders the 5 page families (architecture, api-surface, dependency-map,
- * ownership-map, risk-atlas) plus a top-level index. Output is deterministic
- * when `llm` is absent: two runs against the same graph produce byte-
- * identical files. With `llm.enabled`, a supplementary
- * `architecture/llm-overview.md` page is added containing per-module
- * narrative prose; the deterministic family pages remain byte-stable so
- * downstream diff tooling still works.
+ * ownership-map, risk-atlas) plus a top-level index. Output is fully
+ * deterministic: two runs against the same graph produce byte-identical
+ * files.
  *
- * No LLM calls, no network, no timestamps in rendered content in the default
- * (deterministic) mode. Filenames are sorted before writing so any external
- * tool iterating the output directory observes the same ordering.
+ * No LLM calls, no network, no timestamps in rendered content. Filenames are
+ * sorted before writing so any external tool iterating the output directory
+ * observes the same ordering.
  */
 
 import { mkdir } from "node:fs/promises";
@@ -22,40 +19,11 @@ import { renderApiSurfacePages } from "./wiki-render/api-surface.js";
 import type { RenderedWikiPage } from "./wiki-render/architecture.js";
 import { renderArchitecturePages } from "./wiki-render/architecture.js";
 import { renderDependencyMapPages } from "./wiki-render/dependency-map.js";
-import type { LlmModuleInput, LlmOverviewOptions } from "./wiki-render/llm-overview.js";
-import { renderLlmOverviews } from "./wiki-render/llm-overview.js";
 import { renderOwnershipMapPages } from "./wiki-render/ownership-map.js";
 import { type RiskTrendsLike, renderRiskAtlasPages } from "./wiki-render/risk-atlas.js";
-import { loadCommunities, loadCommunityTopFiles } from "./wiki-render/shared.js";
 
 // Re-export wiki-render types so consumers can import them from the package root.
-export type {
-  LlmModuleInput,
-  LlmOverview,
-  LlmOverviewOptions,
-} from "./wiki-render/llm-overview.js";
 export type { RiskTrendsLike } from "./wiki-render/risk-atlas.js";
-
-export interface WikiLlmOptions {
-  /**
-   * Must be `true` to trigger any LLM activity. `false` (the default) keeps
-   * generateWiki byte-identical to its pre-LLM output.
-   */
-  readonly enabled: boolean;
-  /**
-   * Cap on actual Bedrock calls. `0` enumerates candidate modules as a
-   * dry-run without contacting Bedrock. Positive integers bound the number
-   * of top-ranked modules that receive a real narrative.
-   */
-  readonly maxCalls: number;
-  /** Optional override for the Bedrock model id passed to the summarizer. */
-  readonly modelId?: string;
-  /**
-   * Test seam — skips the Bedrock SDK entirely. Matches the signature of
-   * `@opencodehub/summarizer`'s `summarizeSymbol` (bound to a client).
-   */
-  readonly summarize?: LlmOverviewOptions["summarize"];
-}
 
 export interface WikiOptions {
   /** Absolute (or relative-to-cwd) path where pages are written. */
@@ -73,12 +41,6 @@ export interface WikiOptions {
    * notice.
    */
   readonly loadTrends?: (repoPath: string) => Promise<RiskTrendsLike>;
-  /**
-   * Opt-in LLM mode. When `enabled` is true, `generateWiki` also writes
-   * `architecture/llm-overview.md` with per-module narrative prose. The
-   * deterministic family pages are unchanged.
-   */
-  readonly llm?: WikiLlmOptions;
 }
 
 export interface WikiResult {
@@ -108,16 +70,9 @@ export async function generateWiki(store: IGraphStore, options: WikiOptions): Pr
     ...riskAtlas,
   ];
 
-  if (options.llm?.enabled === true) {
-    const llmPage = await renderLlmOverviewPage(store, options.llm);
-    if (llmPage !== undefined) {
-      allPages.push(llmPage);
-    }
-  }
-
   allPages.push({
     filename: "index.md",
-    content: renderRootIndex(options.llm?.enabled === true),
+    content: renderRootIndex(),
   });
 
   // Deterministic write order.
@@ -142,8 +97,8 @@ export async function generateWiki(store: IGraphStore, options: WikiOptions): Pr
   return { filesWritten, totalBytes };
 }
 
-function renderRootIndex(llmEnabled: boolean): string {
-  const lines = [
+function renderRootIndex(): string {
+  return [
     "# OpenCodeHub wiki",
     "",
     "Graph-derived Markdown pages. Regenerate with `codehub wiki --output <dir>`.",
@@ -155,128 +110,6 @@ function renderRootIndex(llmEnabled: boolean): string {
     "- [Dependency map](./dependency-map/index.md)",
     "- [Ownership map](./ownership-map/index.md)",
     "- [Risk atlas](./risk-atlas/index.md)",
-  ];
-  if (llmEnabled) {
-    lines.push("- [Module narratives (LLM)](./architecture/llm-overview.md)");
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
-/**
- * Render the optional `architecture/llm-overview.md` page. Returns undefined
- * when the graph has no Community nodes — the deterministic pipeline already
- * emits an empty-architecture page in that case and we do not need a
- * narrative shell.
- */
-async function renderLlmOverviewPage(
-  store: IGraphStore,
-  llm: WikiLlmOptions,
-): Promise<RenderedWikiPage | undefined> {
-  const communities = await loadCommunities(store);
-  if (communities.length === 0) return undefined;
-
-  const TOP_FILES_PER_MODULE = 5;
-  const moduleInputs: LlmModuleInput[] = [];
-  for (const community of communities) {
-    const topFilesRows = await loadCommunityTopFiles(store, community.id, TOP_FILES_PER_MODULE);
-    const topFiles = topFilesRows.map((r) => r.filePath);
-    const topSymbols = await loadCommunityTopSymbols(store, community.id, TOP_FILES_PER_MODULE);
-    moduleInputs.push({
-      communityId: community.id,
-      label: community.inferredLabel.length > 0 ? community.inferredLabel : community.name,
-      symbolCount: community.symbolCount,
-      topFiles,
-      topSymbols,
-    });
-  }
-
-  const llmOptions: LlmOverviewOptions = {
-    enabled: llm.enabled,
-    maxCalls: llm.maxCalls,
-    ...(llm.modelId !== undefined ? { modelId: llm.modelId } : {}),
-    ...(llm.summarize !== undefined ? { summarize: llm.summarize } : {}),
-  };
-  const overviews = await renderLlmOverviews(moduleInputs, llmOptions);
-
-  // Preserve deterministic file order: render in the ranking order the
-  // llm-overview module used (symbolCount desc, label asc, id asc) so re-runs
-  // with the same graph + maxCalls produce byte-identical content.
-  const ranked = [...moduleInputs].sort((a, b) => {
-    if (b.symbolCount !== a.symbolCount) return b.symbolCount - a.symbolCount;
-    if (a.label !== b.label) return a.label.localeCompare(b.label);
-    return a.communityId.localeCompare(b.communityId);
-  });
-
-  const lines: string[] = [];
-  lines.push("# Module narratives");
-  lines.push("");
-  lines.push(
-    "LLM-generated prose per community. Deterministic family pages under " +
-      "`./` are unchanged; this page is additive.",
-  );
-  lines.push("");
-  lines.push(`- **Modules ranked:** ${ranked.length}`);
-  lines.push(`- **LLM calls cap:** ${llm.maxCalls === 0 ? "0 (dry-run)" : String(llm.maxCalls)}`);
-  if (llm.modelId !== undefined) {
-    lines.push(`- **Model:** \`${llm.modelId}\``);
-  }
-  lines.push("");
-
-  for (const mod of ranked) {
-    const overview = overviews.get(mod.communityId);
-    if (overview === undefined) continue;
-    lines.push(overview.markdown.trimEnd());
-    lines.push("");
-  }
-
-  return {
-    filename: "architecture/llm-overview.md",
-    content: lines.join("\n"),
-  };
-}
-
-/**
- * Top symbol names (functions / methods / classes) for a community, ranked
- * by kind priority then name. Used by the LLM overview page to feed key
- * symbols into each summarizer prompt.
- *
- * Implementation: walk MEMBER_OF edges via `listEdgesByType`, lift the
- * typed Class/Function/Method node lists via `listNodesByKind`, then
- * JS-side join the edge endpoints to the symbol nodes. Sort by the
- * (kind-priority, name ASC) key the SQL formerly applied via
- * `CASE n.kind`.
- */
-async function loadCommunityTopSymbols(
-  store: IGraphStore,
-  communityId: string,
-  limit: number,
-): Promise<readonly string[]> {
-  try {
-    const memberEdges = await store.listEdgesByType("MEMBER_OF", { toIds: [communityId] });
-    if (memberEdges.length === 0) return [];
-    const memberFromIds = new Set(memberEdges.map((e) => e.from));
-    const [classes, functions, methods] = await Promise.all([
-      store.listNodesByKind("Class"),
-      store.listNodesByKind("Function"),
-      store.listNodesByKind("Method"),
-    ]);
-    const all: { kindRank: number; name: string }[] = [];
-    for (const c of classes) {
-      if (memberFromIds.has(c.id) && c.name.length > 0) all.push({ kindRank: 0, name: c.name });
-    }
-    for (const f of functions) {
-      if (memberFromIds.has(f.id) && f.name.length > 0) all.push({ kindRank: 1, name: f.name });
-    }
-    for (const m of methods) {
-      if (memberFromIds.has(m.id) && m.name.length > 0) all.push({ kindRank: 2, name: m.name });
-    }
-    all.sort((a, b) => {
-      if (a.kindRank !== b.kindRank) return a.kindRank - b.kindRank;
-      return a.name.localeCompare(b.name);
-    });
-    return all.slice(0, limit).map((r) => r.name);
-  } catch {
-    return [];
-  }
+    "",
+  ].join("\n");
 }

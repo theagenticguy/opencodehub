@@ -20,7 +20,6 @@
     { "path": "../embedder" },
     { "path": "../frameworks" },
     { "path": "../scip-ingest" },
-    { "path": "../storage" },
-    { "path": "../summarizer" }
+    { "path": "../storage" }
   ]
 }

@@ -35,7 +35,7 @@ anti-pattern column says what _not_ to reach for first.
 | "What's the license tier of my deps?" | `license_audit` | Tiers each transitive dep: permissive / weak-copyleft / strong-copyleft / proprietary / unknown. | `license-checker` raw output. |
 | "Which areas are getting riskier?" | `risk_trends` | Per-community trend lines + 30-day projection from temporal data. | One-off risk snapshots. |
 | "Who is changing what most, and where" | `risk_trends` + `owners` | Trends point to communities; `owners` names the people. | Either alone. |
-| "Bespoke temporal query (cochanges / summaries)" | `sql` | Read-only SQL against the temporal store (cochanges + symbol_summaries), 5s timeout. NOT the node/edge graph. | A typed tool covers it; or you need the graph — use Cypher (MCP `sql` `cypher` arg). |
+| "Bespoke temporal query (cochanges)" | `sql` | Read-only SQL against the temporal store (cochanges), 5s timeout. NOT the node/edge graph. | A typed tool covers it; or you need the graph — use Cypher (MCP `sql` `cypher` arg). |
 
 ## Cross-repo group intents
 

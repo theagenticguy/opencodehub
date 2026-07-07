@@ -50,7 +50,6 @@ import { sbomPhase } from "./sbom.js";
 import { scanPhase } from "./scan.js";
 import { scipIndexPhase } from "./scip-index.js";
 import { structurePhase } from "./structure.js";
-import { summarizePhase } from "./summarize.js";
 import { temporalPhase } from "./temporal.js";
 import { toolsPhase } from "./tools.js";
 
@@ -136,13 +135,6 @@ export const DEFAULT_PHASES: readonly PipelinePhase[] = [
   // findings-histogram snapshot under `.codehub/history/` for trend analysis.
   // Rotation keeps the last 100 snapshots.
   riskSnapshotPhase,
-  // `summarize` runs after every LSP phase (via its dep on
-  // `confidence-demote`) so trust filtering observes finalised edge
-  // provenance, and BEFORE `embeddings` so a future follow-up can embed
-  // summary text alongside the existing signature/description vectors.
-  // The phase is a silent no-op unless `options.summaries === true`, and
-  // it is a hard no-op whenever `options.offline === true`.
-  summarizePhase,
   // `embeddings` depends on `annotate` so it observes the final graph. The
   // phase is a silent no-op unless `options.embeddings === true`. Keeping it
   // at the tail means downstream hashing can key embeddings to graph state.

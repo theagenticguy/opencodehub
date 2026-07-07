@@ -5,8 +5,8 @@ sidebar:
   order: 20
 ---
 
-OpenCodeHub is a pnpm workspace under `packages/*`. Seventeen
-TypeScript library packages plus the documentation site (eighteen
+OpenCodeHub is a pnpm workspace under `packages/*`. Sixteen
+TypeScript library packages plus the documentation site (seventeen
 package directories in all). The CLI is the only binary; every other
 package is a library imported by `cli`, `mcp`, `ingestion`, or
 `analysis`.
@@ -21,7 +21,7 @@ package is a library imported by `cli`, `mcp`, `ingestion`, or
 | `@opencodehub/core-types` | `packages/core-types` | Shared graph schema, `LanguageId`, `RelationType`, determinism primitives. |
 | `@opencodehub/embedder` | `packages/embedder` | Deterministic ONNX embedder (`F2LLM-v2-80M`, 320-dim), modelId fingerprint, three-backend cascade. |
 | `@opencodehub/frameworks` | `packages/frameworks` | Five-stage framework detector (manifest → lockfile → config-AST → folder → import/SCIP) over a curated registry. |
-| `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, summaries, ...). |
+| `@opencodehub/ingestion` | `packages/ingestion` | The indexing pipeline (parse, resolve, scip-index, embeddings, communities, processes, ...). |
 | `@opencodehub/mcp` | `packages/mcp` | The stdio MCP server, 29 tool registrations (all read-only with respect to user source), 7 resources, the error envelope, the staleness `_meta` block. |
 | `@opencodehub/pack` | `packages/pack` | Deterministic 8-item code-pack BOM (the artifact attached to every release). |
 | `@opencodehub/policy` | `packages/policy` | `opencodehub.policy.yaml` loader, validator, evaluator. |
@@ -30,7 +30,6 @@ package is a library imported by `cli`, `mcp`, `ingestion`, or
 | `@opencodehub/scip-ingest` | `packages/scip-ingest` | `.scip` protobuf reader + per-language indexer runners (TypeScript, Python, Go, Rust, Java, .NET, clang, Kotlin, Ruby). |
 | `@opencodehub/search` | `packages/search` | Hybrid BM25 + RRF search. |
 | `@opencodehub/storage` | `packages/storage` | The `IGraphStore` / `ITemporalStore` interface segregation, the `SqliteStore` class that implements both over one `store.sqlite` via `node:sqlite`, and `openStore()` that returns it as both views. |
-| `@opencodehub/summarizer` | `packages/summarizer` | Structured per-symbol summarizer (Haiku 4.5 via Bedrock Converse + Zod 4). |
 | `@opencodehub/wiki` | `packages/wiki` | Markdown wiki renderer (architecture, api-surface, dependency-map, ownership-map, risk-atlas) over the graph. |
 | `@opencodehub/docs` | `packages/docs` | This Starlight documentation site. |
 
@@ -45,7 +44,7 @@ or `analysis`.
 Think of it as two layers:
 
 - **Leaf libraries.** `core-types`, `sarif`, `embedder`, `storage`,
-  `search`, `summarizer`, `scip-ingest`, `frameworks`, `pack`,
+  `search`, `scip-ingest`, `frameworks`, `pack`,
   `policy`, `cobol-proleap`.
 - **Orchestrators.** `ingestion`, `analysis`, `scanners`, `mcp`, `wiki`,
   `cli`.
@@ -57,7 +56,7 @@ TypeScript project-references graph enforces this via `tsc --noEmit`.
 
 `@opencodehub/storage` exposes two narrow interfaces: `IGraphStore`
 (graph workload: nodes, edges, embeddings, multi-hop traversal) and
-`ITemporalStore` (temporal workload: cochanges, summary cache). The
+`ITemporalStore` (temporal workload: cochanges). The
 single shipping class implements both:
 
 - **`SqliteStore` over one `store.sqlite`** — always. One artifact on

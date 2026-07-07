@@ -16,13 +16,11 @@ import { readRegistry } from "../registry.js";
 import { openStoreForCommand } from "./open-store.js";
 
 /**
- * Retrieval-mode probe result for the status output. `summaries` is the count
- * of distinct nodes with an LLM summary (dense-leg input); `vectors` reports
- * whether the embeddings table is populated. Both are best-effort: a degraded
- * or absent store yields `summaries: null`.
+ * Retrieval-mode probe result for the status output. `vectors` reports
+ * whether the embeddings table is populated. Best-effort: a degraded or
+ * absent store yields `undefined`.
  */
 export interface RetrievalState {
-  readonly summaries: number | null;
   readonly vectors: "populated" | "bm25-only";
 }
 
@@ -41,9 +39,8 @@ async function defaultProbeRetrieval(repoPath: string): Promise<RetrievalState |
   try {
     const opened = await openStoreForCommand({ repo: repoPath, readOnly: true });
     store = opened.store;
-    const summaries = await store.temporal.countSymbolSummaries();
     const populated = await embeddingsPopulated(store.graph);
-    return { summaries, vectors: populated ? "populated" : "bm25-only" };
+    return { vectors: populated ? "populated" : "bm25-only" };
   } catch {
     // No index / degraded store / missing binding — caller degrades the
     // output rather than failing the whole status command.
@@ -75,18 +72,10 @@ export async function runStatus(path: string, opts: StatusOptions = {}): Promise
   // Retrieval mode. `query` runs BM25-only unless the embeddings table is
   // populated AND the active embedder's modelId matches `meta.embedderModelId`
   // — so report the embedder id from meta (no second probe) alongside the
-  // vector state, instead of implying hybrid will fire. Summaries are a
-  // distinct table (dense-leg context), not what gates BM25-vs-hybrid; we
-  // surface the count so an empty-summaries index is visible.
+  // vector state, instead of implying hybrid will fire.
   const probe = opts.probeRetrieval ?? defaultProbeRetrieval;
   const retrieval = await probe(repoPath);
-  if (retrieval === undefined) {
-    console.log("summaries:      -");
-    console.log("vectors:        unknown");
-  } else {
-    console.log(`summaries:      ${retrieval.summaries ?? "-"}`);
-    console.log(`vectors:        ${retrieval.vectors}`);
-  }
+  console.log(`vectors:        ${retrieval === undefined ? "unknown" : retrieval.vectors}`);
   console.log(`embedder:       ${meta.embedderModelId ?? "none"}`);
 
   if (registryHit === undefined) {
