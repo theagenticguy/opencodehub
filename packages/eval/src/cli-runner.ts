@@ -26,6 +26,7 @@
 
 import { spawn } from "node:child_process";
 import type { AgentRunner, Harness, RunOutcome, RunRequest, RunTokens } from "./runner.js";
+import { type Action, actionsFromClaudeStreamJson, actionsFromCodexJsonl } from "./trajectory.js";
 
 /** Default Claude Code Bedrock inference profile (us.-prefixed, §4a). */
 export const DEFAULT_CLAUDE_MODEL = "us.anthropic.claude-sonnet-4-6";
@@ -113,13 +114,18 @@ export function buildArgv(
   prompt: string,
 ): { command: string; argv: string[] } {
   if (config.harness === "claude") {
+    // stream-json (not json) so the tool-call trajectory is captured, not just
+    // the final result. `--verbose` is mandatory with stream-json in -p mode
+    // (Claude Code refuses otherwise). The final `type:"result"` line still
+    // carries usage + total_cost_usd, so token accounting is unchanged.
     return {
       command: "claude",
       argv: [
         "-p",
         prompt,
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
         "--model",
         config.model ?? DEFAULT_CLAUDE_MODEL,
       ],
@@ -143,32 +149,71 @@ export function buildArgv(
   };
 }
 
-/**
- * Parse Claude Code's `--output-format json` single result object into a
- * {@link RunOutcome} (minus checkout/errored, filled by the runner). Pure +
- * exported. Throws on unparseable output so a malformed run is a hard error,
- * not a silent zero-token success.
- */
-export function parseClaudeOutput(stdout: string): { finalText: string; tokens: RunTokens } {
-  const doc = JSON.parse(stdout) as {
-    result?: unknown;
-    usage?: {
-      input_tokens?: unknown;
-      output_tokens?: unknown;
-      cache_creation_input_tokens?: unknown;
-      cache_read_input_tokens?: unknown;
-    };
-    total_cost_usd?: unknown;
+/** The final `type:"result"` event Claude Code emits in stream-json mode. */
+interface ClaudeResultEvent {
+  readonly result?: unknown;
+  readonly usage?: {
+    readonly input_tokens?: unknown;
+    readonly output_tokens?: unknown;
+    readonly cache_creation_input_tokens?: unknown;
+    readonly cache_read_input_tokens?: unknown;
   };
-  const finalText = typeof doc.result === "string" ? doc.result : "";
-  const inputTokens = num(doc.usage?.input_tokens);
-  const outputTokens = num(doc.usage?.output_tokens);
+  readonly total_cost_usd?: unknown;
+}
+
+/**
+ * Parse Claude Code's `--output-format stream-json --verbose` JSONL stream into
+ * the final answer, token accounting, and the normalized action trajectory.
+ * Pure + exported.
+ *
+ * The stream is one JSON object per line; the final `type:"result"` line
+ * carries `result` (final text), `usage.{input,output,cache_*}_tokens`, and
+ * `total_cost_usd` — the same fields the old single-object `json` format
+ * exposed, so token accounting is unchanged. The trajectory comes from the
+ * `assistant` events' `tool_use` blocks (see {@link actionsFromClaudeStreamJson}).
+ *
+ * Throws when the stream carries no `result` line, so a malformed / truncated
+ * run is a hard error rather than a silent zero-token success — matching the
+ * old parser's fail-fast contract.
+ */
+export function parseClaudeOutput(stdout: string): {
+  finalText: string;
+  tokens: RunTokens;
+  trajectory: Action[];
+} {
+  let result: ClaudeResultEvent | null = null;
+
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    let evt: unknown;
+    try {
+      evt = JSON.parse(trimmed);
+    } catch {
+      continue; // partial / non-JSON line — skip
+    }
+    if (typeof evt === "object" && evt !== null && (evt as { type?: unknown }).type === "result") {
+      result = evt as ClaudeResultEvent;
+    }
+  }
+
+  if (result === null) {
+    throw new Error("claude stream-json produced no result event");
+  }
+
+  const finalText = typeof result.result === "string" ? result.result : "";
+  const inputTokens = num(result.usage?.input_tokens);
+  const outputTokens = num(result.usage?.output_tokens);
   // Claude Code injects a large cached system prompt per call; both the
   // creation and read halves are real token cost the overhead headline needs.
   const cacheTokens =
-    num(doc.usage?.cache_creation_input_tokens) + num(doc.usage?.cache_read_input_tokens);
-  const costUsd = typeof doc.total_cost_usd === "number" ? doc.total_cost_usd : null;
-  return { finalText, tokens: { inputTokens, outputTokens, cacheTokens, costUsd } };
+    num(result.usage?.cache_creation_input_tokens) + num(result.usage?.cache_read_input_tokens);
+  const costUsd = typeof result.total_cost_usd === "number" ? result.total_cost_usd : null;
+  return {
+    finalText,
+    tokens: { inputTokens, outputTokens, cacheTokens, costUsd },
+    trajectory: actionsFromClaudeStreamJson(stdout),
+  };
 }
 
 /**
@@ -178,7 +223,11 @@ export function parseClaudeOutput(stdout: string): { finalText: string; tokens: 
  * exported. Tolerates interleaved non-JSON lines (progress noise) by skipping
  * them.
  */
-export function parseCodexOutput(stdout: string): { finalText: string; tokens: RunTokens } {
+export function parseCodexOutput(stdout: string): {
+  finalText: string;
+  tokens: RunTokens;
+  trajectory: Action[];
+} {
   let finalText = "";
   let inputTokens = 0;
   let outputTokens = 0;
@@ -208,7 +257,11 @@ export function parseCodexOutput(stdout: string): { finalText: string; tokens: R
   }
   // Codex does not surface a per-invocation USD cost on the public event
   // schema, so cost is null (the report tolerates a null-cost arm).
-  return { finalText, tokens: { inputTokens, outputTokens, cacheTokens, costUsd: null } };
+  return {
+    finalText,
+    tokens: { inputTokens, outputTokens, cacheTokens, costUsd: null },
+    trajectory: actionsFromCodexJsonl(stdout),
+  };
 }
 
 function num(v: unknown): number {
@@ -283,6 +336,7 @@ export class CliAgentRunner implements AgentRunner {
         finalText: parsed.finalText,
         diff: "", // neither CLI surfaces a structured diff in headless JSON; left empty
         tokens: parsed.tokens,
+        trajectory: parsed.trajectory,
         checkoutPath: cwd,
         errored: false,
       };

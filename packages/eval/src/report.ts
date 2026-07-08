@@ -16,6 +16,7 @@
 import { canonicalJson } from "@opencodehub/core-types";
 import type { ArmDispersion } from "./dispersion.js";
 import { dispersionScalar } from "./dispersion.js";
+import type { InsightCounts } from "./insight.js";
 
 /**
  * Token-overhead guardrail (spec 010 §7.4). Above this ratio the report flags
@@ -37,10 +38,33 @@ export interface ArmTokens {
   readonly costUsd: number | null;
 }
 
+/**
+ * An arm's aggregated INSIGHT anti-pattern signal (Move 1 / TraceProbe). `total`
+ * sums each detector's firings across every run in the arm that carried a
+ * trajectory; `perRun` divides by {@link scored} (the count of trajectory-bearing
+ * runs), so arms with different run counts or different numbers of
+ * trajectory-less errored runs stay comparable. `scored` is surfaced so a reader
+ * can see how much of the arm the signal rests on.
+ */
+export interface ArmInsight {
+  /** Summed detector firings across the arm's scored runs. */
+  readonly total: InsightCounts;
+  /** Per-scored-run mean of each detector (total / scored; 0 when scored is 0). */
+  readonly perRun: InsightCounts;
+  /** How many of the arm's runs carried a trajectory to score. */
+  readonly scored: number;
+}
+
 /** One arm's measured result (with-pack or without-pack). */
 export interface ArmReport {
   readonly dispersion: ArmDispersion;
   readonly tokens: ArmTokens;
+  /**
+   * INSIGHT anti-pattern signal for the arm. Optional so pre-Move-1 captured
+   * reports and runners that emit no trajectory stay valid; absent means the
+   * probe was not run with `--insight` (or no run carried a trajectory).
+   */
+  readonly insight?: ArmInsight;
 }
 
 /** The full per-harness probe result. */
@@ -61,6 +85,13 @@ export interface HarnessReport {
   readonly tokenOverhead: number;
   /** True when `tokenOverhead` exceeds {@link TOKEN_OVERHEAD_FLAG}. */
   readonly tokenOverheadFlagged: boolean;
+  /**
+   * Per-run `without − with` delta for each INSIGHT detector (Move 1). Positive
+   * = the pack reduced that anti-pattern — the headline the move publishes
+   * ("the pack cuts search loops"). Present only when both arms carry an
+   * {@link ArmInsight}; absent when the probe ran without `--insight`.
+   */
+  readonly insightDelta?: InsightCounts;
 }
 
 /** The top-level report the probe emits. */
@@ -105,6 +136,13 @@ export function buildHarnessReport(input: {
   // Overhead is undefined when the baseline arm spent no tokens; report 0 in
   // that degenerate case rather than Infinity/NaN, and never flag it.
   const tokenOverhead = withoutTotal === 0 ? 0 : withTotal / withoutTotal;
+  // Insight delta is the per-run without − with of each detector — positive
+  // means the pack suppressed the anti-pattern. Computed only when both arms
+  // carry insight (the probe ran with --insight and runs produced trajectories).
+  const insightDelta =
+    input.without.insight !== undefined && input.with.insight !== undefined
+      ? subtractCounts(input.without.insight.perRun, input.with.insight.perRun)
+      : undefined;
   return {
     harness: input.harness,
     runner: input.runner,
@@ -114,6 +152,17 @@ export function buildHarnessReport(input: {
     dispersionDelta,
     tokenOverhead,
     tokenOverheadFlagged: tokenOverhead > TOKEN_OVERHEAD_FLAG,
+    ...(insightDelta !== undefined ? { insightDelta } : {}),
+  };
+}
+
+/** Per-detector `a − b` of two per-run insight-count records. */
+function subtractCounts(a: InsightCounts, b: InsightCounts): InsightCounts {
+  return {
+    searchLoop: a.searchLoop - b.searchLoop,
+    rereadChurn: a.rereadChurn - b.rereadChurn,
+    redundantSearch: a.redundantSearch - b.redundantSearch,
+    shellOverTool: a.shellOverTool - b.shellOverTool,
   };
 }
 
@@ -148,8 +197,25 @@ export function formatReport(report: VarianceReport): string {
     // tokens (the per-call system prompt) are part of the total, not hidden.
     lines.push(`    tokens without:          ${fmtTokens(h.without.tokens)}`);
     lines.push(`    tokens with:             ${fmtTokens(h.with.tokens)}`);
+    if (h.insightDelta !== undefined) {
+      // Per-run without − with; positive = the pack suppressed the anti-pattern.
+      const d = h.insightDelta;
+      const wScored = h.without.insight?.scored ?? 0;
+      const wPack = h.with.insight?.scored ?? 0;
+      lines.push(`    insight Δ/run (without − with, scored ${wScored}/${wPack}):`);
+      lines.push(`      search loops:     ${fmtDelta(d.searchLoop)}`);
+      lines.push(`      re-read churn:     ${fmtDelta(d.rereadChurn)}`);
+      lines.push(`      redundant search:  ${fmtDelta(d.redundantSearch)}`);
+      lines.push(`      shell-over-tool:   ${fmtDelta(d.shellOverTool)}`);
+    }
   }
   return lines.join("\n");
+}
+
+/** Format a per-run insight delta with a leading sign (positive = pack helped). */
+function fmtDelta(n: number): string {
+  const s = n.toFixed(3);
+  return n > 0 ? `+${s}` : s;
 }
 
 /** Render an arm's token split: input + output + cache (the overhead inputs). */

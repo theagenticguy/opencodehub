@@ -62,14 +62,17 @@ describe("buildAgentEnv — Bedrock wiring (§4a)", () => {
 });
 
 describe("buildArgv", () => {
-  it("builds the headless claude command with JSON output + model", () => {
+  it("builds the headless claude command with stream-json output + verbose + model", () => {
     const { command, argv } = buildArgv({ harness: "claude" }, "PROMPT");
     assert.equal(command, "claude");
+    // stream-json (not json) captures the tool-call trajectory; --verbose is
+    // mandatory with stream-json in -p mode (Claude Code refuses otherwise).
     assert.deepEqual(argv, [
       "-p",
       "PROMPT",
       "--output-format",
-      "json",
+      "stream-json",
+      "--verbose",
       "--model",
       DEFAULT_CLAUDE_MODEL,
     ]);
@@ -122,9 +125,26 @@ describe("composePrompt", () => {
   });
 });
 
-describe("parseClaudeOutput", () => {
-  it("extracts result text + usage + cache + cost from the JSON result object", () => {
-    const stdout = JSON.stringify({
+describe("parseClaudeOutput (stream-json)", () => {
+  // A representative stream: two assistant events (a tool_use + text) and the
+  // final result event carrying usage + cost.
+  const stream = [
+    JSON.stringify({ type: "system", subtype: "init", session_id: "s" }),
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", id: "toolu_1", name: "Grep", input: { pattern: "foo" } },
+          { type: "tool_use", id: "toolu_2", name: "Read", input: { file_path: "/a.ts" } },
+        ],
+      },
+    }),
+    "  ", // blank/whitespace line — tolerated
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Done." }] },
+    }),
+    JSON.stringify({
       type: "result",
       subtype: "success",
       result: "Done — added the flag.",
@@ -135,8 +155,11 @@ describe("parseClaudeOutput", () => {
         cache_read_input_tokens: 100,
       },
       total_cost_usd: 0.0123,
-    });
-    const { finalText, tokens } = parseClaudeOutput(stdout);
+    }),
+  ].join("\n");
+
+  it("extracts result text + usage + cache + cost from the final result event", () => {
+    const { finalText, tokens } = parseClaudeOutput(stream);
     assert.equal(finalText, "Done — added the flag.");
     assert.equal(tokens.inputTokens, 1234);
     assert.equal(tokens.outputTokens, 56);
@@ -144,15 +167,34 @@ describe("parseClaudeOutput", () => {
     assert.equal(tokens.cacheTokens, 27506);
     assert.equal(tokens.costUsd, 0.0123);
   });
+
+  it("captures the normalized trajectory from assistant tool_use blocks", () => {
+    const { trajectory } = parseClaudeOutput(stream);
+    // Grep→search, Read→file_read, text→reason.
+    assert.deepEqual(trajectory, [
+      { type: "search", query: "foo" },
+      { type: "file_read", target: "/a.ts" },
+      { type: "reason" },
+    ]);
+  });
+
   it("tolerates a missing usage block (zeros, null cost)", () => {
-    const { tokens, finalText } = parseClaudeOutput(JSON.stringify({ result: "x" }));
+    const stdout = JSON.stringify({ type: "result", result: "x" });
+    const { tokens, finalText } = parseClaudeOutput(stdout);
     assert.equal(finalText, "x");
     assert.equal(tokens.inputTokens, 0);
     assert.equal(tokens.cacheTokens, 0);
     assert.equal(tokens.costUsd, null);
   });
-  it("throws on unparseable stdout", () => {
+
+  it("throws when the stream carries no result event", () => {
+    // Non-JSON, and a stream of only assistant events, both lack a result line.
     assert.throws(() => parseClaudeOutput("not json"));
+    assert.throws(() =>
+      parseClaudeOutput(
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }),
+      ),
+    );
   });
 });
 
@@ -197,15 +239,24 @@ describe("parseCodexOutput", () => {
 });
 
 describe("CliAgentRunner.run (stubbed spawn)", () => {
-  it("returns a successful outcome from a claude run", async () => {
+  it("returns a successful outcome + trajectory from a claude run", async () => {
     const spawnFn: SpawnFn = async ({ command, argv }) => {
       assert.equal(command, "claude");
       assert.ok(argv.includes("--output-format"));
-      return {
-        stdout: JSON.stringify({ result: "ok", usage: { input_tokens: 10, output_tokens: 2 } }),
-        stderr: "",
-        code: 0,
-      };
+      const stdout = [
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "/x.ts" } }],
+          },
+        }),
+        JSON.stringify({
+          type: "result",
+          result: "ok",
+          usage: { input_tokens: 10, output_tokens: 2 },
+        }),
+      ].join("\n");
+      return { stdout, stderr: "", code: 0 };
     };
     const runner = new CliAgentRunner({ harness: "claude", _spawn: spawnFn, _baseEnv: {} });
     const outcome = await runner.run({ task: TASK, harness: "claude", withPack: false });
@@ -213,6 +264,7 @@ describe("CliAgentRunner.run (stubbed spawn)", () => {
     assert.equal(outcome.finalText, "ok");
     assert.equal(outcome.tokens.inputTokens, 10);
     assert.equal(outcome.checkoutPath, TASK.repo);
+    assert.deepEqual(outcome.trajectory, [{ type: "file_read", target: "/x.ts" }]);
     assert.equal(runner.name, "cli:claude");
   });
 
@@ -237,7 +289,11 @@ describe("CliAgentRunner.run (stubbed spawn)", () => {
       // claude argv: ["-p", PROMPT, ...]
       seenPrompt = argv[1] ?? "";
       return {
-        stdout: JSON.stringify({ result: "ok", usage: { input_tokens: 1, output_tokens: 1 } }),
+        stdout: JSON.stringify({
+          type: "result",
+          result: "ok",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
         stderr: "",
         code: 0,
       };

@@ -14,6 +14,7 @@
  */
 
 import type { Task } from "./task.js";
+import type { Action } from "./trajectory.js";
 
 /** Which coding agent a runner drives. */
 export type Harness = "claude" | "codex";
@@ -82,6 +83,15 @@ export interface RunOutcome {
    * lower variance — but the oracle treats it as the worst outcome.
    */
   readonly errored: boolean;
+  /**
+   * The normalized action sequence the agent took (Move 1 / TraceProbe). Present
+   * when the runner captured a tool-call stream (`--output-format stream-json`
+   * for Claude, `--json` for Codex); absent when the harness emitted no stream
+   * (older runners, or an errored run that produced no events). The INSIGHT
+   * detectors score this list; a run without a trajectory contributes no
+   * detector firings rather than a zero that could read as "clean".
+   */
+  readonly trajectory?: readonly Action[];
 }
 
 /**

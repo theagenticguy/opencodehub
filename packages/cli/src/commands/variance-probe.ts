@@ -74,6 +74,12 @@ export interface VarianceProbeArgs {
    */
   readonly cacheChannel?: CacheChannel;
   /**
+   * Score each arm's captured trajectory against the TraceProbe structural
+   * anti-pattern detectors and report the per-run without−with delta (Move 1).
+   * Off by default; the report shape is unchanged unless set.
+   */
+  readonly insight?: boolean;
+  /**
    * Test seam — inject a fake pack-context assembler so unit tests don't need a
    * real analyzed repo + pack on disk. Receives the resolved tokenizer lane so
    * a test can assert it threads through to the assemble call.
@@ -203,6 +209,7 @@ export async function runVarianceProbe(args: VarianceProbeArgs): Promise<Varianc
     packTokenizerId,
     ...(args.runs !== undefined ? { runs: args.runs } : {}),
     ...(args.harness !== undefined ? { harnesses: [args.harness] } : {}),
+    ...(args.insight === true ? { insight: true } : {}),
   };
 
   return runProbe(task, runnerFor, options);
