@@ -62,14 +62,14 @@ describe("buildAgentEnv — Bedrock wiring (§4a)", () => {
 });
 
 describe("buildArgv", () => {
-  it("builds the headless claude command with stream-json output + verbose + model", () => {
-    const { command, argv } = buildArgv({ harness: "claude" }, "PROMPT");
+  it("builds the headless claude command with stream-json output + verbose + model (prompt on stdin, NOT argv)", () => {
+    const { command, argv } = buildArgv({ harness: "claude" });
     assert.equal(command, "claude");
     // stream-json (not json) captures the tool-call trajectory; --verbose is
-    // mandatory with stream-json in -p mode (Claude Code refuses otherwise).
+    // mandatory with stream-json in -p mode. No positional prompt — Claude reads
+    // it from stdin (an ~1 MB pack overflows a single argv arg's 128 KB cap).
     assert.deepEqual(argv, [
       "-p",
-      "PROMPT",
       "--output-format",
       "stream-json",
       "--verbose",
@@ -78,9 +78,10 @@ describe("buildArgv", () => {
     ]);
   });
 
-  it("builds the codex exec command routed to the amazon-bedrock provider", () => {
-    const { command, argv } = buildArgv({ harness: "codex" }, "PROMPT");
+  it("builds the codex exec command routed to amazon-bedrock, prompt via stdin (-)", () => {
+    const { command, argv } = buildArgv({ harness: "codex" });
     assert.equal(command, "codex");
+    // `-` as the prompt arg → Codex reads instructions from stdin.
     assert.deepEqual(argv, [
       "exec",
       "--json",
@@ -89,16 +90,16 @@ describe("buildArgv", () => {
       "-m",
       DEFAULT_CODEX_MODEL,
       "--skip-git-repo-check",
-      "PROMPT",
+      "-",
     ]);
   });
 
   it("honors a per-harness model override (Bug-2 fix: codex gets a codex model)", () => {
     // The bug was that one global --model handed Claude's id to Codex. Each
     // harness must carry its own model into the argv.
-    const claude = buildArgv({ harness: "claude", model: "us.anthropic.claude-opus-4-8" }, "P");
+    const claude = buildArgv({ harness: "claude", model: "us.anthropic.claude-opus-4-8" });
     assert.equal(claude.argv[claude.argv.indexOf("--model") + 1], "us.anthropic.claude-opus-4-8");
-    const codex = buildArgv({ harness: "codex", model: "openai.gpt-5.4" }, "P");
+    const codex = buildArgv({ harness: "codex", model: "openai.gpt-5.4" });
     assert.equal(codex.argv[codex.argv.indexOf("-m") + 1], "openai.gpt-5.4");
   });
 });
@@ -283,11 +284,14 @@ describe("CliAgentRunner.run (stubbed spawn)", () => {
     assert.equal(outcome.errored, true);
   });
 
-  it("injects the pack context into the prompt on the with-pack arm", async () => {
-    let seenPrompt = "";
-    const spawnFn: SpawnFn = async ({ argv }) => {
-      // claude argv: ["-p", PROMPT, ...]
-      seenPrompt = argv[1] ?? "";
+  it("injects the pack context into the prompt via STDIN on the with-pack arm", async () => {
+    let seenStdin = "";
+    let seenArgv: readonly string[] = [];
+    const spawnFn: SpawnFn = async ({ argv, stdin }) => {
+      // The prompt is fed on stdin (not argv) so a ~1 MB pack can't overflow a
+      // single argv arg's 128 KB cap. argv must NOT carry the pack.
+      seenStdin = stdin;
+      seenArgv = argv;
       return {
         stdout: JSON.stringify({
           type: "result",
@@ -300,6 +304,8 @@ describe("CliAgentRunner.run (stubbed spawn)", () => {
     };
     const runner = new CliAgentRunner({ harness: "claude", _spawn: spawnFn, _baseEnv: {} });
     await runner.run({ task: TASK, harness: "claude", withPack: true, packContext: "THE PACK" });
-    assert.ok(seenPrompt.startsWith("THE PACK"));
+    assert.ok(seenStdin.startsWith("THE PACK"), "pack context is on stdin");
+    assert.ok(seenStdin.includes(TASK.instruction), "instruction follows the pack on stdin");
+    assert.ok(!seenArgv.includes("THE PACK"), "pack context is NOT on argv");
   });
 });

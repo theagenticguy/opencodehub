@@ -108,21 +108,27 @@ export function composePrompt(request: RunRequest): string {
   return request.task.instruction;
 }
 
-/** Build the argv for a harness invocation. Pure + exported for tests. */
-export function buildArgv(
-  config: CliRunnerConfig,
-  prompt: string,
-): { command: string; argv: string[] } {
+/**
+ * Build the argv for a harness invocation. Pure + exported for tests.
+ *
+ * The prompt is NOT passed on argv — an OCH pack context is ~1 MB, and a single
+ * argv argument is capped at `MAX_ARG_STRLEN` (128 KB on Linux, independent of
+ * the larger total `ARG_MAX`), so a with-pack prompt on argv fails the spawn
+ * with `E2BIG` / "argument list too long". Instead the prompt is fed on **stdin**
+ * (see {@link CliAgentRunner.run}): `claude -p` with no positional reads the
+ * prompt from stdin; `codex exec -` reads it from stdin. This keeps argv tiny
+ * regardless of pack size.
+ */
+export function buildArgv(config: CliRunnerConfig): { command: string; argv: string[] } {
   if (config.harness === "claude") {
-    // stream-json (not json) so the tool-call trajectory is captured, not just
-    // the final result. `--verbose` is mandatory with stream-json in -p mode
-    // (Claude Code refuses otherwise). The final `type:"result"` line still
-    // carries usage + total_cost_usd, so token accounting is unchanged.
+    // No positional prompt → Claude Code reads it from stdin. stream-json (not
+    // json) captures the tool-call trajectory; `--verbose` is mandatory with
+    // stream-json in -p mode. The final `type:"result"` line still carries
+    // usage + total_cost_usd, so token accounting is unchanged.
     return {
       command: "claude",
       argv: [
         "-p",
-        prompt,
         "--output-format",
         "stream-json",
         "--verbose",
@@ -131,9 +137,10 @@ export function buildArgv(
       ],
     };
   }
-  // Codex: route to the first-party Bedrock provider via -c, pin the model,
-  // emit JSONL with --json, and skip the git-repo guard so the probe can run
-  // the agent against an arbitrary checkout.
+  // Codex: `-` as the prompt arg reads instructions from stdin. Route to the
+  // first-party Bedrock provider via -c, pin the model, emit JSONL with --json,
+  // and skip the git-repo guard so the probe can run against an arbitrary
+  // checkout.
   return {
     command: "codex",
     argv: [
@@ -144,7 +151,7 @@ export function buildArgv(
       "-m",
       config.model ?? DEFAULT_CODEX_MODEL,
       "--skip-git-repo-check",
-      prompt,
+      "-",
     ],
   };
 }
@@ -310,15 +317,18 @@ export class CliAgentRunner implements AgentRunner {
 
   async run(request: RunRequest): Promise<RunOutcome> {
     const prompt = composePrompt(request);
-    const { command, argv } = buildArgv(this.config, prompt);
+    const { command, argv } = buildArgv(this.config);
     const env = buildAgentEnv(this.config);
     // The checkout the agent works in. v1 runs the agent against the task's
     // repo path directly; a future iteration can clone per-run for isolation.
     const cwd = request.task.repo;
 
+    // The prompt is fed on stdin, not argv: an OCH pack is ~1 MB and a single
+    // argv arg caps at MAX_ARG_STRLEN (128 KB), so a with-pack prompt on argv
+    // would fail the spawn with "argument list too long". stdin has no such cap.
     let result: SpawnResult;
     try {
-      result = await this.spawnFn({ command, argv, env, cwd, stdin: "" });
+      result = await this.spawnFn({ command, argv, env, cwd, stdin: prompt });
     } catch (err) {
       return erroredOutcome(cwd, `spawn failed: ${String(err)}`);
     }
