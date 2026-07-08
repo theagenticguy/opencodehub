@@ -38,6 +38,36 @@ Claude Code via `CLAUDE_CODE_USE_BEDROCK=1` + a `us.`-prefixed
 `amazon-bedrock` provider. AWS credentials and region are inherited from the
 operator's environment.
 
+## Trajectory scoring — INSIGHT anti-patterns (Move 1)
+
+Passing `--insight` also captures each run's **tool-call trajectory** (Claude
+Code `--output-format stream-json`; Codex `--json`), normalizes it to
+TraceProbe's ([arXiv:2607.06184](https://arxiv.org/abs/2607.06184)) nine-type
+action taxonomy, and scores it against four **structural** anti-pattern
+detectors — no LLM labeler:
+
+| Detector | Fires when |
+|---|---|
+| Search Loop | ≥10 consecutive search/read actions, no write or validation between |
+| Re-read Churn | same file read ≥3× in a 10-action window, no intervening write |
+| Redundant Search | same normalized query recurs ≥2× in a 10-action window |
+| Shell-over-Tool | `cat`/`grep`/`rg`/`find` shelled while a structured tool covers it |
+
+The report adds a per-harness `insightDelta` — the per-run `without − with` of
+each detector (positive = the pack suppressed the anti-pattern). The four
+*semantic* TraceProbe detectors (Phase Oscillation, …) need an LLM labeler and
+are deferred to v2 (the judge-oracle caveat).
+
+### Real tasks — SWE-bench Verified / Pro
+
+`scripts/swebench-to-tasks.mjs` turns a SWE-bench instances JSON into probe task
+files: the `problem_statement` becomes the instruction, and an `assertion`
+oracle applies the `test_patch` and runs the FAIL_TO_PASS + PASS_TO_PASS tests
+(so correctness is *graded*, unlike Finding 0001). `scripts/swebench-prep.sh`
+clones + installs + analyzes each repo. See `docs/findings/0002` for the full
+protocol and fidelity limits (v1 grades on a `/tmp` clone without per-run
+checkout isolation — token + trajectory deltas are the trustworthy headline).
+
 ## Determinism of the probe's own output
 
 The agent runs are nondeterministic by nature — that nondeterminism is exactly

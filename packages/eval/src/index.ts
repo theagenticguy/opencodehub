@@ -27,6 +27,13 @@ export {
   mean,
   populationStddev,
 } from "./dispersion.js";
+export {
+  aggregateInsight,
+  breaksSearchLoop,
+  type InsightCounts,
+  scoreInsight,
+  ZERO_INSIGHT,
+} from "./insight.js";
 export { type JudgeScorer, type ScoreOptions, scoreArm } from "./oracle.js";
 export {
   DEFAULT_RUNS,
@@ -37,6 +44,7 @@ export {
   runProbe,
 } from "./probe.js";
 export {
+  type ArmInsight,
   type ArmReport,
   type ArmTokens,
   buildHarnessReport,
@@ -54,6 +62,15 @@ export type {
   RunTokens,
 } from "./runner.js";
 export {
+  buildAssertionCommand,
+  type GeneratedTask,
+  instanceToTask,
+  parseTestList,
+  type SweBenchInstance,
+  type TestRunner,
+  type ToTaskOptions,
+} from "./swebench.js";
+export {
   type AssertionOracle,
   type JudgeOracle,
   loadTask,
@@ -64,3 +81,13 @@ export {
   TaskSchema,
   TaskValidationError,
 } from "./task.js";
+export {
+  type Action,
+  type ActionType,
+  actionsFromClaudeStreamJson,
+  actionsFromCodexJsonl,
+  isShellReadSearch,
+  isValidationCommand,
+  normalizeQuery,
+  shellFirstWord,
+} from "./trajectory.js";

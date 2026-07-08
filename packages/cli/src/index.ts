@@ -418,6 +418,13 @@ program
       "anthropic:claude-sonnet-5@2026-06-30 to author the pack for Sonnet 5's heavier tokenizer. " +
       "Recorded in the variance report so results attribute to a lane (Finding 0001 v2).",
   )
+  .option(
+    "--insight",
+    "With --variance-probe: also score each arm's captured tool-call trajectory against the " +
+      "TraceProbe (arXiv:2607.06184) structural anti-pattern detectors — search loops, re-read " +
+      "churn, redundant search, shell-over-tool — and report the per-run without−with delta " +
+      "(positive = the pack suppressed the anti-pattern; Move 1).",
+  )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     // Channel-aware cache-prefix enforcement (Move 4). Validated once here so
     // an unknown channel errors clearly before either path runs. Commander
@@ -446,6 +453,7 @@ program
         ...(typeof opts["packTokenizer"] === "string"
           ? { packTokenizer: opts["packTokenizer"] }
           : {}),
+        ...(opts["insight"] === true ? { insight: true } : {}),
         cacheChannel,
       });
       probeMod.printVarianceReport(report, opts["json"] === true);

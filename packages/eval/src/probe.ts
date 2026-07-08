@@ -14,6 +14,7 @@
  * responsibility (the CLI runner spawns a new process each call).
  */
 
+import { aggregateInsight } from "./insight.js";
 import { type ScoreOptions, scoreArm } from "./oracle.js";
 import {
   type ArmReport,
@@ -50,6 +51,15 @@ export interface ProbeOptions {
   readonly packTokenizerId?: string;
   /** Required only when the task's oracle is `judge`. */
   readonly score?: ScoreOptions;
+  /**
+   * When true, score each arm's captured trajectories against the INSIGHT
+   * anti-pattern detectors (Move 1 / TraceProbe) and attach the per-arm
+   * {@link ArmInsight} + the harness `insightDelta`. Off by default so the
+   * dispersion+token report shape is unchanged unless the caller opts in with
+   * `--insight`. Requires a runner that captures trajectories (the CLI runner
+   * does); with a trajectory-less runner the arm insight is simply omitted.
+   */
+  readonly insight?: boolean;
   /**
    * Per-run progress callback. Pure-side-channel — never affects the report.
    */
@@ -112,7 +122,17 @@ async function runArm(
     outcomes.push(outcome);
   }
   const dispersion = await scoreArm(task.oracle, outcomes, options.score ?? {});
-  return { dispersion, tokens: sumTokens(outcomes) };
+  // When --insight is on, score the arm's captured trajectories. aggregateInsight
+  // returns undefined if no run carried a trajectory (trajectory-less runner or
+  // all-errored arm), in which case the arm's insight is omitted rather than a
+  // misleading zero.
+  const insight =
+    options.insight === true ? aggregateInsight(outcomes.map((o) => o.trajectory)) : undefined;
+  return {
+    dispersion,
+    tokens: sumTokens(outcomes),
+    ...(insight !== undefined ? { insight } : {}),
+  };
 }
 
 /**
