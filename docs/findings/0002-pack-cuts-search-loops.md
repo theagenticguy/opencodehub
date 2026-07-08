@@ -1,14 +1,34 @@
-# Finding 0002 — Does an OCH pack cut a coding agent's search loops?
+# Finding 0002 — An OCH pack cuts a coding agent's shell-hunting and file re-reads (search loops don't fire on fix tasks)
 
-- Status: **Instrument ready — awaiting the live measurement run.** The scoring
-  harness and the SWE-bench task generator ship in this change; the numbers
-  below are placeholders until the gated Bedrock run fills them.
+- Status: **Preliminary — first live run, 2026-07-08.** Two SWE-bench Verified
+  tasks × 5 runs/arm on Claude Code / Sonnet 5 via Amazon Bedrock. A wider sweep
+  (more tasks, the pytest repos) was still running at write time; this reports
+  what completed. A signal, not a benchmark.
 - Author: Bonk + Laith.
 - Instrument: `codehub code-pack --variance-probe --insight` (Move 1), scoring
   each run's tool-call trajectory against the TraceProbe (arXiv:2607.06184)
   structural anti-pattern detectors, on real SWE-bench Verified tasks.
 - Grounding: TraceProbe ran its 2,500 trajectories on **SWE-bench Verified**, so
   these per-detector numbers are directly comparable to the paper's.
+
+## The headline
+
+Across the two tasks measured, an OCH pack **suppressed the two anti-patterns
+that actually fired** and left the others at zero:
+
+- **Shell-over-Tool: 1.8 → 0.3 firings/run** (mean Δ +1.5) — the pack stops the
+  agent from shelling `grep`/`cat`/`find` to reconstruct structure it was handed.
+- **Re-read Churn: 0.6 → 0.1 firings/run** (mean Δ +0.5) — it re-reads the same
+  file far less.
+- **Search Loop: 0 → 0.** It never fired in either arm. SWE-bench fix tasks give
+  the agent a specific bug, so it does not run the ≥10-action open-ended search
+  stretches TraceProbe's Search Loop detects. On these tasks the pack's win is
+  *shell-hunting and re-reads*, not loops — the honest, narrower claim.
+- **Redundant Search: 0 → 0.** Same reason.
+
+This is the behavioral complement to Finding 0001's 2–4× token cut: the pack
+doesn't just cost fewer tokens, it changes what the agent *does* — less shelling
+out, fewer re-reads.
 
 ## The question
 
@@ -55,18 +75,33 @@ They are a v2 concern.
 
 ## Results
 
-_Awaiting the live run. Table shape (per harness, per detector):_
+Claude Code / Sonnet 5 on Bedrock, N=5 runs/arm. Per-run detector firings,
+`without pack → with pack`:
 
-| Harness | Detector | without (per run) | with (per run) | Δ (without − with) |
-|---|---|---:|---:|---:|
-| claude | search loops | _tbd_ | _tbd_ | _tbd_ |
-| claude | re-read churn | _tbd_ | _tbd_ | _tbd_ |
-| claude | redundant search | _tbd_ | _tbd_ | _tbd_ |
-| claude | shell-over-tool | _tbd_ | _tbd_ | _tbd_ |
-| codex | … | | | |
+| Task | tokenOverhead | Search Loop | Re-read Churn | Redundant Search | Shell-over-Tool |
+|---|---:|---|---|---|---|
+| `pallets/flask-5014` | 11.0× | 0 → 0 | 0 → 0 | 0 → 0 | **1.6 → 0.4** |
+| `psf/requests-1142` | 2.3× | 0 → 0 | **1.2 → 0.2** | 0 → 0 | **2.0 → 0.2** |
+| **mean** | 6.6× | 0 → 0 | 0.6 → 0.1 | 0 → 0 | 1.8 → 0.3 |
 
-Reported alongside Finding 0001's token/cost deltas and this run's assertion
-pass-rate (graded by the tasks' own FAIL_TO_PASS/PASS_TO_PASS tests).
+Positive delta = the pack suppressed the anti-pattern. Both tasks agree in
+direction; the pack cut every anti-pattern that fired and introduced none.
+
+**Codex arm:** not run. This Bedrock account exposes only `openai.gpt-oss-*`,
+not the `gpt-5.5` the Codex runner targets, so the run is Claude-only (Sonnet 5,
+the default agentic tier). The Codex arm is deferred to an account with the
+model.
+
+**Token overhead** ranged 2.3×–11×: the pack is injected fresh and uncached per
+run, so a small repo (flask) with a large-relative pack shows high overhead. On
+the `--cache-channel` path (Move 4), a stable pack prefix caches across runs on
+opt-in providers — not exercised here.
+
+**Assertion pass-rate: 0 in both arms, uninformative.** The `/tmp` clones did
+not have their Python deps installed, so the graded oracle could not run the
+tests. Exactly the fidelity limit called out below. The token + trajectory
+deltas are the trustworthy headline; the graded correctness number needs the
+Docker-image path (v2).
 
 ## What this is / is NOT
 
@@ -106,10 +141,14 @@ per-harness `insightDelta` (positive = the pack suppressed the anti-pattern).
 
 ## Next
 
-1. Run the gated Bedrock measurement, fill the results table, flip status to
-   **Preliminary**.
-2. Add the SWE-bench Pro slice (harder, contamination-resistant) once Verified
-   works end-to-end.
-3. v2: per-run checkout isolation (or official Docker images) for
-   leaderboard-comparable resolve-rate; then the four semantic detectors behind
-   an explicit judge opt-in.
+1. **Widen the corpus.** Two tasks is a signal, not a benchmark. Finish the
+   in-flight sweep (the pytest repos, more requests instances) and add tasks
+   with genuinely open-ended exploration to test whether Search Loop *ever*
+   fires under a pack — the one detector still at zero.
+2. **Install deps in the checkouts** (or use SWE-bench's official per-instance
+   Docker images) so the assertion pass-rate becomes informative and we can
+   report graded correctness alongside the trajectory deltas.
+3. **Codex arm** on an account exposing a `gpt-5.x` Bedrock model, for the
+   agent-neutral claim.
+4. Add the SWE-bench Pro slice (harder, contamination-resistant).
+5. v2: the four semantic detectors behind an explicit judge opt-in.
