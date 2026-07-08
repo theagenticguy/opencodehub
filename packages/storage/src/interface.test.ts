@@ -19,13 +19,7 @@ import type { CochangeRow, IGraphStore, ITemporalStore, Store } from "./interfac
 // what we want; the static assertion below pins the property to `never`.
 type IGraphStoreTemporalLeak = Extract<
   keyof IGraphStore,
-  | "exec"
-  | "bulkLoadCochanges"
-  | "lookupCochangesForFile"
-  | "lookupCochangesBetween"
-  | "bulkLoadSymbolSummaries"
-  | "lookupSymbolSummary"
-  | "lookupSymbolSummariesByNode"
+  "exec" | "bulkLoadCochanges" | "lookupCochangesForFile" | "lookupCochangesBetween"
 >;
 // Compile-fail wedge: if any temporal name leaked back into IGraphStore the
 // `never` constraint below stops typechecking. Keep this line as-is.
@@ -103,7 +97,7 @@ test("IGraphStore-shaped value lacks temporal methods at runtime", () => {
 
   const bag = graphOnly as unknown as Record<string, unknown>;
   assert.equal(typeof bag["lookupCochangesForFile"], "undefined");
-  assert.equal(typeof bag["lookupSymbolSummary"], "undefined");
+  assert.equal(typeof bag["lookupCochangesBetween"], "undefined");
   assert.equal(typeof bag["exec"], "undefined");
   assert.equal(graphOnly.dialect, "cypher");
 });
@@ -118,10 +112,6 @@ test("ITemporalStore-shaped value lacks graph methods at runtime", () => {
     bulkLoadCochanges: async () => {},
     lookupCochangesForFile: async (): Promise<readonly CochangeRow[]> => [],
     lookupCochangesBetween: async () => undefined,
-    bulkLoadSymbolSummaries: async () => {},
-    lookupSymbolSummary: async () => undefined,
-    lookupSymbolSummariesByNode: async () => [],
-    countSymbolSummaries: async () => 0,
   };
 
   const bag = temporalOnly as unknown as Record<string, unknown>;

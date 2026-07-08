@@ -3,9 +3,7 @@
  *
  * Two ranked runs, fused with Reciprocal Rank Fusion (k=60):
  *   1. BM25 (SQLite FTS5) over `nodes.name` + `nodes.signature` +
- *      `nodes.description`. If a `symbol_summaries` table is present the
- *      corpus extends transparently (see {@link bm25CorpusHasSummaries}) so
- *      summarized prose participates as soon as the ingestion phase lands.
+ *      `nodes.description`.
  *   2. HNSW vector search over the `embeddings` table. The query text is
  *      embedded with the same F2LLM-v2-80M ONNX model the ingestion
  *      pipeline uses, so the vectors live in the same space. (Queries get
@@ -49,7 +47,7 @@ import {
   hybridSearch,
   tryOpenEmbedder,
 } from "@opencodehub/search";
-import type { IGraphStore, ITemporalStore, SymbolSummaryRow } from "@opencodehub/storage";
+import type { IGraphStore } from "@opencodehub/storage";
 import { z } from "zod";
 import { toolError, toolErrorFromUnknown } from "../error-envelope.js";
 import { withNextSteps } from "../next-step-hints.js";
@@ -158,10 +156,6 @@ interface QueryRow {
   readonly sources: readonly ("bm25" | "vector")[];
   /** Present iff `include_content: true` was requested and the file was readable. */
   readonly content?: string;
-  /** Present iff a `symbol_summaries` row exists for this node (P04). */
-  readonly summary?: string;
-  /** Compact one-line signature summary from the same row. */
-  readonly signatureSummary?: string;
 }
 
 /** Node metadata hydrated from the `nodes` table after fusion. */
@@ -201,71 +195,6 @@ interface ProcessSymbol {
   readonly kind: string;
   readonly filePath: string;
   readonly step: number;
-}
-
-/**
- * Batched summary join for the top-K ranked hits. Short-circuits to an
- * empty map when either `symbol_summaries` does not exist / is empty (the
- * `summariesJoined` probe already ran) or the input list is empty. Any
- * lookup failure is swallowed — summary enrichment is never load-bearing.
- *
- * We collapse multiple prompt-version rows per node by keeping the last
- * one in `(node_id ASC, prompt_version ASC, content_hash ASC)` order,
- * which is the storage layer's documented ordering contract — that
- * deterministically selects the newest prompt version.
- */
-async function lookupSummariesForHits(
-  temporal: ITemporalStore,
-  summariesJoined: boolean,
-  nodeIds: readonly string[],
-): Promise<Map<string, SymbolSummaryRow>> {
-  const out = new Map<string, SymbolSummaryRow>();
-  if (!summariesJoined) return out;
-  const uniqIds = Array.from(new Set(nodeIds));
-  if (uniqIds.length === 0) return out;
-  try {
-    const rows = await temporal.lookupSymbolSummariesByNode(uniqIds);
-    for (const row of rows) {
-      // Overwriting per node id keeps the newest prompt version because of
-      // the ORDER BY contract in `lookupSymbolSummariesByNode`.
-      out.set(row.nodeId, row);
-    }
-  } catch {
-    // Table missing / schema drift / I/O failure: return an empty map so
-    // the query surfaces degrade silently to "no summaries attached".
-  }
-  return out;
-}
-
-/**
- * Extensibility hook: return true iff the `symbol_summaries` table exists
- * and is non-empty. When it does, future BM25 upgrades can JOIN it into
- * the FTS corpus. Today this is informational — the SQLite FTS5 index is
- * built at ingestion time against `nodes` columns only — but the probe
- * lives here so the sibling summarizer work can light up a corpus
- * extension without re-threading the tool.
- */
-async function bm25CorpusHasSummaries(temporal: ITemporalStore): Promise<boolean> {
-  // Table-existence introspection via SQLite's `sqlite_master` catalog,
-  // routed through the temporal-tier `exec` escape hatch. (An earlier
-  // backend probed `information_schema.tables`, which node:sqlite does not
-  // expose.) A future graph-only adapter pairing with a non-SQLite
-  // temporal store can override this probe.
-  try {
-    const rows = await temporal.exec(
-      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'symbol_summaries'",
-    );
-    const first = rows[0];
-    if (!first) return false;
-    const hasTable = Number(first["n"] ?? 0) > 0;
-    if (!hasTable) return false;
-    const rows2 = await temporal.exec("SELECT COUNT(*) AS n FROM symbol_summaries");
-    const first2 = rows2[0];
-    if (!first2) return false;
-    return Number(first2["n"] ?? 0) > 0;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -632,13 +561,8 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
   const searchText = buildSearchText(args.query, args.task_context, args.goal);
   const call = await withStore(ctx, args, async (store, resolved) => {
     try {
-      const { graph, temporal } = store;
+      const { graph } = store;
       const kinds = args.kinds && args.kinds.length > 0 ? args.kinds : undefined;
-
-      // Probe for the symbol_summaries table so the value is recorded
-      // alongside `mode` (surfaces via structuredContent). This is a
-      // cheap metadata read; it runs once per query.
-      const summariesJoined = await bm25CorpusHasSummaries(temporal);
 
       let ranked: readonly {
         nodeId: string;
@@ -706,31 +630,7 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
       }
 
       const fs = fsFactory();
-      const enrichedRows = await enrichWithContext(graph, fs, resolved.repoPath, ranked);
-
-      // Join `symbol_summaries` onto each hit when P04 data is present.
-      // Single round trip for the whole top-K via `IN (...)`; missing rows
-      // simply omit `summary` / `signatureSummary`. Any lookup failure
-      // degrades silently — summaries are enrichment, not load-bearing.
-      const summaryMap = await lookupSummariesForHits(
-        temporal,
-        summariesJoined,
-        enrichedRows.map((r) => r.nodeId),
-      );
-      const baseRows: readonly QueryRow[] =
-        summaryMap.size === 0
-          ? enrichedRows
-          : enrichedRows.map((r) => {
-              const row = summaryMap.get(r.nodeId);
-              if (row === undefined) return r;
-              return {
-                ...r,
-                summary: row.summaryText,
-                ...(row.signatureSummary !== undefined
-                  ? { signatureSummary: row.signatureSummary }
-                  : {}),
-              };
-            });
+      const baseRows = await enrichWithContext(graph, fs, resolved.repoPath, ranked);
 
       // When `include_content` is requested, re-read each result's source
       // between startLine/endLine and attach a capped `content` body. This
@@ -795,7 +695,6 @@ export async function runQuery(ctx: ToolContext, args: QueryArgs): Promise<ToolR
           processes,
           process_symbols: cappedProcessSymbols,
           mode,
-          summaries_joined: summariesJoined,
         },
         next,
         staleness,

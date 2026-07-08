@@ -11,7 +11,7 @@ tiers.
 - `impact` — dependents of a target up to a configurable depth, with a risk tier.
 - `detect_changes` — map an uncommitted or committed diff to affected symbols.
 - `list_findings` — browse SARIF findings from the latest scan by severity and rule.
-- `sql` — read-only SQL against the local temporal store (cochanges + symbol_summaries), 5 s timeout; the node/edge graph is queried via the typed tools or Cypher via the MCP `sql` tool.
+- `sql` — read-only SQL against the local temporal store (cochanges), 5 s timeout; the node/edge graph is queried via the typed tools or Cypher via the MCP `sql` tool.
 
 Run `codehub analyze` after pulling new commits so the index stays aligned
 with the working tree. `codehub status` reports staleness.
@@ -84,7 +84,7 @@ provides a `code-analyst` subagent and 11 skills. Install via
 
 The entire index lives in ONE `<repo>/.codehub/store.sqlite` file (WAL),
 via Node's built-in `node:sqlite` — graph nodes, edges, embeddings, and
-the temporal tables (cochanges, symbol summaries, the
+the temporal tables (cochanges and the
 `codehub query --sql` escape hatch). One `SqliteStore` class implements
 **both** `IGraphStore` and `ITemporalStore`; `openStore()` returns that
 single instance as both the `graph` and `temporal` views, so call sites

@@ -30,7 +30,7 @@ plus SCIP indexers for TypeScript, Python, Go, Rust, and Java),
 resolves imports and inheritance, and materialises a **typed symbol
 graph**. That graph is stored in one `store.sqlite` file via Node's
 built-in `node:sqlite`, which also carries the temporal tables
-(cochanges and the symbol-summary cache). There is no backend toggle and
+(cochanges). There is no backend toggle and
 no native storage binding: ADR 0019 removed both `@ladybugdb/core` and
 `@duckdb/node-api`, so the whole index is one file. BM25 lexical search
 and filter-aware vector search sit on the same store. A local MCP

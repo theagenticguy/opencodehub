@@ -89,7 +89,7 @@ Node's built-in `node:sqlite`:
 
 | Path | Purpose |
 |---|---|
-| `store.sqlite` | The whole index (WAL mode) — symbols, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges, symbol-summary cache). |
+| `store.sqlite` | The whole index (WAL mode) — symbols, edges, embeddings, the FTS5 search index, and the temporal tables (cochanges). |
 | `store.sqlite-wal` / `store.sqlite-shm` | WAL companions present while a writer is open; collapse into `store.sqlite` at close. |
 | `meta.json` | Index metadata (graph hash, node counts, CLI version, toolchain pins, embedder modelId). |
 | `scan.sarif` | SARIF scan output when `codehub scan` has run. |
@@ -114,17 +114,12 @@ in one command:
   Silent no-op otherwise. Force with `--coverage`; force off with
   `--no-coverage`.
 
-Everything else — embeddings, summaries, skills — is opt-in.
+Everything else — embeddings, skills — is opt-in.
 
 ## Opt-in flags
 
 - `--embeddings` — compute semantic vectors for queries by meaning.
   Requires `codehub setup --embeddings` first.
-- `--summaries` / `--no-summaries` — LLM-generated symbol summaries
-  (default off — `codehub analyze` is fast, local, deterministic by
-  default; opt in with `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`).
-  When enabled, the budget is capped by `--max-summaries`, default
-  `auto` = 10% of callables, hard cap 500.
 - `--skills` — generate Claude Code skills from the graph.
 - `--strict-detectors` — fail the build if a detector (DET-O-001)
   regresses.

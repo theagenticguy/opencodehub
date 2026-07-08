@@ -43,7 +43,7 @@ tagged as `root-vN.N.N`.
 The current versioned set covers the externally-consumable surface:
 `analysis`, `cli`, `core-types`, `embedder`, `ingestion`, `mcp`,
 `sarif`, `scanners`, `search`, `storage`. Auxiliary packages
-(`scip-ingest`, `summarizer`, `frameworks`, `pack`, `policy`, `wiki`,
+(`scip-ingest`, `frameworks`, `pack`, `policy`, `wiki`,
 `cobol-proleap`, `docs`) ride along with the monorepo version but do
 not publish independent tags — they are internal-only or have no
 external contract yet. They will start versioning once a public

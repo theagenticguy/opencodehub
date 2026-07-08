@@ -54,7 +54,6 @@ export default {
         "scip-ingest",
         "search",
         "storage",
-        "summarizer",
         "wiki",
         "plugin",
         "deps",

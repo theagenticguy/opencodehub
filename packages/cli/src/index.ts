@@ -125,23 +125,6 @@ program
     "Skip the post-analyze scan step. The graph pipeline runs unchanged; `codehub verdict` / `list_findings` work against the last SARIF on disk.",
   )
   .option(
-    "--summaries",
-    "Opt into the summarize phase (structured Bedrock summaries per callable). Default OFF — `codehub analyze` is fast, local, deterministic by default. Also enabled by CODEHUB_BEDROCK_SUMMARIES=1.",
-  )
-  .option(
-    "--no-summaries",
-    "Explicitly disable the summarize phase (equivalent to CODEHUB_BEDROCK_DISABLED=1). Only meaningful when combined with CODEHUB_BEDROCK_SUMMARIES=1.",
-  )
-  .option(
-    "--max-summaries <n|auto>",
-    'Cap on Bedrock summarize calls per run. "auto" (default) scales the cap to 10% of the SCIP-confirmed callable count (max 500).',
-    "auto",
-  )
-  .option(
-    "--summary-model <id>",
-    "Override the Bedrock model id used by the summarize phase (defaults to DEFAULT_MODEL_ID).",
-  )
-  .option(
     "--skills",
     "After analyze, emit one SKILL.md per Community (symbolCount >= 5) under .codehub/skills/",
   )
@@ -155,34 +138,6 @@ program
   )
   .action(async (path: string | undefined, opts: Record<string, unknown>) => {
     const mod = await import("./commands/analyze.js");
-    // Pass the raw flag straight through to `runAnalyze`. The env
-    // kill-switch (`CODEHUB_BEDROCK_DISABLED=1`) and the env opt-in
-    // (`CODEHUB_BEDROCK_SUMMARIES=1`) are re-checked inside `runAnalyze`
-    // via `resolveSummariesEnabled` so tests that call `runAnalyze`
-    // directly honor the same truth table. Summaries are OFF by default
-    // — the fast, local, deterministic analyze path. Pass `--summaries`
-    // or set `CODEHUB_BEDROCK_SUMMARIES=1` to opt in.
-    let summaries: boolean | undefined;
-    if (opts["summaries"] === true) summaries = true;
-    else if (opts["summaries"] === false) summaries = false;
-    else summaries = undefined;
-
-    // --max-summaries accepts either a positive integer or the literal
-    // string "auto". Unknown strings fall back to "auto" so the CLI never
-    // refuses a run over flag syntax.
-    const rawMax = opts["maxSummaries"];
-    let maxSummariesPerRun: number | "auto";
-    if (rawMax === "auto" || rawMax === undefined) {
-      maxSummariesPerRun = "auto";
-    } else if (typeof rawMax === "number" && Number.isFinite(rawMax)) {
-      maxSummariesPerRun = Math.max(0, Math.floor(rawMax));
-    } else if (typeof rawMax === "string") {
-      const parsed = Number.parseInt(rawMax, 10);
-      maxSummariesPerRun = Number.isFinite(parsed) ? Math.max(0, parsed) : "auto";
-    } else {
-      maxSummariesPerRun = "auto";
-    }
-
     const granularity = parseGranularityCsv(opts["granularity"]);
     const allowBuildScripts = parseAllowBuildScripts(opts["allowBuildScripts"]);
     // When --embeddings is on and the user didn't pick a worker count, default
@@ -217,9 +172,6 @@ program
       ...(opts["coverage"] === true ? { coverage: true as const } : {}),
       ...(opts["scan"] === false ? { scan: false as const } : {}),
       ...(opts["scan"] === true ? { scan: true as const } : {}),
-      ...(summaries !== undefined ? { summaries } : {}),
-      maxSummariesPerRun,
-      ...(typeof opts["summaryModel"] === "string" ? { summaryModel: opts["summaryModel"] } : {}),
       skills: opts["skills"] === true,
       strictDetectors: opts["strictDetectors"] === true,
       ...(allowBuildScripts !== undefined ? { allowBuildScripts } : {}),
@@ -913,40 +865,22 @@ program
 
 program
   .command("wiki")
-  .description(
-    "Emit a Markdown wiki under --output (deterministic by default; --llm for LLM prose)",
-  )
+  .description("Emit a deterministic Markdown wiki under --output")
   .requiredOption("--output <dir>", "Target directory for rendered pages")
   .option("--repo <name>", "Registered repo name (default: current directory)")
   .option("--json", "Emit a JSON summary on stdout")
-  .option("--offline", "Assert no network access (incompatible with --llm)")
-  .option("--llm", "Route top-ranked modules through @opencodehub/summarizer for narrative prose")
-  .option(
-    "--max-llm-calls <n>",
-    "Cap on Bedrock summarizer calls when --llm is set. 0 (default) runs in dry-run mode",
-    (v) => Number.parseInt(v, 10),
-    0,
-  )
-  .option("--llm-model <id>", "Override the Bedrock model id passed to the summarizer")
+  .option("--offline", "Assert no network access")
   .action(async (opts: Record<string, unknown>) => {
     const mod = await import("./commands/wiki.js");
     const output = typeof opts["output"] === "string" ? opts["output"] : "";
     if (output.length === 0) {
       throw new Error("--output <dir> is required");
     }
-    const maxLlmCallsRaw = opts["maxLlmCalls"];
-    const maxLlmCalls =
-      typeof maxLlmCallsRaw === "number" && Number.isFinite(maxLlmCallsRaw)
-        ? Math.max(0, Math.floor(maxLlmCallsRaw))
-        : 0;
     await mod.runWiki({
       output,
       ...(typeof opts["repo"] === "string" ? { repo: opts["repo"] } : {}),
       json: opts["json"] === true,
       offline: opts["offline"] === true,
-      llm: opts["llm"] === true,
-      maxLlmCalls,
-      ...(typeof opts["llmModel"] === "string" ? { llmModel: opts["llmModel"] } : {}),
     });
   });
 
@@ -993,7 +927,7 @@ program
 program
   .command("sql <query>")
   .description(
-    "Run a read-only SQL query against the temporal store (cochanges + symbol_summaries); the node/edge graph is queried via the typed tools or Cypher",
+    "Run a read-only SQL query against the temporal store (cochanges); the node/edge graph is queried via the typed tools or Cypher",
   )
   .option("--repo <name>", "Registered repo name (default: current directory)")
   .option("--timeout <ms>", "Per-query timeout in ms", (v) => Number.parseInt(v, 10), 5_000)

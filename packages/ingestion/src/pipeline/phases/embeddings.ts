@@ -4,10 +4,8 @@
  * array of `EmbeddingRow`s the CLI upserts into the SQLite store.
  *
  * Granularity tiers (P03):
- *   - `"symbol"` — one vector per callable/declaration symbol. When a
- *     `SymbolSummaryRow` exists for the node the text is fused
- *     `signature\nsummary\nbody`; otherwise we fall back to the raw
- *     signature/description pair.
+ *   - `"symbol"` — one vector per callable/declaration symbol. The text is
+ *     the raw `signature\ndescription` pair.
  *   - `"file"` — one vector per scanned file. Coarse tier used by the
  *     `--zoom` retrieval path. Files larger than ~8192 tokens are
  *     truncated to the first `N` chars so a single outlier never blows
@@ -46,9 +44,9 @@ import type { EmbeddingGranularity, EmbeddingRow } from "@opencodehub/storage";
 import type { PipelineContext, PipelinePhase } from "../types.js";
 import { ANNOTATE_PHASE_NAME } from "./annotate.js";
 import { COMMUNITIES_PHASE_NAME } from "./communities.js";
+import { CONFIDENCE_DEMOTE_PHASE_NAME } from "./confidence-demote.js";
 import { openOnnxEmbedderPool } from "./embedder-pool.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./scan.js";
-import { SUMMARIZE_PHASE_NAME, type SummarizePhaseOutput } from "./summarize.js";
 
 /**
  * Default batch size for cross-node inference. Picked so a single batch
@@ -127,14 +125,6 @@ const EMBEDDABLE_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Max body chars to fuse into a summary-fused symbol embedding. Keeps the
- * fused text well under the embedder's ~500-token window even after
- * signature + summary join. The chunker downstream still wraps any
- * overflow, so this cap is a belt-and-braces guard.
- */
-const SYMBOL_BODY_CHAR_CAP = 1200;
-
-/**
  * File-level truncation cap. 8192 tokens × ~4 chars/token on code
  * (conservative WordPiece approximation) ≈ 32_768 chars. Rarely hit in
  * practice because most source files are well under this size; outliers
@@ -209,13 +199,6 @@ export interface EmbedderPhaseOutput {
    */
   readonly byGranularity: Readonly<Record<EmbeddingGranularity, number>>;
   /**
-   * Whether the symbol tier fused `signature + summary + body` for at
-   * least one row. Diagnostic flag consumers can surface — summaries
-   * drive the biggest quality lift, so CLI output calls it out when it
-   * actually kicked in.
-   */
-  readonly summaryFused: boolean;
-  /**
    * Chunks short-circuited by the content-hash skip. Counts
    * chunks whose `(granularity, node_id, chunk_index)` had a prior row
    * with identical `content_hash` in the store — so the phase neither
@@ -235,44 +218,21 @@ function emptyOutput(): EmbedderPhaseOutput {
     rows: [],
     ranEmbedder: false,
     byGranularity: { symbol: 0, file: 0, community: 0 },
-    summaryFused: false,
     chunksSkipped: 0,
   };
 }
 
 /**
- * Fuse text for the symbol tier. When a summary is present the layout is
- * `signature\nsummary\nbody`; otherwise we fall back to
- * `signature\ndescription`. Body is length-capped so a long function's
- * source never overwhelms the 500-token embedder window even before the
- * chunker runs.
+ * Fuse text for the symbol tier: `signature\ndescription` (falling back to
+ * the symbol name when no signature is present).
  */
-function symbolText(
-  node: {
-    readonly name: string;
-    readonly signature?: string;
-    readonly description?: string;
-  },
-  summary: { readonly summaryText: string; readonly signatureSummary?: string } | undefined,
-  body: string | undefined,
-): string {
+function symbolText(node: {
+  readonly name: string;
+  readonly signature?: string;
+  readonly description?: string;
+}): string {
   const head =
     node.signature !== undefined && node.signature.length > 0 ? node.signature : node.name;
-  if (summary !== undefined) {
-    const sigLine =
-      summary.signatureSummary !== undefined && summary.signatureSummary.length > 0
-        ? summary.signatureSummary
-        : head;
-    const bodyPiece =
-      body !== undefined && body.length > 0
-        ? body.length > SYMBOL_BODY_CHAR_CAP
-          ? body.slice(0, SYMBOL_BODY_CHAR_CAP)
-          : body
-        : "";
-    const parts: string[] = [sigLine, summary.summaryText];
-    if (bodyPiece.length > 0) parts.push(bodyPiece);
-    return parts.join("\n");
-  }
   const tail = node.description ?? "";
   return tail.length > 0 ? `${head}\n${tail}` : head;
 }
@@ -450,25 +410,6 @@ function normalizeGranularities(
  * file condition. Tests patch readFileSync via module state; the fallback
  * is `fs.readFileSync`.
  */
-function readSourceSpan(
-  repoPath: string,
-  filePath: string,
-  startLine: number,
-  endLine: number,
-): string | undefined {
-  try {
-    const abs = path.isAbsolute(filePath) ? filePath : path.join(repoPath, filePath);
-    const all = readFileSync(abs, "utf-8");
-    const lines = all.split(/\r?\n/);
-    const from = Math.max(0, startLine - 1);
-    const to = Math.min(lines.length, endLine);
-    if (to <= from) return undefined;
-    return lines.slice(from, to).join("\n");
-  } catch {
-    return undefined;
-  }
-}
-
 function readFileWhole(repoPath: string, relPath: string): string | undefined {
   try {
     const abs = path.isAbsolute(relPath) ? relPath : path.join(repoPath, relPath);
@@ -559,7 +500,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
     let skipped = 0;
     let chunksTotal = 0;
     let chunksSkipped = 0;
-    let summaryFused = false;
     const byGranularity: Record<EmbeddingGranularity, number> = {
       symbol: 0,
       file: 0,
@@ -584,27 +524,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
     // chunks keep last-token-pooled vectors focused on a single unit of
     // meaning; 500 mirrors the long-standing chunking granularity.
     const maxUserTokens = 500;
-
-    // Lookup summaries by nodeId (the newest `createdAt` wins when multiple
-    // prompt versions coexist). Summaries live in the `summarize` phase's
-    // output; absent phase / disabled flag → empty map, which simply means
-    // raw-body fallback.
-    const summarizeOut = ctx.phaseOutputs.get(SUMMARIZE_PHASE_NAME) as
-      | SummarizePhaseOutput
-      | undefined;
-    const summaryByNode = new Map<
-      string,
-      { readonly summaryText: string; readonly signatureSummary?: string }
-    >();
-    if (summarizeOut !== undefined && summarizeOut.rows.length > 0) {
-      for (const s of summarizeOut.rows) {
-        const entry: { summaryText: string; signatureSummary?: string } = {
-          summaryText: s.summaryText,
-        };
-        if (s.signatureSummary !== undefined) entry.signatureSummary = s.signatureSummary;
-        summaryByNode.set(s.nodeId, entry);
-      }
-    }
 
     // Job-collection phase. Walk all requested tiers in canonical order
     // (symbol → file → community) and accumulate one `EmbedJob` per chunk
@@ -631,22 +550,11 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       eligible.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
       for (const node of eligible) {
-        const summary = summaryByNode.get(node.id);
-        let body: string | undefined;
-        if (
-          summary !== undefined &&
-          node.startLine !== undefined &&
-          node.endLine !== undefined &&
-          node.filePath.length > 0
-        ) {
-          body = readSourceSpan(ctx.repoPath, node.filePath, node.startLine, node.endLine);
-        }
-        const text = symbolText(node, summary, body);
+        const text = symbolText(node);
         if (text.length === 0) {
           skipped += 1;
           continue;
         }
-        if (summary !== undefined) summaryFused = true;
         const chunks = splitIntoChunks(text, maxUserTokens);
         if (chunks.length === 0) {
           skipped += 1;
@@ -857,7 +765,6 @@ async function runEmbeddings(ctx: PipelineContext): Promise<EmbedderPhaseOutput>
       rows,
       ranEmbedder: true,
       byGranularity,
-      summaryFused,
       chunksSkipped,
     };
   } finally {
@@ -871,7 +778,12 @@ export const embeddingsPhase: PipelinePhase<EmbedderPhaseOutput> = {
   // `communities` so the community tier sees the emitted Community nodes
   // and MEMBER_OF edges; depend on `scan` transitively via `annotate`
   // (annotate → structure → scan) for the file tier.
-  deps: [ANNOTATE_PHASE_NAME, SUMMARIZE_PHASE_NAME, COMMUNITIES_PHASE_NAME],
+  // Depend on confidence-demote (in addition to annotate + communities) so
+  // embeddings runs after SCIP reconciliation has finalised edge provenance —
+  // it must observe the final graph. This dep formerly arrived transitively
+  // via the summarize phase (now removed); pinning it directly preserves the
+  // canonical phase ordering (embeddings last).
+  deps: [ANNOTATE_PHASE_NAME, COMMUNITIES_PHASE_NAME, CONFIDENCE_DEMOTE_PHASE_NAME],
   async run(ctx): Promise<EmbedderPhaseOutput> {
     return runEmbeddings(ctx);
   },

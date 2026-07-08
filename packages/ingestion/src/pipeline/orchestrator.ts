@@ -24,12 +24,6 @@ import {
 } from "./phases/incremental-scope.js";
 import { PARSE_PHASE_NAME, type ParseOutput } from "./phases/parse.js";
 import { SCAN_PHASE_NAME, type ScanOutput } from "./phases/scan.js";
-import {
-  SUMMARIZE_PHASE_NAME,
-  SUMMARY_CACHE_OPTIONS_KEY,
-  type SummarizePhaseOutput,
-  type SummaryCacheAdapter,
-} from "./phases/summarize.js";
 import { runPipeline } from "./runner.js";
 import type {
   PhaseResult,
@@ -90,13 +84,6 @@ export interface RunPipelineResult {
    */
   readonly cochange?: CochangeOutput;
   /**
-   * Output of the `summarize` phase. Carries any fresh `SymbolSummaryRow`
-   * entries the CLI persists into the `symbol_summaries` table. Absent only
-   * when a custom phase set omits summarize; the default phase set always
-   * runs it (the phase internally short-circuits when gated off).
-   */
-  readonly summarize?: SummarizePhaseOutput;
-  /**
    * Set when the parse phase routed a non-trivial number of files to
    * tree-sitter grammars but extracted ZERO code symbols — the signature of a
    * globally-broken parser (e.g. a WASM grammar/resolver regression) that would
@@ -132,15 +119,6 @@ export interface RunIngestionOptions extends PipelineOptions {
   readonly phases?: readonly PipelinePhase[];
   readonly onProgress?: (ev: ProgressEvent) => void;
   /**
-   * Optional adapter the summarize phase probes before issuing work.
-   * Production wires this to the SQLite store's `lookupSymbolSummary`
-   * implementation so re-indexes become free when source hasn't drifted.
-   * Tests inject an in-memory fake. Absent by default — the phase degrades
-   * to "every candidate is a miss" which is still correct, just more
-   * expensive.
-   */
-  readonly summaryCacheAdapter?: SummaryCacheAdapter;
-  /**
    * Optional adapter the embeddings phase probes before issuing embedder
    * calls. Production wires this to the SQLite store's
    * `listEmbeddingHashes` implementation so re-analyze runs skip chunks
@@ -161,18 +139,10 @@ export async function runIngestion(
 ): Promise<RunPipelineResult> {
   const phases = options.phases ?? DEFAULT_PHASES;
   const normalizedOptions: PipelineOptions = stripPhaseKeys(options);
-  // Attach the optional summary-cache adapter onto the options bag via a
-  // well-known key. The `summarize` phase reads it back via an unchecked
-  // cast; keeping the attach-point here (rather than inside stripPhaseKeys)
-  // keeps the typed fields in stripPhaseKeys honest.
-  if (options.summaryCacheAdapter !== undefined) {
-    (normalizedOptions as unknown as Record<string, unknown>)[SUMMARY_CACHE_OPTIONS_KEY] =
-      options.summaryCacheAdapter;
-  }
-  // Same trick for the embeddings phase's content-hash cache.
-  // Attached here (not in stripPhaseKeys) so the typed option shape stays
-  // minimal — this is a well-known extension point, not a first-class
-  // `PipelineOptions` field.
+  // Attach the embeddings phase's content-hash cache adapter onto the
+  // options bag via a well-known key. Attached here (not in stripPhaseKeys)
+  // so the typed option shape stays minimal: this is a well-known extension
+  // point, not a first-class `PipelineOptions` field.
   if (options.embeddingHashCacheAdapter !== undefined) {
     (normalizedOptions as unknown as Record<string, unknown>)[EMBEDDING_HASH_CACHE_OPTIONS_KEY] =
       options.embeddingHashCacheAdapter;
@@ -223,9 +193,6 @@ export async function runIngestion(
   const scan = results.find((r) => r.name === SCAN_PHASE_NAME)?.output as ScanOutput | undefined;
   const cochange = results.find((r) => r.name === COCHANGE_PHASE_NAME)?.output as
     | CochangeOutput
-    | undefined;
-  const summarize = results.find((r) => r.name === SUMMARIZE_PHASE_NAME)?.output as
-    | SummarizePhaseOutput
     | undefined;
 
   const parseCache =
@@ -299,7 +266,6 @@ export async function runIngestion(
     ...(incrementalScope !== undefined ? { incrementalScope } : {}),
     ...(scan !== undefined ? { scan } : {}),
     ...(cochange !== undefined ? { cochange } : {}),
-    ...(summarize !== undefined ? { summarize } : {}),
     ...(zeroSymbolGuardTripped ? { zeroSymbolGuardTripped: true } : {}),
   };
 }
@@ -318,7 +284,6 @@ function stripPhaseKeys(options: RunIngestionOptions): PipelineOptions {
   const {
     phases: _phases,
     onProgress: _onProgress,
-    summaryCacheAdapter: _summaryCacheAdapter,
     embeddingHashCacheAdapter: _embeddingHashCacheAdapter,
     ...pipelineOptions
   } = options;

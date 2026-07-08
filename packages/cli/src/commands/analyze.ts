@@ -105,32 +105,6 @@ export interface AnalyzeOptions {
    */
   readonly scan?: boolean;
   /**
-   * Opt into the `summarize` phase — walks LSP-confirmed callable symbols
-   * and invokes Bedrock to generate structured summaries within the
-   * resolved cost cap. **Off by default**: a bare `codehub analyze` is
-   * fast, local, deterministic, and never spends on LLM calls. Enable
-   * per-invocation with `true` (CLI: `--summaries`) or environment-wide
-   * with `CODEHUB_BEDROCK_SUMMARIES=1`. `CODEHUB_BEDROCK_DISABLED=1`
-   * force-disables regardless of flag state.
-   */
-  readonly summaries?: boolean;
-  /**
-   * Upper bound on Bedrock calls per run. Accepts either a non-negative
-   * integer or the literal string `"auto"`. Default `"auto"` resolves to
-   * `min(floor(scipConfirmedCallableCount × 0.1), 500)` at run time, using
-   * a prior-run heuristic seeded from `store_meta.stats["embeddingsCount"]`
-   * when available and falling back to 50 on first run. Any positive
-   * integer caps the batch size at that value; `0` runs the phase in
-   * dry-run mode.
-   */
-  readonly maxSummariesPerRun?: number | "auto";
-  /**
-   * Override the Bedrock model id used by the summarize phase. When
-   * undefined, the phase uses `DEFAULT_MODEL_ID` from
-   * `@opencodehub/summarizer`.
-   */
-  readonly summaryModel?: string;
-  /**
    * When true, walk Communities with `symbolCount >= 5` after analyze
    * completes and emit one `SKILL.md` per cluster under
    * `<repo>/.codehub/skills/<slug>/`. Off by default — operators opt in.
@@ -218,14 +192,6 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   // reports mode="full" with reason="no-prior-graph".
   const incrementalFrom = opts.force === true ? undefined : await loadPreviousGraph(repoPath);
 
-  // Resolve the effective `summaries` flag. Summaries are opt-in: a bare
-  // `codehub analyze` runs the fast, local, deterministic pipeline
-  // (tree-sitter + SCIP + cochanges) and skips the Bedrock summarize phase
-  // entirely. Opt in via `--summaries` or `CODEHUB_BEDROCK_SUMMARIES=1`.
-  // The `CODEHUB_BEDROCK_DISABLED=1` env kill-switch forces off regardless
-  // of the flag; `offline` is enforced later inside the phase itself.
-  const summariesEnabled = resolveSummariesEnabled(opts.summaries, process.env);
-
   // Resolve sbom/coverage/scan defaults. SBOM and scan default ON (cheap,
   // local, and they feed the MCP surface agents actually use). Coverage
   // auto-detects: probe the known report paths and only enable the phase
@@ -235,17 +201,7 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   const scanEnabled = resolveScanEnabled(opts.scan);
   const coverageResolved = await resolveCoverageEnabled(opts.coverage, repoPath);
 
-  // Open a read-only store upfront so the `summarize` phase can probe the
-  // prior summary rows before work is queued AND so we can inspect the
-  // prior run's `storeMeta.stats` to resolve `--max-summaries auto`. We
-  // keep the handle open for the duration of `runIngestion` and close it
-  // in a finally block. `summaries` must be enabled for the adapter to
-  // matter; skip the cost of a read-only open when the flag is off.
-  const summaryCacheAdapter = summariesEnabled
-    ? await openSummaryCacheAdapter(repoPath)
-    : undefined;
-
-  // Mirror the same pattern for the embeddings phase's content-hash skip.
+  // Open a read-only store for the embeddings phase's content-hash skip.
   // Only open when `--embeddings` is on AND `--force` is off — force
   // re-embeds everything, so the adapter would do no useful work. When the
   // prior DB is absent the adapter returns undefined and the phase
@@ -266,18 +222,6 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       ? await openEmbeddingHashCacheAdapter(repoPath, activeEmbedderModelId)
       : undefined;
 
-  // Resolve `--max-summaries auto` against the prior run's callable count,
-  // if any. `auto` bounds the cap at 10% of the SCIP-confirmed callable
-  // symbols (capped at 500); on a cold first run the prior meta is absent
-  // and we fall back to a conservative 50. `0` and positive integers pass
-  // through unchanged. Unknown inputs (string without the "auto" literal)
-  // are treated as "auto" for forward compatibility.
-  const resolvedMaxSummaries = await resolveMaxSummariesCap(
-    repoPath,
-    opts.maxSummariesPerRun,
-    summariesEnabled,
-  );
-
   const pipelineOptions: Parameters<typeof pipeline.runIngestion>[1] = {
     ...(opts.force !== undefined ? { force: opts.force } : {}),
     ...(opts.offline !== undefined ? { offline: opts.offline } : {}),
@@ -296,14 +240,8 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
       : {}),
     sbom: sbomEnabled,
     ...(coverageResolved !== undefined ? { coverage: coverageResolved } : {}),
-    summaries: summariesEnabled,
-    maxSummariesPerRun: resolvedMaxSummaries,
-    ...(opts.summaryModel !== undefined ? { summaryModel: opts.summaryModel } : {}),
     ...(opts.strictDetectors !== undefined ? { strictDetectors: opts.strictDetectors } : {}),
     ...(opts.allowBuildScripts !== undefined ? { allowBuildScripts: opts.allowBuildScripts } : {}),
-    ...(summaryCacheAdapter !== undefined
-      ? { summaryCacheAdapter: summaryCacheAdapter.adapter }
-      : {}),
     ...(embeddingHashAdapter !== undefined
       ? { embeddingHashCacheAdapter: embeddingHashAdapter.adapter }
       : {}),
@@ -318,7 +256,6 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   try {
     result = await pipeline.runIngestion(repoPath, pipelineOptions);
   } finally {
-    await summaryCacheAdapter?.close();
     await embeddingHashAdapter?.close();
   }
 
@@ -336,8 +273,8 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
   }
 
   // Persist to the composed graph + temporal store. Post-ADR 0019 both views
-  // are one `store.sqlite`; the temporal-tier writes (`bulkLoadCochanges`,
-  // `bulkLoadSymbolSummaries`) still route through `store.temporal`.
+  // are one `store.sqlite`; the temporal-tier write (`bulkLoadCochanges`)
+  // still routes through `store.temporal`.
   await mkdir(resolveRepoMetaDir(repoPath), { recursive: true });
   const dbPath = resolveGraphPath(repoPath);
   const store: Store = await openStore({ path: dbPath });
@@ -354,30 +291,6 @@ export async function runAnalyze(path: string, opts: AnalyzeOptions = {}): Promi
     // cheap DELETE.
     if (result.cochange !== undefined) {
       await store.temporal.bulkLoadCochanges(result.cochange.rows);
-    }
-    // Persist freshly produced summary rows. The phase returns an empty
-    // `rows` array in the common gated-off / dry-run case so this is a
-    // cheap no-op. A non-empty payload means the operator explicitly ran
-    // with `--summaries --max-summaries > 0` and accepted the Bedrock
-    // cost; we persist under the temporal-tier surface.
-    if (result.summarize !== undefined && result.summarize.rows.length > 0) {
-      await store.temporal.bulkLoadSymbolSummaries(result.summarize.rows);
-      log(
-        `codehub analyze: persisted ${result.summarize.rows.length} symbol summaries ` +
-          `(promptVersion=${result.summarize.promptVersion})`,
-      );
-    }
-    // Surface the summarize-phase counters whenever the flag was enabled —
-    // even in dry-run (maxSummaries=0) mode — so operators can inspect how
-    // many symbols WOULD have been summarized before unlocking Bedrock.
-    if (summariesEnabled && result.summarize !== undefined) {
-      const s = result.summarize;
-      log(
-        `codehub analyze: summarize — considered=${s.considered}, ` +
-          `skippedUnconfirmed=${s.skippedUnconfirmed}, cacheHits=${s.cacheHits}, ` +
-          `summarized=${s.summarized}, wouldHaveSummarized=${s.wouldHaveSummarized}, ` +
-          `failed=${s.failed} [promptVersion=${s.promptVersion}]`,
-      );
     }
     // Persist embeddings emitted by the `embeddings` phase (if any). The
     // phase returns an empty `rows` array when `opts.embeddings` is false
@@ -666,35 +579,6 @@ export async function loadPreviousGraph(
 }
 
 /**
- * Resolve the effective `summaries` flag, honoring the
- * `CODEHUB_BEDROCK_DISABLED=1` env kill-switch.
- *
- * `codehub analyze` is a fast, local, deterministic index by default —
- * tree-sitter + SCIP + cochanges + graph phases only. The Bedrock-backed
- * summarize phase is opt-in via `--summaries` (or `CODEHUB_BEDROCK_SUMMARIES=1`)
- * so a fresh `codehub analyze` never spends on LLM calls, blocks on a
- * network hop, or needs AWS creds.
- *
- * Truth table:
- *   - env kill-switch set (any flag state) → false (kill-switch wins)
- *   - env opt-in set + flag undefined      → true  (env opts in)
- *   - flag true                            → true  (explicit --summaries)
- *   - flag false                           → false (explicit --no-summaries)
- *   - flag undefined + no env              → false (default off — fast path)
- *
- * Exported for unit tests; the production call site reads `process.env`.
- */
-export function resolveSummariesEnabled(
-  flag: boolean | undefined,
-  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
-): boolean {
-  if (env["CODEHUB_BEDROCK_DISABLED"] === "1") return false;
-  if (flag === true) return true;
-  if (flag === false) return false;
-  return env["CODEHUB_BEDROCK_SUMMARIES"] === "1";
-}
-
-/**
  * Resolve the effective `sbom` flag. Default ON — serializing Dependency
  * nodes to CycloneDX + SPDX is cheap, local, and every supply-chain audit
  * wants it. Pass `false` to suppress.
@@ -830,114 +714,6 @@ export async function resolveCoverageEnabled(
   if (flag === false) return false;
   const detected = await detectCoverageReport(repoPath);
   return detected !== undefined ? true : undefined;
-}
-
-/**
- * Resolve `--max-summaries auto` / explicit numeric caps into a concrete
- * numeric budget the pipeline can consume.
- *
- * Pre-run heuristic (P04): `auto` bounds the cap at
- * `min(floor(scipConfirmedCallableCount × 0.1), 500)`. We cannot cheaply
- * compute that before the pipeline runs (LSP phases haven't yielded
- * yet), so we use the prior run's stored counts when available:
- *
- *   - If a SQLite store is readable at the expected path, count nodes
- *     whose kind is Function/Method/Class. That count is the best proxy
- *     for "SCIP-confirmed callables" we can get before the parse phase.
- *   - If no prior store exists (fresh clone, first analyze), fall back
- *     to a conservative first-run cap of 50. The next invocation has
- *     the prior counts and can resolve `auto` accurately.
- *
- * Explicit numeric caps pass through unchanged; negative values clamp to
- * 0 (dry-run). When summaries are disabled we short-circuit to 0 so the
- * phase's cost-cap branch is hit regardless.
- *
- * Exported for unit tests; the production call site passes
- * `countPriorCallableSymbols` for the seed lookup.
- */
-export async function resolveMaxSummariesCap(
-  repoPath: string,
-  raw: number | "auto" | undefined,
-  summariesEnabled: boolean,
-  seedLookup: (repoPath: string) => Promise<number | undefined> = countPriorCallableSymbols,
-): Promise<number> {
-  if (!summariesEnabled) return 0;
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return Math.max(0, Math.floor(raw));
-  }
-  // Default or explicit "auto" — consult prior graph counts.
-  const seed = await seedLookup(repoPath);
-  if (seed === undefined) {
-    // First run: give Bedrock a bounded foothold so the operator sees
-    // the feature light up without the phase sitting idle in dry-run.
-    return 50;
-  }
-  return Math.min(Math.floor(seed * 0.1), 500);
-}
-
-/**
- * Count callable symbols (Function / Method / Class) recorded by the
- * prior run. Returns `undefined` when no prior SQLite index exists or
- * the count query fails — callers treat that as "no prior run" and fall
- * back to the first-run heuristic.
- */
-async function countPriorCallableSymbols(repoPath: string): Promise<number | undefined> {
-  const dbPath = resolveGraphPath(repoPath);
-  const store = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
-  if (store === undefined) return undefined;
-  try {
-    await store.graph.open();
-  } catch {
-    await store.close().catch(() => {});
-    return undefined;
-  }
-  try {
-    // `countNodesByKind` is the typed equivalent of `SELECT COUNT(*)
-    // GROUP BY kind`. We sum the three callable kinds in TS so cli stays
-    // off the raw-SQL surface.
-    const counts = await store.graph.countNodesByKind(["Function", "Method", "Class"]);
-    let n = 0;
-    for (const c of counts.values()) n += c;
-    return Number.isFinite(n) && n >= 0 ? n : undefined;
-  } catch {
-    return undefined;
-  } finally {
-    await store.close();
-  }
-}
-
-/**
- * Open a read-only SQLite store scoped to the `symbol_summaries` cache
- * probe. The returned object carries a cache adapter the `summarize`
- * phase uses to short-circuit candidates whose content hash already has
- * a row on disk, plus a `close()` the caller invokes to release the
- * native handle. Returns `undefined` when the store cannot be opened —
- * the phase degrades gracefully to "every candidate is a miss".
- */
-async function openSummaryCacheAdapter(
-  repoPath: string,
-): Promise<{ adapter: pipeline.SummaryCacheAdapter; close: () => Promise<void> } | undefined> {
-  const dbPath = resolveGraphPath(repoPath);
-  const store = await openStore({ path: dbPath, readOnly: true }).catch(() => undefined);
-  if (store === undefined) return undefined;
-  try {
-    // The summary cache lives on the temporal tier. Open both views so
-    // the close() symmetry holds.
-    await store.graph.open();
-    await store.temporal.open();
-  } catch {
-    await store.close().catch(() => {});
-    return undefined;
-  }
-  return {
-    adapter: {
-      lookup: async (nodeId, contentHash, promptVersion) =>
-        store.temporal.lookupSymbolSummary(nodeId, contentHash, promptVersion),
-    },
-    close: async () => {
-      await store.close();
-    },
-  };
 }
 
 /**

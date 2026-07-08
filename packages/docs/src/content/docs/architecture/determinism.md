@@ -46,8 +46,8 @@ inode ordering — must not influence the hash. The ingestion phases
 are pure: inputs in, relations out, no ambient state.
 
 The `graphHash` invariant covers the graph nodes and edges in
-`store.sqlite`; the temporal signals in the same file (cochanges,
-symbol summaries) are statistical and never enter the hash. A parity
+`store.sqlite`; the statistical signals in the same file (cochanges,
+embeddings) never enter the hash. A parity
 gate in CI asserts the invariant on every PR that touches the storage
 layer.
 
@@ -86,7 +86,7 @@ incremental byte-identical" invariant called out in ADR 0002.
 `codehub analyze --offline` is a separate but related guarantee:
 **zero sockets opened** during the run. The flag disables every
 non-filesystem I/O path in the pipeline (no SCIP indexer downloads,
-no remote embedder, no Bedrock summarize calls).
+no remote embedder calls).
 
 "Zero sockets" is the literal, measurable claim. It is testable by
 running under `strace -e connect` or the equivalent on macOS

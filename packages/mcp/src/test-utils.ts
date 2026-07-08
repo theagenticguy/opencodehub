@@ -203,10 +203,7 @@ export type StoreOverrides = Partial<{
     // ITemporalStore surfaces tests sometimes use directly via `store.temporal`.
     lookupCochangesForFile: ITemporalStore["lookupCochangesForFile"];
     lookupCochangesBetween: ITemporalStore["lookupCochangesBetween"];
-    lookupSymbolSummary: ITemporalStore["lookupSymbolSummary"];
-    lookupSymbolSummariesByNode: ITemporalStore["lookupSymbolSummariesByNode"];
     bulkLoadCochanges: ITemporalStore["bulkLoadCochanges"];
-    bulkLoadSymbolSummaries: ITemporalStore["bulkLoadSymbolSummaries"];
     exec: ITemporalStore["exec"];
     // Optional escape hatch — reserved for a community graph adapter.
     execCypher: NonNullable<IGraphStore["execCypher"]>;
@@ -597,9 +594,6 @@ export function makeFakeGraphStore(
     bulkLoadCochanges: async (_rows: readonly unknown[]): Promise<void> => {},
     lookupCochangesForFile: async () => [],
     lookupCochangesBetween: async () => undefined,
-    bulkLoadSymbolSummaries: async (_rows: readonly unknown[]): Promise<void> => {},
-    lookupSymbolSummary: async () => undefined,
-    lookupSymbolSummariesByNode: async () => [],
     exec: async () => [],
   };
 

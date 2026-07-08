@@ -69,7 +69,6 @@ describe("runIngestion (end-to-end)", () => {
         "risk-snapshot",
         "scip-index",
         "confidence-demote",
-        "summarize",
         "embeddings",
       ],
     );
@@ -130,9 +129,6 @@ describe("runIngestion option normalization", () => {
       sbom: true,
       reproducibleSbom: false,
       coverage: true,
-      summaries: true,
-      maxSummariesPerRun: 7,
-      summaryModel: "model-x",
       strictDetectors: true,
       allowBuildScripts: ["proleap"],
     };
@@ -174,7 +170,6 @@ describe("runIngestion option normalization", () => {
       skipGit: true,
       phases: [probe],
       onProgress: () => {},
-      summaryCacheAdapter: { lookup: () => Promise.resolve(undefined) },
       embeddingHashCacheAdapter: { list: () => Promise.resolve(new Map()) },
     });
 

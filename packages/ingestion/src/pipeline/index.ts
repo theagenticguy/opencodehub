@@ -91,17 +91,6 @@ export { SCAN_PHASE_NAME, scanPhase } from "./phases/scan.js";
 export type { StructureOutput } from "./phases/structure.js";
 export { STRUCTURE_PHASE_NAME, structurePhase } from "./phases/structure.js";
 export type {
-  SummarizePhaseOutput,
-  SummarizerAdapter,
-  SummaryCacheAdapter,
-} from "./phases/summarize.js";
-export {
-  __setSummarizePhaseTestHooks__,
-  SUMMARIZE_PHASE_NAME,
-  SUMMARY_CACHE_OPTIONS_KEY,
-  summarizePhase,
-} from "./phases/summarize.js";
-export type {
   TemporalCommitManifest,
   TemporalOptions,
   TemporalOutput,

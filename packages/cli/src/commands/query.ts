@@ -41,13 +41,11 @@ import {
   type SymbolHit,
   tryOpenEmbedder,
 } from "@opencodehub/search";
-import type { Store, SymbolSummaryRow } from "@opencodehub/storage";
+import type { Store } from "@opencodehub/storage";
 import { type OpenStoreResult, openStoreForCommand } from "./open-store.js";
 
 /** Per-symbol cap for `--content`. Matches the MCP `query` tool contract. */
 const INCLUDE_CONTENT_CHAR_CAP = 2000;
-/** Truncation cap for the text-mode SUMMARY column. Matches the MCP snippet cap. */
-const SUMMARY_COLUMN_CHAR_CAP = 120;
 
 /**
  * Hook for tests to inject a pre-built store without touching SQLite. The
@@ -118,10 +116,6 @@ interface QueryRow {
   readonly score: number;
   readonly sources: readonly ("bm25" | "vector")[];
   readonly content?: string;
-  /** Present iff a `symbol_summaries` row exists for this node (P04). */
-  readonly summary?: string;
-  /** Compact one-line signature summary from the same row. */
-  readonly signatureSummary?: string;
 }
 
 export async function runQuery(
@@ -205,29 +199,6 @@ export async function runQuery(
       mode = "bm25";
     }
 
-    // Merge P04 summary-hydration onto the P02 hybrid/BM25 rows. Single
-    // round trip via the temporal-tier `lookupSymbolSummariesByNode`
-    // finder; missing table / missing rows / lookup failures all degrade
-    // silently — summaries are enrichment, not load-bearing.
-    const summaryMap = await joinSummaries(
-      store,
-      ranked.map((r) => r.nodeId),
-    );
-    const rows: readonly QueryRow[] =
-      summaryMap.size === 0
-        ? ranked
-        : ranked.map((r) => {
-            const row = summaryMap.get(r.nodeId);
-            if (row === undefined) return r;
-            return {
-              ...r,
-              summary: row.summaryText,
-              ...(row.signatureSummary !== undefined
-                ? { signatureSummary: row.signatureSummary }
-                : {}),
-            };
-          });
-
     // Best-effort `--content` attachment runs the same way for BM25 and
     // hybrid; the store-native BM25 path already surfaces filePath but not
     // line ranges, so the CLI reads the whole file (capped) — matching the
@@ -235,12 +206,12 @@ export async function runQuery(
     const withContent: readonly QueryRow[] =
       opts.content === true
         ? await Promise.all(
-            rows.map(async (r): Promise<QueryRow> => {
+            ranked.map(async (r): Promise<QueryRow> => {
               const content = await readSymbolContent(repoPath, r);
               return content !== null ? { ...r, content } : r;
             }),
           )
-        : rows;
+        : ranked;
 
     if (opts.json === true) {
       console.log(JSON.stringify({ repoPath, mode, results: withContent }, null, 2));
@@ -322,45 +293,6 @@ async function hydrateFused(
 }
 
 /**
- * Fetch `symbol_summaries` rows for every hit nodeId in a single query.
- * Collapses multiple prompt-version rows per node by keeping the last
- * row in the storage layer's documented `(node_id ASC, prompt_version
- * ASC, content_hash ASC)` order, which deterministically selects the
- * newest prompt version. Returns an empty map on any failure so a
- * missing `symbol_summaries` table never blocks a query. Test fakes
- * without `lookupSymbolSummariesByNode` get an empty join transparently.
- */
-async function joinSummaries(
-  store: Store,
-  nodeIds: readonly string[],
-): Promise<Map<string, SymbolSummaryRow>> {
-  const out = new Map<string, SymbolSummaryRow>();
-  if (nodeIds.length === 0) return out;
-  // Test fakes that omit a real temporal view (or set it to a partial
-  // shape) get an empty join transparently — `lookupSymbolSummariesByNode`
-  // is required on `ITemporalStore` but we still duck-check at runtime so
-  // a hand-rolled mock without the method doesn't blow up.
-  const temporal = store.temporal as unknown as {
-    readonly lookupSymbolSummariesByNode?: (
-      ids: readonly string[],
-    ) => Promise<readonly SymbolSummaryRow[]>;
-  };
-  if (typeof temporal.lookupSymbolSummariesByNode !== "function") return out;
-  const uniqIds = Array.from(new Set(nodeIds));
-  try {
-    const rows = await temporal.lookupSymbolSummariesByNode.call(store.temporal, uniqIds);
-    for (const row of rows) {
-      // Overwriting per node id keeps the newest prompt version because of
-      // the storage layer's ORDER BY contract on `lookupSymbolSummariesByNode`.
-      out.set(row.nodeId, row);
-    }
-  } catch {
-    // Degrade silently — summaries are enrichment, not load-bearing.
-  }
-  return out;
-}
-
-/**
  * Join `context — goal — text` with whitespace-safe em-dash separators.
  * Missing / blank parts are dropped so the ranker never sees a dangling
  * separator.
@@ -405,19 +337,16 @@ function printResults(
   const label = mode === "hybrid" ? "hybrid" : "BM25";
   console.warn(`query: "${text}" in ${repoPath} (${results.length} ${label} results)`);
   if (results.length === 0) return;
-  // Only render the SUMMARY column when at least one hit carries one —
-  // skip the extra whitespace on indexes that haven't run the summarize
-  // phase yet. SOURCES stays on every row so agents can tell which ranker
-  // contributed to each hit.
-  const anySummary = results.some((r) => typeof r.summary === "string" && r.summary.length > 0);
-  const header = anySummary
-    ? ["SCORE", "KIND", "NAME", "FILE", "SOURCES", "SUMMARY"]
-    : ["SCORE", "KIND", "NAME", "FILE", "SOURCES"];
-  const rows = results.map((r) => {
-    const base = [r.score.toFixed(3), r.kind, r.name, r.filePath, r.sources.join("+")];
-    if (!anySummary) return base;
-    return [...base, truncateSummary(r.summary)];
-  });
+  // SOURCES stays on every row so agents can tell which ranker contributed
+  // to each hit.
+  const header = ["SCORE", "KIND", "NAME", "FILE", "SOURCES"];
+  const rows = results.map((r) => [
+    r.score.toFixed(3),
+    r.kind,
+    r.name,
+    r.filePath,
+    r.sources.join("+"),
+  ]);
   const widths = header.map((h, i) =>
     Math.max(h.length, ...rows.map((row) => (row[i] ?? "").length)),
   );
@@ -433,17 +362,4 @@ function printResults(
     console.log(`# ${r.name} [${r.kind}] — ${r.filePath}`);
     console.log(r.content);
   }
-}
-
-/**
- * Render a summary string to fit the single-line SUMMARY column. Newlines
- * collapse to spaces so the column width survives; anything past the cap
- * is trimmed and closed with an ellipsis. Absent summaries render as an
- * empty string so the column aligns.
- */
-function truncateSummary(summary: string | undefined): string {
-  if (summary === undefined || summary.length === 0) return "";
-  const flattened = summary.replace(/\s+/g, " ").trim();
-  if (flattened.length <= SUMMARY_COLUMN_CHAR_CAP) return flattened;
-  return `${flattened.slice(0, SUMMARY_COLUMN_CHAR_CAP - 1)}…`;
 }
