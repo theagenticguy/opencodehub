@@ -1,9 +1,9 @@
 # Finding 0002 — An OCH pack cuts a coding agent's shell-hunting and file re-reads (search loops don't fire on fix tasks)
 
-- Status: **Preliminary — first live run, 2026-07-08.** Two SWE-bench Verified
-  tasks × 5 runs/arm on Claude Code / Sonnet 5 via Amazon Bedrock. A wider sweep
-  (more tasks, the pytest repos) was still running at write time; this reports
-  what completed. A signal, not a benchmark.
+- Status: **Preliminary — first live run, 2026-07-08.** Six SWE-bench Verified
+  tasks × 5 runs/arm on Claude Code / Sonnet 5 via Amazon Bedrock. **4 tasks
+  produced a valid two-arm comparison; 2 (the largest repos) overflowed the
+  model context** — itself a finding, see below. A signal, not a benchmark.
 - Author: Bonk + Laith.
 - Instrument: `codehub code-pack --variance-probe --insight` (Move 1), scoring
   each run's tool-call trajectory against the TraceProbe (arXiv:2607.06184)
@@ -13,15 +13,16 @@
 
 ## The headline
 
-Across the two tasks measured, an OCH pack **suppressed the two anti-patterns
-that actually fired** and left the others at zero:
+Across the 4 tasks with a valid comparison, an OCH pack **suppressed every
+anti-pattern that fired and introduced none:**
 
-- **Shell-over-Tool: 1.8 → 0.3 firings/run** (mean Δ +1.5) — the pack stops the
+- **Shell-over-Tool: 1.9 → 0.65 firings/run** (mean Δ +1.25) — the pack stops the
   agent from shelling `grep`/`cat`/`find` to reconstruct structure it was handed.
-- **Re-read Churn: 0.6 → 0.1 firings/run** (mean Δ +0.5) — it re-reads the same
-  file far less.
-- **Search Loop: 0 → 0.** It never fired in either arm. SWE-bench fix tasks give
-  the agent a specific bug, so it does not run the ≥10-action open-ended search
+  It cut this on all 4 tasks.
+- **Re-read Churn: 0.3 → 0.05 firings/run** (mean Δ +0.25) — fewer repeat reads of
+  the same file (fired on requests-1142).
+- **Search Loop: 0 → 0.** Never fired in either arm. SWE-bench fix tasks give the
+  agent a specific bug, so it does not run the ≥10-action open-ended search
   stretches TraceProbe's Search Loop detects. On these tasks the pack's win is
   *shell-hunting and re-reads*, not loops — the honest, narrower claim.
 - **Redundant Search: 0 → 0.** Same reason.
@@ -29,6 +30,21 @@ that actually fired** and left the others at zero:
 This is the behavioral complement to Finding 0001's 2–4× token cut: the pack
 doesn't just cost fewer tokens, it changes what the agent *does* — less shelling
 out, fewer re-reads.
+
+## Second finding: a large-repo pack can overflow the model context
+
+The two pytest tasks **errored on every with-pack run** while their without-pack
+arms ran clean. Cause: the assembled pack for `pytest` is **~5.2 MB (≈1.3M
+tokens)** — past Claude's 1M window — so the model rejected it with "prompt is
+too long." This is not a probe bug; it is a real product boundary. The default
+`--budget` (100K tokens) bounds only the **AST-chunks** BOM item; `xrefs`,
+`skeleton`, and `file-tree` are unbounded and dominate a large repo's pack.
+**Action for OCH:** a whole-pack token ceiling (budget the assembled context,
+not just the chunks), and the probe should detect an oversized pack and skip the
+with-pack arm with a clear message rather than erroring all N runs. Tracked as a
+follow-up; the without-pack pytest arms still gave clean baseline trajectories
+(shell-over-tool 1.8–2.2/run, re-read churn up to 1.8/run — the behavior a
+fitting pack would target).
 
 ## The question
 
@@ -82,10 +98,17 @@ Claude Code / Sonnet 5 on Bedrock, N=5 runs/arm. Per-run detector firings,
 |---|---:|---|---|---|---|
 | `pallets/flask-5014` | 11.0× | 0 → 0 | 0 → 0 | 0 → 0 | **1.6 → 0.4** |
 | `psf/requests-1142` | 2.3× | 0 → 0 | **1.2 → 0.2** | 0 → 0 | **2.0 → 0.2** |
-| **mean** | 6.6× | 0 → 0 | 0.6 → 0.1 | 0 → 0 | 1.8 → 0.3 |
+| `psf/requests-1724` | 7.3× | 0 → 0 | 0 → 0 | 0 → 0 | **3.0 → 2.0** |
+| `psf/requests-1766` | 6.0× | 0 → 0 | 0 → 0 | 0 → 0 | **1.0 → 0.0** |
+| **mean (4 valid)** | 6.6× | 0 → 0 | 0.3 → 0.05 | 0 → 0 | 1.9 → 0.65 |
+| `pytest/pytest-10051` | — | \_context overflow\_ | | | (baseline 1.8/run) |
+| `pytest/pytest-10081` | — | \_context overflow\_ | | | (baseline 2.2/run) |
 
-Positive delta = the pack suppressed the anti-pattern. Both tasks agree in
-direction; the pack cut every anti-pattern that fired and introduced none.
+Positive delta = the pack suppressed the anti-pattern. All 4 valid tasks agree in
+direction; the pack cut every anti-pattern that fired and introduced none. The
+two pytest tasks are the ~1.3M-token overflow (see "Second finding" above) —
+their without-pack baselines are shown for reference (the shell-hunting a fitting
+pack would target).
 
 **Codex arm:** not run. This Bedrock account exposes only `openai.gpt-oss-*`,
 not the `gpt-5.5` the Codex runner targets, so the run is Claude-only (Sonnet 5,
@@ -141,14 +164,18 @@ per-harness `insightDelta` (positive = the pack suppressed the anti-pattern).
 
 ## Next
 
-1. **Widen the corpus.** Two tasks is a signal, not a benchmark. Finish the
-   in-flight sweep (the pytest repos, more requests instances) and add tasks
-   with genuinely open-ended exploration to test whether Search Loop *ever*
-   fires under a pack — the one detector still at zero.
-2. **Install deps in the checkouts** (or use SWE-bench's official per-instance
+1. **Fix the pack context ceiling** (highest priority — surfaced by this run).
+   Budget the *whole assembled pack* to a token ceiling, not just the AST
+   chunks, so a large repo's pack fits the target window; and have the probe
+   detect an oversized pack and skip the with-pack arm with a clear message
+   rather than erroring all N runs. The two pytest tasks failed only for this.
+2. **Widen the corpus.** Four valid tasks is a signal, not a benchmark. Add
+   tasks with genuinely open-ended exploration to test whether Search Loop
+   *ever* fires under a pack — the one detector still at zero.
+3. **Install deps in the checkouts** (or use SWE-bench's official per-instance
    Docker images) so the assertion pass-rate becomes informative and we can
    report graded correctness alongside the trajectory deltas.
-3. **Codex arm** on an account exposing a `gpt-5.x` Bedrock model, for the
+4. **Codex arm** on an account exposing a `gpt-5.x` Bedrock model, for the
    agent-neutral claim.
-4. Add the SWE-bench Pro slice (harder, contamination-resistant).
-5. v2: the four semantic detectors behind an explicit judge opt-in.
+5. Add the SWE-bench Pro slice (harder, contamination-resistant).
+6. v2: the four semantic detectors behind an explicit judge opt-in.
