@@ -97,14 +97,66 @@ export function shellFirstWord(command: string): string {
   return base.toLowerCase();
 }
 
-/** Shell wrappers seen from the harnesses, e.g. `/bin/zsh -lc '<inner>'`. */
-const SHELL_WRAPPER = /^\s*(?:\S*\/)?(?:ba|z|da|k)?sh\s+-[A-Za-z]*c\s+(.*)$/;
+/** Shell program basenames that take a `-c`-style inline-command flag. */
+const SHELL_PROGRAMS: ReadonlySet<string> = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 
-/** Unwrap one layer of `sh -c '<inner>'` / `zsh -lc "<inner>"`, else identity. */
+/**
+ * Unwrap one layer of `sh -c '<inner>'` / `/bin/zsh -lc "<inner>"`, else return
+ * the command unchanged. Tokenized (not regex-matched) to stay linear-time — a
+ * backtracking regex over library-influenced command strings is a ReDoS risk
+ * (CodeQL js/polynomial-redos). We split off at most the first two tokens: a
+ * shell program whose basename is in {@link SHELL_PROGRAMS} followed by a
+ * `-…c` flag; the inner command is the remainder after that flag.
+ */
 function unwrapShell(command: string): string {
-  const m = SHELL_WRAPPER.exec(command);
-  if (m?.[1] === undefined) return command;
-  return stripOuterQuotes(m[1].trim());
+  const trimmed = trimStart(command);
+  const firstSp = indexOfWhitespace(trimmed);
+  if (firstSp < 0) return command;
+  const prog = trimmed.slice(0, firstSp);
+  const progBase = (prog.split("/").pop() ?? prog).toLowerCase();
+  if (!SHELL_PROGRAMS.has(progBase)) return command;
+
+  const afterProg = trimStart(trimmed.slice(firstSp));
+  const flagEnd = indexOfWhitespace(afterProg);
+  if (flagEnd < 0) return command;
+  const flag = afterProg.slice(0, flagEnd);
+  // Flag must start with '-' and end in 'c' (e.g. -c, -lc, -ic) and hold only
+  // letters between — a simple char scan, no regex.
+  if (!isDashCFlag(flag)) return command;
+
+  const inner = trimStart(afterProg.slice(flagEnd));
+  return stripOuterQuotes(inner);
+}
+
+/** True for a `-[A-Za-z]*c` flag, checked by linear char scan (no regex). */
+function isDashCFlag(flag: string): boolean {
+  if (flag.length < 2 || flag[0] !== "-" || flag[flag.length - 1] !== "c") return false;
+  for (let i = 1; i < flag.length - 1; i += 1) {
+    const c = flag.charCodeAt(i);
+    const isAlpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    if (!isAlpha) return false;
+  }
+  return true;
+}
+
+/** Index of the first ASCII-whitespace char, or -1. Linear, no regex. */
+function indexOfWhitespace(s: string): number {
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s.charCodeAt(i);
+    if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) return i;
+  }
+  return -1;
+}
+
+/** Strip leading ASCII whitespace. Linear, no regex. */
+function trimStart(s: string): string {
+  let i = 0;
+  while (i < s.length) {
+    const c = s.charCodeAt(i);
+    if (c === 32 || c === 9 || c === 10 || c === 13 || c === 11 || c === 12) i += 1;
+    else break;
+  }
+  return i === 0 ? s : s.slice(i);
 }
 
 /** Strip one matched layer of surrounding single or double quotes. */

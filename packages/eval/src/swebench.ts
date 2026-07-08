@@ -138,7 +138,7 @@ export function buildAssertionCommand(
 export function instanceToTask(instance: SweBenchInstance, options: ToTaskOptions): GeneratedTask {
   const runner = options.runner ?? "pytest";
   const timeoutMs = options.timeoutMs ?? 600_000;
-  const dest = `${options.cloneRoot.replace(/\/+$/, "")}/${instance.instance_id}`;
+  const dest = `${stripTrailingSlashes(options.cloneRoot)}/${instance.instance_id}`;
   return {
     task: {
       id: instance.instance_id,
@@ -164,4 +164,15 @@ export function instanceToTask(instance: SweBenchInstance, options: ToTaskOption
 /** Minimal single-quote shell quoting for a path / test node id. */
 function shquote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Strip trailing `/` from a directory path. A linear char scan rather than a
+ * `/\/+$/` regex, which backtracks polynomially on an all-slash string
+ * (CodeQL js/polynomial-redos).
+ */
+function stripTrailingSlashes(path: string): string {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end -= 1;
+  return path.slice(0, end);
 }

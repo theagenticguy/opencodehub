@@ -35,6 +35,17 @@ describe("shellFirstWord", () => {
     assert.equal(shellFirstWord("GREP foo"), "grep");
     assert.equal(shellFirstWord(""), "");
   });
+
+  it("unwraps a tab-separated shell wrapper (ReDoS-safe path)", () => {
+    // The old regex backtracked polynomially on 'sh\t-c\t…'; the tokenized
+    // unwrap handles tabs the same as spaces in linear time.
+    assert.equal(shellFirstWord("sh\t-c\t'cat f'"), "cat");
+  });
+
+  it("does not unwrap a non-shell program that merely has a -c-looking arg", () => {
+    // `gcc -c foo.c` is a compile, not a shell wrapper — the first word stands.
+    assert.equal(shellFirstWord("gcc -c foo.c"), "gcc");
+  });
 });
 
 describe("isShellReadSearch (Shell-over-Tool set)", () => {

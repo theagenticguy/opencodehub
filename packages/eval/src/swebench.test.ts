@@ -98,4 +98,9 @@ describe("instanceToTask", () => {
     assert.equal(gen.task.repo, "/tmp/sb/astropy__astropy-12907");
     assert.equal(gen.task.oracle.timeoutMs, 120_000);
   });
+
+  it("normalizes an all-slash cloneRoot without ReDoS (linear strip)", () => {
+    const gen = instanceToTask(INSTANCE, { cloneRoot: "////", testPatchPath: "/tmp/p.patch" });
+    assert.equal(gen.task.repo, "/astropy__astropy-12907");
+  });
 });
