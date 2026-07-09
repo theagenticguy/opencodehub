@@ -82,10 +82,10 @@
     "@opencodehub/search": "workspace:*",
     "@opencodehub/storage": "workspace:*",
     "@opencodehub/wiki": "workspace:*",
-    "@types/node": "26.1.0",
+    "@types/node": "26.1.1",
     "@types/write-file-atomic": "4.0.3",
     "tsup": "^8.5.1",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "publishConfig": {
     "access": "public"
