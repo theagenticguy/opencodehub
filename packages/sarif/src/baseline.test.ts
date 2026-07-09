@@ -133,7 +133,7 @@ test("diffSarif: same fingerprint, changed message → updated", () => {
 
   const tagged = applyBaselineState(current, baseline);
   const state = (tagged.runs[0]?.results?.[0] as unknown as { baselineState?: string })
-    .baselineState;
+    ?.baselineState;
   assert.equal(state, "updated");
 });
 
@@ -172,7 +172,7 @@ test("diffSarif: git-mv rename — rename chain resolves URI-only changes to unc
 
   const tagged = applyBaselineState(current, baseline, { renameChainFor });
   const state = (tagged.runs[0]?.results?.[0] as unknown as { baselineState?: string })
-    .baselineState;
+    ?.baselineState;
   assert.equal(state, "unchanged");
 });
 
