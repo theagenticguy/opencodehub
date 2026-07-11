@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.8...cli-v0.11.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **repo:** retire the summarizer package and LLM symbol-summary feature ([#284](https://github.com/theagenticguy/opencodehub/issues/284))
+
+### Features
+
+* **repo:** retire the summarizer package and LLM symbol-summary feature ([#284](https://github.com/theagenticguy/opencodehub/issues/284)) ([54d5c85](https://github.com/theagenticguy/opencodehub/commit/54d5c850701ead6af45f6f1293dbc97d94258c76))
+
 ## [0.10.8](https://github.com/theagenticguy/opencodehub/compare/cli-v0.10.7...cli-v0.10.8) (2026-07-04)
 
 
