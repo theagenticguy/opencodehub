@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.8...root-v0.11.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **repo:** retire the summarizer package and LLM symbol-summary feature ([#284](https://github.com/theagenticguy/opencodehub/issues/284))
+
+### Features
+
+* **repo:** retire the summarizer package and LLM symbol-summary feature ([#284](https://github.com/theagenticguy/opencodehub/issues/284)) ([54d5c85](https://github.com/theagenticguy/opencodehub/commit/54d5c850701ead6af45f6f1293dbc97d94258c76))
+
+
+### Bug Fixes
+
+* **sarif:** guard optional chain in baseline.test.ts for Biome 2.5.3 ([#291](https://github.com/theagenticguy/opencodehub/issues/291)) ([919e94f](https://github.com/theagenticguy/opencodehub/commit/919e94f17f47239203473c35fd4da3887457cebf))
+
 ## [0.10.8](https://github.com/theagenticguy/opencodehub/compare/root-v0.10.7...root-v0.10.8) (2026-07-04)
 
 
