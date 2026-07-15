@@ -152,8 +152,8 @@ importers:
         specifier: 5.2.0
         version: 5.2.0
       web-tree-sitter:
-        specifier: 0.26.10
-        version: 0.26.10
+        specifier: 0.26.11
+        version: 0.26.11
       write-file-atomic:
         specifier: 8.0.0
         version: 8.0.0
@@ -404,8 +404,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.0
       web-tree-sitter:
-        specifier: 0.26.10
-        version: 0.26.10
+        specifier: 0.26.11
+        version: 0.26.11
       write-file-atomic:
         specifier: 8.0.0
         version: 8.0.0
@@ -5665,8 +5665,8 @@ packages:
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
 
-  web-tree-sitter@0.26.10:
-    resolution: {integrity: sha512-vengBGYS7FpAerkR3o04oBL4L8MkVmjawK50AFBu7v0HZBkmF9ZavPGKoXLSSmRhp7T/YgsJ7joAS3yAxHPEqQ==}
+  web-tree-sitter@0.26.11:
+    resolution: {integrity: sha512-Q5Dm3YTIXSXuH6FxX6RuzX2Qwpc4DPGiYMU87Wg5Z8OIStiQFiUex4zMDc0vBTw78EphaYJacncJghCHzbZptg==}
 
   which-pm-runs@1.1.0:
     resolution: {integrity: sha512-n1brCuqClxfFfq/Rb0ICg9giSZqCS+pLtccdag6C2HyufBrh3fBOiy9nb6ggRMvWOVH5GrdJskj5iGTZNxd7SA==}
@@ -11561,7 +11561,7 @@ snapshots:
 
   web-namespaces@2.0.1: {}
 
-  web-tree-sitter@0.26.10: {}
+  web-tree-sitter@0.26.11: {}
 
   which-pm-runs@1.1.0: {}
 
@@ -11690,7 +11690,7 @@ time:
   tsup@8.5.1: '2025-11-12T21:21:42.746Z'
   tsx@4.23.0: '2026-07-03T14:25:06.153Z'
   typescript@7.0.2: '2026-07-08T15:55:18.431Z'
-  web-tree-sitter@0.26.10: '2026-06-28T16:15:54.431Z'
+  web-tree-sitter@0.26.11: '2026-07-12T10:31:22.210Z'
   write-file-atomic@8.0.0: '2026-05-08T18:30:27.965Z'
   yaml@2.9.0: '2026-05-11T10:16:24.045Z'
   zod@4.4.3: '2026-05-04T07:06:40.819Z'
