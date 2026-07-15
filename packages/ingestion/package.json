@@ -54,7 +54,7 @@
     "graphology-dag": "0.4.1",
     "piscina": "5.2.0",
     "spdx-correct": "^3.2.0",
-    "web-tree-sitter": "0.26.10",
+    "web-tree-sitter": "0.26.11",
     "write-file-atomic": "8.0.0"
   },
   "devDependencies": {
