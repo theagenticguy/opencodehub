@@ -55,7 +55,7 @@
     "commander": "15.0.0",
     "fast-xml-parser": "5.9.3",
     "gpt-tokenizer": "^3.4.0",
-    "listr2": "10.2.2",
+    "listr2": "11.0.0",
     "lru-cache": "11.5.2",
     "piscina": "5.2.0",
     "web-tree-sitter": "0.26.10",
