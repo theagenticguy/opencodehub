@@ -125,14 +125,14 @@ jobs:
       sarif-sha256: ${{ steps.hashes.outputs.sarif }}
     steps:
       - name: Checkout released SHA
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Provision toolchain (mise)
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4.2.0
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea  # v4.2.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -343,7 +343,7 @@ jobs:
 
       - name: Upload SARIF to code scanning
         if: hashFiles('artifacts/och-scan.sarif') != ''
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a  # v4
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81  # v4
         with:
           sarif_file: artifacts/och-scan.sarif
           category: opencodehub-release
@@ -388,11 +388,11 @@ jobs:
       contents: read
       id-token: write       # OIDC token for npm trusted publishing AND provenance
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
-      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d  # v4.2.0
+      - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea  # v4.2.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter '!@opencodehub/docs' -r build
       # Idempotency guard: a stuck/retried release (e.g. the automated chain
